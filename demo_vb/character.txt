@@ -1,2 +1,2 @@
 name=Kamafeu Sample Synth
-author=Kamafeu Team
+author=POMAR LTS
