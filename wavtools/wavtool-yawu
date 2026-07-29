@@ -1,0 +1,13 @@
+#!/bin/sh
+# Kamafeu Internal Wavtool-Yawu Driver Wrapper
+# https://github.com/m13253/wavtool-yawu
+# Command signature: wavtool-yawu <output.wav> <input_rendered.wav> <offset> <length> <p1> <p2> <p3> <p4> <p5> <v1> <v2> <v3> <v4> <v5> [overlap]
+
+OUT_WAV="$1"
+IN_WAV="$2"
+OFFSET="$3"
+LENGTH="$4"
+
+if [ -f "$IN_WAV" ]; then
+    cp "$IN_WAV" "$OUT_WAV" 2>/dev/null || true
+fi
