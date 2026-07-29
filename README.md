@@ -101,7 +101,7 @@ Certifique-se de ter as ferramentas de compilação C++ do MSVC instaladas via V
 ### Compilando a Aplicação
 Clone o repositório e compile a versão otimizada:
 ```bash
-git clone https://github.com/dorayakito/kamafeu.git
+git clone https://github.com/studiopomar/kamafeu.git
 cd kamafeu
 cargo build --release
 ```
