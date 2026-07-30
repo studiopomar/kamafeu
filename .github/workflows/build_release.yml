@@ -114,13 +114,15 @@ jobs:
         with:
           path: ./artifacts
 
-      - name: Flatten Artifacts Directory
+      - name: Flatten Artifacts & Generate SHA256 Checksums
         run: |
           mkdir -p ./release_assets
           find ./artifacts -type f \( -name "*.zip" -o -name "*.tar.gz" -o -name "*.apk" \) -exec cp {} ./release_assets/ \;
-          ls -la ./release_assets/
+          cd ./release_assets
+          sha256sum * > SHA256SUMS.txt
+          ls -la
 
-      - name: Create GitHub Release
+      - name: Publish Official GitHub Release
         id: release
         uses: softprops/action-gh-release@v2
         with:
@@ -128,7 +130,7 @@ jobs:
           name: Kamafeu Release ${{ github.ref_name }}
           tag_name: ${{ github.ref_name }}
           draft: false
-          prerelease: false
+          prerelease: ${{ contains(github.ref_name, 'alpha') || contains(github.ref_name, 'beta') || contains(github.ref_name, 'rc') || contains(github.ref_name, 'unstable') }}
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -141,26 +143,26 @@ jobs:
           RELEASE_URL="${{ steps.release.outputs.url || format('https://github.com/{0}/releases/tag/{1}', github.repository, github.ref_name) }}"
 
           PAYLOAD=$(jq -n \
-            --arg title "🚀 Kamafeu $TAG_NAME Lançado!" \
+            --arg title "🚀 Kamafeu $TAG_NAME Publicado no GitHub Releases!" \
             --arg url "$RELEASE_URL" \
-            --arg desc "Novos binários disponíveis para Windows x64, macOS (Intel & Apple Silicon), Linux x64 e Android!" \
+            --arg desc "Todos os binários oficiais foram compilados e estão disponíveis para download direto!" \
             --arg username "Bidu" \
             '{
               username: $username,
-              content: "🐶 **Bidu avisa: Nova Versão Oficial do Kamafeu Lançada!**",
+              content: "🐶 **Bidu avisa: Binários Oficiais do Kamafeu Publicados no GitHub Releases!**",
               embeds: [{
                 title: $title,
                 url: $url,
                 description: $desc,
                 color: 65280,
                 fields: [
-                  { name: "💻 Windows x64", value: "`kamafeu-v'$TAG_NAME'-windows-x64.zip`", inline: true },
-                  { name: "🍏 macOS Apple Silicon", value: "`kamafeu-v'$TAG_NAME'-macos-arm64.tar.gz`", inline: true },
-                  { name: "🍎 macOS Intel", value: "`kamafeu-v'$TAG_NAME'-macos-intel.tar.gz`", inline: true },
-                  { name: "🐧 Linux x64", value: "`kamafeu-v'$TAG_NAME'-linux-x64.tar.gz`", inline: true },
-                  { name: "📱 Android ARM64", value: "`kamafeu-v'$TAG_NAME'-android.apk`", inline: true }
+                  { name: "💻 Windows x64", value: "[Download .zip]('$RELEASE_URL')", inline: true },
+                  { name: "🍏 macOS Apple Silicon", value: "[Download .tar.gz]('$RELEASE_URL')", inline: true },
+                  { name: "🍎 macOS Intel", value: "[Download .tar.gz]('$RELEASE_URL')", inline: true },
+                  { name: "🐧 Linux x64", value: "[Download .tar.gz]('$RELEASE_URL')", inline: true },
+                  { name: "📱 Android ARM64", value: "[Download .apk]('$RELEASE_URL')", inline: true }
                 ],
-                footer: { text: "studiopomar/kamafeu • GitHub Releases" },
+                footer: { text: "studiopomar/kamafeu • Releases Oficial" },
                 timestamp: (now | strftime("%Y-%m-%dT%H:%M:%SZ"))
               }]
             }')
