@@ -1,9 +1,11 @@
-name: Discord Release Notification
+name: Discord Release & Commit Notification
 
 on:
   release:
     types: [published]
   push:
+    branches:
+      - main
     tags:
       - 'v*'
 
@@ -11,43 +13,50 @@ jobs:
   notify-discord:
     runs-on: ubuntu-latest
     steps:
-      - name: Send Discord Embed Notification
+      - name: Send Discord Bidu Notification
         env:
-          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK_URL || 'https://discord.com/api/webhooks/1484639354403029002/8Q41OagwbLNEBHm8qRSCNdUum1N0_Mhw2Zrzzi0AnNCRbFi8J64OTMzznFMuF_y8GoBm' }}
         run: |
-          if [ -z "$DISCORD_WEBHOOK" ]; then
-            echo "DISCORD_WEBHOOK_URL secret is not set. Skipping notification."
-            exit 0
+          EVENT_NAME="${{ github.event_name }}"
+          REF_NAME="${{ github.ref_name }}"
+          REPO="${{ github.repository }}"
+          ACTOR="${{ github.actor }}"
+
+          if [ "$EVENT_NAME" = "release" ]; then
+            TITLE="🚀 Lançamento Publicado: ${{ github.event.release.name || github.ref_name }}"
+            URL="${{ github.event.release.html_url }}"
+            DESC="${{ github.event.release.body }}"
+            COLOR=65280
+          elif [[ "$REF_NAME" == v* ]]; then
+            TITLE="🏷️ Nova Tag / Versão: $REF_NAME"
+            URL="https://github.com/$REPO/releases/tag/$REF_NAME"
+            DESC="Nova versão tagged enviada por @$ACTOR!"
+            COLOR=16753920
+          else
+            COMMIT_MSG="${{ github.event.head_commit.message }}"
+            COMMIT_URL="${{ github.event.head_commit.url }}"
+            TITLE="🔨 Novo Push em $REF_NAME"
+            URL="${COMMIT_URL:-https://github.com/$REPO/commits/$REF_NAME}"
+            DESC="${COMMIT_MSG:-Novas atualizações no repositório por @$ACTOR!}"
+            COLOR=3447003
           fi
 
-          RELEASE_TITLE="${{ github.event.release.name }}"
-          RELEASE_URL="${{ github.event.release.html_url }}"
-          RELEASE_BODY="${{ github.event.release.body }}"
-          TAG_NAME="${{ github.ref_name }}"
-
-          if [ -z "$RELEASE_TITLE" ]; then
-            RELEASE_TITLE="Lançamento $TAG_NAME"
-          fi
-
-          if [ -z "$RELEASE_URL" ]; then
-            RELEASE_URL="https://github.com/${{ github.repository }}/releases/tag/$TAG_NAME"
-          fi
-
-          # Format JSON payload safely using jq
           PAYLOAD=$(jq -n \
-            --arg title "$RELEASE_TITLE" \
-            --arg url "$RELEASE_URL" \
-            --arg desc "${RELEASE_BODY:-Novo lançamento disponível no repositório!}" \
+            --arg title "$TITLE" \
+            --arg url "$URL" \
+            --arg desc "${DESC:-Sem descrição detalhada.}" \
+            --arg username "Bidu" \
             '{
-              content: "🚀 **Novo Lançamento do Kamafeu no GitHub!**",
+              username: $username,
+              content: "🐶 **Bidu informa atualizações no Kamafeu!**",
               embeds: [{
                 title: $title,
                 url: $url,
                 description: $desc,
-                color: 65280,
-                footer: { text: "Kamafeu Voice Synthesizer" },
+                color: ($color | tonumber),
+                footer: { text: "studiopomar/kamafeu • GitHub" },
                 timestamp: (now | strftime("%Y-%m-%dT%H:%M:%SZ"))
               }]
-            }')
+            }' --arg color "$COLOR")
 
           curl -H "Content-Type: application/json" -X POST -d "$PAYLOAD" "$DISCORD_WEBHOOK"
