@@ -1,5 +1,7 @@
 # Kamafeu
 
+<img width="2132" height="1270" alt="image" src="https://github.com/user-attachments/assets/533c5016-f811-486a-b8f1-479d2c51248e" />
+
 Sintetizador de voz e piano roll escrito em Rust, focado no fluxo de trabalho clássico do UTAU.
 
 O objetivo do Kamafeu é resgatar a sensação de ajustar e construir cada detalhe da afinação e fonética de forma artesanal e manual, unindo essa experiência tradicional a um ambiente moderno, rápido e estável.
