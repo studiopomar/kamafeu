@@ -24,6 +24,7 @@ pub struct VocalModeParams {
     pub tone_shift: f64,     // -12.0 to +12.0 semitones
     pub crossfade_ms: f64,   // 0.0 to 200.0 ms (Phoneme transition crossfade)
     pub legato_glide_ms: f64,// 0.0 to 300.0 ms (Legato pitch portamento glide)
+    pub phonemizer_mode: crate::phonemizer::PhonemizerMode,
 }
 
 impl Default for VocalModeParams {
@@ -36,6 +37,7 @@ impl Default for VocalModeParams {
             tone_shift: 0.0,
             crossfade_ms: 45.0,
             legato_glide_ms: 85.0,
+            phonemizer_mode: crate::phonemizer::PhonemizerMode::BasicCV,
         }
     }
 }
@@ -127,6 +129,16 @@ pub fn draw_left_panel(
                 // Vocal Mode Parameters
                 ui.heading(RichText::new("Vocal Mode").strong().size(13.0).color(MelodyneTheme::TEXT_GOLD_LABEL));
                 ui.add_space(6.0);
+
+                ui.label(RichText::new("Phonemizer Mode").color(MelodyneTheme::TEXT_MUTED));
+                egui::ComboBox::from_id_salt("phonemizer_mode_cb")
+                    .selected_text(format!("{:?}", params.phonemizer_mode))
+                    .show_ui(ui, |ui| {
+                        ui.selectable_value(&mut params.phonemizer_mode, crate::phonemizer::PhonemizerMode::BasicCV, "Basic CV");
+                        ui.selectable_value(&mut params.phonemizer_mode, crate::phonemizer::PhonemizerMode::VCV, "VCV");
+                        ui.selectable_value(&mut params.phonemizer_mode, crate::phonemizer::PhonemizerMode::CVVC, "CVVC");
+                    });
+                ui.add_space(4.0);
 
                 ui.label(RichText::new("Loudness").color(MelodyneTheme::TEXT_MUTED));
                 ui.add(egui::Slider::new(&mut params.loudness, -12.0..=12.0).suffix(" dB"));

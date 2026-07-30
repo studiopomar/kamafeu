@@ -1,4 +1,3 @@
-use crate::dsp::pitch_bend::PitchBendSolver;
 use crate::project::model::UPitchBendPoint;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -88,7 +87,7 @@ impl SolaSuiteProcessor {
         pitch_points: &[UPitchBendPoint],
         formant_shift_cents: f64,
     ) -> Vec<f32> {
-        let mut base_output = crate::dsp::Resampler::render_sample_with_pitch_bend(
+        let base_output = crate::dsp::Resampler::render_sample_with_pitch_bend(
             raw_samples,
             sample_rate,
             offset_ms,

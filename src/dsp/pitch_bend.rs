@@ -16,20 +16,12 @@ impl PitchBendSolver {
         let p_first = &sorted[0];
         let p_last = sorted.last().unwrap();
 
-        // 1. Before first point: glide from 0.0 cents at t=0ms up to p_first
+        // 1. Before first point: hold first point's pitch value (OpenUTAU behavior)
         if time_ms < p_first.time_offset_ms {
-            if p_first.time_offset_ms <= 1e-3 {
-                return p_first.pitch_offset_cents;
-            }
-            let norm_t = (time_ms / p_first.time_offset_ms).clamp(0.0, 1.0);
-            let factor = 0.5 * (1.0 - (std::f64::consts::PI * norm_t).cos());
-            return factor * p_first.pitch_offset_cents;
+            return p_first.pitch_offset_cents;
         }
 
-        // 2. After last point: hold the last point's pitch value indefinitely.
-        // OpenUTAU does NOT decay to zero automatically — the pitch stays at the
-        // last drawn point. The resampler will naturally return to base pitch
-        // when no pitch bend points exist.
+        // 2. After last point: hold the last point's pitch value
         if time_ms >= p_last.time_offset_ms {
             return p_last.pitch_offset_cents;
         }
@@ -50,10 +42,10 @@ impl PitchBendSolver {
                     "j" => norm_t * norm_t,
                     // Ease-out only (sqrt curve)
                     "o" => norm_t.sqrt(),
-                    // io / inout: smooth S-curve (OpenUTAU default)
-                    "s" | "i" | "io" | "" => 0.5 * (1.0 - (std::f64::consts::PI * norm_t).cos()),
-                    // Fallback: S-curve
-                    _ => 0.5 * (1.0 - (std::f64::consts::PI * norm_t).cos()),
+                    // io / inout / s: Cubic Hermite Spline (smoothstep)
+                    "s" | "i" | "io" | "" => norm_t * norm_t * (3.0 - 2.0 * norm_t),
+                    // Fallback: Cubic Hermite
+                    _ => norm_t * norm_t * (3.0 - 2.0 * norm_t),
                 };
 
                 return p0.pitch_offset_cents + factor * (p1.pitch_offset_cents - p0.pitch_offset_cents);
@@ -141,9 +133,9 @@ mod tests {
             UPitchBendPoint { time_offset_ms: 100.0, pitch_offset_cents: 200.0, shape: "s".to_string() },
         ];
 
-        // Before first point: should interpolate from 0 toward 200 cents
+        // Before first point: holds first point pitch value (OpenUTAU behavior)
         let p_start = PitchBendSolver::get_pitch_offset_cents(0.0, &points);
-        assert_eq!(p_start, 0.0);
+        assert_eq!(p_start, 200.0);
 
         // At the point: should be exactly 200 cents
         let p_mid = PitchBendSolver::get_pitch_offset_cents(100.0, &points);

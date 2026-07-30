@@ -57,7 +57,7 @@ pub struct MacResDriver {
 impl MacResDriver {
     pub fn new<P: AsRef<Path>>(path: P) -> Self {
         let p = path.as_ref();
-        let final_path = if p.exists() {
+        let final_path = if p.exists() && p.is_file() {
             p.to_path_buf()
         } else {
             Self::find_executable().unwrap_or_else(|| p.to_path_buf())
@@ -67,21 +67,43 @@ impl MacResDriver {
         }
     }
 
-    /// Auto-detect macres executable in system PATH or local folders
+    /// Auto-detect macres executable in system PATH, user Downloads, OpenUTAU or local folders
     pub fn find_executable() -> Option<PathBuf> {
-        let candidates = [
+        let mut candidates = vec![
             PathBuf::from("macres"),
             PathBuf::from("./resamplers/macres"),
             PathBuf::from("./macres"),
             PathBuf::from("/opt/homebrew/bin/macres"),
             PathBuf::from("/usr/local/bin/macres"),
+            PathBuf::from("/usr/bin/macres"),
         ];
 
+        if let Ok(home) = std::env::var("HOME") {
+            let home_p = PathBuf::from(home);
+            candidates.push(home_p.join("Downloads/macres"));
+            candidates.push(home_p.join(".local/bin/macres"));
+            candidates.push(home_p.join("Library/Application Support/OpenUTAU/Resamplers/macres"));
+        }
+
         for cand in candidates {
-            if cand.exists() {
+            if cand.exists() && cand.is_file() {
                 return Some(cand);
             }
         }
+
+        // Try `which macres`
+        if let Ok(output) = Command::new("which").arg("macres").output() {
+            if output.status.success() {
+                let path_str = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                if !path_str.is_empty() {
+                    let pb = PathBuf::from(path_str);
+                    if pb.exists() && pb.is_file() {
+                        return Some(pb);
+                    }
+                }
+            }
+        }
+
         None
     }
 }
@@ -93,25 +115,30 @@ impl ResamplerDriver for MacResDriver {
 
     fn render_sample(&self, raw_samples: &[f32], sample_rate: u32, args: &ResamplerArgs) -> Result<Vec<f32>, String> {
         if !self.executable_path.exists() {
-            // Fallback to Native TD-PSOLA if macres binary is missing
+            eprintln!("[macres] Binary not found at {:?}, falling back to Native TD-PSOLA", self.executable_path);
             let native = NativeResamplerDriver;
             return native.render_sample(raw_samples, sample_rate, args);
         }
 
-        let actual_input_wav = if args.input_wav.exists() {
+        let is_temp_input = !args.input_wav.exists();
+        let actual_input_wav = if !is_temp_input {
             args.input_wav.clone()
         } else {
-            let temp_input = std::env::temp_dir().join(format!("kamafeu_input_{}.wav", args.pitch_name));
+            let rand_id: u32 = rand_id();
+            let temp_input = std::env::temp_dir().join(format!("kamafeu_input_{}_{}.wav", args.pitch_name, rand_id));
             let _ = crate::renderer::TrackRenderer::save_wav_samples(&temp_input, raw_samples, sample_rate);
             temp_input
         };
+
+        let flags_str = if args.flags.is_empty() { "g0".to_string() } else { args.flags.clone() };
+        let pitch_bend_arg = if args.pitch_bend_str.is_empty() { "".to_string() } else { args.pitch_bend_str.clone() };
 
         let mut cmd = Command::new(&self.executable_path);
         cmd.arg(&actual_input_wav)
             .arg(&args.output_wav)
             .arg(&args.pitch_name)
             .arg(format!("{:.0}", args.velocity))
-            .arg(if args.flags.is_empty() { "g0" } else { &args.flags })
+            .arg(&flags_str)
             .arg(format!("{:.1}", args.offset_ms))
             .arg(format!("{:.1}", args.duration_ms))
             .arg(format!("{:.1}", args.consonant_ms))
@@ -119,26 +146,43 @@ impl ResamplerDriver for MacResDriver {
             .arg(format!("{:.0}", args.volume))
             .arg(format!("{:.0}", args.modulation))
             .arg(format!("{:.1}", args.tempo))
-            .arg(if args.pitch_bend_str.is_empty() { "" } else { &args.pitch_bend_str });
+            .arg(&pitch_bend_arg);
 
         let output = cmd.output().map_err(|e| format!("Failed to execute macres at {:?}: {}", self.executable_path, e))?;
 
-        if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            return Err(format!("macres execution failed: {}", stderr));
+        if is_temp_input {
+            let _ = std::fs::remove_file(&actual_input_wav);
         }
 
+        if !output.status.success() {
+            let stderr = String::from_utf8_lossy(&output.stderr);
+            eprintln!("[macres] execution failed: {}, falling back to Native TD-PSOLA", stderr);
+            let native = NativeResamplerDriver;
+            return native.render_sample(raw_samples, sample_rate, args);
+        }
+
+        let mut result_samples = Vec::new();
         if args.output_wav.exists() {
             if let Ok((samples, _)) = crate::renderer::track::TrackRenderer::load_wav_samples(&args.output_wav) {
                 if !samples.is_empty() {
-                    return Ok(samples);
+                    result_samples = samples;
                 }
             }
+            let _ = std::fs::remove_file(&args.output_wav);
         }
         
-        let native = NativeResamplerDriver;
-        native.render_sample(raw_samples, sample_rate, args)
+        if !result_samples.is_empty() {
+            Ok(result_samples)
+        } else {
+            let native = NativeResamplerDriver;
+            native.render_sample(raw_samples, sample_rate, args)
+        }
     }
+}
+
+fn rand_id() -> u32 {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    SystemTime::now().duration_since(UNIX_EPOCH).map(|d| d.subsec_nanos()).unwrap_or(12345)
 }
 
 /// Generic External Resampler Driver

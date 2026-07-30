@@ -261,14 +261,51 @@ pub fn draw_right_panel(
             RightSidebarTab::Settings => {
                 egui::ScrollArea::vertical().show(ui, |ui| {
                     ui.label(RichText::new("Resampler Engine").strong().color(Color32::from_rgb(0, 255, 157)));
+                    
+                    let macres_path_opt = crate::drivers::MacResDriver::find_executable();
                     let resamplers = ["macres (titinko/macres)", "Native Rust (TD-PSOLA)"];
+                    
                     for res in resamplers {
                         if ui.radio_value(selected_resampler, res.to_string(), res).clicked() {
                             if res.contains("macres") {
-                                *custom_resampler_path = Some(PathBuf::from("./resamplers/macres"));
+                                if let Some(ref p) = macres_path_opt {
+                                    *custom_resampler_path = Some(p.clone());
+                                }
                             }
                         }
                     }
+
+                    ui.add_space(4.0);
+
+                    // Display status badge for macres
+                    if selected_resampler.contains("macres") {
+                        if let Some(ref path) = custom_resampler_path.clone().or_else(|| macres_path_opt.clone()) {
+                            ui.horizontal(|ui| {
+                                ui.label(RichText::new("🟢 Executável:").size(10.5).color(Color32::from_rgb(0, 255, 157)));
+                                ui.label(RichText::new(path.to_string_lossy().to_string()).size(10.0).monospace().color(Color32::from_rgb(200, 190, 220)));
+                            });
+                        } else {
+                            ui.label(RichText::new("⚠️ Executável macres não encontrado no sistema. O Kamafeu usará o fallback Native TD-PSOLA.").size(10.0).italics().color(Color32::from_rgb(255, 200, 100)));
+                        }
+                    }
+
+                    ui.horizontal(|ui| {
+                        if ui.button(RichText::new("📂 Procurar Resampler...").size(10.5)).clicked() {
+                            if let Some(file) = rfd::FileDialog::new()
+                                .set_title("Selecionar executável do Resampler (macres/moresampler/resampler)")
+                                .pick_file()
+                            {
+                                *custom_resampler_path = Some(file);
+                                *selected_resampler = "macres (titinko/macres)".to_string();
+                            }
+                        }
+
+                        if custom_resampler_path.is_some() {
+                            if ui.button(RichText::new("Restaurar Padrão").size(10.0)).clicked() {
+                                *custom_resampler_path = macres_path_opt.clone();
+                            }
+                        }
+                    });
 
                     ui.add_space(10.0);
                     ui.separator();

@@ -55,6 +55,13 @@ pub struct KamafeuStudioApp {
     playback_start_instant: Option<Instant>,
     playback_start_offset_ms: f64,
     render_rx: Option<std::sync::mpsc::Receiver<(Vec<f32>, u32)>>,
+    render_log_window_open: bool,
+    render_log_messages: Vec<String>,
+    render_progress: f32,
+    render_status_title: String,
+    render_log_channel_rx: Option<std::sync::mpsc::Receiver<(f32, String)>>,
+    export_rx: Option<std::sync::mpsc::Receiver<()>>,
+    active_track_index: usize,
 }
 
 impl KamafeuStudioApp {
@@ -109,21 +116,44 @@ impl KamafeuStudioApp {
             playback_start_instant: None,
             playback_start_offset_ms: 0.0,
             render_rx: None,
+            render_log_window_open: false,
+            render_log_messages: Vec::new(),
+            render_progress: 1.0,
+            render_status_title: "Pronto".to_string(),
+            render_log_channel_rx: None,
+            export_rx: None,
+            active_track_index: 0,
         }
     }
 
     pub fn current_notes_mut(&mut self) -> &mut Vec<UNote> {
-        if self.project.parts.is_empty() {
-            self.project.parts.push(crate::project::model::UVoicePart::new("Part 1", 0));
+        if self.project.tracks.is_empty() {
+            self.project.tracks.push(crate::project::model::UTrack::default());
         }
-        &mut self.project.parts[0].notes
+        if self.active_track_index >= self.project.tracks.len() {
+            self.active_track_index = 0;
+        }
+        let track_idx = self.active_track_index;
+        
+        if let Some(part_idx) = self.project.parts.iter().position(|p| p.track_index == track_idx) {
+            &mut self.project.parts[part_idx].notes
+        } else {
+            let part_name = format!("Part Track {}", track_idx + 1);
+            let new_part = crate::project::model::UVoicePart::new(part_name, track_idx);
+            self.project.parts.push(new_part);
+            let last_idx = self.project.parts.len() - 1;
+            &mut self.project.parts[last_idx].notes
+        }
     }
 
     pub fn current_notes(&self) -> &[UNote] {
-        if self.project.parts.is_empty() {
-            &[]
-        } else {
+        let track_idx = self.active_track_index;
+        if let Some(part) = self.project.parts.iter().find(|p| p.track_index == track_idx) {
+            &part.notes
+        } else if !self.project.parts.is_empty() {
             &self.project.parts[0].notes
+        } else {
+            &[]
         }
     }
 
@@ -181,18 +211,47 @@ impl KamafeuStudioApp {
         let active_vb = self.voicebank.clone().unwrap_or(dummy_vb);
         let vocal_mode_params = self.vocal_mode_params.clone();
 
-        // Render synchronously — ensures audio is ready immediately
-        eprintln!("[Kamafeu] Rendering {} notes synchronously (playhead={:.0}ms)...", notes_vec.len(), playhead_ms);
-        let rendered_audio = crate::renderer::ChunkedRenderer::render_playhead_chunk(
-            &notes_vec,
+        self.render_log_window_open = true;
+        self.render_progress = 0.0;
+        self.render_status_title = format!("Renderizando prévia ({:.0}ms)...", playhead_ms);
+
+        let (tx, rx) = std::sync::mpsc::channel();
+        self.render_log_channel_rx = Some(rx);
+
+        // Filter notes for playhead chunk
+        let active_window_end = playhead_ms + 30000.0;
+        let mut playhead_notes = crate::renderer::ChunkedRenderer::filter_notes_in_window(&notes_vec, playhead_ms, active_window_end);
+        if playhead_notes.is_empty() {
+            playhead_notes = notes_vec.clone();
+        }
+
+        let mut shifted_notes = Vec::new();
+        for n in &playhead_notes {
+            let mut shifted = n.clone();
+            if shifted.position_ms >= playhead_ms {
+                shifted.position_ms -= playhead_ms;
+                shifted_notes.push(shifted);
+            } else {
+                let cut_ms = playhead_ms - shifted.position_ms;
+                if shifted.duration_ms > cut_ms {
+                    shifted.position_ms = 0.0;
+                    shifted.duration_ms -= cut_ms;
+                    shifted_notes.push(shifted);
+                }
+            }
+        }
+
+        let rendered_audio = crate::renderer::TrackRenderer::render_track_with_progress(
+            &shifted_notes,
             &active_vb,
             sample_rate,
             bpm,
-            playhead_ms,
-            30000.0,
             resampler_driver.as_ref(),
             wavtool_driver.as_ref(),
             Some(&vocal_mode_params),
+            Some(&|prog, msg| {
+                let _ = tx.send((prog, msg.to_string()));
+            }),
         );
 
         if rendered_audio.is_empty() {
@@ -200,25 +259,113 @@ impl KamafeuStudioApp {
             return;
         }
 
-        eprintln!("[Kamafeu] Rendered {} samples, playing immediately!", rendered_audio.len());
-
-        // Start playhead animation and audio playback at the same time
         self.piano_roll_state.is_playing = true;
         self.playback_start_instant = Some(Instant::now());
         self.playback_start_offset_ms = playhead_ms;
         self.transport_state.render_progress = 1.0;
-        self.transport_state.status_message = "Playing...".to_string();
+        self.render_progress = 1.0;
+        self.transport_state.status_message = "Tocando...".to_string();
         self.render_rx = None;
 
         self.audio_player.play_samples(rendered_audio, sample_rate);
     }
 
-    pub fn stop_audio(&mut self) {
+    pub fn pause_audio(&mut self) {
         self.audio_player.stop();
         self.piano_roll_state.is_playing = false;
         self.playback_start_instant = None;
         self.render_rx = None;
-        self.transport_state.status_message = "Stopped".to_string();
+        self.transport_state.status_message = "Pausado".to_string();
+    }
+
+    pub fn stop_audio(&mut self) {
+        self.pause_audio();
+        self.piano_roll_state.playhead_ms = 0.0;
+        self.transport_state.status_message = "Parado".to_string();
+    }
+
+    pub fn export_wav(&mut self) {
+        if let Some(save_path) = rfd::FileDialog::new()
+            .add_filter("WAV Audio", &["wav"])
+            .set_file_name("output.wav")
+            .save_file()
+        {
+            let notes_vec = self.current_notes().to_vec();
+            if notes_vec.is_empty() {
+                self.transport_state.status_message = "Nenhuma nota para exportar".to_string();
+                return;
+            }
+
+            let native_resampler = NativeResamplerDriver;
+            let resampler_driver: Box<dyn ResamplerDriver> = if self.selected_resampler.contains("macres") {
+                let path = self.custom_resampler_path.clone().unwrap_or_else(|| PathBuf::from("macres"));
+                Box::new(MacResDriver::new(path))
+            } else if self.selected_resampler.contains("Native") {
+                Box::new(native_resampler)
+            } else {
+                let path = self.custom_resampler_path.clone().unwrap_or_else(|| PathBuf::from(&self.selected_resampler));
+                Box::new(ExternalResamplerDriver::new(path))
+            };
+
+            let native_wavtool = NativeWavtoolDriver;
+            let wavtool_driver: Box<dyn WavtoolDriver> = if self.selected_wavtool.contains("yawu") {
+                let path = self.custom_wavtool_path.clone().unwrap_or_else(|| PathBuf::from("wavtool-yawu"));
+                Box::new(WavtoolYawuDriver::new(path))
+            } else if self.selected_wavtool.contains("Native") {
+                Box::new(native_wavtool)
+            } else {
+                let path = self.custom_wavtool_path.clone().unwrap_or_else(|| PathBuf::from(&self.selected_wavtool));
+                Box::new(ExternalWavtoolDriver::new(path))
+            };
+
+            let bpm = self.transport_state.bpm;
+            let sample_rate = self.sample_rate;
+            let dummy_vb = Voicebank {
+                root_path: PathBuf::from("."),
+                name: "Synthetic Fallback".to_string(),
+                author: "System".to_string(),
+                character_info: String::new(),
+                readme_info: String::new(),
+                entries: std::collections::HashMap::new(),
+                prefix_map: crate::oto::PrefixMap::default(),
+            };
+            let active_vb = self.voicebank.clone().unwrap_or(dummy_vb);
+            let vocal_mode_params = self.vocal_mode_params.clone();
+
+            self.render_log_window_open = true;
+            self.render_progress = 0.0;
+            let start_log = format!("[Export] Iniciando exportação para {:?}...", save_path);
+            self.render_log_messages.push(start_log);
+            self.render_status_title = format!("Exportando WAV ({})", save_path.file_name().unwrap_or_default().to_string_lossy());
+
+            let (tx, rx) = std::sync::mpsc::channel();
+            self.render_log_channel_rx = Some(rx);
+
+            let (export_tx, export_rx) = std::sync::mpsc::channel();
+            self.export_rx = Some(export_rx);
+
+            std::thread::spawn(move || {
+                let audio = crate::renderer::TrackRenderer::render_track_with_progress(
+                    &notes_vec,
+                    &active_vb,
+                    sample_rate,
+                    bpm,
+                    resampler_driver.as_ref(),
+                    wavtool_driver.as_ref(),
+                    Some(&vocal_mode_params),
+                    Some(&|prog, msg| {
+                        let _ = tx.send((prog, msg.to_string()));
+                    }),
+                );
+
+                if let Err(e) = crate::renderer::TrackRenderer::save_wav_samples(&save_path, &audio, sample_rate) {
+                    let _ = tx.send((1.0, format!("[Export ERROR] {}", e)));
+                } else {
+                    let _ = tx.send((1.0, format!("[Export Concluído] Áudio gravado com sucesso em {:?}", save_path)));
+                }
+                let _ = export_tx.send(());
+            });
+        }
     }
 
     pub fn preview_tone(&mut self, freq: f64) {
@@ -236,10 +383,116 @@ impl KamafeuStudioApp {
 
         self.audio_player.play_samples(raw_samples, sample_rate);
     }
+
+    fn draw_mini_log_window(&mut self, ctx: &egui::Context) {
+        if !self.render_log_window_open {
+            return;
+        }
+
+        let mut is_open = self.render_log_window_open;
+        egui::Window::new("⚡ Kamafeu Engine Log & Render Progress")
+            .open(&mut is_open)
+            .default_pos(egui::pos2(700.0, 480.0))
+            .default_size(egui::vec2(480.0, 220.0))
+            .resizable(true)
+            .collapsible(true)
+            .show(ctx, |ui| {
+                ui.horizontal(|ui| {
+                    ui.label(
+                        egui::RichText::new(&self.render_status_title)
+                            .strong()
+                            .size(12.0)
+                            .color(egui::Color32::from_rgb(0, 255, 157)),
+                    );
+                    ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                        if ui.button(egui::RichText::new("Limpar").size(10.5)).clicked() {
+                            self.render_log_messages.clear();
+                        }
+                    });
+                });
+
+                ui.add_space(4.0);
+
+                // Animated Progress Bar
+                ui.add(
+                    egui::ProgressBar::new(self.render_progress)
+                        .text(format!("{:.0}%", self.render_progress * 100.0))
+                        .fill(egui::Color32::from_rgb(0, 230, 138))
+                        .animate(self.render_progress < 1.0),
+                );
+
+                ui.add_space(6.0);
+                ui.separator();
+                ui.add_space(4.0);
+
+                // Scrollable Monospace Terminal Console Box
+                egui::Frame::none()
+                    .fill(egui::Color32::from_rgb(12, 10, 18))
+                    .rounding(egui::Rounding::same(4.0))
+                    .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(45, 35, 65)))
+                    .inner_margin(egui::Margin::same(6.0))
+                    .show(ui, |ui| {
+                        egui::ScrollArea::vertical()
+                            .max_height(140.0)
+                            .auto_shrink([false; 2])
+                            .stick_to_bottom(true)
+                            .show(ui, |ui| {
+                                if self.render_log_messages.is_empty() {
+                                    ui.label(
+                                        egui::RichText::new("Aguardando tarefas de renderização...")
+                                            .size(11.0)
+                                            .italics()
+                                            .color(egui::Color32::from_rgb(120, 110, 140)),
+                                    );
+                                } else {
+                                    for msg in &self.render_log_messages {
+                                        let text_color = if msg.contains("FAILED") || msg.contains("ERROR") {
+                                            egui::Color32::from_rgb(255, 100, 100)
+                                        } else if msg.contains("[WAV]") {
+                                            egui::Color32::from_rgb(180, 230, 255)
+                                        } else if msg.contains("[Resampler]") || msg.contains("[Wavtool]") {
+                                            egui::Color32::from_rgb(216, 180, 254)
+                                        } else if msg.contains("Truncated") || msg.contains("Concluído") {
+                                            egui::Color32::from_rgb(0, 255, 157)
+                                        } else {
+                                            egui::Color32::from_rgb(200, 190, 220)
+                                        };
+                                        ui.label(
+                                            egui::RichText::new(msg)
+                                                .size(10.5)
+                                                .monospace()
+                                                .color(text_color),
+                                        );
+                                    }
+                                }
+                            });
+                    });
+            });
+        self.render_log_window_open = is_open;
+    }
 }
 
 impl eframe::App for KamafeuStudioApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        // Poll for render log and progress events
+        if let Some(ref rx) = self.render_log_channel_rx {
+            while let Ok((prog, msg)) = rx.try_recv() {
+                self.render_progress = prog;
+                self.transport_state.render_progress = prog;
+                self.render_log_messages.push(msg);
+                if self.render_log_messages.len() > 200 {
+                    self.render_log_messages.remove(0);
+                }
+            }
+        }
+
+        if let Some(ref rx) = self.export_rx {
+            if rx.try_recv().is_ok() {
+                self.export_rx = None;
+                self.transport_state.status_message = "Exportação WAV Concluída!".to_string();
+            }
+        }
+
         // Poll for rendered audio from background thread
         if let Some(ref rx) = self.render_rx {
             if let Ok((samples, sample_rate)) = rx.try_recv() {
@@ -260,7 +513,7 @@ impl eframe::App for KamafeuStudioApp {
                     .fold(0.0f64, f64::max);
 
                 if elapsed_ms > 1000.0 && self.piano_roll_state.playhead_ms > max_end_ms + 1000.0 && !self.audio_player.is_playing() {
-                    self.stop_audio();
+                    self.pause_audio();
                 }
             }
             ctx.request_repaint();
@@ -273,7 +526,7 @@ impl eframe::App for KamafeuStudioApp {
         let ms_rem = (cur_ms % 1000.0) as u32;
         self.transport_state.playhead_time_str = format!("{:02}:{:02}.{:03}", mins, secs, ms_rem);
 
-        // Space = Play/Stop — sempre funciona, exceto ao editar lyric de nota
+        // Space = Play/Pause — apenas pausa no ponto atual (sem resetar para 0)
         let is_editing_lyric = self.piano_roll_state.editing_lyric_index.is_some();
         if !is_editing_lyric {
             let mut toggle_play = false;
@@ -284,7 +537,7 @@ impl eframe::App for KamafeuStudioApp {
             });
             if toggle_play {
                 if self.piano_roll_state.is_playing {
-                    self.stop_audio();
+                    self.pause_audio();
                 } else {
                     self.play_current_track();
                 }
@@ -564,7 +817,7 @@ impl eframe::App for KamafeuStudioApp {
 
                 if play_clicked {
                     if is_playing {
-                        self.stop_audio();
+                        self.pause_audio();
                     } else {
                         self.play_current_track();
                     }
@@ -587,40 +840,7 @@ impl eframe::App for KamafeuStudioApp {
                 }
 
                 if export_clicked {
-                    if let Some(file_path) = rfd::FileDialog::new()
-                        .set_file_name("output.wav")
-                        .add_filter("WAV Audio", &["wav"])
-                        .save_file()
-                    {
-                        let dummy_vb = Voicebank {
-                            root_path: PathBuf::from("."),
-                            name: "Fallback".to_string(),
-                            author: "System".to_string(),
-                            character_info: String::new(),
-                            readme_info: String::new(),
-                            entries: std::collections::HashMap::new(),
-                            prefix_map: crate::oto::PrefixMap::default(),
-                        };
-                        let vb_ref = self.voicebank.as_ref().unwrap_or(&dummy_vb);
-                        let buffer = TrackRenderer::render_track(self.current_notes(), vb_ref, self.sample_rate);
-
-                        let spec = hound::WavSpec {
-                            channels: 1,
-                            sample_rate: self.sample_rate,
-                            bits_per_sample: 16,
-                            sample_format: hound::SampleFormat::Int,
-                        };
-
-                        if let Ok(mut writer) = hound::WavWriter::create(&file_path, spec) {
-                            for &s in &buffer {
-                                let clamped = s.clamp(-1.0, 1.0);
-                                let sample_i16 = (clamped * i16::MAX as f32) as i16;
-                                let _ = writer.write_sample(sample_i16);
-                            }
-                            let _ = writer.finalize();
-                            self.transport_state.status_message = format!("Exported WAV to {:?}", file_path.file_name().unwrap_or_default());
-                        }
-                    }
+                    self.export_wav();
                 }
             });
 
@@ -688,6 +908,8 @@ impl eframe::App for KamafeuStudioApp {
                 }
             });
 
+
+
         // 3. Right Sidebar (Note Properties & Settings with Resampler/Wavtool Selectors)
         SidePanel::right("right_inspector_panel")
             .resizable(true)
@@ -696,7 +918,13 @@ impl eframe::App for KamafeuStudioApp {
             .show(ctx, |ui| {
                 let selected_indices = self.piano_roll_state.selected_note_indices.clone();
                 let selected_idx = self.piano_roll_state.selected_note_index;
-                let notes = if self.project.parts.is_empty() { &mut [] } else { &mut self.project.parts[0].notes[..] };
+                let active_track = self.active_track_index;
+                if self.project.parts.is_empty() {
+                    self.project.parts.push(crate::project::model::UVoicePart::new("Part 1", 0));
+                }
+                let part_idx = self.project.parts.iter().position(|p| p.track_index == active_track).unwrap_or(0);
+                let notes = &mut self.project.parts[part_idx].notes[..];
+
                 draw_right_panel(
                     ui,
                     self.voicebank.as_ref(),
@@ -720,8 +948,11 @@ impl eframe::App for KamafeuStudioApp {
                 draw_arrangement_view(
                     ui,
                     &mut self.project.tracks,
+                    &mut self.project.parts,
+                    &mut self.active_track_index,
                     self.piano_roll_state.playhead_ms,
                     self.piano_roll_state.px_per_ms,
+                    self.transport_state.bpm,
                 );
 
                 ui.add_space(2.0);
@@ -732,13 +963,16 @@ impl eframe::App for KamafeuStudioApp {
                 let mut note_changed = false;
                 let mut scrubbed_t: Option<f64> = None;
 
+                let active_track = self.active_track_index;
                 if self.project.parts.is_empty() {
                     self.project.parts.push(crate::project::model::UVoicePart::new("Part 1", 0));
                 }
+                let part_idx = self.project.parts.iter().position(|p| p.track_index == active_track).unwrap_or(0);
+                let active_notes = &mut self.project.parts[part_idx].notes;
 
                 draw_piano_roll(
                     ui,
-                    &mut self.project.parts[0].notes,
+                    active_notes,
                     &mut self.piano_roll_state,
                     self.voicebank.as_ref(),
                     &mut self.phoneme_palette_state,
@@ -765,5 +999,7 @@ impl eframe::App for KamafeuStudioApp {
                     self.push_history();
                 }
             });
+
+        self.draw_mini_log_window(ctx);
     }
 }

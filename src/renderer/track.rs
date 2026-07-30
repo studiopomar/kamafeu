@@ -3,7 +3,6 @@ use std::path::Path;
 use crate::drivers::{NativeResamplerDriver, NativeWavtoolDriver, ResamplerArgs, ResamplerDriver, WavtoolArgs, WavtoolDriver};
 use crate::dsp::midi_to_freq;
 use crate::oto::Voicebank;
-use crate::phonemizer::JapanesePhonemizer;
 use crate::project::model::UNote;
 
 pub struct TrackRenderer;
@@ -69,9 +68,39 @@ impl TrackRenderer {
         wavtool_driver: &dyn WavtoolDriver,
         vocal_mode: Option<&crate::gui::left_panel::VocalModeParams>,
     ) -> Vec<f32> {
+        Self::render_track_with_progress(
+            notes,
+            voicebank,
+            sample_rate,
+            tempo_bpm,
+            resampler_driver,
+            wavtool_driver,
+            vocal_mode,
+            None,
+        )
+    }
+
+    /// Render track with optional real-time progress & log reporting callback: on_progress(progress_0_to_1, log_line)
+    pub fn render_track_with_progress(
+        notes: &[UNote],
+        voicebank: &Voicebank,
+        sample_rate: u32,
+        tempo_bpm: f64,
+        resampler_driver: &dyn ResamplerDriver,
+        wavtool_driver: &dyn WavtoolDriver,
+        vocal_mode: Option<&crate::gui::left_panel::VocalModeParams>,
+        on_progress: Option<&dyn Fn(f32, &str)>,
+    ) -> Vec<f32> {
         if notes.is_empty() {
             return Vec::new();
         }
+
+        let log = |progress: f32, msg: &str| {
+            eprintln!("{}", msg);
+            if let Some(ref cb) = on_progress {
+                cb(progress, msg);
+            }
+        };
 
         let (loudness_db, gender_offset, breathiness_offset, tone_shift, crossfade_ms) = if let Some(vm) = vocal_mode {
             (vm.loudness, vm.gender, vm.breathiness, vm.tone_shift, vm.crossfade_ms)
@@ -86,23 +115,23 @@ impl TrackRenderer {
 
         let total_samples = ((max_end_ms / 1000.0) * sample_rate as f64) as usize + 44100;
         let mut track_buffer = vec![0.0f32; total_samples];
-        eprintln!("[Render] Rendering {} notes, max_end={:.0}ms, buffer_len={}", notes.len(), max_end_ms, total_samples);
+        
+        let start_msg = format!("[Render] Rendering {} notes, max_end={:.0}ms, buffer_len={}", notes.len(), max_end_ms, total_samples);
+        log(0.0, &start_msg);
 
-        let mut prev_vowel: Option<String> = None;
+        let mode = if let Some(vm) = vocal_mode {
+            vm.phonemizer_mode
+        } else {
+            crate::phonemizer::PhonemizerMode::BasicCV
+        };
+        let phones = crate::phonemizer::JapanesePhonemizer::apply_phonemizer(notes, voicebank, mode);
 
-        for note in notes {
-            let target_alias = JapanesePhonemizer::resolve_alias(
-                voicebank,
-                prev_vowel.as_deref(),
-                &note.lyric,
-                &note.pitch,
-            );
+        let total_phones = phones.len().max(1);
 
-            prev_vowel = JapanesePhonemizer::extract_vowel(&note.lyric).map(|s| s.to_string());
+        for (idx, phone) in phones.into_iter().enumerate() {
+            let progress = (idx as f32) / (total_phones as f32);
 
-            let oto_entry = voicebank
-                .find_entry(&target_alias, &note.pitch)
-                .or_else(|| voicebank.find_entry(&note.lyric, &note.pitch));
+            let oto_entry = voicebank.find_entry(&phone.lyric, &phone.pitch);
 
             let (wav_rel_path, offset_ms, consonant_ms, cutoff_ms, preutterance_ms, overlap_ms) =
                 if let Some(entry) = oto_entry {
@@ -115,24 +144,27 @@ impl TrackRenderer {
                         entry.overlap,
                     )
                 } else {
-                    let default_filename = format!("{}.wav", note.lyric);
+                    let default_filename = format!("{}.wav", phone.lyric);
                     (default_filename, 0.0, 50.0, 0.0, 0.0, 0.0)
                 };
 
             let wav_full_path = voicebank.root_path.join(&wav_rel_path);
-            eprintln!("[Render] Note '{}' pitch={} pos={:.0}ms dur={:.0}ms wav={:?} oto_found={}",
-                note.lyric, note.pitch, note.position_ms, note.duration_ms, wav_full_path, oto_entry.is_some());
+            let phone_msg = format!(
+                "[Render] Phone '{}' ({}/{}) pitch={} pos={:.0}ms dur={:.0}ms wav={:?} oto={}",
+                phone.lyric, idx + 1, total_phones, phone.pitch, phone.position_ms, phone.duration_ms, wav_full_path, oto_entry.is_some()
+            );
+            log(progress, &phone_msg);
 
             let (raw_samples, src_sample_rate) = match Self::load_wav_samples(&wav_full_path) {
                 Ok(res) => {
-                    eprintln!("[Render]   WAV loaded: {} samples at {}Hz", res.0.len(), res.1);
+                    log(progress, &format!("  [WAV] Loaded {} samples @ {}Hz", res.0.len(), res.1));
                     res
-                },
+                }
                 Err(e) => {
-                    eprintln!("[Render]   WAV load FAILED: {} — generating sine fallback", e);
-                    let duration_sec = note.duration_ms / 1000.0;
+                    log(progress, &format!("  [WAV] Load FAILED: {} — generating sine fallback", e));
+                    let duration_sec = phone.duration_ms / 1000.0;
                     let num_s = (sample_rate as f64 * duration_sec.max(0.1)) as usize;
-                    let base_midi = note.midi_key() as f64 + tone_shift + (note.expressions.pitch_delta / 100.0);
+                    let base_midi = phone.midi_key() as f64 + tone_shift + (phone.expressions.pitch_delta / 100.0);
                     let freq = midi_to_freq(base_midi);
                     let syn: Vec<f32> = (0..num_s)
                         .map(|i| (i as f64 * 2.0 * std::f64::consts::PI * freq / sample_rate as f64).sin() as f32 * 0.5)
@@ -141,15 +173,26 @@ impl TrackRenderer {
                 }
             };
 
-            let base_midi = note.midi_key() as f64 + tone_shift + (note.expressions.pitch_delta / 100.0);
+            let base_midi = phone.midi_key() as f64 + tone_shift + (phone.expressions.pitch_delta / 100.0);
             let target_freq = midi_to_freq(base_midi);
 
-            let pitch_bend_encoded = crate::dsp::pitch_encoder::encode_utau_base64_pitch(&note.pitch_bend.points, note.duration_ms);
+            let velocity = if phone.expressions.velocity != 0.0 { phone.expressions.velocity } else { 100.0 };
+            let active_overlap = if overlap_ms > 0.0 { overlap_ms } else { crossfade_ms };
 
-            let total_gender = note.expressions.gender + gender_offset;
-            let total_breathiness = note.expressions.breathiness + breathiness_offset;
+            let stretch_ratio = 2.0f64.powf(1.0 - velocity * 0.01);
+            let cons_vel_scale = (phone.expressions.consonant_velocity / 100.0).max(0.1);
+            let active_consonant_ms = consonant_ms * cons_vel_scale;
 
-            let mut flags = String::new();
+            let skip_over = (preutterance_ms * stretch_ratio - active_overlap).max(0.0);
+            let dur_required = (phone.duration_ms + skip_over).max(active_consonant_ms);
+            let dur_required = ((dur_required / 50.0 + 0.5).ceil() * 50.0).max(50.0);
+
+            let pitch_bend_encoded = crate::dsp::pitch_encoder::encode_utau_base64_pitch(&phone.pitch_bend.points, dur_required);
+
+            let total_gender = phone.expressions.gender + gender_offset;
+            let total_breathiness = phone.expressions.breathiness + breathiness_offset;
+
+            let mut flags = phone.flags.clone();
             if total_gender != 0.0 {
                 flags.push_str(&format!("g{:.0}", total_gender));
             }
@@ -157,41 +200,34 @@ impl TrackRenderer {
                 flags.push_str(&format!("B{:.0}", total_breathiness.abs()));
             }
 
-            let velocity = if note.expressions.velocity != 0.0 { note.expressions.velocity } else { 100.0 };
-            let active_overlap = if overlap_ms > 0.0 { overlap_ms } else { crossfade_ms };
-
-            let stretch_ratio = 2.0f64.powf(1.0 - velocity * 0.01);
-            let skip_over = (preutterance_ms * stretch_ratio - active_overlap).max(0.0);
-            let dur_required = (note.duration_ms + skip_over).max(consonant_ms);
-            let dur_required = ((dur_required / 50.0 + 0.5).ceil() * 50.0).max(50.0);
-
+            let safe_lyric = phone.lyric.replace(['/', '\\', ' ', ':'], "_");
             let res_args = ResamplerArgs {
                 input_wav: wav_full_path.clone(),
-                output_wav: std::env::temp_dir().join(format!("kamafeu_render_{}.wav", note.lyric)),
-                pitch_name: note.pitch.clone(),
+                output_wav: std::env::temp_dir().join(format!("kamafeu_render_{}_{}.wav", idx, safe_lyric)),
+                pitch_name: phone.pitch.clone(),
                 pitch_freq: target_freq,
                 velocity,
                 flags,
                 offset_ms,
                 duration_ms: dur_required,
-                consonant_ms,
+                consonant_ms: active_consonant_ms,
                 cutoff_ms,
                 volume: 100.0,
-                modulation: 100.0,
+                modulation: phone.expressions.modulation,
                 tempo: tempo_bpm,
                 pitch_bend_str: pitch_bend_encoded,
-                pitch_points: note.pitch_bend.points.clone(),
+                pitch_points: phone.pitch_bend.points.clone(),
             };
 
             let mut note_rendered = resampler_driver
                 .render_sample(&raw_samples, src_sample_rate, &res_args)
                 .unwrap_or_else(|e| {
-                    eprintln!("[Render]   Resampler FAILED: {} — using raw samples", e);
+                    log(progress, &format!("  [Resampler] FAILED: {} — using raw samples", e));
                     raw_samples.clone()
                 });
 
             let rendered_max = note_rendered.iter().map(|s| s.abs()).fold(0.0f32, f32::max);
-            eprintln!("[Render]   After resampler: {} samples, max_amp={:.4}", note_rendered.len(), rendered_max);
+            log(progress, &format!("  [Resampler] {} samples, max_amp={:.4}", note_rendered.len(), rendered_max));
 
             let active_overlap = if overlap_ms > 0.0 { overlap_ms } else { crossfade_ms };
 
@@ -199,16 +235,16 @@ impl TrackRenderer {
                 output_wav: std::env::temp_dir().join("kamafeu_out.wav"),
                 input_rendered_wav: res_args.output_wav.clone(),
                 offset_ms,
-                duration_ms: note.duration_ms,
-                envelope: note.envelope.clone(),
+                duration_ms: phone.duration_ms,
+                envelope: phone.envelope.clone(),
                 overlap_ms: active_overlap,
             };
 
             wavtool_driver.process_note(&mut note_rendered, sample_rate, &wav_args);
             let post_wavtool_max = note_rendered.iter().map(|s| s.abs()).fold(0.0f32, f32::max);
-            eprintln!("[Render]   After wavtool: {} samples, max_amp={:.4}", note_rendered.len(), post_wavtool_max);
+            log(progress, &format!("  [Wavtool] {} samples, max_amp={:.4}", note_rendered.len(), post_wavtool_max));
 
-            let total_dyn = note.expressions.dynamics + loudness_db;
+            let total_dyn = phone.expressions.dynamics + loudness_db;
             if total_dyn != 0.0 {
                 let dyn_gain = 10.0f32.powf((total_dyn / 20.0) as f32);
                 for s in note_rendered.iter_mut() {
@@ -216,9 +252,8 @@ impl TrackRenderer {
                 }
             }
 
-            let actual_start_ms = (note.position_ms - preutterance_ms).max(0.0);
+            let actual_start_ms = (phone.position_ms - preutterance_ms).max(0.0);
             let start_sample_idx = ((actual_start_ms / 1000.0) * sample_rate as f64) as usize;
-            eprintln!("[Render]   Placing at start_sample_idx={} (actual_start={:.0}ms)", start_sample_idx, actual_start_ms);
 
             for (i, sample) in note_rendered.iter().enumerate() {
                 let track_idx = start_sample_idx + i;
@@ -229,13 +264,13 @@ impl TrackRenderer {
         }
 
         let buffer_max = track_buffer.iter().map(|s| s.abs()).fold(0.0f32, f32::max);
-        eprintln!("[Render] Final track_buffer: {} samples, max_amp={:.4}", track_buffer.len(), buffer_max);
+        log(0.95, &format!("[Render] Final track_buffer: {} samples, max_amp={:.4}", track_buffer.len(), buffer_max));
 
         if let Some(last_nonzero) = track_buffer.iter().rposition(|&s| s.abs() > 1e-4) {
             track_buffer.truncate(last_nonzero + 1);
-            eprintln!("[Render] Truncated to {} non-silent samples", track_buffer.len());
+            log(1.0, &format!("[Render] Truncated to {} non-silent samples", track_buffer.len()));
         } else {
-            eprintln!("[Render] WARNING: Entire track buffer is silent!");
+            log(1.0, "[Render] WARNING: Entire track buffer is silent!");
         }
 
         track_buffer

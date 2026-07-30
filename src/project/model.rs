@@ -22,7 +22,14 @@ pub struct UExpressions {
     #[serde(default = "default_velocity")]
     pub velocity: f64,    // VEL (0 to 200, default 100)
     pub breathiness: f64, // BRE (-100 to +100, default 0)
+    #[serde(default = "default_consonant_velocity")]
+    pub consonant_velocity: f64, // (0 to 200, default 100)
+    #[serde(default = "default_modulation")]
+    pub modulation: f64,  // MOD (0 to 200, default 0)
 }
+
+fn default_modulation() -> f64 { 0.0 }
+fn default_consonant_velocity() -> f64 { 100.0 }
 
 fn default_velocity() -> f64 {
     100.0
@@ -36,6 +43,8 @@ impl Default for UExpressions {
             gender: 0.0,
             velocity: 100.0,
             breathiness: 0.0,
+            consonant_velocity: 100.0,
+            modulation: 0.0,
         }
     }
 }
@@ -54,6 +63,8 @@ pub struct UNote {
     pub pitch_bend: UPitchBend,
     #[serde(default)]
     pub expressions: UExpressions,
+    #[serde(default)]
+    pub flags: String,
 }
 
 impl UNote {
@@ -69,6 +80,7 @@ impl UNote {
             vibrato: VibratoParam::default(),
             pitch_bend: UPitchBend::default(),
             expressions: UExpressions::default(),
+            flags: String::new(),
         }
     }
 

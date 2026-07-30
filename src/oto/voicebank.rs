@@ -56,12 +56,32 @@ impl Voicebank {
             }
         }
 
-        // Load prefix.map if present
-        let prefix_path = root_path.join("prefix.map");
-        let prefix_map = if prefix_path.exists() {
-            PrefixMap::parse_file(&prefix_path).unwrap_or_default()
-        } else {
-            PrefixMap::default()
+        // Load prefix.map if present (with fallback for case variations or subfolder placement)
+        let prefix_map = {
+            let candidates = [
+                root_path.join("prefix.map"),
+                root_path.join("PREFIX.MAP"),
+                root_path.join("Prefix.map"),
+                root_path.join("Prefix.Map"),
+            ];
+            let mut loaded = None;
+            for p in candidates {
+                if p.exists() {
+                    if let Ok(pm) = PrefixMap::parse_file(&p) {
+                        loaded = Some(pm);
+                        break;
+                    }
+                }
+            }
+            if loaded.is_none() {
+                let yaml_path = root_path.join("character.yaml");
+                if yaml_path.exists() {
+                    if let Ok(content) = fs::read_to_string(&yaml_path) {
+                        loaded = Some(PrefixMap::parse_yaml_str(&content));
+                    }
+                }
+            }
+            loaded.unwrap_or_default()
         };
 
         // Recursively find all oto.ini files in the voicebank directory tree
@@ -111,18 +131,81 @@ impl Voicebank {
 
     /// Lookup OtoEntry by lyric and target pitch name (e.g., "ka", "C4", "- そ")
     pub fn find_entry(&self, lyric: &str, pitch_name: &str) -> Option<&OtoEntry> {
-        let prefixed_alias = self.prefix_map.get_alias(lyric, pitch_name);
-        if let Some(entry) = self.entries.get(&prefixed_alias).or_else(|| self.entries.get(lyric)) {
-            return Some(entry);
+        let lyric_trimmed = lyric.trim();
+        if lyric_trimmed.is_empty() {
+            return None;
         }
 
-        // VCV fallback stripping (e.g. "- そ" -> "そ", "o そ" -> "そ", "a か" -> "か")
-        let cleaned_lyric = lyric.trim();
-        if let Some(space_idx) = cleaned_lyric.find(' ') {
-            let cv_part = &cleaned_lyric[space_idx + 1..];
-            let cv_prefixed = self.prefix_map.get_alias(cv_part, pitch_name);
-            if let Some(entry) = self.entries.get(&cv_prefixed).or_else(|| self.entries.get(cv_part)) {
+        let (prefix, suffix) = self
+            .prefix_map
+            .get_prefix_suffix(pitch_name)
+            .unwrap_or(("", ""));
+
+        let clean_p = prefix.trim_matches('"').trim_matches('\'');
+        let clean_s = suffix.trim_matches('"').trim_matches('\'');
+
+        let lyric_cands = crate::phonemizer::romaji::lyric_candidates(lyric_trimmed);
+
+        let mut candidates = Vec::new();
+
+        for cand_lyric in &lyric_cands {
+            // 1. Direct get_alias from prefix_map
+            let raw_alias = self.prefix_map.get_alias(cand_lyric, pitch_name);
+            candidates.push(raw_alias);
+
+            // 2. Prefix & Suffix combinations (with & without spaces / underscores)
+            if !clean_p.is_empty() || !clean_s.is_empty() {
+                candidates.push(format!("{}{}{}", clean_p, cand_lyric, clean_s));
+
+                if !clean_p.is_empty() {
+                    let p_trimmed = clean_p.trim();
+                    candidates.push(format!("{} {}{}", p_trimmed, cand_lyric, clean_s));
+                    candidates.push(format!("{}_{}{}", p_trimmed, cand_lyric, clean_s));
+                    candidates.push(format!("{}{}{}", p_trimmed, cand_lyric, clean_s));
+                }
+
+                if !clean_s.is_empty() {
+                    let s_trimmed = clean_s.trim();
+                    candidates.push(format!("{}{}_{}", clean_p, cand_lyric, s_trimmed));
+                    candidates.push(format!("{}{}{}", clean_p, cand_lyric, s_trimmed));
+                }
+            }
+
+            // 3. Raw lyric candidate
+            candidates.push(cand_lyric.clone());
+
+            // 4. Pitch fallbacks directly on candidate lyric
+            if !pitch_name.is_empty() {
+                candidates.push(format!("{}_{}", cand_lyric, pitch_name));
+                candidates.push(format!("{}_{}", pitch_name, cand_lyric));
+                candidates.push(format!("{} {}", pitch_name, cand_lyric));
+                candidates.push(format!("{} {}", cand_lyric, pitch_name));
+                candidates.push(format!("{}{}", pitch_name, cand_lyric));
+            }
+        }
+
+        // Try exact match for candidate strings
+        for cand in &candidates {
+            if let Some(entry) = self.entries.get(cand) {
                 return Some(entry);
+            }
+        }
+
+        // Try case-insensitive match for candidate strings
+        for cand in &candidates {
+            let cand_lower = cand.to_lowercase();
+            for (key, entry) in &self.entries {
+                if key.to_lowercase() == cand_lower {
+                    return Some(entry);
+                }
+            }
+        }
+
+        // 5. VCV / CVVC Fallback (e.g. "e ら" -> "ら", "a か" -> "か")
+        if let Some(space_idx) = lyric_trimmed.find(' ') {
+            let cv_part = lyric_trimmed[space_idx + 1..].trim();
+            if !cv_part.is_empty() && cv_part != lyric_trimmed {
+                return self.find_entry(cv_part, pitch_name);
             }
         }
 

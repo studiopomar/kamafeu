@@ -28,11 +28,22 @@ impl UstxFormat {
     }
 
     fn parse_from_yaml_value(val: &serde_yaml::Value) -> Option<UProject> {
-        let bpm = val.get("bpm")
-            .and_then(|v| v.as_f64().or_else(|| v.as_i64().map(|i| i as f64)))
-            .unwrap_or(120.0);
+        let root = val.get("project").unwrap_or(val);
+        
+        let mut bpm = 120.0;
+        if let Some(tempos) = root.get("tempos").and_then(|v| v.as_sequence()) {
+            if let Some(first_tempo) = tempos.first() {
+                bpm = first_tempo.get("bpm")
+                    .and_then(|v| v.as_f64().or_else(|| v.as_i64().map(|i| i as f64)))
+                    .unwrap_or(120.0);
+            }
+        } else {
+            bpm = root.get("bpm")
+                .and_then(|v| v.as_f64().or_else(|| v.as_i64().map(|i| i as f64)))
+                .unwrap_or(120.0);
+        }
 
-        let name = val.get("name")
+        let name = root.get("name")
             .and_then(|v| v.as_str())
             .unwrap_or("OpenUTAU Project")
             .to_string();
@@ -42,8 +53,10 @@ impl UstxFormat {
 
         let mut all_notes = Vec::new();
 
-        let parts_arr = val.get("voice_parts")
-            .or_else(|| val.get("parts"))
+        let _tracks_arr = root.get("tracks").and_then(|v| v.as_sequence());
+        
+        let parts_arr = root.get("voice_parts")
+            .or_else(|| root.get("parts"))
             .and_then(|v| v.as_sequence());
 
         if let Some(parts_seq) = parts_arr {

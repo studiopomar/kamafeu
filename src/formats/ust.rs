@@ -98,7 +98,8 @@ impl UstFormat {
 
                 match key {
                     "Tempo" => {
-                        if let Ok(bpm) = val.parse::<f64>() {
+                        let val_dot = val.replace(',', ".");
+                        if let Ok(bpm) = val_dot.parse::<f64>() {
                             current_bpm = bpm;
                             project.bpm = bpm;
                         }
@@ -229,7 +230,7 @@ mod tests {
     fn test_parse_ust_string() {
         let sample_ust = r#"
 [#SETTING]
-Tempo=120.00
+Tempo=145.00
 [#0000]
 Length=480
 Lyric=ka
@@ -244,6 +245,7 @@ Lyric=ki
 NoteNum=62
 "#;
         let proj = UstFormat::parse_str(sample_ust).unwrap();
+        assert_eq!(proj.bpm, 145.0);
         assert_eq!(proj.parts[0].notes.len(), 2);
         assert_eq!(proj.parts[0].notes[0].lyric, "ka");
         assert_eq!(proj.parts[0].notes[1].lyric, "ki");

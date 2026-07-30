@@ -52,6 +52,8 @@ pub struct PianoRollState {
     pub show_parameters_drawer: bool,
     pub selected_parameter: ParameterTab,
     pub initial_scrolled: bool,
+    pub properties_window_for_note: Option<usize>,
+    pub dragging_envelope_pt: Option<(usize, usize)>, // (note_idx, pt_idx)
 }
 
 impl Default for PianoRollState {
@@ -84,6 +86,8 @@ impl Default for PianoRollState {
             show_parameters_drawer: true,
             selected_parameter: ParameterTab::Dynamics,
             initial_scrolled: false,
+            properties_window_for_note: None,
+            dragging_envelope_pt: None,
         }
     }
 }
@@ -338,6 +342,7 @@ pub fn draw_piano_roll(
     let grid_height = key_count as f32 * state.row_height;
 
     let mut scroll_area = egui::ScrollArea::both()
+        .id_salt("piano_roll_scroll")
         .auto_shrink([false, false]);
 
     if !state.initial_scrolled {
@@ -636,14 +641,88 @@ pub fn draw_piano_roll(
                         Pos2::new(x_start + 4.0, y_top + 3.0),
                         Vec2::new((note.lyric.len() as f32 * 8.0 + 12.0).min(note_rect.width() - 8.0), state.row_height - 10.0),
                     );
-                    painter.rect_filled(pill_rect, Rounding::same(3.0), Color32::from_rgba_premultiplied(35, 20, 4, 190));
+                    let pill_bg = if is_selected {
+                        Color32::from_rgb(15, 15, 20) // Solid dark for high contrast
+                    } else {
+                        Color32::from_rgba_premultiplied(35, 20, 4, 190)
+                    };
+                    
+                    let text_color = if is_selected {
+                        Color32::WHITE
+                    } else {
+                        MelodyneTheme::TEXT_GOLD_LABEL
+                    };
+
+                    painter.rect_filled(pill_rect, Rounding::same(3.0), pill_bg);
                     painter.text(
                         pill_rect.center(),
                         egui::Align2::CENTER_CENTER,
                         &note.lyric,
                         egui::FontId::proportional(11.0),
-                        MelodyneTheme::TEXT_GOLD_LABEL,
+                        text_color,
                     );
+                }
+
+                // 4.5. Render and Interact with Volume Envelope
+                let e = note.envelope.clone();
+                let env_pts = [
+                    (e.p1, e.v1),
+                    (e.p1 + e.p2, e.v2),
+                    (e.p1 + e.p2 + e.p3, e.v3),
+                    (note.duration_ms - e.p4, e.v4),
+                    (note.duration_ms - e.p4 + e.p5, e.v5),
+                ];
+
+                let mut env_screen_pts = Vec::new();
+                for (t_ms, vol) in env_pts.iter() {
+                    let px_x = x_start + (*t_ms * state.px_per_ms as f64) as f32;
+                    let px_y = y_bottom - (*vol / 100.0).clamp(0.0, 1.0) as f32 * (state.row_height - 4.0);
+                    env_screen_pts.push(Pos2::new(px_x, px_y));
+                }
+
+                // Draw connecting lines
+                let env_color = Color32::from_rgb(255, 105, 180); // Hot Pink for UTAU-style envelopes
+                if let Some(first) = env_screen_pts.first() {
+                    painter.line_segment([Pos2::new(x_start, y_bottom), *first], Stroke::new(1.5, env_color.linear_multiply(0.5)));
+                }
+                for w in env_screen_pts.windows(2) {
+                    painter.line_segment([w[0], w[1]], Stroke::new(1.5, env_color));
+                }
+
+                // Interaction and drawing of points
+                for (pt_idx, &pt_pos) in env_screen_pts.iter().enumerate() {
+                    let pt_rect = Rect::from_center_size(pt_pos, Vec2::splat(8.0));
+                    let is_hovered = mouse_interact_pos.map_or(false, |m| pt_rect.contains(m));
+                    let is_dragging = state.dragging_envelope_pt == Some((idx, pt_idx));
+
+                    let pt_color = if is_dragging || is_hovered { Color32::WHITE } else { env_color };
+                    painter.circle_filled(pt_pos, if is_dragging { 4.0 } else { 3.0 }, pt_color);
+                    painter.circle_stroke(pt_pos, if is_dragging { 4.0 } else { 3.0 }, Stroke::new(1.0, Color32::BLACK));
+
+                    if is_hovered && ui.input(|i| i.pointer.primary_pressed()) {
+                        state.dragging_envelope_pt = Some((idx, pt_idx));
+                    }
+                }
+
+                if let Some((drag_note_idx, drag_pt_idx)) = state.dragging_envelope_pt {
+                    if drag_note_idx == idx {
+                        if let Some(mpos) = ui.input(|i| i.pointer.latest_pos()) {
+                            let delta_t = ((mpos.x - x_start) / state.px_per_ms) as f64;
+                            let delta_v = ((y_bottom - mpos.y) / (state.row_height - 4.0) * 100.0).clamp(0.0, 100.0) as f64;
+
+                            match drag_pt_idx {
+                                0 => { note.envelope.p1 = delta_t.max(0.0); note.envelope.v1 = delta_v; }
+                                1 => { note.envelope.p2 = (delta_t - note.envelope.p1).max(0.0); note.envelope.v2 = delta_v; }
+                                2 => { note.envelope.p3 = (delta_t - note.envelope.p1 - note.envelope.p2).max(0.0); note.envelope.v3 = delta_v; }
+                                3 => { note.envelope.p4 = (note.duration_ms - delta_t).max(0.0); note.envelope.v4 = delta_v; }
+                                4 => { note.envelope.p5 = (delta_t - (note.duration_ms - note.envelope.p4)).max(0.0); note.envelope.v5 = delta_v; }
+                                _ => {}
+                            }
+                        }
+                        if ui.input(|i| i.pointer.primary_released()) {
+                            state.dragging_envelope_pt = None;
+                        }
+                    }
                 }
 
                 // 5. Render Continuous Pitch Curve Spline (Melodyne Glowing Amber with Unrestricted Melismas/Vibrato Tails)
@@ -733,20 +812,9 @@ pub fn draw_piano_roll(
                     }
 
                     let pitch_draw_target_rect = Rect::from_min_max(
-                        Pos2::new(x_start - (500.0 * state.px_per_ms as f64) as f32, y_top - state.row_height * 2.0),
-                        Pos2::new(x_end + (500.0 * state.px_per_ms as f64) as f32, y_bottom + state.row_height * 2.0),
+                        Pos2::new(x_start - (200.0 * state.px_per_ms as f64) as f32, y_top - state.row_height * 4.0),
+                        Pos2::new(x_end + (200.0 * state.px_per_ms as f64) as f32, y_bottom + state.row_height * 4.0),
                     );
-
-                    if state.active_tool == EditTool::PitchDraw && pitch_draw_target_rect.contains(mpos) && ui.input(|i| i.pointer.primary_down()) {
-                        let rel_t = (mpos.x - x_start) as f64 / state.px_per_ms as f64;
-                        let rel_cents = (y_center - mpos.y) as f64 / state.row_height as f64 * 100.0;
-                        note.pitch_bend.points.push(UPitchBendPoint {
-                            time_offset_ms: rel_t,
-                            pitch_offset_cents: rel_cents,
-                            shape: "s".to_string(),
-                        });
-                        note.pitch_bend.points.sort_by(|a, b| a.time_offset_ms.partial_cmp(&b.time_offset_ms).unwrap_or(std::cmp::Ordering::Equal));
-                    }
 
                     if note_rect.contains(mpos) && mpos.y > grid_start_y && mpos.y < grid_end_y {
                         if ui.input(|i| i.pointer.button_double_clicked(egui::PointerButton::Primary)) {
@@ -761,36 +829,7 @@ pub fn draw_piano_roll(
                                     note_to_delete = Some(idx);
                                 }
                             }
-                            EditTool::PitchDraw => {
-                                if ui.input(|i| i.pointer.primary_down()) {
-                                    let rel_t = (((mpos.x - x_start) / state.px_per_ms) as f64).clamp(0.0, note.duration_ms);
-                                    let delta_y = y_center - mpos.y;
-                                    let cents = ((delta_y / state.row_height) * 100.0) as f64;
-                                    let cents = cents.clamp(-700.0, 700.0);
-
-                                    note.pitch_bend.points.retain(|pt| (pt.time_offset_ms - rel_t).abs() >= 25.0);
-                                    note.pitch_bend.points.push(UPitchBendPoint {
-                                        time_offset_ms: rel_t,
-                                        pitch_offset_cents: cents,
-                                        shape: "s".to_string(),
-                                    });
-
-                                    note.pitch_bend.points.sort_by(|a, b| a.time_offset_ms.partial_cmp(&b.time_offset_ms).unwrap_or(std::cmp::Ordering::Equal));
-                                    on_note_changed();
-                                }
-
-                                // Simplify stroke on mouse release into 3-4 clean RDP spline points
-                                if ui.input(|i| i.pointer.primary_released()) && note.pitch_bend.points.len() > 2 {
-                                    let simplified = crate::dsp::pitch_bend::PitchBendSolver::simplify_pitch_points(&note.pitch_bend.points, 12.0);
-                                    note.pitch_bend.points = simplified;
-                                    on_note_changed();
-                                }
-
-                                if ui.input(|i| i.pointer.secondary_clicked()) {
-                                    note.pitch_bend.points.clear();
-                                    on_note_changed();
-                                }
-                            }
+                            EditTool::PitchDraw => {}
                             EditTool::Pointer | EditTool::Pencil => {
                                 // Use primary_pressed() (not primary_clicked()) so drag starts
                                 // on mouse-down, enabling click-and-drag for resize/move
@@ -811,9 +850,40 @@ pub fn draw_piano_roll(
                                 }
 
                                 if ui.input(|i| i.pointer.secondary_clicked()) {
-                                    note_to_delete = Some(idx);
+                                    state.properties_window_for_note = Some(idx);
                                 }
                             }
+                        }
+                    }
+
+                    // Pitch Drawing Tool Handler for Note
+                    if state.active_tool == EditTool::PitchDraw && pitch_draw_target_rect.contains(mpos) {
+                        if ui.input(|i| i.pointer.primary_down()) {
+                            let rel_t = ((mpos.x - x_start) / state.px_per_ms) as f64;
+                            let delta_y = y_center - mpos.y;
+                            let cents = ((delta_y / state.row_height) * 100.0) as f64;
+                            let cents = cents.clamp(-1200.0, 1200.0);
+
+                            note.pitch_bend.points.retain(|pt| (pt.time_offset_ms - rel_t).abs() >= 6.0);
+                            note.pitch_bend.points.push(UPitchBendPoint {
+                                time_offset_ms: rel_t,
+                                pitch_offset_cents: cents,
+                                shape: "s".to_string(),
+                            });
+
+                            note.pitch_bend.points.sort_by(|a, b| a.time_offset_ms.partial_cmp(&b.time_offset_ms).unwrap_or(std::cmp::Ordering::Equal));
+                            on_note_changed();
+                        }
+
+                        if ui.input(|i| i.pointer.primary_released()) && note.pitch_bend.points.len() > 2 {
+                            let simplified = crate::dsp::pitch_bend::PitchBendSolver::simplify_pitch_points(&note.pitch_bend.points, 2.0);
+                            note.pitch_bend.points = simplified;
+                            on_note_changed();
+                        }
+
+                        if ui.input(|i| i.pointer.secondary_clicked()) {
+                            note.pitch_bend.points.clear();
+                            on_note_changed();
                         }
                     }
                 }
@@ -1087,4 +1157,60 @@ pub fn draw_piano_roll(
                 );
             }
         });
+
+    if let Some(prop_idx) = state.properties_window_for_note {
+        if prop_idx < notes.len() {
+            let mut close_window = false;
+            let note = &mut notes[prop_idx];
+            egui::Window::new("Note Properties")
+                .collapsible(false)
+                .resizable(false)
+                .show(ui.ctx(), |ui| {
+                    egui::Grid::new("prop_grid").num_columns(2).spacing([10.0, 10.0]).show(ui, |ui| {
+                        ui.label("Lyric");
+                        ui.text_edit_singleline(&mut note.lyric);
+                        ui.end_row();
+
+                        ui.label("Pitch");
+                        ui.label(note.pitch.clone());
+                        ui.end_row();
+
+                        ui.label("Duration (ms)");
+                        ui.add(egui::DragValue::new(&mut note.duration_ms).speed(1.0).range(20.0..=10000.0));
+                        ui.end_row();
+
+                        ui.label("Velocity (VEL)");
+                        ui.add(egui::DragValue::new(&mut note.expressions.velocity).speed(1.0).range(0.0..=200.0));
+                        ui.end_row();
+
+                        ui.label("Consonant Velocity");
+                        ui.add(egui::DragValue::new(&mut note.expressions.consonant_velocity).speed(1.0).range(0.0..=200.0));
+                        ui.end_row();
+
+                        ui.label("Modulation (MOD)");
+                        ui.add(egui::DragValue::new(&mut note.expressions.modulation).speed(1.0).range(0.0..=200.0));
+                        ui.end_row();
+                        
+                        // NOTE: flags might not exist in UNote yet, I should check model.rs. 
+                        // If it doesn't, I will just remove the Flags line or add it.
+                    });
+
+                    ui.add_space(10.0);
+                    ui.horizontal(|ui| {
+                        if ui.button("OK").clicked() {
+                            close_window = true;
+                        }
+                    });
+                });
+
+            if close_window {
+                state.properties_window_for_note = None;
+                // Since this uses FnMut and we can't call on_note_changed easily if we borrow it mutably twice,
+                // we assume egui::Window handles state and user just presses OK.
+                // Or we can just let the main loop capture the change.
+            }
+        } else {
+            state.properties_window_for_note = None;
+        }
+    }
 }

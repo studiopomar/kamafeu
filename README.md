@@ -17,31 +17,59 @@ O Kamafeu prioriza o controle absoluto e artesanal do usuário sobre a interpret
 * **Afinação Manuscrita**: O produtor molda manualmente os pontos de transição de pitch, vibratos, portamentos e modulações de envelope nota a nota.
 * **Transparência Concatenativa**: As amostras de voz originais são preservadas e manipuladas diretamente por algoritmos de pitch-shift e time-stretch (SOLA ou resamplers UTAU tradicionais).
 * **Desempenho Moderno**: O core em Rust oferece inicialização instantânea, renderização multithreaded e interface de alta taxa de quadros (60+ FPS) sem travamentos.
+* **Arquitetura Flexível Multifaixa**: Suporte ao painel de arranjo multifaixa (*Arrangement View*) com isolamento de faixa (Solo), silenciamento (Mute) e ajuste individual de volume (dB) e pan.
 
 ---
 
 ## Recursos e Arquitetura
 
-### 1. Suporte a Voicebanks UTAU
-* **Formatos de Amostra**: Compatível com voicebanks CV (Consonante-Vogal) e VCV (Vogal-Consonante-Vogal).
+### 1. Suporte a Voicebanks UTAU e Fonemizador Integrado
+* **Formatos de Amostra**: Compatível com voicebanks CV (Consonante-Vogal), VCV (Vogal-Consonante-Vogal) e CVVC.
+* **Fonemizador Automático (Romaji / Hiragana / VCV)**:
+  * Conversão automática de entradas em Romaji (`ka`, `ki`, `ku`, `ke`, `ko`) para caracteres Kana/Hiragana (`か`, `き`, `く`, `け`, `こ`).
+  * Tratamento de fonemas iniciais com aliases de início de frase, como `- V` ou `- CV` (ex: `- あ`, `- か`).
+  * Resolução de consoantes duplas (Sokuon `っ`) e consoantes nasais (`n` / `ん`).
 * **Leitura de `oto.ini`**: Suporte nativo a codificações de texto Shift-JIS (Windows Japão) e UTF-8.
 * **Configuração de Parâmetros de Amostra**:
   * **Offset**: Ponto de início do corte da amostra WAV.
   * **Consonant (Fixed Region)**: Região fixa que não sofre estiramento de tempo.
-  * **Cutoff**: Ponto final do corte da amostra.
+  * **Cutoff**: Ponto final do corte da amostra (suporte a valores negativos para marcação a partir do final do arquivo).
   * **Preutterance**: Pré-pronúncia (tempo de avanço do ataque em relação ao início da nota).
   * **Overlap**: Sobreposição suave com a nota anterior.
-* **Prefix Map (`prefix.map`)**: Mapeamento automático de sufixos de tom (ex: C4, G4) com base na altura da nota selecionada.
+* **Prefix Map (`prefix.map`)**: Mapeamento automático de sufixos e prefixos de tom (ex: C4, G4) com base na escala da nota.
 
-### 2. Processamento de Áudio e Motores Externos (Resamplers & Wavtools)
+### 2. Pipeline de Renderização Concatenativa
+O processo de síntese vocal no Kamafeu segue um pipeline rigoroso de processamento de sinal:
+
+```
+[Sequência de Notas USTX/UST]
+           │
+           ▼
+ [Fonemizador & OTO Parser] ──► Mapeia aliasing (ex: "- ka", "a ka") e parâmetros de tempo (Offset/Overlap)
+           │
+           ▼
+[Filtro de Janela (Chunking)] ──► Isola apenas as notas necessárias para a janela de prévia (baixa latência)
+           │
+           ▼
+[Resampling / Pitch Shift] ──► Altera a afinação e aplica Time-Stretch (Motor SOLA nativo ou macres CLI)
+           │
+           ▼
+ [Interpolação de Envelopes] ──► Aplica envelopes de amplitude UTAU e crossfade suave entre fragmentos
+           │
+           ▼
+  [Mixer & Audio Player] ──► Recompõe as faixas e envia os buffers PCM para a placa de som (CoreAudio/ALSA)
+```
+
+### 3. Motores de Áudio (Resamplers & Wavtools)
 O Kamafeu suporta tanto motores nativos em Rust quanto binários do ecossistema UTAU tradicional e moderno.
 
-#### Motor Nativo (SOLA)
+#### Motor Nativo (SOLA / DSP Interno)
 Implementação nativa do algoritmo **SOLA (Synchronized Overlap-Add)** para alteração de altura e duração sem alterar o timbre base:
 * **TD-PSOLA (Time-Domain)**: Alinhamento de marcadores de pitch no domínio do tempo para resposta rápida.
-* **FD-PSOLA (Frequency-Domain)**: Análise espectral via FFT com preservação de formantes.
-* **WSOLA (Waveform Similarity)**: Janelamento por autocorrelação cruzada para consoantes e transições complexas.
-* **LP-PSOLA (Linear Predictive Coding)**: Separação de filtro de trato vocal e excitação glótica.
+* **Análise pYIN & GCI**: Extração precisa de frequência fundamental $F_0$ e alinhamento de épocas glotais (Glottal Closure Instants).
+* **Preservação de Formantes (LPC)**: Filtragem inversa por Predição Linear (Levinson-Durbin) para evitar o efeito "esquilo" (*chipmunk*) em transposições agudas.
+* **Algoritmo WSOLA**: Janelamento por correlação cruzada no domínio do tempo para consoantes e trechos não-sonoros (*Unvoiced*).
+* **Aceleração SIMD**: Operações de janelamento e Overlap-Add otimizadas para extensões AVX2 (x86_64) e NEON (ARM64).
 
 #### Integração com Ferramentas Externas
 O Kamafeu permite alternar dinamicamente entre os motores na interface gráfica ou selecionar executáveis localizados nos diretórios `./resamplers` e `./wavtools`:
@@ -49,22 +77,24 @@ O Kamafeu permite alternar dinamicamente entre os motores na interface gráfica 
 * **[macres](https://github.com/titinko/macres)**: Motor de resampling multiplataforma baseado em `libpyin` e `libgvps`. É utilizado pelo Kamafeu para realizar a transposição de afinação (pitch-shifting) e o estiramento temporal (time-stretching) das amostras do voicebank.
 * **[wavtool-yawu](https://github.com/m13253/wavtool-yawu)** (*Yet Another Wavtool for UTAU*): Ferramenta de concatenação áudio moderna que substitui o `wavtool.exe` tradicional. No Kamafeu, ele processa os fragmentos gerados pelo resampler, aplicando envelopes de atenuação, interpolação de volume e *crossfading* entre as notas com suporte a amostragem em 32-bit e 64-bit float.
 
-### 3. Parâmetros Vocais em Tempo Real
+### 4. Parâmetros Vocais e Modulações
 Os parâmetros podem ser ajustados por nota ou globalmente na faixa:
 * **Gênero (`g`)**: Deslocamento de formantes para alterar o timbre entre vozes mais graves ou agudas.
 * **Soprosidade (`B`)**: Adição de ruído filtrado para simular voz sussurrada ou aspirada.
-* **Tensão (`t`)**: Compressão da forma de onda para alterar a intensidade do ataque.
-* **Brilho (`b`)**: Equalização de altas frequências no espectro vocal.
+* **Velocidade de Consoante (`VEL`)**: Ajuste do tempo de estiramento do ataque consonantal.
+* **Modulação (`MOD`)**: Percentual de variação de pitch em relação à afinação original da amostra.
+* **Volume & Dinâmica (`DYN`)**: Curva de atenuação de amplitude nota a nota.
 
-### 4. Curvas de Pitch (Mode 2 Pitch Bends)
-O sistema implementa o modelo de pitch bend Mode 2 do UTAU:
-* **Pontos de Controle (P)**: Adição e movimentação de nós de controle ao longo da nota.
-* **Tipos de Interpolação**:
-  * **S-Curve (S)**: Transições suaves em formato sigmoide.
-  * **Linear (L)**: Interpolação direta em linha reta.
-  * **R-Curve (R)**: Curva parabólica de atenuação rápida.
-  * **J-Curve (J)**: Curva de ataque acentuado.
-* **Codificação UTAU**: Compatibilidade com as strings de parâmetro `PBS`, `PBW`, `PBY` e `PBM`.
+### 5. Curvas de Pitch (Mode 2 Pitch Bends)
+O sistema implementa o modelo de pitch bend Mode 2 do UTAU e do OpenUTAU:
+* **Pontos de Controle**: Adição e movimentação livre de nós de controle sobre o Piano Roll.
+* **Interpolação Hermite Spline / Sigmoide**: Transições contínuas de frequência sem descontinuidades de derivada.
+* **Formatos de Curva**:
+  * **S-Curve / Spline (`s` / `io`)**: Transições em formato sigmoide (*SinEasingInOut*).
+  * **Ease-In (`i`)**: Curva suave de aceleração inicial (*SinEasingIn*).
+  * **Ease-Out (`o`)**: Curva de desaceleração final (*SinEasingOut*).
+  * **Linear (`l` / `r`)**: Interpolação direta em linha reta.
+* **Codificação UTAU Base64**: Compatibilidade com strings de parâmetro `#10#` e codificação de 12 bits para comunicação com resamplers CLI.
 
 ---
 
@@ -116,13 +146,26 @@ Para abrir o estúdio gráfico interativo:
 ```bash
 cargo run --release -- gui
 ```
-Na interface:
-* **Painel Esquerdo**: Seleção de Voicebank, parâmetros de Vocal Mode e inspeção da faixa.
-* **Área Central**: Piano Roll interativo e visualização de curvas de pitch.
-* **Painel Direito**: Configurações avançadas da nota e seleção de motores resampler/wavtool.
-* **Barra Superior**: Controles de reprodução (Play, Pause, Stop), ajuste de BPM e tempo.
+Estrutura da interface:
+* **Painel Superior (Arrangement View)**: Gerenciamento multifaixa com criação (`➕ Nova Track`), remoção (`🗑 Excluir`), Mute, Solo, nome e sliders de volume (dB).
+* **Painel Esquerdo**: Seleção de Voicebank, parâmetros de Vocal Mode (Gênero, Soprosidade) e paleta visual de fonemas Kana.
+* **Área Central**: Piano Roll interativo com grade de notas, régua temporal de compassos e ferramenta de desenho de pitch em tempo real.
+* **Painel Direito**: Configurações da nota selecionada (Envelope, Vibrato, Flags) e seletor de executáveis resampler/wavtool.
+* **Barra de Transporte**: Controles de reprodução (Play, Pause, Stop), leitura de tempo (`00:00.000`), seleção de snap de grade (1/4, 1/8, 1/16, Livre) e exportação WAV.
 
-### 2. Renderização em Linha de Comando (CLI)
+### 2. Configurando Resamplers Externos
+Caso deseje utilizar o executável `macres` ou `wavtool-yawu`:
+1. Baixe o binário correspondente ao seu sistema operacional.
+2. Coloque os arquivos nas pastas do projeto:
+   - `./resamplers/macres`
+   - `./wavtools/wavtool-yawu`
+3. Certifique-se de conceder permissão de execução (no macOS/Linux):
+   ```bash
+   chmod +x ./resamplers/macres ./wavtools/wavtool-yawu
+   ```
+4. Na interface do Kamafeu, acesse o painel direito e selecione a opção `macres` ou `Custom` (indicando o caminho do executável através da janela de arquivos).
+
+### 3. Renderização em Linha de Comando (CLI)
 É possível renderizar projetos `.ust`, `.ustx` ou `.json` diretamente para um arquivo WAV sem iniciar a interface gráfica:
 
 ```bash
@@ -134,12 +177,12 @@ cargo run --release -- render \
 ```
 
 Parâmetros do comando `render`:
-* `-v`, `--voicebank <PATH>`: Diretorio raiz do voicebank UTAU contendo `oto.ini`.
+* `-v`, `--voicebank <PATH>`: Diretório raiz do voicebank UTAU contendo `oto.ini`.
 * `-i`, `--input <PATH>`: Arquivo de entrada (`.ustx`, `.ust` ou `.json`).
 * `-o`, `--output <PATH>`: Caminho do arquivo WAV de saída (Padrão: `output.wav`).
 * `-s`, `--sample-rate <HZ>`: Taxa de amostragem em Hz (Padrão: `44100`).
 
-### 3. Outros Comandos CLI
+### 4. Outros Comandos CLI
 
 #### Inspeção de Voicebank
 Exibe o nome, autor, quantidade de entradas no `oto.ini` e amostra de aliases registrados:
@@ -189,14 +232,15 @@ cargo run --release -- gen-sample ./meu_voicebank_teste
 ```
 kamafeu/
 ├── Cargo.toml                # Configuração do pacote e dependências Rust
+├── melhorias.md              # Especificação técnica do motor DSP TD-PSOLA
 ├── src/
 │   ├── main.rs               # Parser de argumentos CLI e inicialização da GUI
 │   ├── lib.rs                # Declaração dos módulos da biblioteca
-│   ├── audio/                # Streaming de áudio em tempo real via rodio
+│   ├── audio/                # Streaming de áudio em tempo real via rodio/cpal
 │   ├── drivers/              # Drivers de execução para resamplers/wavtools CLI
-│   ├── dsp/                  # Algoritmos SOLA, envelopes, pitch bends e filtros
+│   ├── dsp/                  # Algoritmos SOLA, pYIN, LPC, pitch bends e filtros
 │   ├── formats/              # Parsers para formatos UST, USTX e MIDI
-│   ├── gui/                  # Interface gráfica (Piano Roll, Toolbar, Inspectors)
+│   ├── gui/                  # Interface gráfica (Piano Roll, Arrangement, Inspectors)
 │   ├── oto/                  # Leitura de oto.ini, character.txt e prefix.map
 │   ├── phonemizer/           # Mapeamento e conversão de fonemas (Romaji/Kana/VCV)
 │   ├── project/              # Modelos de dados do projeto (UProject, UNote, UPitch)
@@ -209,7 +253,7 @@ kamafeu/
 
 ## Testes
 
-Para rodar a suíte de testes unitários do projeto:
+Para rodar a suíte completa de 27 testes unitários automatizados do projeto:
 ```bash
 cargo test
 ```
