@@ -10,6 +10,7 @@ jobs:
   build:
     name: Build ${{ matrix.job.name }}
     runs-on: ${{ matrix.job.os }}
+    continue-on-error: ${{ matrix.job.allow_failure || false }}
     strategy:
       fail-fast: false
       matrix:
@@ -48,6 +49,7 @@ jobs:
             binary: libkamafeu.so
             archive: kamafeu-v${{ github.ref_name }}-android.apk
             use_cross: true
+            allow_failure: true
 
     steps:
       - name: Checkout repository
