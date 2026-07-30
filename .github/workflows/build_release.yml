@@ -26,14 +26,14 @@ jobs:
             os: macos-13
             target: x86_64-apple-darwin
             binary: kamafeu
-            archive: kamafeu-v${{ github.ref_name }}-macos-intel.tar.gz
+            archive: kamafeu-v${{ github.ref_name }}-macos-intel.dmg
             use_cross: false
 
           - name: macOS Apple Silicon (ARM64)
             os: macos-14
             target: aarch64-apple-darwin
             binary: kamafeu
-            archive: kamafeu-v${{ github.ref_name }}-macos-arm64.tar.gz
+            archive: kamafeu-v${{ github.ref_name }}-macos-arm64.dmg
             use_cross: false
 
           - name: Linux x64
@@ -93,6 +93,11 @@ jobs:
           fi
           if [[ "${{ matrix.job.target }}" == *"android"* ]]; then
             cp "$BIN_PATH" "${{ matrix.job.archive }}" || touch "${{ matrix.job.archive }}"
+          elif [[ "${{ matrix.job.os }}" == *"macos"* ]]; then
+            mkdir -p dmg_root
+            cp "$BIN_PATH" dmg_root/kamafeu
+            cp README.md dmg_root/ 2>/dev/null || true
+            hdiutil create -volname "Kamafeu" -srcfolder dmg_root -ov -format UDZO "${{ matrix.job.archive }}"
           else
             tar -czvf "${{ matrix.job.archive }}" -C "$(dirname "$BIN_PATH")" "$(basename "$BIN_PATH")"
           fi
@@ -119,7 +124,7 @@ jobs:
       - name: Flatten Artifacts & Generate SHA256 Checksums
         run: |
           mkdir -p ./release_assets
-          find ./artifacts -type f \( -name "*.zip" -o -name "*.tar.gz" -o -name "*.apk" \) -exec cp {} ./release_assets/ \;
+          find ./artifacts -type f \( -name "*.zip" -o -name "*.tar.gz" -o -name "*.apk" -o -name "*.dmg" \) -exec cp {} ./release_assets/ \;
           cd ./release_assets
           sha256sum * > SHA256SUMS.txt
           ls -la
@@ -159,8 +164,8 @@ jobs:
                 color: 65280,
                 fields: [
                   { name: "💻 Windows x64", value: "[Download .zip]('$RELEASE_URL')", inline: true },
-                  { name: "🍏 macOS Apple Silicon", value: "[Download .tar.gz]('$RELEASE_URL')", inline: true },
-                  { name: "🍎 macOS Intel", value: "[Download .tar.gz]('$RELEASE_URL')", inline: true },
+                  { name: "🍏 macOS Apple Silicon", value: "[Download .dmg]('$RELEASE_URL')", inline: true },
+                  { name: "🍎 macOS Intel", value: "[Download .dmg]('$RELEASE_URL')", inline: true },
                   { name: "🐧 Linux x64", value: "[Download .tar.gz]('$RELEASE_URL')", inline: true },
                   { name: "📱 Android ARM64", value: "[Download .apk]('$RELEASE_URL')", inline: true }
                 ],
