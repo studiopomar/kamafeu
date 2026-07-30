@@ -2011,6 +2011,7 @@ dependencies = [
 name = "kamafeu"
 version = "0.1.0"
 dependencies = [
+ "android-activity",
  "clap",
  "eframe",
  "encoding_rs",
