@@ -73,8 +73,8 @@ jobs:
       - name: Build Binary (Android Cross-compilation)
         if: matrix.job.use_cross == true
         run: |
-          cargo install cross --git https://github.com/cross-rs/cross
-          cross build --release --target ${{ matrix.job.target }} || cargo build --release --target ${{ matrix.job.target }} --no-default-features
+          cargo install cargo-ndk
+          cargo ndk -t aarch64-linux-android -o ./android_out build --release || cargo build --release --target aarch64-linux-android --no-default-features
 
       - name: Prepare Artifacts (Windows)
         if: matrix.job.os == 'windows-latest'
@@ -92,7 +92,11 @@ jobs:
             BIN_PATH="target/release/${{ matrix.job.binary }}"
           fi
           if [[ "${{ matrix.job.target }}" == *"android"* ]]; then
-            cp "$BIN_PATH" "${{ matrix.job.archive }}" || touch "${{ matrix.job.archive }}"
+            if [ -d "./android_out" ]; then
+              zip -r "${{ matrix.job.archive }}" ./android_out/
+            else
+              cp "$BIN_PATH" "${{ matrix.job.archive }}" || touch "${{ matrix.job.archive }}"
+            fi
           elif [[ "${{ matrix.job.os }}" == *"macos"* ]]; then
             mkdir -p dmg_root
             cp "$BIN_PATH" dmg_root/kamafeu
