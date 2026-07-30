@@ -1,0 +1,53 @@
+name: Discord Release Notification
+
+on:
+  release:
+    types: [published]
+  push:
+    tags:
+      - 'v*'
+
+jobs:
+  notify-discord:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Send Discord Embed Notification
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: |
+          if [ -z "$DISCORD_WEBHOOK" ]; then
+            echo "DISCORD_WEBHOOK_URL secret is not set. Skipping notification."
+            exit 0
+          fi
+
+          RELEASE_TITLE="${{ github.event.release.name }}"
+          RELEASE_URL="${{ github.event.release.html_url }}"
+          RELEASE_BODY="${{ github.event.release.body }}"
+          TAG_NAME="${{ github.ref_name }}"
+
+          if [ -z "$RELEASE_TITLE" ]; then
+            RELEASE_TITLE="Lançamento $TAG_NAME"
+          fi
+
+          if [ -z "$RELEASE_URL" ]; then
+            RELEASE_URL="https://github.com/${{ github.repository }}/releases/tag/$TAG_NAME"
+          fi
+
+          # Format JSON payload safely using jq
+          PAYLOAD=$(jq -n \
+            --arg title "$RELEASE_TITLE" \
+            --arg url "$RELEASE_URL" \
+            --arg desc "${RELEASE_BODY:-Novo lançamento disponível no repositório!}" \
+            '{
+              content: "🚀 **Novo Lançamento do Kamafeu no GitHub!**",
+              embeds: [{
+                title: $title,
+                url: $url,
+                description: $desc,
+                color: 65280,
+                footer: { text: "Kamafeu Voice Synthesizer" },
+                timestamp: (now | strftime("%Y-%m-%dT%H:%M:%SZ"))
+              }]
+            }')
+
+          curl -H "Content-Type: application/json" -X POST -d "$PAYLOAD" "$DISCORD_WEBHOOK"
