@@ -1,5 +1,4 @@
-use eframe::egui::{self, Color32, Rounding, Stroke};
-use crate::gui::theme::MelodyneTheme;
+use eframe::egui::{self, Color32, RichText, Rounding, Stroke};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EditTool {
@@ -23,42 +22,35 @@ pub fn draw_toolbar(
 ) {
     ui.horizontal(|ui| {
         ui.add_space(4.0);
-        ui.label(
-            egui::RichText::new(" FERRAMENTAS ")
-                .strong()
-                .size(9.5)
-                .color(MelodyneTheme::TEXT_NOTE_TAG)
-                .background_color(MelodyneTheme::ACCENT_GOLD)
-        );
-        ui.add_space(4.0);
+        ui.label(RichText::new("FERRAMENTAS").strong().size(10.0).color(Color32::from_rgb(180, 170, 190)));
 
         let tools = [
-            (EditTool::Pointer, "↖ Ponteiro [V]"),
-            (EditTool::Pencil, "✏ Lápis [N]"),
-            (EditTool::PitchDraw, "📈 Desenho Pitch [P]"),
-            (EditTool::Eraser, "🧹 Borracha [E]"),
+            (EditTool::Pointer, "Ponteiro [V]"),
+            (EditTool::Pencil, "Lápis [N]"),
+            (EditTool::PitchDraw, "Desenhar Pitch [P]"),
+            (EditTool::Eraser, "Borracha [E]"),
         ];
 
         for (tool, label) in tools {
             let is_selected = *current_tool == tool;
             let (bg_color, stroke_color, text_color) = if is_selected {
                 (
-                    MelodyneTheme::ACCENT_GOLD,
-                    Stroke::new(1.2, Color32::BLACK),
-                    Color32::BLACK,
+                    Color32::from_rgb(45, 38, 55),
+                    Stroke::new(1.5, Color32::from_rgb(255, 215, 0)),
+                    Color32::from_rgb(255, 215, 0),
                 )
             } else {
                 (
-                    MelodyneTheme::BG_CARD,
-                    Stroke::new(1.0, MelodyneTheme::BORDER_FINE),
-                    MelodyneTheme::TEXT_SECONDARY,
+                    Color32::from_rgb(28, 25, 34),
+                    Stroke::new(1.0, Color32::from_rgb(45, 40, 56)),
+                    Color32::from_rgb(180, 175, 195),
                 )
             };
 
-            let button_widget = egui::Button::new(egui::RichText::new(label).strong().size(11.0).color(text_color))
+            let button_widget = egui::Button::new(RichText::new(label).size(11.0).color(text_color))
                 .fill(bg_color)
                 .stroke(stroke_color)
-                .rounding(Rounding::same(3.0));
+                .rounding(Rounding::same(6.0));
 
             if ui.add(button_widget).clicked() {
                 *current_tool = tool;
@@ -70,12 +62,12 @@ pub fn draw_toolbar(
         ui.add_space(8.0);
 
         // Horizontal Zoom Controls (Timeline px_per_ms)
-        ui.label(egui::RichText::new("🔍 Zoom X:").size(10.5).color(MelodyneTheme::TEXT_SECONDARY));
-        if ui.button(egui::RichText::new("-").size(11.0)).clicked() {
+        ui.label(RichText::new("Zoom X:").size(10.0).color(Color32::from_rgb(180, 170, 190)));
+        if ui.button(RichText::new("-").size(11.0)).clicked() {
             *px_per_ms = (*px_per_ms * 0.8).max(0.05);
         }
         ui.add(egui::Slider::new(px_per_ms, 0.05..=1.0).show_value(false));
-        if ui.button(egui::RichText::new("+").size(11.0)).clicked() {
+        if ui.button(RichText::new("+").size(11.0)).clicked() {
             *px_per_ms = (*px_per_ms * 1.25).min(1.0);
         }
 
@@ -84,12 +76,12 @@ pub fn draw_toolbar(
         ui.add_space(8.0);
 
         // Vertical Zoom Controls (Key Row Height)
-        ui.label(egui::RichText::new("🔍 Zoom Y:").size(10.5).color(MelodyneTheme::TEXT_SECONDARY));
-        if ui.button(egui::RichText::new("-").size(11.0)).clicked() {
+        ui.label(RichText::new("Zoom Y:").size(10.0).color(Color32::from_rgb(180, 170, 190)));
+        if ui.button(RichText::new("-").size(11.0)).clicked() {
             *row_height = (*row_height * 0.85).max(12.0);
         }
         ui.add(egui::Slider::new(row_height, 12.0..=48.0).show_value(false));
-        if ui.button(egui::RichText::new("+").size(11.0)).clicked() {
+        if ui.button(RichText::new("+").size(11.0)).clicked() {
             *row_height = (*row_height * 1.15).min(48.0);
         }
     });

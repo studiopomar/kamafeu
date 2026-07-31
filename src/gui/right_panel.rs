@@ -29,55 +29,65 @@ pub fn draw_right_panel(
     custom_resampler_path: &mut Option<PathBuf>,
     custom_wavtool_path: &mut Option<PathBuf>,
 ) {
-    let vb_name = voicebank.map(|v| v.name.as_str()).unwrap_or("Singer Padrão");
+    let vb_name = voicebank.map(|v| v.name.as_str()).unwrap_or("Default Singer");
     let vb_author = voicebank.map(|v| v.author.as_str()).unwrap_or("UTAU Voicebank");
     let initial_letter = vb_name.chars().next().unwrap_or('V').to_uppercase().to_string();
 
     ui.vertical(|ui| {
-        // 1. Voicebank Singer Info & Character.txt Box (Neo-Brutalist Card)
+        // 1. Voicebank Singer Info & Character.txt Box
         Frame::none()
-            .fill(MelodyneTheme::BG_CARD)
-            .rounding(Rounding::same(3.0))
-            .stroke(Stroke::new(1.0, MelodyneTheme::BORDER_GOLD))
+            .fill(Color32::from_rgb(26, 20, 38))
+            .rounding(Rounding::same(6.0))
+            .stroke(Stroke::new(1.0, Color32::from_rgb(61, 46, 84)))
             .inner_margin(egui::Margin::same(8.0))
             .show(ui, |ui| {
                 ui.horizontal(|ui| {
-                    ui.label(
-                        RichText::new(" AVATAR VOCAL ")
-                            .strong()
-                            .size(9.5)
-                            .color(MelodyneTheme::TEXT_NOTE_TAG)
-                            .background_color(MelodyneTheme::ACCENT_GOLD)
-                    );
+                    ui.label(RichText::new("Avatar do Cantor:").strong().size(11.0).color(Color32::from_rgb(0, 255, 157)));
                 });
 
                 ui.add_space(4.0);
 
-                // Draw Avatar Picture Box
-                let (avatar_rect, _) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 70.0), egui::Sense::hover());
+                // Draw Avatar Picture Box (Image or Letter Badge)
+                let (avatar_rect, _) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 75.0), egui::Sense::hover());
                 let painter = ui.painter_at(avatar_rect);
 
-                painter.rect_filled(avatar_rect, Rounding::same(3.0), MelodyneTheme::BG_HEADER);
-                painter.rect_stroke(avatar_rect, Rounding::same(3.0), Stroke::new(1.0, MelodyneTheme::BORDER_CYAN));
+                painter.rect_filled(avatar_rect, Rounding::same(4.0), Color32::from_rgb(36, 27, 53));
+                painter.rect_stroke(avatar_rect, Rounding::same(4.0), Stroke::new(1.2, Color32::from_rgb(192, 132, 252)));
 
-                let center = avatar_rect.center();
-                painter.circle_filled(Pos2::new(center.x, center.y - 8.0), 18.0, MelodyneTheme::ACCENT_CYAN);
-                painter.circle_stroke(Pos2::new(center.x, center.y - 8.0), 18.0, Stroke::new(1.0, Color32::BLACK));
-                painter.text(
-                    Pos2::new(center.x, center.y - 8.0),
-                    egui::Align2::CENTER_CENTER,
-                    &initial_letter,
-                    egui::FontId::proportional(16.0),
-                    Color32::BLACK,
-                );
+                let mut loaded_image = false;
+                if let Some(vb) = voicebank {
+                    if let Some(ref img_path) = vb.image_path {
+                        if let Ok(img) = image::open(img_path) {
+                            let img_size = [img.width() as _, img.height() as _];
+                            let rgba = img.to_rgba8();
+                            let color_image = egui::ColorImage::from_rgba_unmultiplied(img_size, rgba.as_flat_samples().as_slice());
+                            let texture = ui.ctx().load_texture(&format!("right_vb_avatar_{}", vb.name), color_image, Default::default());
+                            let uv = egui::Rect::from_min_max(Pos2::new(0.0, 0.0), Pos2::new(1.0, 1.0));
+                            painter.image(texture.id(), avatar_rect.shrink(2.0), uv, Color32::WHITE);
+                            loaded_image = true;
+                        }
+                    }
+                }
 
-                painter.text(
-                    Pos2::new(center.x, center.y + 16.0),
-                    egui::Align2::CENTER_CENTER,
-                    vb_name,
-                    egui::FontId::proportional(11.0),
-                    MelodyneTheme::TEXT_PRIMARY,
-                );
+                if !loaded_image {
+                    let center = avatar_rect.center();
+                    painter.circle_filled(Pos2::new(center.x, center.y - 8.0), 18.0, Color32::from_rgb(0, 255, 157));
+                    painter.text(
+                        Pos2::new(center.x, center.y - 8.0),
+                        egui::Align2::CENTER_CENTER,
+                        &initial_letter,
+                        egui::FontId::proportional(16.0),
+                        Color32::from_rgb(20, 16, 28),
+                    );
+
+                    painter.text(
+                        Pos2::new(center.x, center.y + 16.0),
+                        egui::Align2::CENTER_CENTER,
+                        vb_name,
+                        egui::FontId::proportional(11.0),
+                        Color32::WHITE,
+                    );
+                }
 
                 ui.add_space(6.0);
                 ui.label(RichText::new(format!("Autor: {}", vb_author)).size(10.0).color(MelodyneTheme::TEXT_MUTED));
@@ -85,15 +95,15 @@ pub fn draw_right_panel(
                 if let Some(vb) = voicebank {
                     if !vb.character_info.is_empty() || !vb.readme_info.is_empty() {
                         ui.add_space(4.0);
-                        egui::CollapsingHeader::new(RichText::new("📄 character.txt / readme.txt").size(10.0).color(MelodyneTheme::TEXT_GOLD_LABEL))
+                        egui::CollapsingHeader::new(RichText::new("character.txt / readme.txt").size(10.0).color(MelodyneTheme::TEXT_GOLD_LABEL))
                             .show(ui, |ui| {
                                 egui::ScrollArea::vertical().max_height(100.0).show(ui, |ui| {
                                     if !vb.character_info.is_empty() {
-                                        ui.label(RichText::new(&vb.character_info).size(9.0).color(MelodyneTheme::TEXT_SECONDARY));
+                                        ui.label(RichText::new(&vb.character_info).size(9.0).color(Color32::from_rgb(216, 180, 254)));
                                     }
                                     if !vb.readme_info.is_empty() {
                                         ui.separator();
-                                        ui.label(RichText::new(&vb.readme_info).size(9.0).color(MelodyneTheme::TEXT_SECONDARY));
+                                        ui.label(RichText::new(&vb.readme_info).size(9.0).color(Color32::from_rgb(180, 220, 254)));
                                     }
                                 });
                             });
@@ -105,31 +115,21 @@ pub fn draw_right_panel(
 
         // Sidebar Mode Tabs: Note Properties vs Engine Settings
         ui.horizontal(|ui| {
-            let note_btn = egui::Button::new(
-                RichText::new("🎵 Nota")
-                    .strong()
-                    .size(11.0)
-                    .color(if *active_tab == RightSidebarTab::NoteProperties { Color32::BLACK } else { MelodyneTheme::TEXT_SECONDARY })
-            )
-            .fill(if *active_tab == RightSidebarTab::NoteProperties { MelodyneTheme::ACCENT_GOLD } else { MelodyneTheme::BG_CARD })
-            .stroke(Stroke::new(1.0, if *active_tab == RightSidebarTab::NoteProperties { Color32::BLACK } else { MelodyneTheme::BORDER_FINE }))
-            .rounding(Rounding::same(3.0));
-
-            if ui.add(note_btn).clicked() {
+            let note_tab_color = if *active_tab == RightSidebarTab::NoteProperties {
+                Color32::from_rgb(0, 255, 157)
+            } else {
+                MelodyneTheme::TEXT_MUTED
+            };
+            if ui.selectable_label(*active_tab == RightSidebarTab::NoteProperties, RichText::new("Informações da Nota").color(note_tab_color)).clicked() {
                 *active_tab = RightSidebarTab::NoteProperties;
             }
 
-            let settings_btn = egui::Button::new(
-                RichText::new("⚙️ Motores")
-                    .strong()
-                    .size(11.0)
-                    .color(if *active_tab == RightSidebarTab::Settings { Color32::BLACK } else { MelodyneTheme::TEXT_SECONDARY })
-            )
-            .fill(if *active_tab == RightSidebarTab::Settings { MelodyneTheme::ACCENT_CYAN } else { MelodyneTheme::BG_CARD })
-            .stroke(Stroke::new(1.0, if *active_tab == RightSidebarTab::Settings { Color32::BLACK } else { MelodyneTheme::BORDER_FINE }))
-            .rounding(Rounding::same(3.0));
-
-            if ui.add(settings_btn).clicked() {
+            let settings_tab_color = if *active_tab == RightSidebarTab::Settings {
+                Color32::from_rgb(0, 255, 157)
+            } else {
+                MelodyneTheme::TEXT_MUTED
+            };
+            if ui.selectable_label(*active_tab == RightSidebarTab::Settings, RichText::new("Configurações do Motor").color(settings_tab_color)).clicked() {
                 *active_tab = RightSidebarTab::Settings;
             }
         });
@@ -150,8 +150,8 @@ pub fn draw_right_panel(
                                     .stroke(Stroke::new(1.0, MelodyneTheme::ACCENT_GOLD))
                                     .inner_margin(egui::Margin::same(6.0))
                                     .show(ui, |ui| {
-                                        ui.label(RichText::new(format!("✨ Group Selection: {} notes selected", selected_indices.len())).strong().size(11.0).color(MelodyneTheme::ACCENT_GOLD));
-                                        ui.label(RichText::new("Slider changes apply to all selected notes").size(10.0).color(MelodyneTheme::TEXT_MUTED));
+                                        ui.label(RichText::new(format!("Seleção em Grupo: {} notas selecionadas", selected_indices.len())).strong().size(11.0).color(MelodyneTheme::ACCENT_GOLD));
+                                        ui.label(RichText::new("As alterações dos sliders aplicam-se a todas as notas selecionadas").size(10.0).color(MelodyneTheme::TEXT_MUTED));
                                     });
                                 ui.add_space(6.0);
                             }
@@ -179,28 +179,28 @@ pub fn draw_right_panel(
                                 .stroke(Stroke::new(1.0, Color32::from_rgb(61, 46, 84)))
                                 .inner_margin(egui::Margin::same(8.0))
                                 .show(ui, |ui| {
-                                    ui.label(RichText::new("Basic Information").strong().size(11.0).color(Color32::from_rgb(0, 255, 157)));
+                                    ui.label(RichText::new("Informações Básicas").strong().size(11.0).color(Color32::from_rgb(0, 255, 157)));
                                     ui.separator();
 
                                     ui.horizontal(|ui| {
-                                        ui.label("Lyric:");
+                                        ui.label("Letra:");
                                         if ui.text_edit_singleline(&mut lyric).changed() {
                                             changed_lyric = true;
                                         }
                                     });
 
                                     ui.horizontal(|ui| {
-                                        ui.label("Pitch Key:");
+                                        ui.label("Tom / Nota:");
                                         ui.label(RichText::new(&pitch_str).strong().color(Color32::from_rgb(216, 180, 254)));
                                     });
 
                                     ui.horizontal(|ui| {
-                                        ui.label("Start Pos (ms):");
+                                        ui.label("Posição Inicial (ms):");
                                         ui.label(format!("{:.1}", pos_ms));
                                     });
 
                                     ui.horizontal(|ui| {
-                                        ui.label("Duration (ms):");
+                                        ui.label("Duração (ms):");
                                         if ui.add(egui::DragValue::new(&mut dur_ms).range(20.0..=10000.0).speed(5.0)).changed() {
                                             changed_dur = true;
                                         }
@@ -216,32 +216,32 @@ pub fn draw_right_panel(
                                 .stroke(Stroke::new(1.0, Color32::from_rgb(61, 46, 84)))
                                 .inner_margin(egui::Margin::same(8.0))
                                 .show(ui, |ui| {
-                                    ui.label(RichText::new("Voice Parameters").strong().size(11.0).color(Color32::from_rgb(0, 255, 157)));
+                                    ui.label(RichText::new("Parâmetros Vocais").strong().size(11.0).color(Color32::from_rgb(0, 255, 157)));
                                     ui.separator();
 
                                     ui.horizontal(|ui| {
-                                        ui.label("Gender Factor:");
+                                        ui.label("Fator de Gênero:");
                                         if ui.add(egui::Slider::new(&mut gender, -100.0..=100.0).show_value(true)).changed() {
                                             changed_gender = true;
                                         }
                                     });
 
                                     ui.horizontal(|ui| {
-                                        ui.label("Dynamics (Volume):");
+                                        ui.label("Dinâmica (Volume):");
                                         if ui.add(egui::Slider::new(&mut dynamics, -20.0..=20.0).show_value(true)).changed() {
                                             changed_dynamics = true;
                                         }
                                     });
 
                                     ui.horizontal(|ui| {
-                                        ui.label("Pitch Delta (Cents):");
+                                        ui.label("Deslocamento de Pitch (Cents):");
                                         if ui.add(egui::Slider::new(&mut pitch_delta, -100.0..=100.0).show_value(true)).changed() {
                                             changed_pitch = true;
                                         }
                                     });
 
                                     ui.horizontal(|ui| {
-                                        ui.label("Breathiness:");
+                                        ui.label("Soprosidade:");
                                         if ui.add(egui::Slider::new(&mut breathiness, 0.0..=100.0).show_value(true)).changed() {
                                             changed_breath = true;
                                         }
@@ -269,18 +269,18 @@ pub fn draw_right_panel(
                     } else {
                         ui.vertical_centered(|ui| {
                             ui.add_space(20.0);
-                            ui.label(RichText::new("No Note Selected").italics().color(MelodyneTheme::TEXT_MUTED));
-                            ui.label(RichText::new("Click any note on the Piano Roll grid to inspect note properties.").size(10.0).color(MelodyneTheme::TEXT_MUTED));
+                            ui.label(RichText::new("Nenhuma Nota Selecionada").italics().color(MelodyneTheme::TEXT_MUTED));
+                            ui.label(RichText::new("Clique em qualquer nota na grade do Piano Roll para inspecionar e editar suas propriedades.").size(10.0).color(MelodyneTheme::TEXT_MUTED));
                         });
                     }
                 });
             }
             RightSidebarTab::Settings => {
                 egui::ScrollArea::vertical().show(ui, |ui| {
-                    ui.label(RichText::new("Resampler Engine").strong().color(Color32::from_rgb(0, 255, 157)));
+                    ui.label(RichText::new("Motor Resampler").strong().color(Color32::from_rgb(0, 255, 157)));
                     
                     let macres_path_opt = crate::drivers::MacResDriver::find_executable();
-                    let resamplers = ["macres (titinko/macres)", "Native Rust (TD-PSOLA)"];
+                    let resamplers = ["macres (titinko/macres)", "Nativo em Rust (TD-PSOLA)"];
                     
                     for res in resamplers {
                         if ui.radio_value(selected_resampler, res.to_string(), res).clicked() {
@@ -298,16 +298,16 @@ pub fn draw_right_panel(
                     if selected_resampler.contains("macres") {
                         if let Some(ref path) = custom_resampler_path.clone().or_else(|| macres_path_opt.clone()) {
                             ui.horizontal(|ui| {
-                                ui.label(RichText::new("🟢 Executável:").size(10.5).color(Color32::from_rgb(0, 255, 157)));
+                                ui.label(RichText::new("Executável:").size(10.5).color(Color32::from_rgb(0, 255, 157)));
                                 ui.label(RichText::new(path.to_string_lossy().to_string()).size(10.0).monospace().color(Color32::from_rgb(200, 190, 220)));
                             });
                         } else {
-                            ui.label(RichText::new("⚠️ Executável macres não encontrado no sistema. O Kamafeu usará o fallback Native TD-PSOLA.").size(10.0).italics().color(Color32::from_rgb(255, 200, 100)));
+                            ui.label(RichText::new("Executável macres não encontrado no sistema. O Kamafeu usará o fallback Native TD-PSOLA.").size(10.0).italics().color(Color32::from_rgb(255, 200, 100)));
                         }
                     }
 
                     ui.horizontal(|ui| {
-                        if ui.button(RichText::new("📂 Procurar Resampler...").size(10.5)).clicked() {
+                        if ui.button(RichText::new("Procurar Resampler...").size(10.5)).clicked() {
                             if let Some(file) = rfd::FileDialog::new()
                                 .set_title("Selecionar executável do Resampler (macres/moresampler/resampler)")
                                 .pick_file()
@@ -328,8 +328,8 @@ pub fn draw_right_panel(
                     ui.separator();
                     ui.add_space(10.0);
 
-                    ui.label(RichText::new("Wavtool Engine").strong().color(Color32::from_rgb(0, 255, 157)));
-                    let wavtools = ["wavtool-yawu (m13253/wavtool-yawu)", "Native Rust (TD-PSOLA)"];
+                    ui.label(RichText::new("Motor Wavtool").strong().color(Color32::from_rgb(0, 255, 157)));
+                    let wavtools = ["wavtool-yawu (m13253/wavtool-yawu)", "Nativo em Rust (TD-PSOLA)"];
                     for wt in wavtools {
                         if ui.radio_value(selected_wavtool, wt.to_string(), wt).clicked() {
                             if wt.contains("yawu") {
@@ -342,15 +342,29 @@ pub fn draw_right_panel(
                     ui.separator();
                     ui.add_space(10.0);
 
-                    ui.label(RichText::new("Audio Output").strong().color(Color32::from_rgb(0, 255, 157)));
+                    ui.label(RichText::new("Saída de Áudio").strong().color(Color32::from_rgb(0, 255, 157)));
                     ui.horizontal(|ui| {
-                        ui.label("Sample Rate:");
-                        ui.selectable_value(sample_rate, 44100, "44100 Hz");
-                        ui.selectable_value(sample_rate, 48000, "48000 Hz");
+                        ui.label("Taxa de Amostragem:");
+                        for rate in [44100, 48000] {
+                            let is_selected = *sample_rate == rate;
+                            let (bg_color, text_color, stroke) = if is_selected {
+                                (Color32::from_rgb(60, 42, 90), Color32::from_rgb(0, 255, 157), Stroke::new(1.5, Color32::from_rgb(0, 255, 157)))
+                            } else {
+                                (Color32::from_rgb(32, 24, 46), Color32::from_rgb(200, 190, 220), Stroke::new(1.0, Color32::from_rgb(50, 40, 70)))
+                            };
+                            let btn = egui::Button::new(RichText::new(format!("{} Hz", rate)).size(11.0).color(text_color).strong())
+                                .fill(bg_color)
+                                .stroke(stroke)
+                                .rounding(Rounding::same(4.0));
+
+                            if ui.add(btn).clicked() {
+                                *sample_rate = rate;
+                            }
+                        }
                     });
 
                     ui.horizontal(|ui| {
-                        ui.label("Render Threads:");
+                        ui.label("Threads de Renderização:");
                         ui.add(egui::Slider::new(render_threads, 1..=16));
                     });
                 });

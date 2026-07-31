@@ -237,6 +237,7 @@ mod tests {
             author: "Test".to_string(),
             character_info: String::new(),
             readme_info: String::new(),
+            image_path: None,
             entries,
             prefix_map: crate::oto::PrefixMap::default(),
         };

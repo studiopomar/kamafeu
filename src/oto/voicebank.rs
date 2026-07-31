@@ -14,6 +14,7 @@ pub struct Voicebank {
     pub author: String,
     pub character_info: String,
     pub readme_info: String,
+    pub image_path: Option<PathBuf>,
     pub entries: HashMap<String, OtoEntry>,
     pub prefix_map: PrefixMap,
 }
@@ -29,6 +30,7 @@ impl Voicebank {
         let mut author = "Unknown".to_string();
         let mut character_info = String::new();
         let mut readme_info = String::new();
+        let mut image_relative_path: Option<String> = None;
 
         // Load character.txt metadata if present
         let char_path = root_path.join("character.txt");
@@ -42,10 +44,68 @@ impl Voicebank {
                         name = line.trim_start_matches("name=").trim().to_string();
                     } else if line.starts_with("author=") {
                         author = line.trim_start_matches("author=").trim().to_string();
+                    } else if line.starts_with("image=") {
+                        image_relative_path = Some(line.trim_start_matches("image=").trim().to_string());
+                    } else if line.starts_with("icon=") {
+                        if image_relative_path.is_none() {
+                            image_relative_path = Some(line.trim_start_matches("icon=").trim().to_string());
+                        }
+                    } else if line.starts_with("portrait=") {
+                        if image_relative_path.is_none() {
+                            image_relative_path = Some(line.trim_start_matches("portrait=").trim().to_string());
+                        }
                     }
                 }
             }
         }
+
+        // Load character.yaml metadata if present
+        let char_yaml_path = root_path.join("character.yaml");
+        if char_yaml_path.exists() {
+            if let Ok(content) = fs::read_to_string(&char_yaml_path) {
+                for line in content.lines() {
+                    let line = line.trim();
+                    if line.starts_with("name:") && (name.starts_with("Unknown") || name.is_empty()) {
+                        name = line.trim_start_matches("name:").trim().trim_matches('"').to_string();
+                    } else if line.starts_with("author:") && author == "Unknown" {
+                        author = line.trim_start_matches("author:").trim().trim_matches('"').to_string();
+                    } else if line.starts_with("image:") || line.starts_with("portrait:") || line.starts_with("icon:") {
+                        if image_relative_path.is_none() {
+                            let parts: Vec<&str> = line.splitn(2, ':').collect();
+                            if parts.len() == 2 {
+                                image_relative_path = Some(parts[1].trim().trim_matches('"').to_string());
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // Resolve absolute image_path with fallback to common image files in voicebank root
+        let image_path = if let Some(ref rel) = image_relative_path {
+            let p = root_path.join(rel);
+            if p.exists() {
+                Some(p)
+            } else {
+                None
+            }
+        } else {
+            None
+        }.or_else(|| {
+            let default_names = [
+                "character.png", "icon.png", "avatar.png", "portrait.png",
+                "character.bmp", "icon.bmp", "avatar.bmp", "portrait.bmp",
+                "character.jpg", "icon.jpg", "avatar.jpg", "portrait.jpg",
+                "CHARACTER.PNG", "ICON.PNG", "AVATAR.PNG", "PORTRAIT.PNG",
+            ];
+            for name in default_names {
+                let candidate = root_path.join(name);
+                if candidate.exists() {
+                    return Some(candidate);
+                }
+            }
+            None
+        });
 
         // Load readme.txt if present
         let readme_path = root_path.join("readme.txt");
@@ -94,6 +154,7 @@ impl Voicebank {
             author,
             character_info,
             readme_info,
+            image_path,
             entries,
             prefix_map,
         })

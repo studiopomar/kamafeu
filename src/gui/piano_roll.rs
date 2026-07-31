@@ -467,19 +467,19 @@ pub fn draw_piano_roll(
                     MelodyneTheme::NOTE_GOLD_FILL
                 };
 
-                // Draw Delicate Neo-Brutalist note block (3px rounding with razor sharp 1.2px dark stroke)
-                painter.rect_filled(note_rect, Rounding::same(3.0), note_color);
+                // Draw Melodyne rounded gold note blob
+                painter.rect_filled(note_rect, Rounding::same(6.0), note_color);
                 painter.rect_stroke(
                     note_rect,
-                    Rounding::same(3.0),
-                    Stroke::new(1.2, if is_selected { Color32::BLACK } else { MelodyneTheme::NOTE_GOLD_STROKE }),
+                    Rounding::same(6.0),
+                    Stroke::new(1.8, if is_selected { Color32::WHITE } else { MelodyneTheme::NOTE_GOLD_STROKE }),
                 );
 
                 // Phoneme Drag & Drop Target Highlight
                 if let Some(ref dragged_alias) = phoneme_state.dragged_phoneme {
                     if let Some(mpos) = mouse_interact_pos {
                         if note_rect.contains(mpos) {
-                            painter.rect_stroke(note_rect, Rounding::same(3.0), Stroke::new(2.0, MelodyneTheme::ACCENT_CYAN));
+                            painter.rect_stroke(note_rect, Rounding::same(6.0), Stroke::new(2.5, Color32::from_rgb(0, 220, 255)));
 
                             if !ui.input(|i| i.pointer.primary_down()) {
                                 commit_lyric_edit = Some((idx, dragged_alias.clone()));
@@ -497,12 +497,12 @@ pub fn draw_piano_roll(
                     let amp = (rel_i.sin().abs() * 0.4 + 0.1) * (state.row_height * 0.35);
                     painter.line_segment(
                         [Pos2::new(wave_x, y_center - amp), Pos2::new(wave_x, y_center + amp)],
-                        Stroke::new(1.0, Color32::from_rgba_premultiplied(0, 0, 0, 140)),
+                        Stroke::new(1.0, Color32::from_rgba_premultiplied(40, 25, 5, 160)),
                     );
                     wave_x += step;
                 }
 
-                // Render Neo-Brutalist Pitch Curve Overlay on Note (Vibrant Neon Cyan/Magenta)
+                // Render OpenUTAU Magenta Pitch Curve Overlay on Note
                 if !note.pitch_bend.points.is_empty() {
                     let mut pitch_line_pts = Vec::new();
                     let step_px = 3.0f32;
@@ -516,18 +516,18 @@ pub fn draw_piano_roll(
                     }
                     if pitch_line_pts.len() >= 2 {
                         for pts_win in pitch_line_pts.windows(2) {
-                            painter.line_segment([pts_win[0], pts_win[1]], Stroke::new(2.0, MelodyneTheme::ACCENT_MAGENTA));
+                            painter.line_segment([pts_win[0], pts_win[1]], Stroke::new(2.2, Color32::from_rgb(255, 0, 128)));
                         }
                     }
 
-                    // Render Pitch Control Points
+                    // Render Pitch Control Points (subsampled for clean visual display)
                     for (pt_idx, pt) in note.pitch_bend.points.iter().enumerate() {
                         if pt_idx == 0 || pt_idx == note.pitch_bend.points.len() - 1 || pt_idx % 2 == 0 {
                             let pt_x = x_start + (pt.time_offset_ms * state.px_per_ms as f64) as f32;
                             let pt_y = y_center - (pt.pitch_offset_cents / 100.0) as f32 * state.row_height;
                             if pt_x >= x_start && pt_x <= x_end {
-                                painter.circle_filled(Pos2::new(pt_x, pt_y), 3.5, MelodyneTheme::ACCENT_CYAN);
-                                painter.circle_stroke(Pos2::new(pt_x, pt_y), 3.5, Stroke::new(1.0, Color32::BLACK));
+                                painter.circle_filled(Pos2::new(pt_x, pt_y), 3.0, Color32::WHITE);
+                                painter.circle_stroke(Pos2::new(pt_x, pt_y), 3.0, Stroke::new(1.0, Color32::from_rgb(255, 0, 128)));
                             }
                         }
                     }

@@ -69,23 +69,24 @@ impl KamafeuStudioApp {
         // Load Japanese CJK system fonts for egui
         setup_custom_fonts(&cc.egui_ctx);
 
-        // Apply Delicate Neo-Brutalist Visuals Theme
+        // Apply High-Contrast Dark Visuals Theme
         let mut visuals = egui::Visuals::dark();
         visuals.panel_fill = MelodyneTheme::BG_PANEL;
         visuals.window_fill = MelodyneTheme::BG_PANEL;
-        visuals.extreme_bg_color = MelodyneTheme::BG_CANVAS;
-        visuals.widgets.noninteractive.bg_fill = MelodyneTheme::BG_CARD;
-        visuals.widgets.noninteractive.bg_stroke = egui::Stroke::new(1.0, MelodyneTheme::BORDER_FINE);
-        visuals.widgets.inactive.bg_fill = MelodyneTheme::BG_CARD;
-        visuals.widgets.inactive.bg_stroke = egui::Stroke::new(1.0, MelodyneTheme::BORDER_FINE);
-        visuals.widgets.hovered.bg_fill = MelodyneTheme::BG_HEADER;
-        visuals.widgets.hovered.bg_stroke = egui::Stroke::new(1.0, MelodyneTheme::BORDER_GOLD);
-        visuals.widgets.active.bg_fill = MelodyneTheme::ACCENT_GOLD;
-        visuals.widgets.active.bg_stroke = egui::Stroke::new(1.2, egui::Color32::BLACK);
-        visuals.selection.bg_fill = MelodyneTheme::ACCENT_GOLD;
-        visuals.selection.stroke.color = egui::Color32::BLACK;
-        visuals.window_rounding = egui::Rounding::same(3.0);
-        visuals.window_stroke = egui::Stroke::new(1.0, MelodyneTheme::BORDER_GOLD);
+        visuals.widgets.noninteractive.bg_fill = MelodyneTheme::BG_PANEL;
+        visuals.widgets.noninteractive.fg_stroke = egui::Stroke::new(1.0, egui::Color32::from_rgb(220, 215, 235));
+        
+        visuals.widgets.inactive.bg_fill = egui::Color32::from_rgb(32, 24, 46);
+        visuals.widgets.inactive.fg_stroke = egui::Stroke::new(1.0, egui::Color32::from_rgb(210, 200, 230));
+
+        visuals.widgets.hovered.bg_fill = egui::Color32::from_rgb(48, 35, 72);
+        visuals.widgets.hovered.fg_stroke = egui::Stroke::new(1.2, egui::Color32::WHITE);
+
+        visuals.widgets.active.bg_fill = egui::Color32::from_rgb(60, 42, 90);
+        visuals.widgets.active.fg_stroke = egui::Stroke::new(1.5, egui::Color32::from_rgb(0, 255, 157));
+
+        visuals.selection.bg_fill = egui::Color32::from_rgb(60, 42, 90);
+        visuals.selection.stroke = egui::Stroke::new(1.2, egui::Color32::from_rgb(0, 255, 157));
         cc.egui_ctx.set_visuals(visuals);
 
         let project = crate::project::model::create_astro_boy_1980_project();
@@ -213,6 +214,7 @@ impl KamafeuStudioApp {
             author: "System".to_string(),
             character_info: String::new(),
             readme_info: String::new(),
+            image_path: None,
             entries: std::collections::HashMap::new(),
             prefix_map: crate::oto::PrefixMap::default(),
         };
@@ -335,6 +337,7 @@ impl KamafeuStudioApp {
                 author: "System".to_string(),
                 character_info: String::new(),
                 readme_info: String::new(),
+                image_path: None,
                 entries: std::collections::HashMap::new(),
                 prefix_map: crate::oto::PrefixMap::default(),
             };
@@ -681,9 +684,9 @@ impl eframe::App for KamafeuStudioApp {
             .frame(Frame::none().fill(MelodyneTheme::BG_PANEL))
             .show(ctx, |ui| {
                 ui.horizontal(|ui| {
-                    if ui.button("📂 Open Project...").clicked() {
+                    if ui.button("Abrir Projeto...").clicked() {
                         if let Some(path) = rfd::FileDialog::new()
-                            .add_filter("Project & MIDI Files (.ustx, .ust, .mid, .midi)", &["ustx", "ust", "mid", "midi", "json"])
+                            .add_filter("Arquivos de Projeto e MIDI (.ustx, .ust, .mid, .midi)", &["ustx", "ust", "mid", "midi", "json"])
                             .pick_file()
                         {
                             let extension = path.extension().and_then(|s| s.to_str()).unwrap_or("").to_lowercase();
@@ -709,21 +712,21 @@ impl eframe::App for KamafeuStudioApp {
                                     }
 
                                     self.piano_roll_state.initial_scrolled = false;
-                                    self.transport_state.status_message = format!("Opened project {:?}", path.file_name().unwrap_or_default());
+                                    self.transport_state.status_message = format!("Projeto aberto: {:?}", path.file_name().unwrap_or_default());
                                 }
                                 Err(e) => {
-                                    self.transport_state.status_message = format!("Error opening project: {}", e);
+                                    self.transport_state.status_message = format!("Erro ao abrir projeto: {}", e);
                                 }
                             }
                         }
                     }
 
-                    if ui.button("💾 Save Project...").clicked() {
+                    if ui.button("Salvar Projeto...").clicked() {
                         if let Some(path) = rfd::FileDialog::new()
                             .set_file_name("project.ustx")
-                            .add_filter("OpenUTAU Project (*.ustx)", &["ustx"])
-                            .add_filter("UTAU Sequence (*.ust)", &["ust"])
-                            .add_filter("Standard MIDI File (*.mid)", &["mid", "midi"])
+                            .add_filter("Projeto OpenUTAU (*.ustx)", &["ustx"])
+                            .add_filter("Sequência UTAU (*.ust)", &["ust"])
+                            .add_filter("Arquivo MIDI Padrão (*.mid)", &["mid", "midi"])
                             .save_file()
                         {
                             let ext = path.extension().and_then(|s| s.to_str()).unwrap_or("").to_lowercase();
@@ -734,17 +737,17 @@ impl eframe::App for KamafeuStudioApp {
                             };
 
                             if res.is_ok() {
-                                self.transport_state.status_message = format!("Saved project to {:?}", path.file_name().unwrap_or_default());
+                                self.transport_state.status_message = format!("Projeto salvo em: {:?}", path.file_name().unwrap_or_default());
                             } else if let Err(e) = res {
-                                self.transport_state.status_message = format!("Error saving project: {}", e);
+                                self.transport_state.status_message = format!("Erro ao salvar projeto: {}", e);
                             }
                         }
                     }
 
-                    if ui.button("🎙️ Export WAV...").clicked() {
+                    if ui.button("Exportar WAV...").clicked() {
                         if let Some(path) = rfd::FileDialog::new()
                             .set_file_name("kamafeu_output.wav")
-                            .add_filter("PCM Audio Wave (*.wav)", &["wav"])
+                            .add_filter("Áudio PCM Wave (*.wav)", &["wav"])
                             .save_file()
                         {
                             let sample_rate = self.sample_rate;
@@ -789,8 +792,8 @@ impl eframe::App for KamafeuStudioApp {
                                 );
 
                                 match crate::renderer::exporter::AudioExporter::export_to_wav(&path, &samples, sample_rate) {
-                                    Ok(_) => self.transport_state.status_message = format!("Exported WAV audio to {:?}", path.file_name().unwrap_or_default()),
-                                    Err(e) => self.transport_state.status_message = format!("Error exporting WAV: {}", e),
+                                    Ok(_) => self.transport_state.status_message = format!("Áudio WAV exportado para: {:?}", path.file_name().unwrap_or_default()),
+                                    Err(e) => self.transport_state.status_message = format!("Erro ao exportar WAV: {}", e),
                                 }
                             }
                         }
@@ -839,11 +842,11 @@ impl eframe::App for KamafeuStudioApp {
                 if let Some(path) = loaded_path {
                     match Voicebank::new(&path) {
                         Ok(vb) => {
-                            self.transport_state.status_message = format!("Loaded Voicebank: {}", vb.name);
+                            self.transport_state.status_message = format!("Voicebank Carregado: {}", vb.name);
                             self.voicebank = Some(vb);
                         }
                         Err(e) => {
-                            self.transport_state.status_message = format!("Error loading voicebank: {}", e);
+                            self.transport_state.status_message = format!("Erro ao carregar voicebank: {}", e);
                         }
                     }
                 }

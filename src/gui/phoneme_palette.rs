@@ -12,7 +12,7 @@ impl Default for PhonemePaletteState {
     fn default() -> Self {
         Self {
             search_query: String::new(),
-            selected_folder: "All Folders".to_string(),
+            selected_folder: "Todas as Pastas".to_string(),
             dragged_phoneme: None,
         }
     }
@@ -27,7 +27,7 @@ pub fn draw_phoneme_palette(
 ) {
     ui.vertical(|ui| {
         ui.add_space(4.0);
-        ui.heading(RichText::new("🔤 Phonemes (oto.ini)").strong().size(14.0).color(MelodyneTheme::TEXT_GOLD_LABEL));
+        ui.heading(RichText::new("🔤 Paleta de Fonemas (oto.ini)").strong().size(14.0).color(MelodyneTheme::TEXT_GOLD_LABEL));
         ui.add_space(6.0);
 
         if let Some(vb) = voicebank {
@@ -36,7 +36,7 @@ pub fn draw_phoneme_palette(
                 ui.label(RichText::new("🔍").size(12.0));
                 ui.add(
                     egui::TextEdit::singleline(&mut state.search_query)
-                        .hint_text("Search alias (e.g. ka, a ka, CV)...")
+                        .hint_text("Buscar fonema (ex: ka, a ka, CV)...")
                         .desired_width(ui.available_width() - 30.0),
                 );
             });
@@ -46,7 +46,7 @@ pub fn draw_phoneme_palette(
             // Subfolder Filter Dropdown
             let subfolders = vb.get_subfolders();
             ui.horizontal(|ui| {
-                ui.label(RichText::new("Folder:").size(11.0).color(MelodyneTheme::TEXT_MUTED));
+                ui.label(RichText::new("Pasta:").size(11.0).color(MelodyneTheme::TEXT_MUTED));
                 egui::ComboBox::from_id_salt("phoneme_folder_combo")
                     .selected_text(&state.selected_folder)
                     .show_ui(ui, |ui| {
@@ -63,7 +63,7 @@ pub fn draw_phoneme_palette(
             let mut matches = vb.search_entries(&state.search_query, &state.selected_folder);
             matches.sort_by(|a, b| a.0.cmp(b.0));
 
-            ui.label(RichText::new(format!("Available Phonemes ({})", matches.len())).size(11.0).color(MelodyneTheme::TEXT_MUTED));
+            ui.label(RichText::new(format!("Fonemas Disponíveis ({})", matches.len())).size(11.0).color(MelodyneTheme::TEXT_MUTED));
             ui.add_space(4.0);
 
             // Phoneme Cards Grid (Melodyne Gold Buttons with Drag & Drop)
@@ -145,7 +145,7 @@ pub fn draw_phoneme_palette(
                 }
             }
         } else {
-            ui.label(RichText::new("No voicebank loaded. Load a voicebank to view phonemes.").italics().color(MelodyneTheme::TEXT_MUTED));
+            ui.label(RichText::new("Nenhum voicebank carregado. Carregue um voicebank para visualizar os fonemas.").italics().color(MelodyneTheme::TEXT_MUTED));
         }
     });
 }
