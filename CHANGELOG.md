@@ -26,7 +26,26 @@
 - **Mini-Mapa Sincronizado**: O cursor de reprodução vermelho (*Playhead*) é desenhado em tempo real na visão de arranjo e sincronizado com o Piano Roll.
 - **Clipes de Áudio/Voz (*UVoicePart*)**: Arraste e solte (*drag & drop*) de partes pela linha do tempo e foco por duplo clique.
 
-### Interface do Usuário (UI) & Localização
+### Interface do Usuário (UI), Menu Superior & Atalhos
+- **Barra de Menus Superior Completa**: Adicionado menu no estilo DAW profissional com submenus:
+  - **Arquivo**: `Novo Projeto`, `Abrir Projeto...`, `Salvar Projeto...`, `Carregar Voicebank...`, `Exportar Áudio WAV...`
+  - **Editar**: `Desfazer`, `Refazer`, `Copiar`, `Colar`, `Duplicar`, `Excluir`, `Selecionar Tudo`, `Transposição (+1/-1 semitom, +1/-1 oitava)`
+  - **Ferramentas**: `Ponteiro`, `Lápis`, `Desenhar Pitch`, `Borracha`, `Copaiba Voicebank Toolkit`
+  - **Exibir**: `Aumentar Zoom X`, `Diminuir Zoom X`, `Janela de Log de Renderização`
+  - **Ajuda**: `Guia de Teclas de Atalho...`
+- **Sistema de Teclas de Atalho & Combinações**:
+  - `Espaço`: Tocar / Pausar reprodução.
+  - `Esc`: Parar áudio e reiniciar cursor no início (`0ms`).
+  - `V` / `1`, `N` / `2`, `P` / `3`, `E` / `4`: Seleção direta de ferramentas.
+  - `Ctrl+C` / `Ctrl+V` / `Ctrl+D` / `Delete`: Copiar, colar, duplicar e excluir notas.
+  - `Ctrl+Z` / `Ctrl+Y` (`Ctrl+Shift+Z`): Desfazer e refazer histórico.
+  - `Ctrl+O`, `Ctrl+S`, `Ctrl+E`: Abrir projeto, salvar projeto e exportar WAV.
+  - `Seta Cima / Baixo`: Transposição de notas (+1 / -1 semitom).
+  - `Shift + Seta Cima / Baixo`: Transposição por oitava (+12 / -12 semitones).
+  - `Seta Esquerda / Direita`: Mover posição temporal da nota (`50ms`).
+  - `Shift + Seta Esquerda / Direita`: Redimensionar duração da nota (`50ms`).
+  - `Ctrl+=` / `Ctrl+-`: Controle de zoom horizontal.
+- **Janela de Guia de Atalhos**: Modal interativo aberto via `Ajuda -> Guia de Teclas de Atalho...`.
 - **Tradução Completa para Português**: Interface 100% traduzida em todas as ferramentas, painéis e controles.
 - **Avatar do Cantor sem Distorção**: Carregamento da imagem do cantor (`character.txt` / `character.yaml`) centralizado em caixa 100x100 px com taxa de proporção (*aspect ratio*) preservada.
 - **Correção de Contraste**: Tema de alto contraste para botões de seleção de taxa de amostragem (44100 Hz / 48000 Hz) e menus suspensos sobre fundo roxo escuro.

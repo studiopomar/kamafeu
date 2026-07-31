@@ -66,6 +66,7 @@ pub struct KamafeuStudioApp {
     config: KamafeuConfig,
     copaiba_app: crate::copaiba::gui::CopaibaToolkitApp,
     copaiba_window_open: bool,
+    shortcuts_guide_open: bool,
 }
 
 impl KamafeuStudioApp {
@@ -158,6 +159,7 @@ impl KamafeuStudioApp {
             config,
             copaiba_app: crate::copaiba::gui::CopaibaToolkitApp::default(),
             copaiba_window_open: false,
+            shortcuts_guide_open: false,
         }
     }
 
@@ -194,6 +196,80 @@ impl KamafeuStudioApp {
 
     pub fn push_history(&mut self) {
         self.undo_manager.push_state(self.project.clone());
+    }
+
+    pub fn transpose_selected_note(&mut self, semitones: i32) {
+        if let Some(sel_idx) = self.piano_roll_state.selected_note_index {
+            let min_m = self.piano_roll_state.min_midi as i32;
+            let max_m = self.piano_roll_state.max_midi as i32;
+            self.push_history();
+            let notes = self.current_notes_mut();
+            if sel_idx < notes.len() {
+                let cur_m = notes[sel_idx].midi_key() as i32;
+                let new_m = (cur_m + semitones).clamp(min_m, max_m) as u8;
+                notes[sel_idx].set_midi_key(new_m);
+            }
+        }
+    }
+
+    pub fn open_project_dialog(&mut self) {
+        if let Some(path) = rfd::FileDialog::new()
+            .add_filter("Arquivos de Projeto e MIDI (.ustx, .ust, .mid, .midi)", &["ustx", "ust", "mid", "midi", "json"])
+            .pick_file()
+        {
+            let extension = path.extension().and_then(|s| s.to_str()).unwrap_or("").to_lowercase();
+            let loaded = match extension.as_str() {
+                "mid" | "midi" => MidiFormat::load_file(&path),
+                "ust" => UstFormat::load_file(&path),
+                _ => UstxFormat::load_file(&path),
+            };
+            match loaded {
+                Ok(proj) => {
+                    self.project = proj;
+                    self.transport_state.bpm = self.project.bpm;
+
+                    let first_pos = self.project.parts.iter()
+                        .flat_map(|p| p.notes.iter())
+                        .map(|n| n.position_ms)
+                        .fold(f64::INFINITY, f64::min);
+
+                    if first_pos.is_finite() && first_pos > 0.0 {
+                        self.piano_roll_state.playhead_ms = first_pos;
+                    } else {
+                        self.piano_roll_state.playhead_ms = 0.0;
+                    }
+
+                    self.piano_roll_state.initial_scrolled = false;
+                    self.transport_state.status_message = format!("Projeto aberto: {:?}", path.file_name().unwrap_or_default());
+                }
+                Err(e) => {
+                    self.transport_state.status_message = format!("Erro ao abrir projeto: {}", e);
+                }
+            }
+        }
+    }
+
+    pub fn save_project_dialog(&mut self) {
+        if let Some(path) = rfd::FileDialog::new()
+            .set_file_name("project.ustx")
+            .add_filter("Projeto OpenUTAU (*.ustx)", &["ustx"])
+            .add_filter("Sequência UTAU (*.ust)", &["ust"])
+            .add_filter("Arquivo MIDI Padrão (*.mid)", &["mid", "midi"])
+            .save_file()
+        {
+            let ext = path.extension().and_then(|s| s.to_str()).unwrap_or("").to_lowercase();
+            let res = match ext.as_str() {
+                "mid" | "midi" => MidiFormat::save_file(&self.project, &path),
+                "ust" => UstFormat::save_file(&self.project, &path),
+                _ => UstxFormat::save_file(&self.project, &path),
+            };
+
+            if res.is_ok() {
+                self.transport_state.status_message = format!("Projeto salvo em: {:?}", path.file_name().unwrap_or_default());
+            } else if let Err(e) = res {
+                self.transport_state.status_message = format!("Erro ao salvar projeto: {}", e);
+            }
+        }
     }
 
     pub fn play_current_track(&mut self) {
@@ -591,45 +667,57 @@ impl eframe::App for KamafeuStudioApp {
             let mut do_paste = false;
             let mut do_duplicate = false;
             let mut do_delete = false;
+            let mut do_open = false;
+            let mut do_save = false;
+            let mut do_export = false;
             let mut transpose_semitones: i32 = 0;
             let mut nudge_ms: f64 = 0.0;
+            let mut duration_nudge_ms: f64 = 0.0;
 
             ctx.input(|i| {
                 let has_cmd_or_ctrl = i.modifiers.command || i.modifiers.ctrl;
-
-                // Space already handled above
 
                 if i.key_pressed(Key::V) || i.key_pressed(Key::Num1) { self.piano_roll_state.active_tool = EditTool::Pointer; }
                 if i.key_pressed(Key::N) || i.key_pressed(Key::Num2) { self.piano_roll_state.active_tool = EditTool::Pencil; }
                 if i.key_pressed(Key::P) || i.key_pressed(Key::Num3) { self.piano_roll_state.active_tool = EditTool::PitchDraw; }
                 if i.key_pressed(Key::E) || i.key_pressed(Key::Num4) { self.piano_roll_state.active_tool = EditTool::Eraser; }
 
+                if has_cmd_or_ctrl && i.key_pressed(Key::O) { do_open = true; }
+                if has_cmd_or_ctrl && i.key_pressed(Key::S) { do_save = true; }
+                if has_cmd_or_ctrl && i.key_pressed(Key::E) { do_export = true; }
+
                 if has_cmd_or_ctrl && i.key_pressed(Key::Z) {
                     if i.modifiers.shift { do_redo = true; } else { do_undo = true; }
                 }
-                if has_cmd_or_ctrl && i.key_pressed(Key::Y) {
-                    do_redo = true;
-                }
-                if has_cmd_or_ctrl && i.key_pressed(Key::C) {
-                    do_copy = true;
-                }
-                if has_cmd_or_ctrl && i.key_pressed(Key::V) {
-                    do_paste = true;
-                }
-                if has_cmd_or_ctrl && i.key_pressed(Key::D) {
-                    do_duplicate = true;
-                }
-                if i.key_pressed(Key::Delete) || i.key_pressed(Key::Backspace) {
-                    do_delete = true;
-                }
+                if has_cmd_or_ctrl && i.key_pressed(Key::Y) { do_redo = true; }
+                if has_cmd_or_ctrl && i.key_pressed(Key::C) { do_copy = true; }
+                if has_cmd_or_ctrl && i.key_pressed(Key::V) { do_paste = true; }
+                if has_cmd_or_ctrl && i.key_pressed(Key::D) { do_duplicate = true; }
+                if i.key_pressed(Key::Delete) || i.key_pressed(Key::Backspace) { do_delete = true; }
 
                 let step = if i.modifiers.shift { 12 } else { 1 };
                 if i.key_pressed(Key::ArrowUp) { transpose_semitones += step; }
                 if i.key_pressed(Key::ArrowDown) { transpose_semitones -= step; }
 
-                if i.key_pressed(Key::ArrowLeft) { nudge_ms -= 50.0; }
-                if i.key_pressed(Key::ArrowRight) { nudge_ms += 50.0; }
+                if i.modifiers.shift {
+                    if i.key_pressed(Key::ArrowLeft) { duration_nudge_ms -= 50.0; }
+                    if i.key_pressed(Key::ArrowRight) { duration_nudge_ms += 50.0; }
+                } else {
+                    if i.key_pressed(Key::ArrowLeft) { nudge_ms -= 50.0; }
+                    if i.key_pressed(Key::ArrowRight) { nudge_ms += 50.0; }
+                }
+
+                if has_cmd_or_ctrl && (i.key_pressed(Key::Equals) || i.key_pressed(Key::Plus)) {
+                    self.piano_roll_state.px_per_ms = (self.piano_roll_state.px_per_ms * 1.25).min(1.0);
+                }
+                if has_cmd_or_ctrl && i.key_pressed(Key::Minus) {
+                    self.piano_roll_state.px_per_ms = (self.piano_roll_state.px_per_ms * 0.8).max(0.05);
+                }
             });
+
+            if do_open { self.open_project_dialog(); }
+            if do_save { self.save_project_dialog(); }
+            if do_export { self.export_wav(); }
 
             if do_undo {
                 if let Some(prev) = self.undo_manager.undo(self.project.clone()) {
@@ -680,17 +768,7 @@ impl eframe::App for KamafeuStudioApp {
                 }
             }
             if transpose_semitones != 0 {
-                if let Some(sel_idx) = self.piano_roll_state.selected_note_index {
-                    let min_m = self.piano_roll_state.min_midi as i32;
-                    let max_m = self.piano_roll_state.max_midi as i32;
-                    self.push_history();
-                    let notes = self.current_notes_mut();
-                    if sel_idx < notes.len() {
-                        let cur_m = notes[sel_idx].midi_key() as i32;
-                        let new_m = (cur_m + transpose_semitones).clamp(min_m, max_m) as u8;
-                        notes[sel_idx].set_midi_key(new_m);
-                    }
-                }
+                self.transpose_selected_note(transpose_semitones);
             }
             if nudge_ms != 0.0 {
                 if let Some(sel_idx) = self.piano_roll_state.selected_note_index {
@@ -701,14 +779,182 @@ impl eframe::App for KamafeuStudioApp {
                     }
                 }
             }
+            if duration_nudge_ms != 0.0 {
+                if let Some(sel_idx) = self.piano_roll_state.selected_note_index {
+                    self.push_history();
+                    let notes = self.current_notes_mut();
+                    if sel_idx < notes.len() {
+                        notes[sel_idx].duration_ms = (notes[sel_idx].duration_ms + duration_nudge_ms).max(50.0);
+                    }
+                }
+            }
         }
 
-        // 1. Top Transport Bar (Fixed 52px height)
+        // 1. Top Transport Bar & Menu Bar (Fixed 52px height)
         TopBottomPanel::top("top_transport")
             .exact_height(52.0)
             .frame(Frame::none().fill(MelodyneTheme::BG_PANEL))
             .show(ctx, |ui| {
-                ui.horizontal(|ui| {
+                ui.vertical(|ui| {
+                    // Top Menu Bar (Arquivo, Editar, Ferramentas, Exibir, Ajuda)
+                    egui::menu::bar(ui, |ui| {
+                        ui.menu_button("Arquivo", |ui| {
+                            if ui.button("Novo Projeto").clicked() {
+                                self.project = crate::project::model::create_astro_boy_1980_project();
+                                self.transport_state.status_message = "Novo projeto criado".to_string();
+                                ui.close_menu();
+                            }
+                            if ui.button("Abrir Projeto...  (Ctrl+O / Cmd+O)").clicked() {
+                                self.open_project_dialog();
+                                ui.close_menu();
+                            }
+                            if ui.button("Salvar Projeto... (Ctrl+S / Cmd+S)").clicked() {
+                                self.save_project_dialog();
+                                ui.close_menu();
+                            }
+                            ui.separator();
+                            if ui.button("Carregar Voicebank...").clicked() {
+                                if let Some(folder) = rfd::FileDialog::new().pick_folder() {
+                                    if let Ok(vb) = Voicebank::new(&folder) {
+                                        self.transport_state.status_message = format!("Voicebank Carregado: {}", vb.name);
+                                        self.transport_state.voicebank_name = vb.name.clone();
+                                        self.transport_state.voicebank_path = Some(vb.root_path.clone());
+                                        self.config.add_recent_voicebank(vb.root_path.clone());
+                                        self.voicebank = Some(vb);
+                                    }
+                                }
+                                ui.close_menu();
+                            }
+                            if ui.button("Exportar Áudio WAV... (Ctrl+E / Cmd+E)").clicked() {
+                                self.export_wav();
+                                ui.close_menu();
+                            }
+                        });
+
+                        ui.menu_button("Editar", |ui| {
+                            if ui.button("Desfazer (Ctrl+Z / Cmd+Z)").clicked() {
+                                if let Some(prev) = self.undo_manager.undo(self.project.clone()) {
+                                    self.project = prev;
+                                }
+                                ui.close_menu();
+                            }
+                            if ui.button("Refazer (Ctrl+Y / Cmd+Shift+Z)").clicked() {
+                                if let Some(next) = self.undo_manager.redo(self.project.clone()) {
+                                    self.project = next;
+                                }
+                                ui.close_menu();
+                            }
+                            ui.separator();
+                            if ui.button("Copiar   (Ctrl+C / Cmd+C)").clicked() {
+                                if let Some(sel_idx) = self.piano_roll_state.selected_note_index {
+                                    let notes = self.current_notes();
+                                    if sel_idx < notes.len() {
+                                        self.clipboard = vec![notes[sel_idx].clone()];
+                                    }
+                                }
+                                ui.close_menu();
+                            }
+                            if ui.button("Colar    (Ctrl+V / Cmd+V)").clicked() {
+                                if !self.clipboard.is_empty() {
+                                    self.push_history();
+                                    let mut pasted = self.clipboard[0].clone();
+                                    pasted.position_ms = self.piano_roll_state.playhead_ms.max(0.0);
+                                    self.current_notes_mut().push(pasted);
+                                }
+                                ui.close_menu();
+                            }
+                            if ui.button("Duplicar (Ctrl+D / Cmd+D)").clicked() {
+                                if let Some(sel_idx) = self.piano_roll_state.selected_note_index {
+                                    let notes = self.current_notes();
+                                    if sel_idx < notes.len() {
+                                        let mut dup = notes[sel_idx].clone();
+                                        dup.position_ms += dup.duration_ms;
+                                        self.push_history();
+                                        self.current_notes_mut().push(dup);
+                                        self.piano_roll_state.selected_note_index = Some(self.current_notes().len() - 1);
+                                    }
+                                }
+                                ui.close_menu();
+                            }
+                            if ui.button("Excluir  (Delete)").clicked() {
+                                if let Some(sel_idx) = self.piano_roll_state.selected_note_index {
+                                    self.push_history();
+                                    let notes = self.current_notes_mut();
+                                    if sel_idx < notes.len() {
+                                        notes.remove(sel_idx);
+                                        self.piano_roll_state.selected_note_index = None;
+                                    }
+                                }
+                                ui.close_menu();
+                            }
+                            ui.separator();
+                            if ui.button("Transpor +1 Semitom  (Seta Cima)").clicked() {
+                                self.transpose_selected_note(1);
+                                ui.close_menu();
+                            }
+                            if ui.button("Transpor -1 Semitom  (Seta Baixo)").clicked() {
+                                self.transpose_selected_note(-1);
+                                ui.close_menu();
+                            }
+                            if ui.button("Transpor +1 Oitava   (Shift + Seta Cima)").clicked() {
+                                self.transpose_selected_note(12);
+                                ui.close_menu();
+                            }
+                            if ui.button("Transpor -1 Oitava   (Shift + Seta Baixo)").clicked() {
+                                self.transpose_selected_note(-12);
+                                ui.close_menu();
+                            }
+                        });
+
+                        ui.menu_button("Ferramentas", |ui| {
+                            if ui.button("Ponteiro (Seleção) [V / 1]").clicked() {
+                                self.piano_roll_state.active_tool = EditTool::Pointer;
+                                ui.close_menu();
+                            }
+                            if ui.button("Lápis (Desenhar)   [N / 2]").clicked() {
+                                self.piano_roll_state.active_tool = EditTool::Pencil;
+                                ui.close_menu();
+                            }
+                            if ui.button("Desenhar Pitch     [P / 3]").clicked() {
+                                self.piano_roll_state.active_tool = EditTool::PitchDraw;
+                                ui.close_menu();
+                            }
+                            if ui.button("Borracha           [E / 4]").clicked() {
+                                self.piano_roll_state.active_tool = EditTool::Eraser;
+                                ui.close_menu();
+                            }
+                            ui.separator();
+                            if ui.button("Copaiba Voicebank Toolkit").clicked() {
+                                self.copaiba_window_open = true;
+                                ui.close_menu();
+                            }
+                        });
+
+                        ui.menu_button("Exibir", |ui| {
+                            if ui.button("Aumentar Zoom X  (Ctrl+=)").clicked() {
+                                self.piano_roll_state.px_per_ms = (self.piano_roll_state.px_per_ms * 1.25).min(1.0);
+                                ui.close_menu();
+                            }
+                            if ui.button("Diminuir Zoom X  (Ctrl+-)").clicked() {
+                                self.piano_roll_state.px_per_ms = (self.piano_roll_state.px_per_ms * 0.8).max(0.05);
+                                ui.close_menu();
+                            }
+                            ui.separator();
+                            if ui.button("Janela de Log de Renderização").clicked() {
+                                self.render_log_window_open = true;
+                                ui.close_menu();
+                            }
+                        });
+
+                        ui.menu_button("Ajuda", |ui| {
+                            if ui.button("Guia de Teclas de Atalho...").clicked() {
+                                self.shortcuts_guide_open = true;
+                                ui.close_menu();
+                            }
+                        });
+                    });
+
+                    ui.add_space(2.0);
                     if ui.button("Abrir Projeto...").clicked() {
                         if let Some(path) = rfd::FileDialog::new()
                             .add_filter("Arquivos de Projeto e MIDI (.ustx, .ust, .mid, .midi)", &["ustx", "ust", "mid", "midi", "json"])
@@ -1062,6 +1308,54 @@ impl eframe::App for KamafeuStudioApp {
                     crate::copaiba::gui::draw_copaiba_toolkit_ui(&mut self.copaiba_app, ui);
                 });
             self.copaiba_window_open = is_open;
+        }
+
+        if self.shortcuts_guide_open {
+            let mut is_open = self.shortcuts_guide_open;
+            egui::Window::new("Guia de Teclas de Atalho")
+                .open(&mut is_open)
+                .default_size([550.0, 480.0])
+                .show(ctx, |ui| {
+                    ui.heading(egui::RichText::new("Teclas de Atalho do Kamafeu Studio").strong().color(egui::Color32::from_rgb(0, 255, 157)));
+                    ui.add_space(8.0);
+                    ui.separator();
+                    ui.add_space(8.0);
+
+                    egui::ScrollArea::vertical().show(ui, |ui| {
+                        egui::Grid::new("shortcuts_grid")
+                            .striped(true)
+                            .spacing([20.0, 8.0])
+                            .show(ui, |ui| {
+                                ui.label(egui::RichText::new("Atalho").strong().color(egui::Color32::from_rgb(255, 215, 0)));
+                                ui.label(egui::RichText::new("Ação / Funcionalidade").strong().color(egui::Color32::from_rgb(255, 215, 0)));
+                                ui.end_row();
+
+                                ui.label("Espaço (Space)"); ui.label("Tocar / Pausar Reprodução"); ui.end_row();
+                                ui.label("Esc"); ui.label("Parar e Reiniciar Cursor no Início (0ms)"); ui.end_row();
+                                ui.label("V ou 1"); ui.label("Ferramenta Ponteiro (Seleção / Mover / Redimensionar)"); ui.end_row();
+                                ui.label("N ou 2"); ui.label("Ferramenta Lápis (Desenhar Notas)"); ui.end_row();
+                                ui.label("P ou 3"); ui.label("Ferramenta Desenhar Pitch"); ui.end_row();
+                                ui.label("E ou 4"); ui.label("Ferramenta Borracha (Apagar Notas)"); ui.end_row();
+                                ui.label("Ctrl+Z / Cmd+Z"); ui.label("Desfazer Ação"); ui.end_row();
+                                ui.label("Ctrl+Y / Cmd+Shift+Z"); ui.label("Refazer Ação"); ui.end_row();
+                                ui.label("Ctrl+C / Cmd+C"); ui.label("Copiar Nota(s) Selecionada(s)"); ui.end_row();
+                                ui.label("Ctrl+V / Cmd+V"); ui.label("Colar Nota(s) na Posição do Cursor"); ui.end_row();
+                                ui.label("Ctrl+D / Cmd+D"); ui.label("Duplicar Nota(s)"); ui.end_row();
+                                ui.label("Ctrl+A / Cmd+A"); ui.label("Selecionar Todas as Notas"); ui.end_row();
+                                ui.label("Delete / Backspace"); ui.label("Excluir Nota(s) Selecionada(s)"); ui.end_row();
+                                ui.label("Seta Cima / Baixo"); ui.label("Transpor Nota +1 / -1 Semitom"); ui.end_row();
+                                ui.label("Shift + Seta Cima / Baixo"); ui.label("Transpor Nota +1 / -1 Oitava (+12 / -12 semitones)"); ui.end_row();
+                                ui.label("Seta Esquerda / Direita"); ui.label("Mover Posição da Nota (-50ms / +50ms)"); ui.end_row();
+                                ui.label("Shift + Esquerda / Direita"); ui.label("Redimensionar Duração da Nota (-50ms / +50ms)"); ui.end_row();
+                                ui.label("Ctrl+O / Cmd+O"); ui.label("Abrir Projeto (.ustx, .ust, .mid)"); ui.end_row();
+                                ui.label("Ctrl+S / Cmd+S"); ui.label("Salvar Projeto (.ustx)"); ui.end_row();
+                                ui.label("Ctrl+E / Cmd+E"); ui.label("Exportar Áudio WAV"); ui.end_row();
+                                ui.label("Ctrl+= / Cmd+="); ui.label("Aumentar Zoom Horizontal"); ui.end_row();
+                                ui.label("Ctrl+- / Cmd+-"); ui.label("Diminuir Zoom Horizontal"); ui.end_row();
+                            });
+                    });
+                });
+            self.shortcuts_guide_open = is_open;
         }
     }
 }
