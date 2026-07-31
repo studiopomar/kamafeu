@@ -1,4 +1,5 @@
 pub mod audio;
+pub mod config;
 pub mod drivers;
 pub mod dsp;
 pub mod formats;
@@ -9,6 +10,7 @@ pub mod project;
 pub mod renderer;
 
 pub use audio::*;
+pub use config::*;
 pub use drivers::*;
 pub use dsp::*;
 pub use formats::*;

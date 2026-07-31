@@ -13,6 +13,7 @@ pub mod transport;
 use std::path::PathBuf;
 use std::time::Instant;
 use eframe::egui::{self, TopBottomPanel, SidePanel, CentralPanel, Frame, Key};
+use crate::config::KamafeuConfig;
 
 use crate::audio::AudioPlayer;
 use crate::drivers::{
@@ -62,6 +63,7 @@ pub struct KamafeuStudioApp {
     render_log_channel_rx: Option<std::sync::mpsc::Receiver<(f32, String)>>,
     export_rx: Option<std::sync::mpsc::Receiver<()>>,
     active_track_index: usize,
+    config: KamafeuConfig,
 }
 
 impl KamafeuStudioApp {
@@ -91,9 +93,27 @@ impl KamafeuStudioApp {
 
         let project = crate::project::model::create_astro_boy_1980_project();
 
-        let voicebank = Voicebank::new("demo_vb")
-            .or_else(|_| Voicebank::new("sample_vb"))
-            .ok();
+        let mut config = KamafeuConfig::load();
+
+        // Automatically open the last used voicebank if available
+        let mut voicebank: Option<Voicebank> = None;
+        if let Some(ref last_path) = config.last_voicebank {
+            if last_path.exists() {
+                if let Ok(vb) = Voicebank::new(last_path) {
+                    voicebank = Some(vb);
+                }
+            }
+        }
+
+        if voicebank.is_none() {
+            voicebank = Voicebank::new("demo_vb")
+                .or_else(|_| Voicebank::new("sample_vb"))
+                .ok();
+        }
+
+        if let Some(ref vb) = voicebank {
+            config.add_recent_voicebank(vb.root_path.clone());
+        }
 
         let mut transport_state = TransportState::default();
         transport_state.bpm = project.bpm;
@@ -133,6 +153,7 @@ impl KamafeuStudioApp {
             render_log_channel_rx: None,
             export_rx: None,
             active_track_index: 0,
+            config,
         }
     }
 
@@ -843,6 +864,9 @@ impl eframe::App for KamafeuStudioApp {
                     match Voicebank::new(&path) {
                         Ok(vb) => {
                             self.transport_state.status_message = format!("Voicebank Carregado: {}", vb.name);
+                            self.transport_state.voicebank_name = vb.name.clone();
+                            self.transport_state.voicebank_path = Some(vb.root_path.clone());
+                            self.config.add_recent_voicebank(vb.root_path.clone());
                             self.voicebank = Some(vb);
                         }
                         Err(e) => {
@@ -869,11 +893,17 @@ impl eframe::App for KamafeuStudioApp {
                 draw_left_panel(
                     ui,
                     self.voicebank.as_ref(),
+                    &self.config.recent_voicebanks,
                     &mut self.left_sidebar_tab,
                     &mut self.vocal_mode_params,
                     &mut self.phoneme_palette_state,
-                    &mut || {
-                        if let Some(folder) = rfd::FileDialog::new().pick_folder() {
+                    &mut |opt_path| {
+                        let target_path = if let Some(p) = opt_path {
+                            Some(p)
+                        } else {
+                            rfd::FileDialog::new().pick_folder()
+                        };
+                        if let Some(folder) = target_path {
                             if let Ok(vb) = Voicebank::new(&folder) {
                                 loaded_vb = Some(vb);
                             }
@@ -884,6 +914,10 @@ impl eframe::App for KamafeuStudioApp {
                 );
 
                 if let Some(vb) = loaded_vb {
+                    self.transport_state.status_message = format!("Voicebank Carregado: {}", vb.name);
+                    self.transport_state.voicebank_name = vb.name.clone();
+                    self.transport_state.voicebank_path = Some(vb.root_path.clone());
+                    self.config.add_recent_voicebank(vb.root_path.clone());
                     self.voicebank = Some(vb);
                 }
 

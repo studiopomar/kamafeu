@@ -45,10 +45,11 @@ impl Default for VocalModeParams {
 pub fn draw_left_panel(
     ui: &mut egui::Ui,
     voicebank: Option<&Voicebank>,
+    recent_voicebanks: &[std::path::PathBuf],
     active_tab: &mut LeftSidebarTab,
     params: &mut VocalModeParams,
     phoneme_state: &mut PhonemePaletteState,
-    on_load_vb: &mut dyn FnMut(),
+    on_load_vb: &mut dyn FnMut(Option<std::path::PathBuf>),
     on_preview_phoneme: &mut dyn FnMut(&str),
     on_insert_phoneme: &mut dyn FnMut(&str),
 ) {
@@ -147,9 +148,24 @@ pub fn draw_left_panel(
                 );
 
                 ui.add_space(8.0);
-                if ui.button("Carregar Voicebank...").clicked() {
-                    on_load_vb();
-                }
+                ui.horizontal(|ui| {
+                    if ui.button("Carregar Voicebank...").clicked() {
+                        on_load_vb(None);
+                    }
+
+                    if !recent_voicebanks.is_empty() {
+                        egui::ComboBox::from_id_salt("recent_vb_combo_left")
+                            .selected_text("Recentes...")
+                            .show_ui(ui, |ui| {
+                                for path in recent_voicebanks {
+                                    let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("Voicebank");
+                                    if ui.button(RichText::new(name).size(11.0)).clicked() {
+                                        on_load_vb(Some(path.clone()));
+                                    }
+                                }
+                            });
+                    }
+                });
 
                 ui.add_space(10.0);
                 ui.separator();
