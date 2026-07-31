@@ -29,20 +29,26 @@ pub fn draw_right_panel(
     custom_resampler_path: &mut Option<PathBuf>,
     custom_wavtool_path: &mut Option<PathBuf>,
 ) {
-    let vb_name = voicebank.map(|v| v.name.as_str()).unwrap_or("Default Singer");
+    let vb_name = voicebank.map(|v| v.name.as_str()).unwrap_or("Singer Padrão");
     let vb_author = voicebank.map(|v| v.author.as_str()).unwrap_or("UTAU Voicebank");
     let initial_letter = vb_name.chars().next().unwrap_or('V').to_uppercase().to_string();
 
     ui.vertical(|ui| {
-        // 1. Voicebank Singer Info & Character.txt Box
+        // 1. Voicebank Singer Info & Character.txt Box (Neo-Brutalist Card)
         Frame::none()
-            .fill(Color32::from_rgb(26, 20, 38))
-            .rounding(Rounding::same(6.0))
-            .stroke(Stroke::new(1.0, Color32::from_rgb(61, 46, 84)))
+            .fill(MelodyneTheme::BG_CARD)
+            .rounding(Rounding::same(3.0))
+            .stroke(Stroke::new(1.0, MelodyneTheme::BORDER_GOLD))
             .inner_margin(egui::Margin::same(8.0))
             .show(ui, |ui| {
                 ui.horizontal(|ui| {
-                    ui.label(RichText::new("Singer Avatar:").strong().size(11.0).color(Color32::from_rgb(0, 255, 157)));
+                    ui.label(
+                        RichText::new(" AVATAR VOCAL ")
+                            .strong()
+                            .size(9.5)
+                            .color(MelodyneTheme::TEXT_NOTE_TAG)
+                            .background_color(MelodyneTheme::ACCENT_GOLD)
+                    );
                 });
 
                 ui.add_space(4.0);
@@ -51,17 +57,18 @@ pub fn draw_right_panel(
                 let (avatar_rect, _) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 70.0), egui::Sense::hover());
                 let painter = ui.painter_at(avatar_rect);
 
-                painter.rect_filled(avatar_rect, Rounding::same(4.0), Color32::from_rgb(36, 27, 53));
-                painter.rect_stroke(avatar_rect, Rounding::same(4.0), Stroke::new(1.2, Color32::from_rgb(192, 132, 252)));
+                painter.rect_filled(avatar_rect, Rounding::same(3.0), MelodyneTheme::BG_HEADER);
+                painter.rect_stroke(avatar_rect, Rounding::same(3.0), Stroke::new(1.0, MelodyneTheme::BORDER_CYAN));
 
                 let center = avatar_rect.center();
-                painter.circle_filled(Pos2::new(center.x, center.y - 8.0), 18.0, Color32::from_rgb(0, 255, 157));
+                painter.circle_filled(Pos2::new(center.x, center.y - 8.0), 18.0, MelodyneTheme::ACCENT_CYAN);
+                painter.circle_stroke(Pos2::new(center.x, center.y - 8.0), 18.0, Stroke::new(1.0, Color32::BLACK));
                 painter.text(
                     Pos2::new(center.x, center.y - 8.0),
                     egui::Align2::CENTER_CENTER,
                     &initial_letter,
                     egui::FontId::proportional(16.0),
-                    Color32::from_rgb(20, 16, 28),
+                    Color32::BLACK,
                 );
 
                 painter.text(
@@ -69,11 +76,11 @@ pub fn draw_right_panel(
                     egui::Align2::CENTER_CENTER,
                     vb_name,
                     egui::FontId::proportional(11.0),
-                    Color32::WHITE,
+                    MelodyneTheme::TEXT_PRIMARY,
                 );
 
                 ui.add_space(6.0);
-                ui.label(RichText::new(format!("Author: {}", vb_author)).size(10.0).color(MelodyneTheme::TEXT_MUTED));
+                ui.label(RichText::new(format!("Autor: {}", vb_author)).size(10.0).color(MelodyneTheme::TEXT_MUTED));
 
                 if let Some(vb) = voicebank {
                     if !vb.character_info.is_empty() || !vb.readme_info.is_empty() {
@@ -82,11 +89,11 @@ pub fn draw_right_panel(
                             .show(ui, |ui| {
                                 egui::ScrollArea::vertical().max_height(100.0).show(ui, |ui| {
                                     if !vb.character_info.is_empty() {
-                                        ui.label(RichText::new(&vb.character_info).size(9.0).color(Color32::from_rgb(216, 180, 254)));
+                                        ui.label(RichText::new(&vb.character_info).size(9.0).color(MelodyneTheme::TEXT_SECONDARY));
                                     }
                                     if !vb.readme_info.is_empty() {
                                         ui.separator();
-                                        ui.label(RichText::new(&vb.readme_info).size(9.0).color(Color32::from_rgb(180, 220, 254)));
+                                        ui.label(RichText::new(&vb.readme_info).size(9.0).color(MelodyneTheme::TEXT_SECONDARY));
                                     }
                                 });
                             });
@@ -98,21 +105,31 @@ pub fn draw_right_panel(
 
         // Sidebar Mode Tabs: Note Properties vs Engine Settings
         ui.horizontal(|ui| {
-            let note_tab_color = if *active_tab == RightSidebarTab::NoteProperties {
-                Color32::from_rgb(0, 255, 157)
-            } else {
-                MelodyneTheme::TEXT_MUTED
-            };
-            if ui.selectable_label(*active_tab == RightSidebarTab::NoteProperties, RichText::new("🎵 Note Info").color(note_tab_color)).clicked() {
+            let note_btn = egui::Button::new(
+                RichText::new("🎵 Nota")
+                    .strong()
+                    .size(11.0)
+                    .color(if *active_tab == RightSidebarTab::NoteProperties { Color32::BLACK } else { MelodyneTheme::TEXT_SECONDARY })
+            )
+            .fill(if *active_tab == RightSidebarTab::NoteProperties { MelodyneTheme::ACCENT_GOLD } else { MelodyneTheme::BG_CARD })
+            .stroke(Stroke::new(1.0, if *active_tab == RightSidebarTab::NoteProperties { Color32::BLACK } else { MelodyneTheme::BORDER_FINE }))
+            .rounding(Rounding::same(3.0));
+
+            if ui.add(note_btn).clicked() {
                 *active_tab = RightSidebarTab::NoteProperties;
             }
 
-            let settings_tab_color = if *active_tab == RightSidebarTab::Settings {
-                Color32::from_rgb(0, 255, 157)
-            } else {
-                MelodyneTheme::TEXT_MUTED
-            };
-            if ui.selectable_label(*active_tab == RightSidebarTab::Settings, RichText::new("⚙️ Engine Settings").color(settings_tab_color)).clicked() {
+            let settings_btn = egui::Button::new(
+                RichText::new("⚙️ Motores")
+                    .strong()
+                    .size(11.0)
+                    .color(if *active_tab == RightSidebarTab::Settings { Color32::BLACK } else { MelodyneTheme::TEXT_SECONDARY })
+            )
+            .fill(if *active_tab == RightSidebarTab::Settings { MelodyneTheme::ACCENT_CYAN } else { MelodyneTheme::BG_CARD })
+            .stroke(Stroke::new(1.0, if *active_tab == RightSidebarTab::Settings { Color32::BLACK } else { MelodyneTheme::BORDER_FINE }))
+            .rounding(Rounding::same(3.0));
+
+            if ui.add(settings_btn).clicked() {
                 *active_tab = RightSidebarTab::Settings;
             }
         });

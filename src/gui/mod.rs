@@ -69,14 +69,23 @@ impl KamafeuStudioApp {
         // Load Japanese CJK system fonts for egui
         setup_custom_fonts(&cc.egui_ctx);
 
-        // Apply Melodyne Gold Visuals Theme
+        // Apply Delicate Neo-Brutalist Visuals Theme
         let mut visuals = egui::Visuals::dark();
         visuals.panel_fill = MelodyneTheme::BG_PANEL;
         visuals.window_fill = MelodyneTheme::BG_PANEL;
-        visuals.widgets.noninteractive.bg_fill = MelodyneTheme::BG_PANEL;
-        visuals.widgets.hovered.bg_fill = egui::Color32::from_rgb(36, 27, 53);
-        visuals.selection.bg_fill = MelodyneTheme::NOTE_SELECTED_GOLD;
-        visuals.selection.stroke.color = egui::Color32::from_rgb(0, 255, 157);
+        visuals.extreme_bg_color = MelodyneTheme::BG_CANVAS;
+        visuals.widgets.noninteractive.bg_fill = MelodyneTheme::BG_CARD;
+        visuals.widgets.noninteractive.bg_stroke = egui::Stroke::new(1.0, MelodyneTheme::BORDER_FINE);
+        visuals.widgets.inactive.bg_fill = MelodyneTheme::BG_CARD;
+        visuals.widgets.inactive.bg_stroke = egui::Stroke::new(1.0, MelodyneTheme::BORDER_FINE);
+        visuals.widgets.hovered.bg_fill = MelodyneTheme::BG_HEADER;
+        visuals.widgets.hovered.bg_stroke = egui::Stroke::new(1.0, MelodyneTheme::BORDER_GOLD);
+        visuals.widgets.active.bg_fill = MelodyneTheme::ACCENT_GOLD;
+        visuals.widgets.active.bg_stroke = egui::Stroke::new(1.2, egui::Color32::BLACK);
+        visuals.selection.bg_fill = MelodyneTheme::ACCENT_GOLD;
+        visuals.selection.stroke.color = egui::Color32::BLACK;
+        visuals.window_rounding = egui::Rounding::same(3.0);
+        visuals.window_stroke = egui::Stroke::new(1.0, MelodyneTheme::BORDER_GOLD);
         cc.egui_ctx.set_visuals(visuals);
 
         let project = crate::project::model::create_astro_boy_1980_project();

@@ -1,4 +1,4 @@
-use eframe::egui::{self, RichText, Rounding, Stroke, Vec2};
+use eframe::egui::{self, Color32, RichText, Rounding, Stroke, Vec2};
 use crate::gui::phoneme_palette::{draw_phoneme_palette, PhonemePaletteState};
 use crate::gui::theme::MelodyneTheme;
 use crate::oto::Voicebank;
@@ -55,21 +55,31 @@ pub fn draw_left_panel(
     ui.vertical(|ui| {
         // Tab Header: Voice Mode vs Phonemes (oto.ini)
         ui.horizontal(|ui| {
-            let voice_tab_text = if *active_tab == LeftSidebarTab::VoiceMode {
-                RichText::new("🎙 Voice").strong().color(MelodyneTheme::ACCENT_GOLD)
-            } else {
-                RichText::new("🎙 Voice").color(MelodyneTheme::TEXT_MUTED)
-            };
-            if ui.button(voice_tab_text).clicked() {
+            let voice_btn = egui::Button::new(
+                RichText::new("🎙 Cantor & Voz")
+                    .strong()
+                    .size(11.0)
+                    .color(if *active_tab == LeftSidebarTab::VoiceMode { Color32::BLACK } else { MelodyneTheme::TEXT_SECONDARY })
+            )
+            .fill(if *active_tab == LeftSidebarTab::VoiceMode { MelodyneTheme::ACCENT_GOLD } else { MelodyneTheme::BG_CARD })
+            .stroke(Stroke::new(1.0, if *active_tab == LeftSidebarTab::VoiceMode { Color32::BLACK } else { MelodyneTheme::BORDER_FINE }))
+            .rounding(Rounding::same(3.0));
+
+            if ui.add(voice_btn).clicked() {
                 *active_tab = LeftSidebarTab::VoiceMode;
             }
 
-            let phonemes_tab_text = if *active_tab == LeftSidebarTab::Phonemes {
-                RichText::new("🔤 Phonemes").strong().color(MelodyneTheme::ACCENT_GOLD)
-            } else {
-                RichText::new("🔤 Phonemes").color(MelodyneTheme::TEXT_MUTED)
-            };
-            if ui.button(phonemes_tab_text).clicked() {
+            let phonemes_btn = egui::Button::new(
+                RichText::new("🔤 Fonemas")
+                    .strong()
+                    .size(11.0)
+                    .color(if *active_tab == LeftSidebarTab::Phonemes { Color32::BLACK } else { MelodyneTheme::TEXT_SECONDARY })
+            )
+            .fill(if *active_tab == LeftSidebarTab::Phonemes { MelodyneTheme::ACCENT_CYAN } else { MelodyneTheme::BG_CARD })
+            .stroke(Stroke::new(1.0, if *active_tab == LeftSidebarTab::Phonemes { Color32::BLACK } else { MelodyneTheme::BORDER_FINE }))
+            .rounding(Rounding::same(3.0));
+
+            if ui.add(phonemes_btn).clicked() {
                 *active_tab = LeftSidebarTab::Phonemes;
             }
         });
@@ -80,19 +90,20 @@ pub fn draw_left_panel(
 
         match active_tab {
             LeftSidebarTab::VoiceMode => {
-                let singer_name = voicebank.map(|v| v.name.as_str()).unwrap_or("Default Singer");
+                let singer_name = voicebank.map(|v| v.name.as_str()).unwrap_or("Singer Padrão");
 
-                // Singer Card (Melodyne Metallic Gold Style)
+                // Singer Card (Delicate Neo-Brutalist Card)
                 let (card_rect, _) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 65.0), egui::Sense::hover());
-                ui.painter().rect_filled(card_rect, Rounding::same(6.0), MelodyneTheme::BG_PANEL);
-                ui.painter().rect_stroke(card_rect, Rounding::same(6.0), Stroke::new(1.0, MelodyneTheme::GRID_LINE_BAR));
+                ui.painter().rect_filled(card_rect, Rounding::same(3.0), MelodyneTheme::BG_CARD);
+                ui.painter().rect_stroke(card_rect, Rounding::same(3.0), Stroke::new(1.0, MelodyneTheme::BORDER_GOLD));
 
-                // Singer Avatar Badge (Metallic Gold)
+                // Singer Avatar Badge
                 let avatar_rect = egui::Rect::from_min_size(
                     card_rect.min + Vec2::new(8.0, 8.0),
                     Vec2::new(48.0, 48.0),
                 );
-                ui.painter().rect_filled(avatar_rect, Rounding::same(4.0), MelodyneTheme::NOTE_GOLD_FILL);
+                ui.painter().rect_filled(avatar_rect, Rounding::same(2.0), MelodyneTheme::ACCENT_GOLD);
+                ui.painter().rect_stroke(avatar_rect, Rounding::same(2.0), Stroke::new(1.0, Color32::BLACK));
                 ui.painter().text(
                     avatar_rect.center(),
                     egui::Align2::CENTER_CENTER,
@@ -118,7 +129,12 @@ pub fn draw_left_panel(
                 );
 
                 ui.add_space(8.0);
-                if ui.button("Load Voicebank...").clicked() {
+                let load_btn = egui::Button::new(RichText::new("📁 Carregar Voicebank...").strong().size(11.0).color(Color32::BLACK))
+                    .fill(MelodyneTheme::ACCENT_GOLD)
+                    .stroke(Stroke::new(1.0, Color32::BLACK))
+                    .rounding(Rounding::same(3.0));
+
+                if ui.add(load_btn).clicked() {
                     on_load_vb();
                 }
 
@@ -127,10 +143,16 @@ pub fn draw_left_panel(
                 ui.add_space(6.0);
 
                 // Vocal Mode Parameters
-                ui.heading(RichText::new("Vocal Mode").strong().size(13.0).color(MelodyneTheme::TEXT_GOLD_LABEL));
+                ui.label(
+                    RichText::new(" MODO VOCAL ")
+                        .strong()
+                        .size(9.5)
+                        .color(MelodyneTheme::TEXT_NOTE_TAG)
+                        .background_color(MelodyneTheme::ACCENT_GOLD)
+                );
                 ui.add_space(6.0);
 
-                ui.label(RichText::new("Phonemizer Mode").color(MelodyneTheme::TEXT_MUTED));
+                ui.label(RichText::new("Modo Fonemizador").size(10.5).color(MelodyneTheme::TEXT_SECONDARY));
                 egui::ComboBox::from_id_salt("phonemizer_mode_cb")
                     .selected_text(format!("{:?}", params.phonemizer_mode))
                     .show_ui(ui, |ui| {
@@ -140,23 +162,23 @@ pub fn draw_left_panel(
                     });
                 ui.add_space(4.0);
 
-                ui.label(RichText::new("Loudness").color(MelodyneTheme::TEXT_MUTED));
+                ui.label(RichText::new("Volume (Loudness)").size(10.5).color(MelodyneTheme::TEXT_SECONDARY));
                 ui.add(egui::Slider::new(&mut params.loudness, -12.0..=12.0).suffix(" dB"));
                 ui.add_space(4.0);
 
-                ui.label(RichText::new("Tension").color(MelodyneTheme::TEXT_MUTED));
+                ui.label(RichText::new("Tensão (Tension)").size(10.5).color(MelodyneTheme::TEXT_SECONDARY));
                 ui.add(egui::Slider::new(&mut params.tension, 0.0..=100.0).suffix(" %"));
                 ui.add_space(4.0);
 
-                ui.label(RichText::new("Breathiness").color(MelodyneTheme::TEXT_MUTED));
+                ui.label(RichText::new("Soprosidade (Breathiness)").size(10.5).color(MelodyneTheme::TEXT_SECONDARY));
                 ui.add(egui::Slider::new(&mut params.breathiness, 0.0..=100.0).suffix(" %"));
                 ui.add_space(4.0);
 
-                ui.label(RichText::new("Gender").color(MelodyneTheme::TEXT_MUTED));
+                ui.label(RichText::new("Gênero (Gender)").size(10.5).color(MelodyneTheme::TEXT_SECONDARY));
                 ui.add(egui::Slider::new(&mut params.gender, -100.0..=100.0).suffix(" %"));
                 ui.add_space(4.0);
 
-                ui.label(RichText::new("Tone Shift").color(MelodyneTheme::TEXT_MUTED));
+                ui.label(RichText::new("Transposição de Tom").size(10.5).color(MelodyneTheme::TEXT_SECONDARY));
                 ui.add(egui::Slider::new(&mut params.tone_shift, -12.0..=12.0).suffix(" smt"));
 
                 ui.add_space(8.0);
@@ -164,18 +186,24 @@ pub fn draw_left_panel(
                 ui.add_space(6.0);
 
                 // Phoneme Transition & Legato Smoothing Panel
-                ui.heading(RichText::new("🌊 Suavização de Transições").strong().size(13.0).color(egui::Color32::from_rgb(0, 255, 157)));
-                ui.add_space(4.0);
+                ui.label(
+                    RichText::new(" TRANSIÇÕES & LEGATO ")
+                        .strong()
+                        .size(9.5)
+                        .color(Color32::BLACK)
+                        .background_color(MelodyneTheme::ACCENT_CYAN)
+                );
+                ui.add_space(6.0);
 
-                ui.label(RichText::new("Crossfade Overlap (Fonemas)").color(MelodyneTheme::TEXT_MUTED));
+                ui.label(RichText::new("Crossfade Overlap").size(10.5).color(MelodyneTheme::TEXT_SECONDARY));
                 ui.add(egui::Slider::new(&mut params.crossfade_ms, 0.0..=200.0).suffix(" ms"));
                 ui.add_space(4.0);
 
-                ui.label(RichText::new("Deslizamento Legato (Portamento)").color(MelodyneTheme::TEXT_MUTED));
+                ui.label(RichText::new("Deslizamento Legato").size(10.5).color(MelodyneTheme::TEXT_SECONDARY));
                 ui.add(egui::Slider::new(&mut params.legato_glide_ms, 0.0..=300.0).suffix(" ms"));
                 ui.add_space(6.0);
 
-                ui.label(RichText::new("Presets de Transição:").size(11.0).color(MelodyneTheme::TEXT_GOLD_LABEL));
+                ui.label(RichText::new("Presets de Transição:").size(10.5).color(MelodyneTheme::TEXT_GOLD_LABEL));
                 ui.horizontal(|ui| {
                     if ui.button(RichText::new("Orgânico").size(10.0)).clicked() {
                         params.loudness = 1.0;
@@ -193,7 +221,7 @@ pub fn draw_left_panel(
                         params.crossfade_ms = 40.0;
                         params.legato_glide_ms = 80.0;
                     }
-                    if ui.button(RichText::new("Direto / Robótico").size(10.0)).clicked() {
+                    if ui.button(RichText::new("Robótico").size(10.0)).clicked() {
                         params.loudness = 0.0;
                         params.tension = 90.0;
                         params.breathiness = 0.0;

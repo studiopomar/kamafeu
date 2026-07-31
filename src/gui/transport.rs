@@ -1,5 +1,6 @@
 use eframe::egui::{self, Color32, Frame, RichText, Rounding, Stroke};
 use std::path::PathBuf;
+use crate::gui::theme::MelodyneTheme;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GridSnapOption {
@@ -55,50 +56,61 @@ pub fn draw_transport_bar(
     on_export_wav: &mut dyn FnMut(),
 ) {
     ui.vertical(|ui| {
-        // 1. Classic DAW Menu Bar (Dark Cyberpunk Style)
+        // 1. Classic DAW Menu Bar (Delicate Neo-Brutalist Header)
         ui.horizontal(|ui| {
             ui.add_space(4.0);
             let menu_items = ["Arquivo", "Editar", "Exibir", "Ferramentas", "Tocar", "Exportar", "Ajuda"];
             for item in menu_items {
-                let menu_btn = egui::Button::new(RichText::new(item).size(11.0).color(Color32::from_rgb(220, 210, 240)))
+                let menu_btn = egui::Button::new(RichText::new(item).size(11.0).color(MelodyneTheme::TEXT_SECONDARY))
                     .fill(Color32::TRANSPARENT);
                 ui.add(menu_btn);
             }
             ui.add_space(8.0);
             ui.label(
-                RichText::new("kamafeu - sintetizador de voz")
-                    .size(11.0)
+                RichText::new(" KAMAFEU STUDIO ")
+                    .size(10.0)
                     .strong()
-                    .color(Color32::from_rgb(0, 255, 157)),
+                    .color(MelodyneTheme::TEXT_NOTE_TAG)
+                    .background_color(MelodyneTheme::ACCENT_GOLD),
             );
         });
 
         ui.separator();
 
-        // 2. High-Contrast Cyberpunk Green/Purple Transport Tool Strip
+        // 2. High-Contrast Neo-Brutalist Transport Tool Strip
         ui.horizontal(|ui| {
             ui.add_space(6.0);
 
             // Transport Controls: Play / Stop
-            let (play_bg, play_text, play_color) = if is_playing {
-                (Color32::from_rgb(36, 27, 53), "⏸ Pause", Color32::from_rgb(216, 180, 254))
+            let (play_bg, play_text, play_color, play_stroke) = if is_playing {
+                (
+                    MelodyneTheme::ACCENT_GOLD,
+                    "⏸ Pausar",
+                    Color32::BLACK,
+                    Stroke::new(1.2, Color32::BLACK),
+                )
             } else {
-                (Color32::from_rgb(10, 48, 30), "▶ Play", Color32::from_rgb(0, 255, 157))
+                (
+                    MelodyneTheme::ACCENT_CYAN,
+                    "▶ Tocar",
+                    Color32::BLACK,
+                    Stroke::new(1.2, Color32::BLACK),
+                )
             };
 
-            let play_btn = egui::Button::new(RichText::new(play_text).strong().size(12.0).color(play_color))
+            let play_btn = egui::Button::new(RichText::new(play_text).strong().size(11.5).color(play_color))
                 .fill(play_bg)
-                .stroke(Stroke::new(1.2, Color32::from_rgb(0, 255, 157)))
-                .rounding(Rounding::same(4.0));
+                .stroke(play_stroke)
+                .rounding(Rounding::same(3.0));
 
             if ui.add(play_btn).clicked() {
                 on_play();
             }
 
-            let stop_btn = egui::Button::new(RichText::new("⏹ Stop").size(12.0).color(Color32::from_rgb(255, 110, 110)))
-                .fill(Color32::from_rgb(45, 20, 26))
-                .stroke(Stroke::new(1.0, Color32::from_rgb(200, 80, 80)))
-                .rounding(Rounding::same(4.0));
+            let stop_btn = egui::Button::new(RichText::new("⏹ Parar").strong().size(11.5).color(Color32::WHITE))
+                .fill(MelodyneTheme::ACCENT_MAGENTA)
+                .stroke(Stroke::new(1.2, Color32::BLACK))
+                .rounding(Rounding::same(3.0));
 
             if ui.add(stop_btn).clicked() {
                 on_stop();
@@ -110,9 +122,9 @@ pub fn draw_transport_bar(
 
             // Time Readout Pill (00:01.250)
             Frame::none()
-                .fill(Color32::from_rgb(18, 14, 28))
-                .rounding(Rounding::same(4.0))
-                .stroke(Stroke::new(1.0, Color32::from_rgb(61, 46, 84)))
+                .fill(MelodyneTheme::BG_CARD)
+                .rounding(Rounding::same(3.0))
+                .stroke(Stroke::new(1.0, MelodyneTheme::BORDER_GOLD))
                 .inner_margin(egui::Margin::symmetric(8.0, 3.0))
                 .show(ui, |ui| {
                     ui.label(
@@ -120,7 +132,7 @@ pub fn draw_transport_bar(
                             .strong()
                             .monospace()
                             .size(12.0)
-                            .color(Color32::from_rgb(0, 255, 157)),
+                            .color(MelodyneTheme::TEXT_GOLD_LABEL),
                     );
                 });
 
@@ -129,21 +141,18 @@ pub fn draw_transport_bar(
             ui.add_space(8.0);
 
             // Tempo / BPM
-            ui.label(RichText::new("BPM:").size(11.0).color(Color32::from_rgb(220, 210, 240)));
+            ui.label(RichText::new("BPM:").size(11.0).color(MelodyneTheme::TEXT_SECONDARY));
             ui.add(egui::DragValue::new(&mut state.bpm).range(40.0..=300.0).speed(1.0));
 
-            ui.label(RichText::new("Compasso:").size(11.0).color(Color32::from_rgb(220, 210, 240)));
-            ui.label(RichText::new("4/4").strong().size(11.0).color(Color32::from_rgb(0, 255, 157)));
-
-            ui.label(RichText::new("Compassos:").size(11.0).color(Color32::from_rgb(220, 210, 240)));
-            ui.label(RichText::new("24").strong().size(11.0).color(Color32::from_rgb(0, 255, 157)));
+            ui.label(RichText::new("Compasso:").size(11.0).color(MelodyneTheme::TEXT_SECONDARY));
+            ui.label(RichText::new("4/4").strong().size(11.0).color(MelodyneTheme::ACCENT_CYAN));
 
             ui.add_space(8.0);
             ui.separator();
             ui.add_space(8.0);
 
             // Grid Snap Selector
-            ui.label(RichText::new("Grade:").size(11.0).color(Color32::from_rgb(220, 210, 240)));
+            ui.label(RichText::new("Grade:").size(11.0).color(MelodyneTheme::TEXT_SECONDARY));
             let snap_options = [
                 (GridSnapOption::Freeform, "Livre"),
                 (GridSnapOption::Snap1_16, "1/16"),
@@ -170,12 +179,12 @@ pub fn draw_transport_bar(
 
             // Render Progress Bar (Neon Green Glow)
             if state.render_progress < 0.99 {
-                ui.label(RichText::new("⚡ Renderizando:").size(10.0).color(Color32::from_rgb(0, 255, 157)));
+                ui.label(RichText::new("⚡ Renderizando:").size(10.0).color(MelodyneTheme::ACCENT_CYAN));
                 ui.add(
                     egui::ProgressBar::new(state.render_progress)
                         .desired_width(90.0)
                         .text(format!("{:.0}%", state.render_progress * 100.0))
-                        .fill(Color32::from_rgb(0, 230, 138)),
+                        .fill(MelodyneTheme::ACCENT_CYAN),
                 );
                 ui.add_space(6.0);
                 ui.separator();
@@ -183,7 +192,12 @@ pub fn draw_transport_bar(
             }
 
             // Load Voicebank Button
-            if ui.button(RichText::new("📁 Voicebank...").size(11.0)).clicked() {
+            let vb_btn = egui::Button::new(RichText::new("📁 Voicebank...").strong().size(11.0).color(Color32::BLACK))
+                .fill(MelodyneTheme::ACCENT_GOLD)
+                .stroke(Stroke::new(1.0, Color32::BLACK))
+                .rounding(Rounding::same(3.0));
+
+            if ui.add(vb_btn).clicked() {
                 if let Some(folder) = rfd::FileDialog::new().pick_folder() {
                     state.voicebank_name = folder
                         .file_name()
@@ -195,21 +209,23 @@ pub fn draw_transport_bar(
                 }
             }
 
-            ui.label(RichText::new(&state.voicebank_name).size(11.0).color(Color32::from_rgb(216, 180, 254)));
+            ui.label(RichText::new(&state.voicebank_name).strong().size(11.0).color(MelodyneTheme::TEXT_PRIMARY));
 
             ui.add_space(8.0);
             ui.separator();
 
             // Export WAV / MP3 Buttons
-            if ui.button(RichText::new("➡ WAV").size(11.0)).clicked() {
-                on_export_wav();
-            }
-            if ui.button(RichText::new("➡ MP3").size(11.0)).clicked() {
+            let wav_btn = egui::Button::new(RichText::new("➡ WAV").strong().size(11.0).color(Color32::BLACK))
+                .fill(MelodyneTheme::ACCENT_CYAN)
+                .stroke(Stroke::new(1.0, Color32::BLACK))
+                .rounding(Rounding::same(3.0));
+
+            if ui.add(wav_btn).clicked() {
                 on_export_wav();
             }
 
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                ui.label(RichText::new(&state.status_message).size(11.0).italics().color(Color32::from_rgb(165, 148, 201)));
+                ui.label(RichText::new(&state.status_message).size(11.0).italics().color(MelodyneTheme::TEXT_MUTED));
             });
         });
     });
