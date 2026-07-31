@@ -64,6 +64,8 @@ pub struct KamafeuStudioApp {
     export_rx: Option<std::sync::mpsc::Receiver<()>>,
     active_track_index: usize,
     config: KamafeuConfig,
+    copaiba_app: crate::copaiba::gui::CopaibaToolkitApp,
+    copaiba_window_open: bool,
 }
 
 impl KamafeuStudioApp {
@@ -154,6 +156,8 @@ impl KamafeuStudioApp {
             export_rx: None,
             active_track_index: 0,
             config,
+            copaiba_app: crate::copaiba::gui::CopaibaToolkitApp::default(),
+            copaiba_window_open: false,
         }
     }
 
@@ -827,6 +831,7 @@ impl eframe::App for KamafeuStudioApp {
                         &mut self.piano_roll_state.active_tool,
                         &mut self.piano_roll_state.px_per_ms,
                         &mut self.piano_roll_state.row_height,
+                        &mut || self.copaiba_window_open = true,
                     );
                 });
 
@@ -1047,5 +1052,16 @@ impl eframe::App for KamafeuStudioApp {
             });
 
         self.draw_mini_log_window(ctx);
+
+        if self.copaiba_window_open {
+            let mut is_open = self.copaiba_window_open;
+            egui::Window::new("Copaiba Voicebank Toolkit")
+                .open(&mut is_open)
+                .default_size([1000.0, 600.0])
+                .show(ctx, |ui| {
+                    crate::copaiba::gui::draw_copaiba_toolkit_ui(&mut self.copaiba_app, ui);
+                });
+            self.copaiba_window_open = is_open;
+        }
     }
 }

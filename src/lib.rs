@@ -1,5 +1,6 @@
 pub mod audio;
 pub mod config;
+pub mod copaiba;
 pub mod drivers;
 pub mod dsp;
 pub mod formats;
@@ -11,6 +12,7 @@ pub mod renderer;
 
 pub use audio::*;
 pub use config::*;
+pub use copaiba::*;
 pub use drivers::*;
 pub use dsp::*;
 pub use formats::*;

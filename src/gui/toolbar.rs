@@ -19,6 +19,7 @@ pub fn draw_toolbar(
     current_tool: &mut EditTool,
     px_per_ms: &mut f32,
     row_height: &mut f32,
+    on_open_copaiba: &mut dyn FnMut(),
 ) {
     ui.horizontal(|ui| {
         ui.add_space(4.0);
@@ -55,6 +56,14 @@ pub fn draw_toolbar(
             if ui.add(button_widget).clicked() {
                 *current_tool = tool;
             }
+        }
+
+        ui.add_space(8.0);
+        ui.separator();
+        ui.add_space(8.0);
+
+        if ui.button(RichText::new("Copaiba Toolkit").size(11.0).color(Color32::from_rgb(0, 255, 157))).clicked() {
+            on_open_copaiba();
         }
 
         ui.add_space(8.0);
