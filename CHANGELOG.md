@@ -1,10 +1,4 @@
-# CHANGELOG - Kamafeu Synthesizer
-
-Todas as mudanças notáveis e novas funcionalidades do projeto **Kamafeu** serão documentadas neste arquivo.
-
-O formato segue a estrutura [Keep a Changelog](https://keepachangelog.com/pt-BR/1.0.0/) e este projeto adere ao versionamento semântico [Semantic Versioning](https://semver.org/lang/pt-BR/).
-
----
+# CHANGELOG - Kamafeu
 
 ## [Unreleased] - v0.2.0-unstable
 
@@ -34,7 +28,6 @@ O formato segue a estrutura [Keep a Changelog](https://keepachangelog.com/pt-BR/
 
 ### Interface do Usuário (UI) & Localização
 - **Tradução Completa para Português**: Interface 100% traduzida em todas as ferramentas, painéis e controles.
-- **Estética Profissional sem Emojis**: Remoção de emojis da interface para um visual elegante de DAW.
 - **Avatar do Cantor sem Distorção**: Carregamento da imagem do cantor (`character.txt` / `character.yaml`) centralizado em caixa 100x100 px com taxa de proporção (*aspect ratio*) preservada.
 - **Correção de Contraste**: Tema de alto contraste para botões de seleção de taxa de amostragem (44100 Hz / 48000 Hz) e menus suspensos sobre fundo roxo escuro.
 
