@@ -962,7 +962,7 @@ impl eframe::App for KamafeuStudioApp {
                     &mut self.project.tracks,
                     &mut self.project.parts,
                     &mut self.active_track_index,
-                    self.piano_roll_state.playhead_ms,
+                    &mut self.piano_roll_state.playhead_ms,
                     self.piano_roll_state.px_per_ms,
                     self.transport_state.bpm,
                 );

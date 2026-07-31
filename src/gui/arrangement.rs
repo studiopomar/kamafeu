@@ -7,21 +7,21 @@ pub fn draw_arrangement_view(
     tracks: &mut Vec<UTrack>,
     parts: &mut Vec<UVoicePart>,
     active_track_index: &mut usize,
-    playhead_ms: f64,
+    playhead_ms: &mut f64,
     px_per_ms: f32,
     bpm: f64,
 ) {
     let header_width = 220.0f32;
-    let track_height = 42.0f32;
-    let ruler_height = 24.0f32;
+    let track_height = 44.0f32;
+    let ruler_height = 26.0f32;
 
     ui.vertical(|ui| {
         // 1. Top Track Management Bar
         ui.horizontal(|ui| {
-            ui.heading(egui::RichText::new("Arrangement (Faixas)").strong().size(12.0).color(MelodyneTheme::TEXT_GOLD_LABEL));
+            ui.heading(egui::RichText::new("Arrangement (Faixas)").strong().size(13.0).color(MelodyneTheme::TEXT_GOLD_LABEL));
             ui.add_space(10.0);
 
-            if ui.button(egui::RichText::new("Nova Track").size(10.5).color(Color32::from_rgb(0, 255, 157))).clicked() {
+            if ui.button(egui::RichText::new("Nova Track").size(11.0).color(Color32::from_rgb(0, 255, 157))).clicked() {
                 let new_idx = tracks.len();
                 let track_name = format!("Track {}", new_idx + 1);
                 tracks.push(UTrack {
@@ -32,12 +32,12 @@ pub fn draw_arrangement_view(
                     mute: false,
                     solo: false,
                 });
-                parts.push(UVoicePart::new(format!("Part {}", new_idx + 1), new_idx));
+                parts.push(UVoicePart::new(format!("Parte {}", new_idx + 1), new_idx));
                 *active_track_index = new_idx;
             }
 
             if tracks.len() > 1 {
-                if ui.button(egui::RichText::new("Excluir Track").size(10.5).color(Color32::from_rgb(255, 100, 100))).clicked() {
+                if ui.button(egui::RichText::new("Excluir Track").size(11.0).color(Color32::from_rgb(255, 100, 100))).clicked() {
                     let del_idx = *active_track_index;
                     if del_idx < tracks.len() {
                         tracks.remove(del_idx);
@@ -58,7 +58,7 @@ pub fn draw_arrangement_view(
             ui.label(
                 egui::RichText::new(format!("Track Ativa: {} ({})", *active_track_index + 1, tracks.get(*active_track_index).map(|t| t.name.as_str()).unwrap_or("Track")))
                     .size(11.0)
-                    .color(Color32::from_rgb(200, 190, 230))
+                    .color(Color32::from_rgb(0, 255, 157))
             );
         });
 
@@ -82,7 +82,7 @@ pub fn draw_arrangement_view(
                 }
 
                 let card_bg = if is_active {
-                    Color32::from_rgb(36, 27, 53)
+                    Color32::from_rgb(45, 34, 65)
                 } else if idx == 0 {
                     MelodyneTheme::BG_PANEL
                 } else {
@@ -90,7 +90,7 @@ pub fn draw_arrangement_view(
                 };
 
                 let card_stroke = if is_active {
-                    Stroke::new(1.8, Color32::from_rgb(0, 255, 157))
+                    Stroke::new(2.0, Color32::from_rgb(0, 255, 157))
                 } else {
                     Stroke::new(1.0, MelodyneTheme::GRID_LINE_BAR)
                 };
@@ -115,8 +115,8 @@ pub fn draw_arrangement_view(
                 let track = &mut tracks[idx];
 
                 // Interactive Mute & Solo Buttons
-                let mute_rect = Rect::from_min_size(card_rect.min + Vec2::new(145.0, 6.0 + track_y_offset), Vec2::new(28.0, 15.0));
-                let solo_rect = Rect::from_min_size(card_rect.min + Vec2::new(180.0, 6.0 + track_y_offset), Vec2::new(28.0, 15.0));
+                let mute_rect = Rect::from_min_size(card_rect.min + Vec2::new(145.0, 6.0 + track_y_offset), Vec2::new(28.0, 16.0));
+                let solo_rect = Rect::from_min_size(card_rect.min + Vec2::new(180.0, 6.0 + track_y_offset), Vec2::new(28.0, 16.0));
 
                 let mute_resp = ui.allocate_rect(mute_rect, egui::Sense::click());
                 if mute_resp.clicked() {
@@ -145,7 +145,7 @@ pub fn draw_arrangement_view(
                 });
 
                 // Track Volume Slider
-                let vol_rect = Rect::from_min_size(card_rect.min + Vec2::new(16.0, 23.0 + track_y_offset), Vec2::new(190.0, 14.0));
+                let vol_rect = Rect::from_min_size(card_rect.min + Vec2::new(16.0, 24.0 + track_y_offset), Vec2::new(190.0, 14.0));
                 ui.allocate_new_ui(egui::UiBuilder::new().max_rect(vol_rect), |ui| {
                     ui.horizontal(|ui| {
                         ui.label(egui::RichText::new("Vol:").size(9.0).color(MelodyneTheme::TEXT_MUTED));
@@ -153,7 +153,7 @@ pub fn draw_arrangement_view(
                     });
                 });
 
-                // 2. Right Track Audio / Note Strip
+                // 2. Right Track Audio / Note Timeline Strip
                 let available_width = ui.available_width();
                 let scroll_id = ui.make_persistent_id("piano_roll_scroll");
 
@@ -161,13 +161,32 @@ pub fn draw_arrangement_view(
                     .id_salt(scroll_id)
                     .enable_scrolling(false)
                     .show(ui, |ui| {
-                        let (strip_rect, _) = ui.allocate_exact_size(Vec2::new(available_width.max(3000.0), card_total_h), egui::Sense::hover());
+                        let (strip_rect, strip_resp) = ui.allocate_exact_size(Vec2::new(available_width.max(3000.0), card_total_h), egui::Sense::click_and_drag());
+                        
+                        // Clicking timeline strip selects active track & seeks playhead
+                        if strip_resp.clicked() {
+                            *active_track_index = idx;
+                            if let Some(pos) = strip_resp.interact_pointer_pos() {
+                                let clicked_ms = ((pos.x - strip_rect.min.x) / px_per_ms).max(0.0) as f64;
+                                *playhead_ms = clicked_ms;
+                            }
+                        }
+
                         ui.painter().rect_filled(strip_rect, Rounding::ZERO, MelodyneTheme::BG_CANVAS);
                         ui.painter().rect_stroke(strip_rect, Rounding::ZERO, Stroke::new(1.0, MelodyneTheme::GRID_LINE_SUB));
 
-                        // Draw Timeline Ruler
+                        // Draw Timeline Ruler (Top Row)
                         if idx == 0 {
                             let ruler_rect = Rect::from_min_size(strip_rect.min, Vec2::new(strip_rect.width(), ruler_height));
+                            let ruler_resp = ui.allocate_rect(ruler_rect, egui::Sense::click_and_drag());
+                            
+                            if ruler_resp.clicked() || ruler_resp.dragged() {
+                                if let Some(pos) = ruler_resp.interact_pointer_pos() {
+                                    let clicked_ms = ((pos.x - strip_rect.min.x) / px_per_ms).max(0.0) as f64;
+                                    *playhead_ms = clicked_ms;
+                                }
+                            }
+
                             ui.painter().rect_filled(ruler_rect, Rounding::ZERO, MelodyneTheme::BG_PANEL);
                             ui.painter().rect_stroke(ruler_rect, Rounding::ZERO, Stroke::new(1.0, MelodyneTheme::GRID_LINE_BAR));
                             
@@ -185,7 +204,7 @@ pub fn draw_arrangement_view(
                                         ui.painter().text(
                                             Pos2::new(x + 4.0, ruler_rect.min.y + 2.0),
                                             egui::Align2::LEFT_TOP,
-                                            format!("{}", bar),
+                                            format!("m{}", bar),
                                             egui::FontId::proportional(11.0),
                                             MelodyneTheme::TEXT_NOTE_TAG,
                                         );
@@ -198,27 +217,85 @@ pub fn draw_arrangement_view(
                             }
                         }
 
-                        // Render notes for this track
-                        for part in parts.iter().filter(|p| p.track_index == idx) {
-                            let part_offset_x = (part.position_ms * px_per_ms as f64) as f32;
-                            for note in &part.notes {
-                                let start_x = strip_rect.min.x + part_offset_x + (note.position_ms * px_per_ms as f64) as f32;
-                                let width = (note.duration_ms * px_per_ms as f64) as f32;
-                                
-                                let note_rect = Rect::from_min_size(
-                                    Pos2::new(start_x, strip_rect.min.y + track_y_offset + 4.0),
-                                    Vec2::new(width.max(2.0), track_height - 8.0)
+                        // Render Interactive UVoicePart Clips for this track
+                        for part in parts.iter_mut().filter(|p| p.track_index == idx) {
+                            let part_start_ms = part.position_ms;
+                            let part_duration_ms = part.notes.iter()
+                                .map(|n| n.position_ms + n.duration_ms)
+                                .fold(2000.0f64, f64::max);
+
+                            let part_x = strip_rect.min.x + (part_start_ms * px_per_ms as f64) as f32;
+                            let part_w = (part_duration_ms * px_per_ms as f64) as f32;
+
+                            let part_rect = Rect::from_min_size(
+                                Pos2::new(part_x, strip_rect.min.y + track_y_offset + 2.0),
+                                Vec2::new(part_w.max(60.0), track_height - 4.0),
+                            );
+
+                            if part_rect.max.x > strip_rect.min.x && part_rect.min.x < strip_rect.max.x {
+                                let part_resp = ui.allocate_rect(part_rect, egui::Sense::click_and_drag());
+
+                                // Part Click Selection & Dragging Movement
+                                if part_resp.clicked() {
+                                    *active_track_index = idx;
+                                }
+
+                                if part_resp.dragged() {
+                                    *active_track_index = idx;
+                                    let delta_x = part_resp.drag_delta().x;
+                                    let delta_ms = (delta_x / px_per_ms) as f64;
+                                    part.position_ms = (part.position_ms + delta_ms).max(0.0);
+                                }
+
+                                if part_resp.double_clicked() {
+                                    *active_track_index = idx;
+                                    *playhead_ms = part.position_ms;
+                                }
+
+                                // Render DAW Part Clip Background
+                                let clip_bg = if is_active {
+                                    Color32::from_rgb(10, 60, 40)
+                                } else {
+                                    Color32::from_rgb(20, 45, 35)
+                                };
+                                let clip_stroke = if is_active {
+                                    Stroke::new(1.5, Color32::from_rgb(0, 255, 157))
+                                } else {
+                                    Stroke::new(1.0, color_badge)
+                                };
+
+                                ui.painter().rect_filled(part_rect, Rounding::same(4.0), clip_bg);
+                                ui.painter().rect_stroke(part_rect, Rounding::same(4.0), clip_stroke);
+
+                                // Part Title Header Badge
+                                ui.painter().text(
+                                    part_rect.min + Vec2::new(6.0, 2.0),
+                                    egui::Align2::LEFT_TOP,
+                                    &part.name,
+                                    egui::FontId::proportional(10.0),
+                                    Color32::from_rgb(0, 255, 157),
                                 );
-                                
-                                if note_rect.max.x > strip_rect.min.x && note_rect.min.x < strip_rect.max.x {
-                                    ui.painter().rect_filled(note_rect, Rounding::same(2.0), color_badge.linear_multiply(0.8));
-                                    ui.painter().rect_stroke(note_rect, Rounding::same(2.0), Stroke::new(1.0, MelodyneTheme::NOTE_GOLD_STROKE));
+
+                                // Render Notes inside the Part Container Box
+                                for note in &part.notes {
+                                    let start_x = part_rect.min.x + (note.position_ms * px_per_ms as f64) as f32;
+                                    let width = (note.duration_ms * px_per_ms as f64) as f32;
+
+                                    let note_rect = Rect::from_min_size(
+                                        Pos2::new(start_x, part_rect.min.y + 14.0),
+                                        Vec2::new(width.max(2.0), track_height - 20.0),
+                                    );
+
+                                    if note_rect.max.x > part_rect.min.x && note_rect.min.x < part_rect.max.x {
+                                        ui.painter().rect_filled(note_rect, Rounding::same(2.0), color_badge.linear_multiply(0.9));
+                                        ui.painter().rect_stroke(note_rect, Rounding::same(1.0), Stroke::new(1.0, Color32::from_rgb(0, 255, 157)));
+                                    }
                                 }
                             }
                         }
 
-                        // Playhead line indicator
-                        let playhead_x = strip_rect.min.x + (playhead_ms * px_per_ms as f64) as f32;
+                        // Playhead line indicator across arrangement timeline
+                        let playhead_x = strip_rect.min.x + (*playhead_ms * px_per_ms as f64) as f32;
                         if playhead_x >= strip_rect.min.x && playhead_x <= strip_rect.max.x {
                             ui.painter().line_segment(
                                 [Pos2::new(playhead_x, strip_rect.min.y), Pos2::new(playhead_x, strip_rect.max.y)],

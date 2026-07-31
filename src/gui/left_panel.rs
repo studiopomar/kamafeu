@@ -98,13 +98,22 @@ pub fn draw_left_panel(
                 if let Some(vb) = voicebank {
                     if let Some(ref img_path) = vb.image_path {
                         if let Ok(img) = image::open(img_path) {
-                            let img_size = [img.width() as _, img.height() as _];
-                            let rgba = img.to_rgba8();
-                            let color_image = egui::ColorImage::from_rgba_unmultiplied(img_size, rgba.as_flat_samples().as_slice());
-                            let texture = ui.ctx().load_texture(&format!("left_vb_avatar_{}", vb.name), color_image, Default::default());
-                            let uv = egui::Rect::from_min_max(egui::Pos2::new(0.0, 0.0), egui::Pos2::new(1.0, 1.0));
-                            painter.image(texture.id(), avatar_rect, uv, egui::Color32::WHITE);
-                            loaded_image = true;
+                            let img_w = img.width() as f32;
+                            let img_h = img.height() as f32;
+                            if img_w > 0.0 && img_h > 0.0 {
+                                let aspect = img_w / img_h;
+                                let (draw_w, draw_h) = if aspect >= 1.0 {
+                                    (48.0, (48.0 / aspect).min(48.0))
+                                } else {
+                                    ((48.0 * aspect).min(48.0), 48.0)
+                                };
+                                let draw_rect = egui::Rect::from_center_size(avatar_rect.center(), Vec2::new(draw_w, draw_h));
+                                let color_image = egui::ColorImage::from_rgba_unmultiplied([img.width() as _, img.height() as _], img.to_rgba8().as_flat_samples().as_slice());
+                                let texture = ui.ctx().load_texture(&format!("left_vb_avatar_{}", vb.name), color_image, Default::default());
+                                let uv = egui::Rect::from_min_max(egui::Pos2::new(0.0, 0.0), egui::Pos2::new(1.0, 1.0));
+                                painter.image(texture.id(), draw_rect, uv, egui::Color32::WHITE);
+                                loaded_image = true;
+                            }
                         }
                     }
                 }

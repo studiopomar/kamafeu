@@ -1,4 +1,4 @@
-use eframe::egui::{self, Color32, Frame, Pos2, RichText, Rounding, Stroke, Vec2};
+use eframe::egui::{self, Color32, Frame, Pos2, Rect, RichText, Rounding, Stroke, Vec2};
 use std::path::PathBuf;
 use crate::gui::theme::MelodyneTheme;
 use crate::project::model::UNote;
@@ -47,47 +47,60 @@ pub fn draw_right_panel(
 
                 ui.add_space(4.0);
 
-                // Draw Avatar Picture Box (Image or Letter Badge)
-                let (avatar_rect, _) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 75.0), egui::Sense::hover());
-                let painter = ui.painter_at(avatar_rect);
+                // Draw Avatar Picture Box (100x100 Centered with Locked Aspect Ratio)
+                ui.horizontal(|ui| {
+                    ui.add_space((ui.available_width() - 100.0).max(0.0) * 0.5);
+                    let (avatar_rect, _) = ui.allocate_exact_size(Vec2::new(100.0, 100.0), egui::Sense::hover());
+                    let painter = ui.painter_at(avatar_rect);
 
-                painter.rect_filled(avatar_rect, Rounding::same(4.0), Color32::from_rgb(36, 27, 53));
-                painter.rect_stroke(avatar_rect, Rounding::same(4.0), Stroke::new(1.2, Color32::from_rgb(192, 132, 252)));
+                    painter.rect_filled(avatar_rect, Rounding::same(6.0), Color32::from_rgb(36, 27, 53));
+                    painter.rect_stroke(avatar_rect, Rounding::same(6.0), Stroke::new(1.2, Color32::from_rgb(192, 132, 252)));
 
-                let mut loaded_image = false;
-                if let Some(vb) = voicebank {
-                    if let Some(ref img_path) = vb.image_path {
-                        if let Ok(img) = image::open(img_path) {
-                            let img_size = [img.width() as _, img.height() as _];
-                            let rgba = img.to_rgba8();
-                            let color_image = egui::ColorImage::from_rgba_unmultiplied(img_size, rgba.as_flat_samples().as_slice());
-                            let texture = ui.ctx().load_texture(&format!("right_vb_avatar_{}", vb.name), color_image, Default::default());
-                            let uv = egui::Rect::from_min_max(Pos2::new(0.0, 0.0), Pos2::new(1.0, 1.0));
-                            painter.image(texture.id(), avatar_rect.shrink(2.0), uv, Color32::WHITE);
-                            loaded_image = true;
+                    let mut loaded_image = false;
+                    if let Some(vb) = voicebank {
+                        if let Some(ref img_path) = vb.image_path {
+                            if let Ok(img) = image::open(img_path) {
+                                let img_w = img.width() as f32;
+                                let img_h = img.height() as f32;
+                                if img_w > 0.0 && img_h > 0.0 {
+                                    let aspect = img_w / img_h;
+                                    let (draw_w, draw_h) = if aspect >= 1.0 {
+                                        (96.0, (96.0 / aspect).min(96.0))
+                                    } else {
+                                        ((96.0 * aspect).min(96.0), 96.0)
+                                    };
+
+                                    let draw_rect = Rect::from_center_size(avatar_rect.center(), Vec2::new(draw_w, draw_h));
+                                    let color_image = egui::ColorImage::from_rgba_unmultiplied([img.width() as _, img.height() as _], img.to_rgba8().as_flat_samples().as_slice());
+                                    let texture = ui.ctx().load_texture(&format!("right_vb_avatar_{}", vb.name), color_image, Default::default());
+                                    let uv = egui::Rect::from_min_max(Pos2::new(0.0, 0.0), Pos2::new(1.0, 1.0));
+                                    painter.image(texture.id(), draw_rect, uv, Color32::WHITE);
+                                    loaded_image = true;
+                                }
+                            }
                         }
                     }
-                }
 
-                if !loaded_image {
-                    let center = avatar_rect.center();
-                    painter.circle_filled(Pos2::new(center.x, center.y - 8.0), 18.0, Color32::from_rgb(0, 255, 157));
-                    painter.text(
-                        Pos2::new(center.x, center.y - 8.0),
-                        egui::Align2::CENTER_CENTER,
-                        &initial_letter,
-                        egui::FontId::proportional(16.0),
-                        Color32::from_rgb(20, 16, 28),
-                    );
+                    if !loaded_image {
+                        let center = avatar_rect.center();
+                        painter.circle_filled(Pos2::new(center.x, center.y - 10.0), 20.0, Color32::from_rgb(0, 255, 157));
+                        painter.text(
+                            Pos2::new(center.x, center.y - 10.0),
+                            egui::Align2::CENTER_CENTER,
+                            &initial_letter,
+                            egui::FontId::proportional(18.0),
+                            Color32::from_rgb(20, 16, 28),
+                        );
 
-                    painter.text(
-                        Pos2::new(center.x, center.y + 16.0),
-                        egui::Align2::CENTER_CENTER,
-                        vb_name,
-                        egui::FontId::proportional(11.0),
-                        Color32::WHITE,
-                    );
-                }
+                        painter.text(
+                            Pos2::new(center.x, center.y + 18.0),
+                            egui::Align2::CENTER_CENTER,
+                            vb_name,
+                            egui::FontId::proportional(11.0),
+                            Color32::WHITE,
+                        );
+                    }
+                });
 
                 ui.add_space(6.0);
                 ui.label(RichText::new(format!("Autor: {}", vb_author)).size(10.0).color(MelodyneTheme::TEXT_MUTED));
