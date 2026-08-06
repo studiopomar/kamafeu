@@ -52,10 +52,14 @@ pub fn encode_pitch_bend_string(points: &[UPitchBendPoint], _tempo: f64) -> Stri
         let p1 = &window[1];
         let width = (p1.time_offset_ms - p0.time_offset_ms).max(0.0);
         let height_delta = (p1.pitch_offset_cents - p0.pitch_offset_cents) / 10.0;
-        
+
         pbw.push(format!("{:.1}", width));
         pby.push(format!("{:.1}", height_delta));
-        pbm.push(if p1.shape.is_empty() { "s".to_string() } else { p1.shape.clone() });
+        pbm.push(if p1.shape.is_empty() {
+            "s".to_string()
+        } else {
+            p1.shape.clone()
+        });
     }
 
     let pbw_str = pbw.join(",");
@@ -81,8 +85,16 @@ mod tests {
     #[test]
     fn test_encode_utau_base64_pitch() {
         let points = vec![
-            UPitchBendPoint { time_offset_ms: 0.0, pitch_offset_cents: 0.0, shape: "".to_string() },
-            UPitchBendPoint { time_offset_ms: 100.0, pitch_offset_cents: 100.0, shape: "s".to_string() },
+            UPitchBendPoint {
+                time_offset_ms: 0.0,
+                pitch_offset_cents: 0.0,
+                shape: "".to_string(),
+            },
+            UPitchBendPoint {
+                time_offset_ms: 100.0,
+                pitch_offset_cents: 100.0,
+                shape: "s".to_string(),
+            },
         ];
 
         let encoded = encode_utau_base64_pitch(&points, 100.0);

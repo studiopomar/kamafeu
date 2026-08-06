@@ -4,6 +4,8 @@
 
 Sintetizador de voz e piano roll escrito em Rust, focado no fluxo de trabalho clássico do UTAU.
 
+> **Status:** versão `0.2.0-alpha.1`. O formato de projeto e o motor de síntese ainda podem receber mudanças incompatíveis antes da versão estável.
+
 O objetivo do Kamafeu é resgatar a sensação de ajustar e construir cada detalhe da afinação e fonética de forma artesanal e manual, unindo essa experiência tradicional a um ambiente moderno, rápido e estável.
 
 O projeto permite a edição de sequências de áudio, importação de voicebanks UTAU e renderização offline ou em tempo real.
@@ -77,7 +79,12 @@ Implementação nativa do algoritmo **SOLA (Synchronized Overlap-Add)** para alt
 O Kamafeu permite alternar dinamicamente entre os motores na interface gráfica ou selecionar executáveis localizados nos diretórios `./resamplers` e `./wavtools`:
 
 * **[macres](https://github.com/titinko/macres)**: Motor de resampling multiplataforma baseado em `libpyin` e `libgvps`. É utilizado pelo Kamafeu para realizar a transposição de afinação (pitch-shifting) e o estiramento temporal (time-stretching) das amostras do voicebank.
+* **[Organum](https://github.com/KakouLabs/Organum)**: Resampler WORLD escrito em Rust, com processamento paralelo e cache de análise. O pacote do Kamafeu inclui o build CPU para macOS/Apple Silicon.
+* **[straycat-rs](https://github.com/UtaUtaUtau/straycat-rs)**: Resampler WORLD em Rust com suporte a bancos VCV, CVVC e VCCV. O adaptador compensa automaticamente a semântica própria de duração do motor.
+* **[World4UTAU](https://github.com/xrdavies/world4utau)**: Perfil de compatibilidade e detecção automática para o port de macOS/Linux. O executável pode ser instalado em `./resamplers/world4utau`.
 * **[wavtool-yawu](https://github.com/m13253/wavtool-yawu)** (*Yet Another Wavtool for UTAU*): Ferramenta de concatenação áudio moderna que substitui o `wavtool.exe` tradicional. No Kamafeu, ele processa os fragmentos gerados pelo resampler, aplicando envelopes de atenuação, interpolação de volume e *crossfading* entre as notas com suporte a amostragem em 32-bit e 64-bit float.
+
+Todos esses motores usam o contrato CLI clássico do UTAU. O Kamafeu envia BPM (`!tempo`), velocidade de consoante, flags, recorte e pitch bend; se o executável estiver ausente, falhar ou produzir um WAV vazio, a renderização continua pelo motor nativo TD-PSOLA.
 
 ### 4. Parâmetros Vocais e Modulações
 Os parâmetros podem ser ajustados por nota ou globalmente na faixa:
@@ -104,9 +111,9 @@ O sistema implementa o modelo de pitch bend Mode 2 do UTAU e do OpenUTAU:
 
 | Formato | Extensão | Leitura | Escrita | Descrição |
 | --- | --- | --- | --- | --- |
-| OpenUTAU | `.ustx` | Sim | Sim | Formato de projeto moderno multifaixa |
-| UTAU Sequence | `.ust` | Sim | Sim | Sequência clássica de notas e parâmetros do UTAU |
-| Standard MIDI | `.mid`, `.midi` | Sim | Não | Importação de faixas de notas e tempos |
+| OpenUTAU | `.ustx` | Sim | Sim | Projeto multifaixa com partes, expressões e pitch bends |
+| UTAU Sequence | `.ust` | Sim | Sim | Sequência clássica de faixa única e parâmetros do UTAU |
+| Standard MIDI | `.mid`, `.midi` | Sim | Sim | Importação e exportação multifaixa, incluindo notas sobrepostas |
 | Kamafeu Score | `.json` | Sim | Sim | Estrutura de dados interna serializada |
 
 ---
@@ -114,7 +121,7 @@ O sistema implementa o modelo de pitch bend Mode 2 do UTAU e do OpenUTAU:
 ## Requisitos e Compilação
 
 ### Pré-requisitos
-* **Rust**: Versão 1.75 ou superior (`rustup default stable`).
+* **Rust**: Versão 1.82 ou superior (`rustup default stable`).
 
 ### Dependências de Sistema
 
@@ -156,19 +163,22 @@ Estrutura da interface:
 * **Barra de Transporte**: Controles de reprodução (Play, Pause, Stop), leitura de tempo (`00:00.000`), seleção de snap de grade (1/4, 1/8, 1/16, Livre) e exportação WAV.
 
 ### 2. Configurando Resamplers Externos
-Caso deseje utilizar o executável `macres` ou `wavtool-yawu`:
+Caso deseje adicionar ou substituir um resampler externo:
 1. Baixe o binário correspondente ao seu sistema operacional.
 2. Coloque os arquivos nas pastas do projeto:
    - `./resamplers/macres`
+   - `./resamplers/organum-resampler`
+   - `./resamplers/straycat-rs`
+   - `./resamplers/world4utau` (opcional)
    - `./wavtools/wavtool-yawu`
 3. Certifique-se de conceder permissão de execução (no macOS/Linux):
    ```bash
-   chmod +x ./resamplers/macres ./wavtools/wavtool-yawu
+   chmod +x ./resamplers/* ./wavtools/wavtool-yawu
    ```
-4. Na interface do Kamafeu, acesse o painel direito e selecione a opção `macres` ou `Custom` (indicando o caminho do executável através da janela de arquivos).
+4. Na interface do Kamafeu, acesse **Configurações do Motor** e selecione `macres`, `Organum`, `straycat-rs`, `World4UTAU` ou **Procurar Resampler...** para qualquer outro executável compatível.
 
 ### 3. Renderização em Linha de Comando (CLI)
-É possível renderizar projetos `.ust`, `.ustx` ou `.json` diretamente para um arquivo WAV sem iniciar a interface gráfica:
+É possível renderizar projetos `.ust`, `.ustx`, `.mid`, `.midi` ou `.json` diretamente para um WAV estéreo sem iniciar a interface gráfica:
 
 ```bash
 cargo run --release -- render \
@@ -180,7 +190,7 @@ cargo run --release -- render \
 
 Parâmetros do comando `render`:
 * `-v`, `--voicebank <PATH>`: Diretório raiz do voicebank UTAU contendo `oto.ini`.
-* `-i`, `--input <PATH>`: Arquivo de entrada (`.ustx`, `.ust` ou `.json`).
+* `-i`, `--input <PATH>`: Arquivo de entrada (`.ustx`, `.ust`, `.mid`, `.midi` ou `.json`).
 * `-o`, `--output <PATH>`: Caminho do arquivo WAV de saída (Padrão: `output.wav`).
 * `-s`, `--sample-rate <HZ>`: Taxa de amostragem em Hz (Padrão: `44100`).
 
@@ -255,10 +265,23 @@ kamafeu/
 
 ## Testes
 
-Para rodar a suíte completa de 27 testes unitários automatizados do projeto:
+Para rodar a suíte completa de testes automatizados do projeto:
 ```bash
 cargo test
 ```
+
+As mesmas verificações executadas pela integração contínua podem ser reproduzidas localmente:
+
+```bash
+cargo fmt --all -- --check
+cargo clippy --all-targets --all-features -- -D warnings
+cargo test --all-targets --all-features
+cargo check --release --all-targets
+```
+
+## Plataformas de Release
+
+Os releases automatizados incluem o Kamafeu Studio e o Copaíba Toolkit para Windows x64, macOS Intel, macOS Apple Silicon e Linux x64. Android ainda não é distribuído: um APK só será publicado quando houver um projeto Android completo, assinatura e teste de instalação, em vez de renomear uma biblioteca nativa como APK.
 
 ---
 

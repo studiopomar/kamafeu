@@ -52,7 +52,11 @@ impl UtauEnvelope {
         let v5 = self.v5 / 100.0;
 
         if time_ms <= t_p1 {
-            if t_p1 == 0.0 { v1 } else { v1 * (time_ms / t_p1) }
+            if t_p1 == 0.0 {
+                v1
+            } else {
+                v1 * (time_ms / t_p1)
+            }
         } else if time_ms <= t_p2 {
             let norm = (time_ms - t_p1) / (t_p2 - t_p1).max(0.001);
             v1 + norm * (v2 - v1)

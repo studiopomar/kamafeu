@@ -3,17 +3,23 @@ pub mod romaji;
 use crate::oto::Voicebank;
 use crate::project::model::UNote;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize, Default)]
 pub enum PhonemizerMode {
+    #[default]
     BasicCV,
     VCV,
     CVVC,
 }
 
-impl Default for PhonemizerMode {
-    fn default() -> Self {
-        PhonemizerMode::BasicCV
-    }
+/// UTAU-compatible time multiplier for consonant velocity.
+/// 100 is neutral, 200 is twice as fast, and 0 is twice as slow.
+pub fn consonant_velocity_time_scale(velocity: f64) -> f64 {
+    let velocity = if velocity.is_finite() {
+        velocity
+    } else {
+        100.0
+    };
+    2.0f64.powf(1.0 - velocity.clamp(0.0, 200.0) / 100.0)
 }
 
 pub struct RenderPhone {
@@ -38,14 +44,21 @@ pub struct JapanesePhonemizer;
 impl JapanesePhonemizer {
     pub fn extract_vowel(lyric: &str) -> Option<&'static str> {
         let lyric_clean = lyric.trim();
-        if lyric_clean.is_empty() { return None; }
+        if lyric_clean.is_empty() {
+            return None;
+        }
         let h_lyric = romaji::romaji_to_hiragana(lyric_clean);
         match h_lyric.as_str() {
-            "あ" | "か" | "さ" | "た" | "な" | "は" | "ま" | "や" | "ら" | "わ" | "が" | "ざ" | "だ" | "ば" | "ぱ" | "ファ" => Some("a"),
-            "い" | "き" | "し" | "ち" | "に" | "ひ" | "み" | "り" | "ぎ" | "じ" | "ぢ" | "び" | "ぴ" | "フィ" => Some("i"),
-            "う" | "く" | "す" | "つ" | "ぬ" | "ふ" | "む" | "ゆ" | "る" | "ん" | "ぐ" | "ず" | "づ" | "ぶ" | "ぷ" => Some("u"),
-            "え" | "け" | "せ" | "て" | "ね" | "へ" | "め" | "れ" | "げ" | "ぜ" | "で" | "べ" | "ぺ" | "フェ" => Some("e"),
-            "お" | "こ" | "そ" | "と" | "の" | "ほ" | "も" | "よ" | "ろ" | "を" | "ご" | "ぞ" | "ど" | "ぼ" | "ぽ" | "フォ" => Some("o"),
+            "あ" | "か" | "さ" | "た" | "な" | "は" | "ま" | "や" | "ら" | "わ" | "が" | "ざ"
+            | "だ" | "ば" | "ぱ" | "ファ" => Some("a"),
+            "い" | "き" | "し" | "ち" | "に" | "ひ" | "み" | "り" | "ぎ" | "じ" | "ぢ" | "び"
+            | "ぴ" | "フィ" => Some("i"),
+            "う" | "く" | "す" | "つ" | "ぬ" | "ふ" | "む" | "ゆ" | "る" | "ん" | "ぐ" | "ず"
+            | "づ" | "ぶ" | "ぷ" => Some("u"),
+            "え" | "け" | "せ" | "て" | "ね" | "へ" | "め" | "れ" | "げ" | "ぜ" | "で" | "べ"
+            | "ぺ" | "フェ" => Some("e"),
+            "お" | "こ" | "そ" | "と" | "の" | "ほ" | "も" | "よ" | "ろ" | "を" | "ご" | "ぞ"
+            | "ど" | "ぼ" | "ぽ" | "フォ" => Some("o"),
             _ => {
                 let last_char = lyric_clean.chars().last().unwrap_or(' ');
                 match last_char {
@@ -63,7 +76,9 @@ impl JapanesePhonemizer {
 
     pub fn extract_consonant(lyric: &str) -> Option<&'static str> {
         let lyric_clean = lyric.trim();
-        if lyric_clean.is_empty() { return None; }
+        if lyric_clean.is_empty() {
+            return None;
+        }
         let h_lyric = romaji::romaji_to_hiragana(lyric_clean);
         match h_lyric.as_str() {
             "か" | "き" | "く" | "け" | "こ" | "きゃ" | "きゅ" | "きょ" => Some("k"),
@@ -92,7 +107,6 @@ impl JapanesePhonemizer {
         let mut phones = Vec::new();
         let mut prev_vowel: Option<&'static str> = None;
         let mut prev_note_end_ms: Option<f64> = None;
-        let vc_length_ms = 60.0; // Standard CVVC transition overlap
 
         for note in notes.iter() {
             let cur_vowel = Self::extract_vowel(&note.lyric);
@@ -165,23 +179,32 @@ impl JapanesePhonemizer {
                         if let (Some(pv), Some(cc)) = (prev_vowel, cur_consonant) {
                             let vc_alias = format!("{} {}", pv, cc);
                             if let Some(entry) = vb.find_entry(&vc_alias, &note.pitch) {
-                                // Cut duration from previous CV note
+                                // A CVVC transition occupies the authored lead
+                                // between overlap and preutterance. A fixed value
+                                // misaligns banks with longer VC recordings.
+                                let authored_length_ms = ((entry.preutterance - entry.overlap)
+                                    * consonant_velocity_time_scale(
+                                        note.expressions.consonant_velocity,
+                                    ))
+                                .max(10.0);
                                 if let Some(last_phone) = phones.last_mut() {
-                                    if last_phone.duration_ms > vc_length_ms {
+                                    let vc_length_ms = authored_length_ms
+                                        .min((last_phone.duration_ms - 1.0).max(0.0));
+                                    if vc_length_ms > 0.0 {
                                         last_phone.duration_ms -= vc_length_ms;
+                                        phones.push(RenderPhone {
+                                            lyric: entry.alias.clone(),
+                                            pitch: note.pitch.clone(),
+                                            position_ms: note.position_ms - vc_length_ms,
+                                            duration_ms: vc_length_ms,
+                                            envelope: crate::dsp::envelope::UtauEnvelope::default(),
+                                            expressions: note.expressions.clone(),
+                                            pitch_bend: crate::project::model::UPitchBend::default(
+                                            ),
+                                            flags: note.flags.clone(),
+                                        });
                                     }
                                 }
-                                // Inject VC transition
-                                phones.push(RenderPhone {
-                                    lyric: entry.alias.clone(),
-                                    pitch: note.pitch.clone(),
-                                    position_ms: note.position_ms - vc_length_ms,
-                                    duration_ms: vc_length_ms,
-                                    envelope: crate::dsp::envelope::UtauEnvelope::default(),
-                                    expressions: note.expressions.clone(),
-                                    pitch_bend: crate::project::model::UPitchBend::default(),
-                                    flags: note.flags.clone(),
-                                });
                             }
                         }
                     } else {
@@ -224,11 +247,27 @@ mod tests {
         let mut entries = HashMap::new();
         entries.insert(
             "- か".to_string(),
-            crate::oto::OtoEntry::new("ka.wav".to_string(), "- か".to_string(), 0.0, 50.0, 0.0, 0.0, 0.0),
+            crate::oto::OtoEntry::new(
+                "ka.wav".to_string(),
+                "- か".to_string(),
+                0.0,
+                50.0,
+                0.0,
+                0.0,
+                0.0,
+            ),
         );
         entries.insert(
             "a き".to_string(),
-            crate::oto::OtoEntry::new("ki.wav".to_string(), "a き".to_string(), 0.0, 50.0, 0.0, 0.0, 0.0),
+            crate::oto::OtoEntry::new(
+                "ki.wav".to_string(),
+                "a き".to_string(),
+                0.0,
+                50.0,
+                0.0,
+                0.0,
+                0.0,
+            ),
         );
 
         let vb = Voicebank {
@@ -256,5 +295,52 @@ mod tests {
         assert_eq!(phones[0].lyric, "- か");
         assert_eq!(phones[1].lyric, "a き");
         assert_eq!(phones[2].lyric, "- か");
+    }
+
+    #[test]
+    fn cvvc_transition_uses_oto_timing() {
+        let mut entries = HashMap::new();
+        entries.insert(
+            "a k".to_string(),
+            crate::oto::OtoEntry::new(
+                "ak.wav".to_string(),
+                "a k".to_string(),
+                0.0,
+                250.0,
+                -375.0,
+                250.0,
+                125.0,
+            ),
+        );
+        let vb = Voicebank {
+            root_path: std::path::PathBuf::from("/tmp"),
+            name: "Test CVVC".to_string(),
+            author: "Test".to_string(),
+            character_info: String::new(),
+            readme_info: String::new(),
+            image_path: None,
+            entries,
+            prefix_map: crate::oto::PrefixMap::default(),
+        };
+        let notes = vec![
+            UNote::new("ra", "C4", 0.0, 400.0),
+            UNote::new("ko", "C4", 400.0, 400.0),
+        ];
+
+        let phones = JapanesePhonemizer::apply_phonemizer(&notes, &vb, PhonemizerMode::CVVC);
+
+        assert_eq!(phones.len(), 3);
+        assert_eq!(phones[0].duration_ms, 275.0);
+        assert_eq!(phones[1].lyric, "a k");
+        assert_eq!(phones[1].position_ms, 275.0);
+        assert_eq!(phones[1].duration_ms, 125.0);
+        assert_eq!(phones[2].position_ms, 400.0);
+    }
+
+    #[test]
+    fn consonant_velocity_uses_utau_time_curve() {
+        assert!((consonant_velocity_time_scale(100.0) - 1.0).abs() < 1e-9);
+        assert!((consonant_velocity_time_scale(200.0) - 0.5).abs() < 1e-9);
+        assert!((consonant_velocity_time_scale(0.0) - 2.0).abs() < 1e-9);
     }
 }

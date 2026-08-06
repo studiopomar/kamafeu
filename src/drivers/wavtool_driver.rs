@@ -1,6 +1,6 @@
+use crate::dsp::envelope::UtauEnvelope;
 use std::path::{Path, PathBuf};
 use std::process::Command;
-use crate::dsp::envelope::UtauEnvelope;
 
 #[derive(Debug, Clone)]
 pub struct WavtoolArgs {
@@ -17,7 +17,11 @@ pub trait WavtoolDriver: Send + Sync {
     fn process_note(&self, note_samples: &mut [f32], sample_rate: u32, args: &WavtoolArgs);
 }
 
-/// Native Rust Wavtool Driver (crossfade & 5-point UTAU envelope)
+/// Native Rust Wavtool Driver (5-point UTAU envelope).
+///
+/// Crossfading must happen while notes are mixed, where both sides of the
+/// transition are available. Applying independent fades here caused gaps and
+/// double-fades for VCV/CVVC voicebanks.
 pub struct NativeWavtoolDriver;
 
 impl WavtoolDriver for NativeWavtoolDriver {
@@ -30,33 +34,10 @@ impl WavtoolDriver for NativeWavtoolDriver {
             return;
         }
 
-        // 1. Apply 5-point UTAU envelope (amplitude shaping over note duration)
-        args.envelope.apply(note_samples, sample_rate, args.duration_ms);
-
-        // 2. Smooth equal-power cosine fade-in (overlap/preutterance region)
-        let overlap_ms = if args.overlap_ms > 0.0 { args.overlap_ms } else { 45.0 };
-        let fade_in_samples = ((overlap_ms / 1000.0) * sample_rate as f64) as usize;
-        let fade_in_len = fade_in_samples.min(note_samples.len() / 2).max(1);
-
-        for i in 0..fade_in_len {
-            let t = i as f32 / fade_in_len as f32;
-            // Equal-power cosine curve: smooth sine ramp
-            let gain = (t * std::f32::consts::FRAC_PI_2).sin();
-            note_samples[i] *= gain;
-        }
-
-        // 3. Smooth equal-power cosine fade-out (release tail for crossfade with next note)
-        let fade_out_ms = overlap_ms.min(35.0); // release tail: shorter than attack for natural decay
-        let fade_out_samples = ((fade_out_ms / 1000.0) * sample_rate as f64) as usize;
-        let fade_out_len = fade_out_samples.min(note_samples.len() / 2).max(1);
-        let total_len = note_samples.len();
-
-        for i in 0..fade_out_len {
-            let t = i as f32 / fade_out_len as f32;
-            // Equal-power cosine curve: smooth cosine ramp down
-            let gain = (t * std::f32::consts::FRAC_PI_2).cos();
-            note_samples[total_len - 1 - i] *= gain;
-        }
+        // Apply the per-note amplitude envelope. The track mixer performs the
+        // complementary crossfade against the preceding phone.
+        args.envelope
+            .apply(note_samples, sample_rate, args.duration_ms);
     }
 }
 
@@ -88,12 +69,7 @@ impl WavtoolYawuDriver {
             PathBuf::from("/usr/local/bin/wavtool-yawu"),
         ];
 
-        for cand in candidates {
-            if cand.exists() {
-                return Some(cand);
-            }
-        }
-        None
+        candidates.into_iter().find(|candidate| candidate.exists())
     }
 }
 
@@ -105,7 +81,11 @@ impl WavtoolDriver for WavtoolYawuDriver {
     fn process_note(&self, note_samples: &mut [f32], sample_rate: u32, args: &WavtoolArgs) {
         if self.executable_path.exists() {
             if !args.input_rendered_wav.exists() {
-                let _ = crate::renderer::TrackRenderer::save_wav_samples(&args.input_rendered_wav, note_samples, sample_rate);
+                let _ = crate::renderer::TrackRenderer::save_wav_samples(
+                    &args.input_rendered_wav,
+                    note_samples,
+                    sample_rate,
+                );
             }
 
             let mut cmd = Command::new(&self.executable_path);
@@ -129,7 +109,8 @@ impl WavtoolDriver for WavtoolYawuDriver {
         }
 
         // Apply native envelope processing for seamless audio output
-        args.envelope.apply(note_samples, sample_rate, args.duration_ms);
+        args.envelope
+            .apply(note_samples, sample_rate, args.duration_ms);
     }
 }
 
@@ -176,6 +157,7 @@ impl WavtoolDriver for ExternalWavtoolDriver {
             let _ = cmd.output();
         }
 
-        args.envelope.apply(note_samples, sample_rate, args.duration_ms);
+        args.envelope
+            .apply(note_samples, sample_rate, args.duration_ms);
     }
 }

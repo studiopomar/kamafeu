@@ -1,18 +1,13 @@
-use eframe::egui::{self, Color32, Frame, Pos2, Rect, RichText, Rounding, Stroke, Vec2};
-use std::path::PathBuf;
 use crate::gui::theme::MelodyneTheme;
 use crate::project::model::UNote;
+use eframe::egui::{self, Color32, Frame, Pos2, Rect, RichText, Rounding, Stroke, Vec2};
+use std::path::PathBuf;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum RightSidebarTab {
+    #[default]
     NoteProperties,
     Settings,
-}
-
-impl Default for RightSidebarTab {
-    fn default() -> Self {
-        RightSidebarTab::NoteProperties
-    }
 }
 
 pub fn draw_right_panel(
@@ -29,9 +24,18 @@ pub fn draw_right_panel(
     custom_resampler_path: &mut Option<PathBuf>,
     custom_wavtool_path: &mut Option<PathBuf>,
 ) {
-    let vb_name = voicebank.map(|v| v.name.as_str()).unwrap_or("Default Singer");
-    let vb_author = voicebank.map(|v| v.author.as_str()).unwrap_or("UTAU Voicebank");
-    let initial_letter = vb_name.chars().next().unwrap_or('V').to_uppercase().to_string();
+    let vb_name = voicebank
+        .map(|v| v.name.as_str())
+        .unwrap_or("Default Singer");
+    let vb_author = voicebank
+        .map(|v| v.author.as_str())
+        .unwrap_or("UTAU Voicebank");
+    let initial_letter = vb_name
+        .chars()
+        .next()
+        .unwrap_or('V')
+        .to_uppercase()
+        .to_string();
 
     ui.vertical(|ui| {
         // 1. Voicebank Singer Info & Character.txt Box
@@ -72,7 +76,7 @@ pub fn draw_right_panel(
 
                                     let draw_rect = Rect::from_center_size(avatar_rect.center(), Vec2::new(draw_w, draw_h));
                                     let color_image = egui::ColorImage::from_rgba_unmultiplied([img.width() as _, img.height() as _], img.to_rgba8().as_flat_samples().as_slice());
-                                    let texture = ui.ctx().load_texture(&format!("right_vb_avatar_{}", vb.name), color_image, Default::default());
+                                    let texture = ui.ctx().load_texture(format!("right_vb_avatar_{}", vb.name), color_image, Default::default());
                                     let uv = egui::Rect::from_min_max(Pos2::new(0.0, 0.0), Pos2::new(1.0, 1.0));
                                     painter.image(texture.id(), draw_rect, uv, Color32::WHITE);
                                     loaded_image = true;
@@ -110,7 +114,7 @@ pub fn draw_right_panel(
                         ui.add_space(4.0);
                         egui::CollapsingHeader::new(RichText::new("character.txt / readme.txt").size(10.0).color(MelodyneTheme::TEXT_GOLD_LABEL))
                             .show(ui, |ui| {
-                                egui::ScrollArea::vertical().max_height(100.0).show(ui, |ui| {
+                                egui::ScrollArea::vertical().id_salt("right_panel_vb_scroll").max_height(100.0).show(ui, |ui| {
                                     if !vb.character_info.is_empty() {
                                         ui.label(RichText::new(&vb.character_info).size(9.0).color(Color32::from_rgb(216, 180, 254)));
                                     }
@@ -153,7 +157,7 @@ pub fn draw_right_panel(
 
         match active_tab {
             RightSidebarTab::NoteProperties => {
-                egui::ScrollArea::vertical().show(ui, |ui| {
+                egui::ScrollArea::vertical().id_salt("right_panel_note_props_scroll").show(ui, |ui| {
                     if let Some(target_idx) = selected_note_idx {
                         if target_idx < notes.len() {
                             if selected_indices.len() > 1 {
@@ -289,52 +293,89 @@ pub fn draw_right_panel(
                 });
             }
             RightSidebarTab::Settings => {
-                egui::ScrollArea::vertical().show(ui, |ui| {
+                egui::ScrollArea::vertical().id_salt("right_panel_settings_scroll").show(ui, |ui| {
                     ui.label(RichText::new("Motor Resampler").strong().color(Color32::from_rgb(0, 255, 157)));
-                    
-                    let macres_path_opt = crate::drivers::MacResDriver::find_executable();
-                    let resamplers = ["macres (titinko/macres)", "Nativo em Rust (TD-PSOLA)"];
-                    
-                    for res in resamplers {
-                        if ui.radio_value(selected_resampler, res.to_string(), res).clicked() {
-                            if res.contains("macres") {
-                                if let Some(ref p) = macres_path_opt {
-                                    *custom_resampler_path = Some(p.clone());
-                                }
+
+                    for profile in crate::drivers::KnownResampler::ALL {
+                        ui.horizontal(|ui| {
+                            if ui
+                                .radio_value(
+                                    selected_resampler,
+                                    profile.label().to_string(),
+                                    profile.label(),
+                                )
+                                .clicked()
+                            {
+                                *custom_resampler_path = Some(
+                                    profile
+                                        .find_executable()
+                                        .unwrap_or_else(|| profile.default_path()),
+                                );
                             }
-                        }
+
+                            if profile.default_path().is_file() {
+                                ui.label(
+                                    RichText::new("instalado")
+                                        .size(9.0)
+                                        .color(Color32::from_rgb(0, 255, 157)),
+                                );
+                            }
+                        });
                     }
+                    ui.radio_value(
+                        selected_resampler,
+                        "Nativo em Rust (TD-PSOLA)".to_string(),
+                        "Nativo em Rust (TD-PSOLA)",
+                    );
 
                     ui.add_space(4.0);
 
-                    // Display status badge for macres
-                    if selected_resampler.contains("macres") {
-                        if let Some(ref path) = custom_resampler_path.clone().or_else(|| macres_path_opt.clone()) {
+                    if !selected_resampler.contains("Nativo") {
+                        let selected_profile =
+                            crate::drivers::KnownResampler::from_label(selected_resampler);
+                        let resolved_path = custom_resampler_path
+                            .clone()
+                            .filter(|path| path.is_file())
+                            .or_else(|| {
+                                selected_profile
+                                    .map(|profile| profile.default_path())
+                                    .filter(|path| path.is_file())
+                            });
+                        if let Some(ref path) = resolved_path {
                             ui.horizontal(|ui| {
                                 ui.label(RichText::new("Executável:").size(10.5).color(Color32::from_rgb(0, 255, 157)));
                                 ui.label(RichText::new(path.to_string_lossy().to_string()).size(10.0).monospace().color(Color32::from_rgb(200, 190, 220)));
                             });
                         } else {
-                            ui.label(RichText::new("Executável macres não encontrado no sistema. O Kamafeu usará o fallback Native TD-PSOLA.").size(10.0).italics().color(Color32::from_rgb(255, 200, 100)));
+                            ui.label(RichText::new("Executável não encontrado. O Kamafeu usará o fallback Native TD-PSOLA.").size(10.0).italics().color(Color32::from_rgb(255, 200, 100)));
                         }
                     }
 
                     ui.horizontal(|ui| {
                         if ui.button(RichText::new("Procurar Resampler...").size(10.5)).clicked() {
                             if let Some(file) = rfd::FileDialog::new()
-                                .set_title("Selecionar executável do Resampler (macres/moresampler/resampler)")
+                                .set_title("Selecionar executável de resampler UTAU")
                                 .pick_file()
                             {
                                 *custom_resampler_path = Some(file);
-                                *selected_resampler = "macres (titinko/macres)".to_string();
+                                *selected_resampler = "Personalizado (UTAU CLI)".to_string();
                             }
                         }
 
-                        if custom_resampler_path.is_some() {
-                            if ui.button(RichText::new("Restaurar Padrão").size(10.0)).clicked() {
-                                *custom_resampler_path = macres_path_opt.clone();
+                        if custom_resampler_path.is_some()
+                            && ui.button(RichText::new("Restaurar Padrão").size(10.0)).clicked() {
+                                if let Some(profile) =
+                                    crate::drivers::KnownResampler::from_label(selected_resampler)
+                                {
+                                    *custom_resampler_path = Some(
+                                        profile
+                                            .find_executable()
+                                            .unwrap_or_else(|| profile.default_path()),
+                                    );
+                                } else {
+                                    *custom_resampler_path = None;
+                                }
                             }
-                        }
                     });
 
                     ui.add_space(10.0);
@@ -344,11 +385,10 @@ pub fn draw_right_panel(
                     ui.label(RichText::new("Motor Wavtool").strong().color(Color32::from_rgb(0, 255, 157)));
                     let wavtools = ["wavtool-yawu (m13253/wavtool-yawu)", "Nativo em Rust (TD-PSOLA)"];
                     for wt in wavtools {
-                        if ui.radio_value(selected_wavtool, wt.to_string(), wt).clicked() {
-                            if wt.contains("yawu") {
+                        if ui.radio_value(selected_wavtool, wt.to_string(), wt).clicked()
+                            && wt.contains("yawu") {
                                 *custom_wavtool_path = Some(PathBuf::from("./wavtools/wavtool-yawu"));
                             }
-                        }
                     }
 
                     ui.add_space(10.0);

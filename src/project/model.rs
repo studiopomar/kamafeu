@@ -1,6 +1,6 @@
-use serde::{Deserialize, Serialize};
 use crate::dsp::envelope::UtauEnvelope;
 use crate::dsp::pitch::{midi_to_note_name, note_name_to_midi, VibratoParam};
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UPitchBendPoint {
@@ -20,16 +20,20 @@ pub struct UExpressions {
     pub pitch_delta: f64, // PITD (-1200 to +1200 cents, default 0)
     pub gender: f64,      // GEN (-100 to +100, default 0)
     #[serde(default = "default_velocity")]
-    pub velocity: f64,    // VEL (0 to 200, default 100)
+    pub velocity: f64, // VEL (0 to 200, default 100)
     pub breathiness: f64, // BRE (-100 to +100, default 0)
     #[serde(default = "default_consonant_velocity")]
     pub consonant_velocity: f64, // (0 to 200, default 100)
     #[serde(default = "default_modulation")]
-    pub modulation: f64,  // MOD (0 to 200, default 0)
+    pub modulation: f64, // MOD (0 to 200, default 0)
 }
 
-fn default_modulation() -> f64 { 0.0 }
-fn default_consonant_velocity() -> f64 { 100.0 }
+fn default_modulation() -> f64 {
+    0.0
+}
+fn default_consonant_velocity() -> f64 {
+    100.0
+}
 
 fn default_velocity() -> f64 {
     100.0
@@ -53,6 +57,7 @@ impl Default for UExpressions {
 pub struct UNote {
     pub lyric: String,
     pub pitch: String,
+    #[serde(alias = "start_time_ms")]
     pub position_ms: f64,
     pub duration_ms: f64,
     #[serde(default)]
@@ -68,7 +73,12 @@ pub struct UNote {
 }
 
 impl UNote {
-    pub fn new(lyric: impl Into<String>, pitch: impl Into<String>, position_ms: f64, duration_ms: f64) -> Self {
+    pub fn new(
+        lyric: impl Into<String>,
+        pitch: impl Into<String>,
+        position_ms: f64,
+        duration_ms: f64,
+    ) -> Self {
         let lyric_str = lyric.into();
         let pitch_str = pitch.into();
         Self {
@@ -148,10 +158,109 @@ pub struct UProject {
 impl Default for UProject {
     fn default() -> Self {
         Self {
-            name: "New Project".to_string(),
+            name: "Novo Projeto".to_string(),
             bpm: 120.0,
             tracks: vec![UTrack::default()],
-            parts: vec![UVoicePart::new("Voice Part 1", 0)],
+            parts: vec![UVoicePart::new("Parte Vocal 1", 0)],
+        }
+    }
+}
+
+impl UProject {
+    /// Change the project tempo while keeping every event on the same musical beat.
+    ///
+    /// Timeline values are stored in milliseconds, so changing only `bpm` would
+    /// leave playback speed unchanged. Rescaling positions and durations by the
+    /// inverse tempo ratio preserves their beat positions and makes the tempo
+    /// change audible.
+    pub fn set_bpm_preserving_beats(&mut self, new_bpm: f64) -> Option<f64> {
+        if !new_bpm.is_finite() || new_bpm <= 0.0 {
+            return None;
+        }
+
+        let old_bpm = if self.bpm.is_finite() && self.bpm > 0.0 {
+            self.bpm
+        } else {
+            120.0
+        };
+        let new_bpm = new_bpm.clamp(20.0, 999.0);
+        let time_scale = old_bpm / new_bpm;
+
+        if (old_bpm - new_bpm).abs() <= f64::EPSILON {
+            self.bpm = new_bpm;
+            return Some(1.0);
+        }
+
+        for part in &mut self.parts {
+            part.position_ms *= time_scale;
+            for note in &mut part.notes {
+                note.position_ms *= time_scale;
+                note.duration_ms *= time_scale;
+                for point in &mut note.pitch_bend.points {
+                    point.time_offset_ms *= time_scale;
+                }
+            }
+        }
+
+        self.bpm = new_bpm;
+        Some(time_scale)
+    }
+
+    /// Restore invariants after loading permissive third-party project files.
+    pub fn normalize(&mut self) {
+        if !self.bpm.is_finite() || self.bpm <= 0.0 {
+            self.bpm = 120.0;
+        }
+        self.bpm = self.bpm.clamp(20.0, 999.0);
+
+        let required_tracks = self
+            .parts
+            .iter()
+            .map(|part| part.track_index.saturating_add(1))
+            .max()
+            .unwrap_or(1)
+            .max(1);
+        while self.tracks.len() < required_tracks {
+            self.tracks.push(UTrack {
+                name: format!("Track {}", self.tracks.len() + 1),
+                ..UTrack::default()
+            });
+        }
+        if self.parts.is_empty() {
+            self.parts.push(UVoicePart::new("Parte Vocal 1", 0));
+        }
+
+        for track in &mut self.tracks {
+            if !track.volume_db.is_finite() {
+                track.volume_db = 0.0;
+            }
+            if !track.pan.is_finite() {
+                track.pan = 0.0;
+            }
+            track.volume_db = track.volume_db.clamp(-60.0, 12.0);
+            track.pan = track.pan.clamp(-1.0, 1.0);
+        }
+
+        for part in &mut self.parts {
+            if !part.position_ms.is_finite() {
+                part.position_ms = 0.0;
+            }
+            part.position_ms = part.position_ms.max(0.0);
+            for note in &mut part.notes {
+                if !note.position_ms.is_finite() {
+                    note.position_ms = 0.0;
+                }
+                if !note.duration_ms.is_finite() {
+                    note.duration_ms = 1.0;
+                }
+                note.position_ms = note.position_ms.max(0.0);
+                note.duration_ms = note.duration_ms.max(1.0);
+                if !note.expressions.consonant_velocity.is_finite() {
+                    note.expressions.consonant_velocity = 100.0;
+                }
+                note.expressions.consonant_velocity =
+                    note.expressions.consonant_velocity.clamp(0.0, 200.0);
+            }
         }
     }
 }
@@ -197,10 +306,26 @@ pub fn create_astro_boy_1980_project() -> UProject {
 
         if lyric == "a" || lyric == "mu" || lyric == "ko" {
             note.pitch_bend.points = vec![
-                UPitchBendPoint { time_offset_ms: -40.0, pitch_offset_cents: 0.0, shape: "".to_string() },
-                UPitchBendPoint { time_offset_ms: dur_ms * 0.35, pitch_offset_cents: 35.0, shape: "s".to_string() },
-                UPitchBendPoint { time_offset_ms: dur_ms * 0.7, pitch_offset_cents: -25.0, shape: "s".to_string() },
-                UPitchBendPoint { time_offset_ms: dur_ms, pitch_offset_cents: 0.0, shape: "s".to_string() },
+                UPitchBendPoint {
+                    time_offset_ms: -40.0,
+                    pitch_offset_cents: 0.0,
+                    shape: "".to_string(),
+                },
+                UPitchBendPoint {
+                    time_offset_ms: dur_ms * 0.35,
+                    pitch_offset_cents: 35.0,
+                    shape: "s".to_string(),
+                },
+                UPitchBendPoint {
+                    time_offset_ms: dur_ms * 0.7,
+                    pitch_offset_cents: -25.0,
+                    shape: "s".to_string(),
+                },
+                UPitchBendPoint {
+                    time_offset_ms: dur_ms,
+                    pitch_offset_cents: 0.0,
+                    shape: "s".to_string(),
+                },
             ];
         }
 
@@ -209,4 +334,68 @@ pub fn create_astro_boy_1980_project() -> UProject {
 
     project.parts[0].notes = notes;
     project
+}
+
+#[cfg(test)]
+mod project_tests {
+    use super::*;
+
+    #[test]
+    fn normalize_restores_project_invariants() {
+        let mut project = UProject {
+            name: "Broken".to_string(),
+            bpm: f64::NAN,
+            tracks: Vec::new(),
+            parts: vec![UVoicePart {
+                name: "Part".to_string(),
+                track_index: 2,
+                position_ms: -50.0,
+                notes: vec![UNote::new("ka", "C4", -10.0, -20.0)],
+            }],
+        };
+        project.normalize();
+
+        assert_eq!(project.bpm, 120.0);
+        assert_eq!(project.tracks.len(), 3);
+        assert_eq!(project.parts[0].position_ms, 0.0);
+        assert_eq!(project.parts[0].notes[0].duration_ms, 1.0);
+    }
+
+    #[test]
+    fn tempo_change_preserves_beat_positions() {
+        let mut project = UProject {
+            bpm: 120.0,
+            ..UProject::default()
+        };
+        project.parts[0].position_ms = 500.0;
+        let mut note = UNote::new("a", "C4", 1_000.0, 250.0);
+        note.pitch_bend.points.push(UPitchBendPoint {
+            time_offset_ms: 125.0,
+            pitch_offset_cents: 50.0,
+            shape: "s".to_string(),
+        });
+        project.parts[0].notes.push(note);
+
+        let scale = project.set_bpm_preserving_beats(60.0).unwrap();
+
+        assert_eq!(scale, 2.0);
+        assert_eq!(project.bpm, 60.0);
+        assert_eq!(project.parts[0].position_ms, 1_000.0);
+        assert_eq!(project.parts[0].notes[0].position_ms, 2_000.0);
+        assert_eq!(project.parts[0].notes[0].duration_ms, 500.0);
+        assert_eq!(
+            project.parts[0].notes[0].pitch_bend.points[0].time_offset_ms,
+            250.0
+        );
+    }
+
+    #[test]
+    fn invalid_tempo_is_rejected_without_changing_project() {
+        let mut project = UProject::default();
+        let original = project.parts[0].position_ms;
+
+        assert_eq!(project.set_bpm_preserving_beats(f64::NAN), None);
+        assert_eq!(project.bpm, 120.0);
+        assert_eq!(project.parts[0].position_ms, original);
+    }
 }

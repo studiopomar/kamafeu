@@ -1,7 +1,7 @@
+use encoding_rs::SHIFT_JIS;
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::path::{Path, PathBuf};
-use encoding_rs::SHIFT_JIS;
 
 use super::entry::OtoEntry;
 use super::parser::OtoParser;
@@ -22,6 +22,12 @@ pub struct Voicebank {
 impl Voicebank {
     pub fn new<P: AsRef<Path>>(root_path: P) -> Result<Self, std::io::Error> {
         let root_path = root_path.as_ref().to_path_buf();
+        if !root_path.is_dir() {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                format!("voicebank directory not found: {}", root_path.display()),
+            ));
+        }
         let mut name = root_path
             .file_name()
             .and_then(|n| n.to_str())
@@ -45,15 +51,16 @@ impl Voicebank {
                     } else if line.starts_with("author=") {
                         author = line.trim_start_matches("author=").trim().to_string();
                     } else if line.starts_with("image=") {
-                        image_relative_path = Some(line.trim_start_matches("image=").trim().to_string());
+                        image_relative_path =
+                            Some(line.trim_start_matches("image=").trim().to_string());
                     } else if line.starts_with("icon=") {
                         if image_relative_path.is_none() {
-                            image_relative_path = Some(line.trim_start_matches("icon=").trim().to_string());
+                            image_relative_path =
+                                Some(line.trim_start_matches("icon=").trim().to_string());
                         }
-                    } else if line.starts_with("portrait=") {
-                        if image_relative_path.is_none() {
-                            image_relative_path = Some(line.trim_start_matches("portrait=").trim().to_string());
-                        }
+                    } else if line.starts_with("portrait=") && image_relative_path.is_none() {
+                        image_relative_path =
+                            Some(line.trim_start_matches("portrait=").trim().to_string());
                     }
                 }
             }
@@ -65,16 +72,28 @@ impl Voicebank {
             if let Ok(content) = fs::read_to_string(&char_yaml_path) {
                 for line in content.lines() {
                     let line = line.trim();
-                    if line.starts_with("name:") && (name.starts_with("Unknown") || name.is_empty()) {
-                        name = line.trim_start_matches("name:").trim().trim_matches('"').to_string();
+                    if line.starts_with("name:") && (name.starts_with("Unknown") || name.is_empty())
+                    {
+                        name = line
+                            .trim_start_matches("name:")
+                            .trim()
+                            .trim_matches('"')
+                            .to_string();
                     } else if line.starts_with("author:") && author == "Unknown" {
-                        author = line.trim_start_matches("author:").trim().trim_matches('"').to_string();
-                    } else if line.starts_with("image:") || line.starts_with("portrait:") || line.starts_with("icon:") {
-                        if image_relative_path.is_none() {
-                            let parts: Vec<&str> = line.splitn(2, ':').collect();
-                            if parts.len() == 2 {
-                                image_relative_path = Some(parts[1].trim().trim_matches('"').to_string());
-                            }
+                        author = line
+                            .trim_start_matches("author:")
+                            .trim()
+                            .trim_matches('"')
+                            .to_string();
+                    } else if (line.starts_with("image:")
+                        || line.starts_with("portrait:")
+                        || line.starts_with("icon:"))
+                        && image_relative_path.is_none()
+                    {
+                        let parts: Vec<&str> = line.splitn(2, ':').collect();
+                        if parts.len() == 2 {
+                            image_relative_path =
+                                Some(parts[1].trim().trim_matches('"').to_string());
                         }
                     }
                 }
@@ -91,12 +110,25 @@ impl Voicebank {
             }
         } else {
             None
-        }.or_else(|| {
+        }
+        .or_else(|| {
             let default_names = [
-                "character.png", "icon.png", "avatar.png", "portrait.png",
-                "character.bmp", "icon.bmp", "avatar.bmp", "portrait.bmp",
-                "character.jpg", "icon.jpg", "avatar.jpg", "portrait.jpg",
-                "CHARACTER.PNG", "ICON.PNG", "AVATAR.PNG", "PORTRAIT.PNG",
+                "character.png",
+                "icon.png",
+                "avatar.png",
+                "portrait.png",
+                "character.bmp",
+                "icon.bmp",
+                "avatar.bmp",
+                "portrait.bmp",
+                "character.jpg",
+                "icon.jpg",
+                "avatar.jpg",
+                "portrait.jpg",
+                "CHARACTER.PNG",
+                "ICON.PNG",
+                "AVATAR.PNG",
+                "PORTRAIT.PNG",
             ];
             for name in default_names {
                 let candidate = root_path.join(name);
@@ -164,6 +196,13 @@ impl Voicebank {
         if let Ok(read_dir) = fs::read_dir(current_dir) {
             for entry in read_dir.flatten() {
                 let path = entry.path();
+                if entry
+                    .file_type()
+                    .map(|kind| kind.is_symlink())
+                    .unwrap_or(true)
+                {
+                    continue;
+                }
                 if path.is_dir() {
                     Self::scan_oto_files(root, &path, entries);
                 } else if path.is_file() {
@@ -295,7 +334,11 @@ impl Voicebank {
     }
 
     /// Filter phoneme entries by search query and subfolder selection
-    pub fn search_entries<'a>(&'a self, search_query: &str, folder_filter: &str) -> Vec<(&'a String, &'a OtoEntry)> {
+    pub fn search_entries<'a>(
+        &'a self,
+        search_query: &str,
+        folder_filter: &str,
+    ) -> Vec<(&'a String, &'a OtoEntry)> {
         let q = search_query.trim().to_lowercase();
 
         self.entries
@@ -318,7 +361,8 @@ impl Voicebank {
                 if q.is_empty() {
                     true
                 } else {
-                    alias.to_lowercase().contains(&q) || entry.wav_filename.to_lowercase().contains(&q)
+                    alias.to_lowercase().contains(&q)
+                        || entry.wav_filename.to_lowercase().contains(&q)
                 }
             })
             .collect()

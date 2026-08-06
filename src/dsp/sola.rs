@@ -1,17 +1,12 @@
 use crate::project::model::UPitchBendPoint;
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum SolaEngine {
+    #[default]
     TdPsola, // Time-Domain PSOLA (Classic pitch marks)
     FdPsola, // Frequency-Domain PSOLA (FFT / Formant Shift)
     Wsola,   // Waveform Similarity Overlap-Add (Cross-Correlation for consonants)
     LpPsola, // Linear Predictive Coding PSOLA (LPC Glottal Excitation)
-}
-
-impl Default for SolaEngine {
-    fn default() -> Self {
-        SolaEngine::TdPsola
-    }
 }
 
 pub struct SolaSuiteProcessor;
@@ -115,9 +110,14 @@ impl SolaSuiteProcessor {
             let mut warped_frame = vec![0.0f32; frame_size];
 
             for (i, &sample) in frame.iter().enumerate() {
-                let hanning = 0.5 * (1.0 - (2.0 * std::f32::consts::PI * i as f32 / frame_size as f32).cos());
+                let hanning =
+                    0.5 * (1.0 - (2.0 * std::f32::consts::PI * i as f32 / frame_size as f32).cos());
                 let src_idx = (i as f32 * scale_factor) as usize;
-                let src_val = if src_idx < frame_size { frame[src_idx] } else { 0.0 };
+                let src_val = if src_idx < frame_size {
+                    frame[src_idx]
+                } else {
+                    0.0
+                };
                 warped_frame[i] = sample * 0.4 + src_val * 0.6 * hanning;
             }
 
@@ -167,7 +167,9 @@ impl SolaSuiteProcessor {
         let mut out_pos = 0;
         let mut in_pos = 0;
 
-        while in_pos + win_len + search_range < base_output.len() && out_pos + win_len < output.len() {
+        while in_pos + win_len + search_range < base_output.len()
+            && out_pos + win_len < output.len()
+        {
             // Compute Cross-Correlation R(k) = sum(x[n] * y[n+k])
             let mut best_k = 0;
             let mut max_corr = -1e9f32;
@@ -185,7 +187,8 @@ impl SolaSuiteProcessor {
 
             let opt_in_pos = in_pos + best_k;
             for n in 0..win_len {
-                let win = 0.5 * (1.0 - (2.0 * std::f32::consts::PI * n as f32 / win_len as f32).cos());
+                let win =
+                    0.5 * (1.0 - (2.0 * std::f32::consts::PI * n as f32 / win_len as f32).cos());
                 if out_pos + n < output.len() && opt_in_pos + n < base_output.len() {
                     output[out_pos + n] += base_output[opt_in_pos + n] * win;
                 }
@@ -298,21 +301,67 @@ mod tests {
         let sample_rate = 44100;
         let num_samples = 44100;
         let syn: Vec<f32> = (0..num_samples)
-            .map(|i| (i as f32 * 2.0 * std::f32::consts::PI * 440.0 / sample_rate as f32).sin() * 0.5)
+            .map(|i| {
+                (i as f32 * 2.0 * std::f32::consts::PI * 440.0 / sample_rate as f32).sin() * 0.5
+            })
             .collect();
 
         let points = vec![];
 
-        let td_out = SolaSuiteProcessor::render_sample(SolaEngine::TdPsola, &syn, sample_rate, 0.0, 50.0, 0.0, 400.0, 440.0, &points, 0.0);
+        let td_out = SolaSuiteProcessor::render_sample(
+            SolaEngine::TdPsola,
+            &syn,
+            sample_rate,
+            0.0,
+            50.0,
+            0.0,
+            400.0,
+            440.0,
+            &points,
+            0.0,
+        );
         assert!(!td_out.is_empty());
 
-        let fd_out = SolaSuiteProcessor::render_sample(SolaEngine::FdPsola, &syn, sample_rate, 0.0, 50.0, 0.0, 400.0, 440.0, &points, 50.0);
+        let fd_out = SolaSuiteProcessor::render_sample(
+            SolaEngine::FdPsola,
+            &syn,
+            sample_rate,
+            0.0,
+            50.0,
+            0.0,
+            400.0,
+            440.0,
+            &points,
+            50.0,
+        );
         assert!(!fd_out.is_empty());
 
-        let ws_out = SolaSuiteProcessor::render_sample(SolaEngine::Wsola, &syn, sample_rate, 0.0, 50.0, 0.0, 400.0, 440.0, &points, 0.0);
+        let ws_out = SolaSuiteProcessor::render_sample(
+            SolaEngine::Wsola,
+            &syn,
+            sample_rate,
+            0.0,
+            50.0,
+            0.0,
+            400.0,
+            440.0,
+            &points,
+            0.0,
+        );
         assert!(!ws_out.is_empty());
 
-        let lp_out = SolaSuiteProcessor::render_sample(SolaEngine::LpPsola, &syn, sample_rate, 0.0, 50.0, 0.0, 400.0, 440.0, &points, 0.0);
+        let lp_out = SolaSuiteProcessor::render_sample(
+            SolaEngine::LpPsola,
+            &syn,
+            sample_rate,
+            0.0,
+            50.0,
+            0.0,
+            400.0,
+            440.0,
+            &points,
+            0.0,
+        );
         assert!(!lp_out.is_empty());
     }
 }

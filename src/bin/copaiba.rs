@@ -1,5 +1,5 @@
 use eframe::egui;
-use kamafeu::copaiba::gui::{CopaibaToolkitApp, draw_copaiba_toolkit_ui};
+use kamafeu::copaiba::gui::{draw_copaiba_toolkit_ui, CopaibaToolkitApp};
 
 fn main() -> eframe::Result<()> {
     let options = eframe::NativeOptions {
@@ -17,16 +17,9 @@ fn main() -> eframe::Result<()> {
     )
 }
 
+#[derive(Default)]
 pub struct CopaibaStandaloneApp {
     app: CopaibaToolkitApp,
-}
-
-impl Default for CopaibaStandaloneApp {
-    fn default() -> Self {
-        Self {
-            app: CopaibaToolkitApp::default(),
-        }
-    }
 }
 
 impl eframe::App for CopaibaStandaloneApp {

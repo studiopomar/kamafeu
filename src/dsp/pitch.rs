@@ -12,9 +12,8 @@ pub fn note_name_to_midi(name: &str) -> Option<u8> {
         return None;
     }
 
-    let (pitch_part, octave_part) = if name.len() >= 2 && name.as_bytes()[1] == b'#' {
-        (&name[0..2], &name[2..])
-    } else if name.len() >= 2 && name.as_bytes()[1] == b'b' {
+    let (pitch_part, octave_part) = if name.len() >= 2 && matches!(name.as_bytes()[1], b'#' | b'b')
+    {
         (&name[0..2], &name[2..])
     } else {
         (&name[0..1], &name[1..])
@@ -47,7 +46,9 @@ pub fn note_name_to_midi(name: &str) -> Option<u8> {
 
 /// Convert MIDI note number to note name (e.g. 60 -> "C4", 69 -> "A4")
 pub fn midi_to_note_name(midi: u8) -> String {
-    let names = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"];
+    let names = [
+        "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B",
+    ];
     let octave = (midi as i32 / 12) - 1;
     let note_idx = (midi % 12) as usize;
     format!("{}{}", names[note_idx], octave)
@@ -63,10 +64,10 @@ pub struct PitchBendPoint {
 
 #[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct VibratoParam {
-    pub length_pct: f64, // percentage of note duration (e.g. 65%)
-    pub period_ms: f64,  // vibrato period in ms (e.g. 175ms)
-    pub depth_cents: f64,// vibrato depth in cents (e.g. 50 cents)
-    pub fade_in_ms: f64, // fade in time in ms
+    pub length_pct: f64,  // percentage of note duration (e.g. 65%)
+    pub period_ms: f64,   // vibrato period in ms (e.g. 175ms)
+    pub depth_cents: f64, // vibrato depth in cents (e.g. 50 cents)
+    pub fade_in_ms: f64,  // fade in time in ms
 }
 
 impl VibratoParam {

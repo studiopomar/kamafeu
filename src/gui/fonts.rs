@@ -26,10 +26,9 @@ pub fn setup_custom_fonts(ctx: &egui::Context) {
                     .unwrap_or("cjk_japanese_font")
                     .to_string();
 
-                fonts.font_data.insert(
-                    font_name.clone(),
-                    FontData::from_owned(font_bytes),
-                );
+                fonts
+                    .font_data
+                    .insert(font_name.clone(), FontData::from_owned(font_bytes));
 
                 fonts
                     .families

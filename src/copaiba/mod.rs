@@ -39,6 +39,8 @@ pub struct CopaibaConfig {
     pub version: String,
     pub voicebank_name: String,
     pub author: String,
+    #[serde(default)]
+    pub image_filename: Option<String>,
     pub entries: Vec<CopaibaEntry>,
 }
 
@@ -48,6 +50,7 @@ impl Default for CopaibaConfig {
             version: "1.0".to_string(),
             voicebank_name: "Novo Voicebank".to_string(),
             author: "Desconhecido".to_string(),
+            image_filename: None,
             entries: Vec::new(),
         }
     }
@@ -56,14 +59,31 @@ impl Default for CopaibaConfig {
 impl CopaibaConfig {
     pub fn load_from_dir(dir: &Path) -> Result<Self, String> {
         let config_path = dir.join("copaiba.config");
-        if config_path.exists() {
+        let mut config = if config_path.exists() {
             let content = fs::read_to_string(&config_path)
                 .map_err(|e| format!("Falha ao ler copaiba.config: {}", e))?;
-            let config: CopaibaConfig = serde_json::from_str(&content)
-                .map_err(|e| format!("Falha ao decodificar JSON do copaiba.config: {}", e))?;
-            Ok(config)
+            serde_json::from_str::<CopaibaConfig>(&content)
+                .map_err(|e| format!("Falha ao decodificar JSON do copaiba.config: {}", e))?
         } else {
-            let mut config = Self::default();
+            let mut cfg = Self::default();
+            // Try loading metadata from character.txt if present
+            let char_path = dir.join("character.txt");
+            if char_path.exists() {
+                if let Ok(txt) = fs::read_to_string(&char_path) {
+                    for line in txt.lines() {
+                        let line = line.trim();
+                        if let Some((k, v)) = line.split_once('=') {
+                            match k.trim().to_lowercase().as_str() {
+                                "name" => cfg.voicebank_name = v.trim().to_string(),
+                                "author" => cfg.author = v.trim().to_string(),
+                                "image" => cfg.image_filename = Some(v.trim().to_string()),
+                                _ => {}
+                            }
+                        }
+                    }
+                }
+            }
+
             // Try loading from oto.ini if present
             let oto_path = dir.join("oto.ini");
             if oto_path.exists() {
@@ -75,14 +95,21 @@ impl CopaibaConfig {
                         }
                         if let Some((file, params_str)) = line.split_once('=') {
                             let parts: Vec<&str> = params_str.split(',').collect();
-                            let alias = parts.get(0).unwrap_or(&file).to_string();
-                            let offset: f64 = parts.get(1).and_then(|s| s.parse().ok()).unwrap_or(0.0);
-                            let consonant: f64 = parts.get(2).and_then(|s| s.parse().ok()).unwrap_or(50.0);
-                            let cutoff: f64 = parts.get(3).and_then(|s| s.parse().ok()).unwrap_or(0.0);
+                            let alias = parts.first().unwrap_or(&file).to_string();
+                            let offset: f64 =
+                                parts.get(1).and_then(|s| s.parse().ok()).unwrap_or(0.0);
+                            let consonant: f64 =
+                                parts.get(2).and_then(|s| s.parse().ok()).unwrap_or(50.0);
+                            let cutoff: f64 =
+                                parts.get(3).and_then(|s| s.parse().ok()).unwrap_or(0.0);
 
-                            config.entries.push(CopaibaEntry {
+                            cfg.entries.push(CopaibaEntry {
                                 wav_filename: file.to_string(),
-                                alias: if alias.is_empty() { file.to_string() } else { alias },
+                                alias: if alias.is_empty() {
+                                    file.to_string()
+                                } else {
+                                    alias
+                                },
                                 corte_inicial_ms: offset,
                                 consoante_ms: consonant,
                                 loop_inicio_ms: Some(offset + consonant),
@@ -95,14 +122,22 @@ impl CopaibaConfig {
                 }
             }
 
-            if config.entries.is_empty() {
+            if cfg.entries.is_empty() {
                 if let Ok(read_dir) = fs::read_dir(dir) {
                     for entry in read_dir.flatten() {
                         let path = entry.path();
-                        if path.is_file() && path.extension().map_or(false, |ext| ext.eq_ignore_ascii_case("wav")) {
+                        if path.is_file()
+                            && path
+                                .extension()
+                                .is_some_and(|ext| ext.eq_ignore_ascii_case("wav"))
+                        {
                             if let Some(name_str) = path.file_name().and_then(|n| n.to_str()) {
-                                let alias = path.file_stem().and_then(|s| s.to_str()).unwrap_or(name_str).to_string();
-                                config.entries.push(CopaibaEntry {
+                                let alias = path
+                                    .file_stem()
+                                    .and_then(|s| s.to_str())
+                                    .unwrap_or(name_str)
+                                    .to_string();
+                                cfg.entries.push(CopaibaEntry {
                                     wav_filename: name_str.to_string(),
                                     alias,
                                     corte_inicial_ms: 10.0,
@@ -118,8 +153,33 @@ impl CopaibaConfig {
                 }
             }
 
-            Ok(config)
+            cfg
+        };
+
+        if config.image_filename.is_none() {
+            let candidates = [
+                "character.png",
+                "icon.png",
+                "avatar.png",
+                "portrait.png",
+                "character.bmp",
+                "icon.bmp",
+                "avatar.bmp",
+                "portrait.bmp",
+                "character.jpg",
+                "icon.jpg",
+                "avatar.jpg",
+                "portrait.jpg",
+            ];
+            for c in candidates {
+                if dir.join(c).exists() {
+                    config.image_filename = Some(c.to_string());
+                    break;
+                }
+            }
         }
+
+        Ok(config)
     }
 
     pub fn save_to_dir(&self, dir: &Path) -> Result<(), String> {
@@ -128,8 +188,20 @@ impl CopaibaConfig {
             .map_err(|e| format!("Falha ao serializar copaiba.config: {}", e))?;
         fs::write(&config_path, json_content)
             .map_err(|e| format!("Falha ao salvar copaiba.config: {}", e))?;
-        
+
         self.export_oto_ini(dir)?;
+        let _ = self.sync_character_txt(dir);
+        Ok(())
+    }
+
+    pub fn sync_character_txt(&self, dir: &Path) -> Result<(), String> {
+        let char_path = dir.join("character.txt");
+        let mut content = format!("name={}\nauthor={}\n", self.voicebank_name, self.author);
+        if let Some(ref img) = self.image_filename {
+            content.push_str(&format!("image={}\n", img));
+        }
+        fs::write(&char_path, content)
+            .map_err(|e| format!("Falha ao escrever character.txt: {}", e))?;
         Ok(())
     }
 

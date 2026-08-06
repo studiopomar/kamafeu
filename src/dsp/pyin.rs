@@ -7,20 +7,20 @@ pub struct PitchExtractor;
 
 impl PitchExtractor {
     /// Estimate pitch and GCI (Glottal Closure Instants) for an entire vowel slice
-    pub fn extract_pitch_and_gci(
-        vowel_slice: &[f32],
-        sample_rate: u32,
-    ) -> PitchResult {
+    pub fn extract_pitch_and_gci(vowel_slice: &[f32], sample_rate: u32) -> PitchResult {
         if vowel_slice.is_empty() {
-            return PitchResult { pitch_contour: vec![], gci_marks: vec![] };
+            return PitchResult {
+                pitch_contour: vec![],
+                gci_marks: vec![],
+            };
         }
 
         let min_period = (sample_rate as f64 / 1000.0) as usize; // 1000 Hz
-        let max_period = (sample_rate as f64 / 50.0) as usize;   // 50 Hz
-        
+        let max_period = (sample_rate as f64 / 50.0) as usize; // 50 Hz
+
         let frame_size = max_period * 2;
         let hop_size = max_period / 4;
-        
+
         let mut pitch_contour = Vec::new();
         let mut gci_marks = Vec::new();
 
@@ -33,7 +33,10 @@ impl PitchExtractor {
                 gci_marks.push(gci);
                 gci += p0.max(16);
             }
-            return PitchResult { pitch_contour, gci_marks };
+            return PitchResult {
+                pitch_contour,
+                gci_marks,
+            };
         }
 
         let mut pos = 0;
@@ -41,7 +44,7 @@ impl PitchExtractor {
 
         while pos + frame_size <= vowel_slice.len() {
             let frame = &vowel_slice[pos..pos + frame_size];
-            
+
             // YIN-like Difference Function
             let mut diff = vec![0.0f32; max_period + 1];
             for tau in min_period..=max_period {
@@ -67,11 +70,11 @@ impl PitchExtractor {
                     // search local minimum
                     let mut local_min_tau = tau;
                     let mut min_val = cmnd[tau];
-                    for t in tau..=max_period {
-                        if cmnd[t] < min_val {
-                            min_val = cmnd[t];
+                    for (t, &value) in cmnd.iter().enumerate().take(max_period + 1).skip(tau) {
+                        if value < min_val {
+                            min_val = value;
                             local_min_tau = t;
-                        } else if cmnd[t] > min_val + 0.1 {
+                        } else if value > min_val + 0.1 {
                             break;
                         }
                     }
@@ -83,33 +86,38 @@ impl PitchExtractor {
             if best_tau == 0 {
                 // Fallback to absolute minimum if threshold not met
                 let mut min_val = f32::MAX;
-                for tau in min_period..=max_period {
-                    if cmnd[tau] < min_val {
-                        min_val = cmnd[tau];
+                for (tau, &value) in cmnd
+                    .iter()
+                    .enumerate()
+                    .take(max_period + 1)
+                    .skip(min_period)
+                {
+                    if value < min_val {
+                        min_val = value;
                         best_tau = tau;
                     }
                 }
             }
-            
+
             let period = best_tau.max(min_period);
             pitch_contour.push(period as f32);
 
             // GCI Extraction: search for local energy peak / zero-crossing in derivative
             let expected_gci = last_gci + period;
             let search_window = period / 4;
-            
+
             if expected_gci >= vowel_slice.len() {
                 break;
             }
 
             let search_start = expected_gci.saturating_sub(search_window).max(last_gci + 1);
             let search_end = (expected_gci + search_window).min(vowel_slice.len() - 1);
-            
+
             let mut max_energy = -1.0;
             let mut best_gci = expected_gci;
 
             for i in search_start..search_end {
-                let energy = vowel_slice[i].abs() + (vowel_slice[i] - vowel_slice[i-1]).abs();
+                let energy = vowel_slice[i].abs() + (vowel_slice[i] - vowel_slice[i - 1]).abs();
                 if energy > max_energy {
                     max_energy = energy;
                     best_gci = i;

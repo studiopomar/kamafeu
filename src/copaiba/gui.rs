@@ -1,7 +1,7 @@
+use crate::audio::AudioPlayer;
+use crate::copaiba::{CopaibaConfig, CopaibaEntry};
 use eframe::egui::{self, Color32, Pos2, Rect, RichText, Rounding, Sense, Stroke, Vec2};
 use std::path::PathBuf;
-use crate::copaiba::{CopaibaConfig, CopaibaEntry};
-use crate::audio::AudioPlayer;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ListFilterMode {
@@ -18,6 +18,7 @@ pub struct CopaibaToolkitApp {
     pub audio_player: AudioPlayer,
     pub loaded_waveform: Option<(Vec<f32>, u32)>, // samples, sample_rate
     pub loaded_wav_filename: Option<String>,
+    pub avatar_texture: Option<egui::TextureHandle>,
     pub zoom_x: f32,
     pub zoom_y: f32,
 }
@@ -33,6 +34,7 @@ impl Default for CopaibaToolkitApp {
             audio_player: AudioPlayer::new(),
             loaded_waveform: None,
             loaded_wav_filename: None,
+            avatar_texture: None,
             zoom_x: 1.0,
             zoom_y: 1.0,
         }
@@ -44,6 +46,7 @@ impl CopaibaToolkitApp {
         if let Ok(cfg) = CopaibaConfig::load_from_dir(&path) {
             self.current_dir = Some(path);
             self.config = cfg;
+            self.avatar_texture = None;
             if !self.config.entries.is_empty() {
                 self.selected_entry_index = Some(0);
             } else {
@@ -53,74 +56,114 @@ impl CopaibaToolkitApp {
         }
     }
 
+    pub fn reload_avatar_texture(&mut self, ctx: &egui::Context) {
+        if let Some(ref dir) = self.current_dir {
+            let mut found_path = None;
+            if let Some(ref name) = self.config.image_filename {
+                let p = dir.join(name);
+                if p.exists() {
+                    found_path = Some(p);
+                }
+            }
+            if found_path.is_none() {
+                let candidates = [
+                    "character.png",
+                    "icon.png",
+                    "avatar.png",
+                    "portrait.png",
+                    "character.bmp",
+                    "icon.bmp",
+                    "avatar.bmp",
+                    "portrait.bmp",
+                    "character.jpg",
+                    "icon.jpg",
+                    "avatar.jpg",
+                    "portrait.jpg",
+                ];
+                for c in candidates {
+                    let p = dir.join(c);
+                    if p.exists() {
+                        found_path = Some(p);
+                        break;
+                    }
+                }
+            }
+
+            if let Some(path) = found_path {
+                if let Ok(img) = image::open(&path) {
+                    let rgba = img.to_rgba8();
+                    let color_img = egui::ColorImage::from_rgba_unmultiplied(
+                        [rgba.width() as usize, rgba.height() as usize],
+                        rgba.as_flat_samples().as_slice(),
+                    );
+                    self.avatar_texture = Some(ctx.load_texture(
+                        "copaiba_avatar_preview",
+                        color_img,
+                        egui::TextureOptions::LINEAR,
+                    ));
+                    return;
+                }
+            }
+        }
+        self.avatar_texture = None;
+    }
+
+    pub fn import_avatar_image(
+        &mut self,
+        ctx: &egui::Context,
+        source_path: PathBuf,
+    ) -> Result<(), String> {
+        if let Some(ref dir) = self.current_dir {
+            let img = image::open(&source_path)
+                .map_err(|e| format!("Falha ao carregar imagem: {}", e))?;
+
+            // Resize to 100x100 square with Lanczos3 filter
+            let resized = img.resize_exact(100, 100, image::imageops::FilterType::Lanczos3);
+            let dest_name = "character.png".to_string();
+            let dest_path = dir.join(&dest_name);
+
+            resized
+                .save(&dest_path)
+                .map_err(|e| format!("Falha ao salvar character.png: {}", e))?;
+
+            self.config.image_filename = Some(dest_name);
+            self.save_config();
+            self.reload_avatar_texture(ctx);
+            Ok(())
+        } else {
+            Err("Nenhum Voicebank aberto".to_string())
+        }
+    }
+
+    pub fn remove_avatar_image(&mut self, _ctx: &egui::Context) {
+        self.config.image_filename = None;
+        self.avatar_texture = None;
+        self.save_config();
+    }
+
     pub fn selected_entry(&self) -> Option<&CopaibaEntry> {
-        self.selected_entry_index.and_then(|idx| self.config.entries.get(idx))
+        self.selected_entry_index
+            .and_then(|idx| self.config.entries.get(idx))
     }
 
     pub fn load_wav_file(&self, filename: &str) -> Option<(Vec<f32>, u32)> {
-        if let Some(ref dir) = self.current_dir {
-            let wav_path = dir.join(filename);
-            if let Ok(reader) = hound::WavReader::open(&wav_path) {
-                let spec = reader.spec();
-                let samples: Vec<f32> = match spec.sample_format {
-                    hound::SampleFormat::Int => {
-                        let max_val = (1 << (spec.bits_per_sample - 1)) as f32;
-                        reader.into_samples::<i32>()
-                            .filter_map(Result::ok)
-                            .map(|s| s as f32 / max_val)
-                            .collect()
-                    }
-                    hound::SampleFormat::Float => {
-                        reader.into_samples::<f32>()
-                            .filter_map(Result::ok)
-                            .collect()
-                    }
-                };
-                let mono_samples = if spec.channels > 1 {
-                    samples.chunks(spec.channels as usize)
-                        .map(|chunk| chunk.iter().sum::<f32>() / spec.channels as f32)
-                        .collect()
-                } else {
-                    samples
-                };
-                return Some((mono_samples, spec.sample_rate));
-            }
-        }
-        None
+        self.current_dir.as_ref().and_then(|directory| {
+            crate::renderer::TrackRenderer::load_wav_samples(directory.join(filename)).ok()
+        })
     }
 
     pub fn load_selected_wav_samples(&mut self) {
         let target_wav = self.selected_entry().map(|e| e.wav_filename.clone());
         if let (Some(ref dir), Some(ref wav_name)) = (&self.current_dir, &target_wav) {
-            if self.loaded_wav_filename.as_ref() == Some(wav_name) && self.loaded_waveform.is_some() {
+            if self.loaded_wav_filename.as_ref() == Some(wav_name) && self.loaded_waveform.is_some()
+            {
                 return;
             }
 
-            let wav_path = dir.join(wav_name);
-            if let Ok(reader) = hound::WavReader::open(&wav_path) {
-                let spec = reader.spec();
-                let samples: Vec<f32> = match spec.sample_format {
-                    hound::SampleFormat::Int => {
-                        let max_val = (1 << (spec.bits_per_sample - 1)) as f32;
-                        reader.into_samples::<i32>()
-                            .filter_map(Result::ok)
-                            .map(|s| s as f32 / max_val)
-                            .collect()
-                    }
-                    hound::SampleFormat::Float => {
-                        reader.into_samples::<f32>()
-                            .filter_map(Result::ok)
-                            .collect()
-                    }
-                };
-                let mono_samples = if spec.channels > 1 {
-                    samples.chunks(spec.channels as usize)
-                        .map(|chunk| chunk.iter().sum::<f32>() / spec.channels as f32)
-                        .collect()
-                } else {
-                    samples
-                };
-                self.loaded_waveform = Some((mono_samples, spec.sample_rate));
+            if let Ok(waveform) =
+                crate::renderer::TrackRenderer::load_wav_samples(dir.join(wav_name))
+            {
+                self.loaded_waveform = Some(waveform);
                 self.loaded_wav_filename = Some(wav_name.clone());
             } else {
                 self.loaded_waveform = None;
@@ -184,8 +227,12 @@ fn draw_waveform_peak_envelope(
             let mut min_val = 0.0f32;
             let mut max_val = 0.0f32;
             for &s in chunk {
-                if s < min_val { min_val = s; }
-                if s > max_val { max_val = s; }
+                if s < min_val {
+                    min_val = s;
+                }
+                if s > max_val {
+                    max_val = s;
+                }
             }
             let x_pos = canvas_rect.min.x + px_i as f32;
             let y_top = mid_y - (max_val * (wave_h * 0.45) * zoom_y);
@@ -221,11 +268,10 @@ pub fn draw_copaiba_toolkit_ui(app: &mut CopaibaToolkitApp, ui: &mut egui::Ui) {
                     app.duplicate_selected_entry();
                 }
 
-                if app.selected_entry_index.is_some() {
-                    if ui.button(RichText::new("Excluir Alias").color(Color32::from_rgb(255, 100, 100))).clicked() {
+                if app.selected_entry_index.is_some()
+                    && ui.button(RichText::new("Excluir Alias").color(Color32::from_rgb(255, 100, 100))).clicked() {
                         app.delete_selected_entry();
                     }
-                }
             }
 
             ui.add_space(15.0);
@@ -256,6 +302,99 @@ pub fn draw_copaiba_toolkit_ui(app: &mut CopaibaToolkitApp, ui: &mut egui::Ui) {
             });
             return;
         }
+
+        // Voicebank Metadata & Avatar Header Card
+        egui::Frame::none()
+            .fill(Color32::from_rgb(26, 20, 38))
+            .rounding(Rounding::same(6.0))
+            .stroke(Stroke::new(1.0, Color32::from_rgb(61, 46, 84)))
+            .inner_margin(egui::Margin::same(8.0))
+            .show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    // Avatar Thumbnail Frame (100x100 Square Preview)
+                    let (avatar_rect, _) = ui.allocate_exact_size(Vec2::new(100.0, 100.0), Sense::hover());
+                    let painter = ui.painter_at(avatar_rect);
+                    painter.rect_filled(avatar_rect, Rounding::same(6.0), Color32::from_rgb(36, 27, 53));
+                    painter.rect_stroke(avatar_rect, Rounding::same(6.0), Stroke::new(1.5, Color32::from_rgb(0, 255, 157)));
+
+                    if app.avatar_texture.is_none() {
+                        app.reload_avatar_texture(ui.ctx());
+                    }
+
+                    if let Some(ref texture) = app.avatar_texture {
+                        let uv = Rect::from_min_max(Pos2::new(0.0, 0.0), Pos2::new(1.0, 1.0));
+                        painter.image(texture.id(), avatar_rect.shrink(2.0), uv, Color32::WHITE);
+                    } else {
+                        let center = avatar_rect.center();
+                        painter.text(
+                            Pos2::new(center.x, center.y - 8.0),
+                            egui::Align2::CENTER_CENTER,
+                            "🖼️",
+                            egui::FontId::proportional(22.0),
+                            Color32::from_rgb(165, 148, 201),
+                        );
+                        painter.text(
+                            Pos2::new(center.x, center.y + 16.0),
+                            egui::Align2::CENTER_CENTER,
+                            "Sem Foto",
+                            egui::FontId::proportional(10.0),
+                            Color32::from_rgb(165, 148, 201),
+                        );
+                    }
+
+                    ui.add_space(10.0);
+
+                    // Avatar Controls & Voicebank Metadata Fields
+                    ui.vertical(|ui| {
+                        ui.horizontal(|ui| {
+                            ui.label(RichText::new("Nome do Voicebank:").size(11.0).strong().color(Color32::from_rgb(0, 255, 157)));
+                            if ui.add(egui::TextEdit::singleline(&mut app.config.voicebank_name).desired_width(180.0)).changed() {
+                                app.save_config();
+                            }
+
+                            ui.add_space(12.0);
+                            ui.label(RichText::new("Autor / Criador:").size(11.0).strong().color(Color32::from_rgb(216, 180, 254)));
+                            if ui.add(egui::TextEdit::singleline(&mut app.config.author).desired_width(160.0)).changed() {
+                                app.save_config();
+                            }
+                        });
+
+                        ui.add_space(6.0);
+
+                        ui.horizontal(|ui| {
+                            let import_btn = egui::Button::new(
+                                RichText::new("🖼️ Importar Foto / Avatar (100x100)...")
+                                    .size(11.0)
+                                    .strong()
+                                    .color(Color32::from_rgb(0, 255, 157)),
+                            )
+                            .fill(Color32::from_rgb(10, 48, 30))
+                            .stroke(Stroke::new(1.0, Color32::from_rgb(0, 255, 157)))
+                            .rounding(Rounding::same(4.0));
+
+                            if ui.add(import_btn).clicked() {
+                                if let Some(file) = rfd::FileDialog::new()
+                                    .add_filter("Imagens (*.png, *.jpg, *.jpeg, *.bmp, *.webp)", &["png", "jpg", "jpeg", "bmp", "webp"])
+                                    .pick_file()
+                                {
+                                    let _ = app.import_avatar_image(ui.ctx(), file);
+                                }
+                            }
+
+                            if (app.config.image_filename.is_some() || app.avatar_texture.is_some())
+                                && ui.button(RichText::new("🗑️ Remover").size(11.0).color(Color32::from_rgb(255, 100, 100))).clicked() {
+                                    app.remove_avatar_image(ui.ctx());
+                                }
+
+                            if let Some(ref img_name) = app.config.image_filename {
+                                ui.label(RichText::new(format!("Arquivo: {}", img_name)).size(10.0).italics().color(Color32::from_rgb(165, 148, 201)));
+                            }
+                        });
+                    });
+                });
+            });
+
+        ui.add_space(4.0);
 
         // Full Window Height Responsive Layout (3 Columns: Left List, Center Stacked Waveforms, Right Sliders)
         let full_avail_h = ui.available_height();
@@ -452,7 +591,7 @@ pub fn draw_copaiba_toolkit_ui(app: &mut CopaibaToolkitApp, ui: &mut egui::Ui) {
                         } else {
                             entry.corte_final_ms
                         });
-                        let x_tail = entry.cauda_final_ms.map(|t| ms_to_x(t));
+                        let x_tail = entry.cauda_final_ms.map(&ms_to_x);
 
                         // Shaded Left Offset Cutoff (Blue)
                         let left_cut_rect = Rect::from_min_max(Pos2::new(canvas_rect.min.x, wave_area_min_y), Pos2::new(x_offset, canvas_rect.max.y));

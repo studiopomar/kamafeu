@@ -1,17 +1,12 @@
 use eframe::egui::{self, Color32, RichText, Rounding, Stroke};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum EditTool {
-    Pointer,   // Select / Move / Resize
+    #[default]
+    Pointer, // Select / Move / Resize
     Pencil,    // Draw new notes
     PitchDraw, // Draw pitch curve splines
     Eraser,    // Delete notes
-}
-
-impl Default for EditTool {
-    fn default() -> Self {
-        EditTool::Pointer
-    }
 }
 
 pub fn draw_toolbar(
@@ -23,7 +18,12 @@ pub fn draw_toolbar(
 ) {
     ui.horizontal(|ui| {
         ui.add_space(4.0);
-        ui.label(RichText::new("FERRAMENTAS").strong().size(10.0).color(Color32::from_rgb(180, 170, 190)));
+        ui.label(
+            RichText::new("FERRAMENTAS")
+                .strong()
+                .size(10.0)
+                .color(Color32::from_rgb(180, 170, 190)),
+        );
 
         let tools = [
             (EditTool::Pointer, "Ponteiro [V]"),
@@ -48,10 +48,11 @@ pub fn draw_toolbar(
                 )
             };
 
-            let button_widget = egui::Button::new(RichText::new(label).size(11.0).color(text_color))
-                .fill(bg_color)
-                .stroke(stroke_color)
-                .rounding(Rounding::same(6.0));
+            let button_widget =
+                egui::Button::new(RichText::new(label).size(11.0).color(text_color))
+                    .fill(bg_color)
+                    .stroke(stroke_color)
+                    .rounding(Rounding::same(6.0));
 
             if ui.add(button_widget).clicked() {
                 *current_tool = tool;
@@ -62,7 +63,14 @@ pub fn draw_toolbar(
         ui.separator();
         ui.add_space(8.0);
 
-        if ui.button(RichText::new("Copaiba Toolkit").size(11.0).color(Color32::from_rgb(0, 255, 157))).clicked() {
+        if ui
+            .button(
+                RichText::new("Copaiba Toolkit")
+                    .size(11.0)
+                    .color(Color32::from_rgb(0, 255, 157)),
+            )
+            .clicked()
+        {
             on_open_copaiba();
         }
 
@@ -71,11 +79,18 @@ pub fn draw_toolbar(
         ui.add_space(8.0);
 
         // Horizontal Zoom Controls (Timeline px_per_ms)
-        ui.label(RichText::new("Zoom X:").size(10.0).color(Color32::from_rgb(180, 170, 190)));
+        ui.label(
+            RichText::new("Zoom X:")
+                .size(10.0)
+                .color(Color32::from_rgb(180, 170, 190)),
+        );
         if ui.button(RichText::new("-").size(11.0)).clicked() {
             *px_per_ms = (*px_per_ms * 0.8).max(0.05);
         }
-        ui.add(egui::Slider::new(px_per_ms, 0.05..=1.0).show_value(false));
+        ui.add_sized(
+            [50.0, 18.0],
+            egui::Slider::new(px_per_ms, 0.05..=1.0).show_value(false),
+        );
         if ui.button(RichText::new("+").size(11.0)).clicked() {
             *px_per_ms = (*px_per_ms * 1.25).min(1.0);
         }
@@ -85,11 +100,18 @@ pub fn draw_toolbar(
         ui.add_space(8.0);
 
         // Vertical Zoom Controls (Key Row Height)
-        ui.label(RichText::new("Zoom Y:").size(10.0).color(Color32::from_rgb(180, 170, 190)));
+        ui.label(
+            RichText::new("Zoom Y:")
+                .size(10.0)
+                .color(Color32::from_rgb(180, 170, 190)),
+        );
         if ui.button(RichText::new("-").size(11.0)).clicked() {
             *row_height = (*row_height * 0.85).max(12.0);
         }
-        ui.add(egui::Slider::new(row_height, 12.0..=48.0).show_value(false));
+        ui.add_sized(
+            [50.0, 18.0],
+            egui::Slider::new(row_height, 12.0..=48.0).show_value(false),
+        );
         if ui.button(RichText::new("+").size(11.0)).clicked() {
             *row_height = (*row_height * 1.15).min(48.0);
         }

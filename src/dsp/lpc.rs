@@ -36,7 +36,7 @@ impl LpcExtractor {
                 lambda += a[j] * r[k - j];
             }
             let k_refl = -lambda / e;
-            
+
             let mut a_next = a.clone();
             a_next[k] = k_refl;
             for j in 1..k {

@@ -1,19 +1,14 @@
-use eframe::egui::{self, Color32, RichText};
 use crate::project::model::UNote;
+use eframe::egui::{self, Color32, RichText};
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum InspectorTab {
+    #[default]
     NoteProperties,
     Dynamics,
     Gender,
     PitchDelta,
     Breathiness,
-}
-
-impl Default for InspectorTab {
-    fn default() -> Self {
-        InspectorTab::NoteProperties
-    }
 }
 
 pub fn draw_inspector_panel(
@@ -22,7 +17,12 @@ pub fn draw_inspector_panel(
     active_tab: &mut InspectorTab,
 ) {
     ui.horizontal(|ui| {
-        ui.heading(RichText::new("🎛 Inspector").strong().size(14.0).color(Color32::from_rgb(200, 215, 235)));
+        ui.heading(
+            RichText::new("🎛 Inspector")
+                .strong()
+                .size(14.0)
+                .color(Color32::from_rgb(200, 215, 235)),
+        );
         ui.add_space(12.0);
 
         // Tab selection buttons
@@ -37,7 +37,9 @@ pub fn draw_inspector_panel(
         for (tab, label) in tabs {
             let is_sel = *active_tab == tab;
             let text = if is_sel {
-                RichText::new(label).strong().color(Color32::from_rgb(0, 210, 255))
+                RichText::new(label)
+                    .strong()
+                    .color(Color32::from_rgb(0, 210, 255))
             } else {
                 RichText::new(label).color(Color32::from_rgb(160, 175, 195))
             };
@@ -60,39 +62,99 @@ pub fn draw_inspector_panel(
                     ui.add(egui::TextEdit::singleline(&mut note.pitch).desired_width(45.0));
 
                     ui.label("Start:");
-                    ui.add(egui::DragValue::new(&mut note.position_ms).range(0.0..=100000.0).speed(10.0).suffix("ms"));
+                    ui.add(
+                        egui::DragValue::new(&mut note.position_ms)
+                            .range(0.0..=100000.0)
+                            .speed(10.0)
+                            .suffix("ms"),
+                    );
 
                     ui.label("Duration:");
-                    ui.add(egui::DragValue::new(&mut note.duration_ms).range(20.0..=10000.0).speed(10.0).suffix("ms"));
+                    ui.add(
+                        egui::DragValue::new(&mut note.duration_ms)
+                            .range(20.0..=10000.0)
+                            .speed(10.0)
+                            .suffix("ms"),
+                    );
+
+                    ui.label("Vel. consoante:");
+                    ui.add(
+                        egui::Slider::new(&mut note.expressions.consonant_velocity, 0.0..=200.0)
+                            .suffix(" %"),
+                    )
+                    .on_hover_text(
+                        "100% mantém a duração original; valores maiores aceleram a consoante",
+                    );
 
                     ui.separator();
 
                     ui.label("Env (p1..p5):");
-                    ui.add(egui::DragValue::new(&mut note.envelope.p1).range(0.0..=200.0).speed(1.0).prefix("p1:"));
-                    ui.add(egui::DragValue::new(&mut note.envelope.p2).range(0.0..=200.0).speed(1.0).prefix("p2:"));
-                    ui.add(egui::DragValue::new(&mut note.envelope.p3).range(0.0..=500.0).speed(1.0).prefix("p3:"));
-                    ui.add(egui::DragValue::new(&mut note.envelope.p4).range(0.0..=500.0).speed(1.0).prefix("p4:"));
-                    ui.add(egui::DragValue::new(&mut note.envelope.p5).range(0.0..=500.0).speed(1.0).prefix("p5:"));
+                    ui.add(
+                        egui::DragValue::new(&mut note.envelope.p1)
+                            .range(0.0..=200.0)
+                            .speed(1.0)
+                            .prefix("p1:"),
+                    );
+                    ui.add(
+                        egui::DragValue::new(&mut note.envelope.p2)
+                            .range(0.0..=200.0)
+                            .speed(1.0)
+                            .prefix("p2:"),
+                    );
+                    ui.add(
+                        egui::DragValue::new(&mut note.envelope.p3)
+                            .range(0.0..=500.0)
+                            .speed(1.0)
+                            .prefix("p3:"),
+                    );
+                    ui.add(
+                        egui::DragValue::new(&mut note.envelope.p4)
+                            .range(0.0..=500.0)
+                            .speed(1.0)
+                            .prefix("p4:"),
+                    );
+                    ui.add(
+                        egui::DragValue::new(&mut note.envelope.p5)
+                            .range(0.0..=500.0)
+                            .speed(1.0)
+                            .prefix("p5:"),
+                    );
                 }
                 InspectorTab::Dynamics => {
                     ui.label("Dynamics Offset (DYN):");
-                    ui.add(egui::Slider::new(&mut note.expressions.dynamics, -100.0..=100.0).suffix(" dB"));
+                    ui.add(
+                        egui::Slider::new(&mut note.expressions.dynamics, -100.0..=100.0)
+                            .suffix(" dB"),
+                    );
                 }
                 InspectorTab::Gender => {
                     ui.label("Gender / Formant Shift (GEN):");
-                    ui.add(egui::Slider::new(&mut note.expressions.gender, -100.0..=100.0));
+                    ui.add(egui::Slider::new(
+                        &mut note.expressions.gender,
+                        -100.0..=100.0,
+                    ));
                 }
                 InspectorTab::PitchDelta => {
                     ui.label("Pitch Shift Delta (PITD):");
-                    ui.add(egui::Slider::new(&mut note.expressions.pitch_delta, -1200.0..=1200.0).suffix(" cents"));
+                    ui.add(
+                        egui::Slider::new(&mut note.expressions.pitch_delta, -1200.0..=1200.0)
+                            .suffix(" cents"),
+                    );
                 }
                 InspectorTab::Breathiness => {
                     ui.label("Breathiness (BRE):");
-                    ui.add(egui::Slider::new(&mut note.expressions.breathiness, -100.0..=100.0));
+                    ui.add(egui::Slider::new(
+                        &mut note.expressions.breathiness,
+                        -100.0..=100.0,
+                    ));
                 }
             }
         } else {
-            ui.label(RichText::new("Select a note on the Piano Roll to adjust its expressions.").italics().color(Color32::from_rgb(120, 135, 155)));
+            ui.label(
+                RichText::new("Select a note on the Piano Roll to adjust its expressions.")
+                    .italics()
+                    .color(Color32::from_rgb(120, 135, 155)),
+            );
         }
     });
 }

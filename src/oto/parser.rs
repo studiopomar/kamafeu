@@ -1,8 +1,8 @@
+use super::entry::OtoEntry;
+use encoding_rs::SHIFT_JIS;
 use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
-use encoding_rs::SHIFT_JIS;
-use super::entry::OtoEntry;
 
 pub struct OtoParser;
 
@@ -78,7 +78,9 @@ impl OtoParser {
     }
 
     /// Parse `oto.ini` from a file path.
-    pub fn parse_file<P: AsRef<Path>>(path: P) -> Result<HashMap<String, OtoEntry>, std::io::Error> {
+    pub fn parse_file<P: AsRef<Path>>(
+        path: P,
+    ) -> Result<HashMap<String, OtoEntry>, std::io::Error> {
         let bytes = fs::read(path)?;
         Ok(Self::parse_bytes(&bytes))
     }

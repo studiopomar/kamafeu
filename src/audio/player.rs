@@ -28,6 +28,15 @@ impl AudioPlayer {
     }
 
     pub fn play_samples(&mut self, samples: Vec<f32>, sample_rate: u32) {
+        self.play_samples_with_channels(samples, sample_rate, 1);
+    }
+
+    pub fn play_samples_with_channels(
+        &mut self,
+        samples: Vec<f32>,
+        sample_rate: u32,
+        channels: u16,
+    ) {
         if samples.is_empty() {
             return;
         }
@@ -40,7 +49,7 @@ impl AudioPlayer {
         if let Some(ref handle) = self.stream_handle {
             match Sink::try_new(handle) {
                 Ok(sink) => {
-                    let buffer = SamplesBuffer::new(1, sample_rate, samples);
+                    let buffer = SamplesBuffer::new(channels.max(1), sample_rate, samples);
                     sink.append(buffer);
                     sink.play();
                     self.active_sink = Some(sink);
@@ -62,6 +71,12 @@ impl AudioPlayer {
             return !sink.empty();
         }
         false
+    }
+}
+
+impl Default for AudioPlayer {
+    fn default() -> Self {
+        Self::new()
     }
 }
 

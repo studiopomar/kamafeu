@@ -15,29 +15,36 @@ jobs:
     steps:
       - name: Send Discord Bidu Notification
         env:
-          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK_URL || 'https://discord.com/api/webhooks/1484639354403029002/8Q41OagwbLNEBHm8qRSCNdUum1N0_Mhw2Zrzzi0AnNCRbFi8J64OTMzznFMuF_y8GoBm' }}
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          EVENT_NAME: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref_name }}
+          REPOSITORY: ${{ github.repository }}
+          ACTOR: ${{ github.actor }}
+          RELEASE_NAME: ${{ github.event.release.name }}
+          RELEASE_URL: ${{ github.event.release.html_url }}
+          RELEASE_BODY: ${{ github.event.release.body }}
+          COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
+          COMMIT_URL: ${{ github.event.head_commit.url }}
         run: |
-          EVENT_NAME="${{ github.event_name }}"
-          REF_NAME="${{ github.ref_name }}"
-          REPO="${{ github.repository }}"
-          ACTOR="${{ github.actor }}"
+          if [ -z "$DISCORD_WEBHOOK" ]; then
+            echo "DISCORD_WEBHOOK_URL is not configured; skipping notification."
+            exit 0
+          fi
 
           if [ "$EVENT_NAME" = "release" ]; then
-            TITLE="🚀 Lançamento Publicado: ${{ github.event.release.name || github.ref_name }}"
-            URL="${{ github.event.release.html_url }}"
-            DESC="${{ github.event.release.body }}"
+            TITLE="🚀 Lançamento Publicado: ${RELEASE_NAME:-$REF_NAME}"
+            URL="$RELEASE_URL"
+            DESC="$RELEASE_BODY"
             COLOR=65280
           elif [[ "$REF_NAME" == v* ]]; then
             TITLE="🏷️ Nova Tag / Versão: $REF_NAME"
-            URL="https://github.com/$REPO/releases/tag/$REF_NAME"
+            URL="https://github.com/$REPOSITORY/releases/tag/$REF_NAME"
             DESC="Nova versão tagged enviada por @$ACTOR!"
             COLOR=16753920
           else
-            COMMIT_MSG="${{ github.event.head_commit.message }}"
-            COMMIT_URL="${{ github.event.head_commit.url }}"
             TITLE="🔨 Novo Push em $REF_NAME"
-            URL="${COMMIT_URL:-https://github.com/$REPO/commits/$REF_NAME}"
-            DESC="${COMMIT_MSG:-Novas atualizações no repositório por @$ACTOR!}"
+            URL="${COMMIT_URL:-https://github.com/$REPOSITORY/commits/$REF_NAME}"
+            DESC="${COMMIT_MESSAGE:-Novas atualizações no repositório por @$ACTOR!}"
             COLOR=3447003
           fi
 

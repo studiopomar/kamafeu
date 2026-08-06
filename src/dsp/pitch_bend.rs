@@ -11,7 +11,11 @@ impl PitchBendSolver {
 
         // Sort points by time_offset_ms safely
         let mut sorted = points.to_vec();
-        sorted.sort_by(|a, b| a.time_offset_ms.partial_cmp(&b.time_offset_ms).unwrap_or(std::cmp::Ordering::Equal));
+        sorted.sort_by(|a, b| {
+            a.time_offset_ms
+                .partial_cmp(&b.time_offset_ms)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
 
         let p_first = &sorted[0];
         let p_last = sorted.last().unwrap();
@@ -48,7 +52,8 @@ impl PitchBendSolver {
                     _ => norm_t * norm_t * (3.0 - 2.0 * norm_t),
                 };
 
-                return p0.pitch_offset_cents + factor * (p1.pitch_offset_cents - p0.pitch_offset_cents);
+                return p0.pitch_offset_cents
+                    + factor * (p1.pitch_offset_cents - p0.pitch_offset_cents);
             }
         }
 
@@ -76,7 +81,10 @@ impl PitchBendSolver {
     }
 
     /// Ramer-Douglas-Peucker (RDP) point simplification
-    pub fn simplify_pitch_points(points: &[UPitchBendPoint], epsilon_cents: f64) -> Vec<UPitchBendPoint> {
+    pub fn simplify_pitch_points(
+        points: &[UPitchBendPoint],
+        epsilon_cents: f64,
+    ) -> Vec<UPitchBendPoint> {
         if points.len() <= 2 {
             return points.to_vec();
         }
@@ -87,8 +95,7 @@ impl PitchBendSolver {
         let p_first = &points[0];
         let p_last = points.last().unwrap();
 
-        for i in 1..points.len() - 1 {
-            let p = &points[i];
+        for (i, p) in points.iter().enumerate().take(points.len() - 1).skip(1) {
             let dist = Self::perpendicular_distance(p, p_first, p_last);
             if dist > max_dist {
                 max_dist = dist;
@@ -107,7 +114,11 @@ impl PitchBendSolver {
         }
     }
 
-    fn perpendicular_distance(p: &UPitchBendPoint, line_start: &UPitchBendPoint, line_end: &UPitchBendPoint) -> f64 {
+    fn perpendicular_distance(
+        p: &UPitchBendPoint,
+        line_start: &UPitchBendPoint,
+        line_end: &UPitchBendPoint,
+    ) -> f64 {
         let dx = line_end.time_offset_ms - line_start.time_offset_ms;
         let dy = line_end.pitch_offset_cents - line_start.pitch_offset_cents;
 
@@ -118,7 +129,9 @@ impl PitchBendSolver {
             return (px * px + py * py).sqrt();
         }
 
-        let num = ((p.time_offset_ms - line_start.time_offset_ms) * dy - (p.pitch_offset_cents - line_start.pitch_offset_cents) * dx).abs();
+        let num = ((p.time_offset_ms - line_start.time_offset_ms) * dy
+            - (p.pitch_offset_cents - line_start.pitch_offset_cents) * dx)
+            .abs();
         num / len_sq.sqrt()
     }
 }
@@ -129,9 +142,11 @@ mod tests {
 
     #[test]
     fn test_pitch_bend_solver() {
-        let points = vec![
-            UPitchBendPoint { time_offset_ms: 100.0, pitch_offset_cents: 200.0, shape: "s".to_string() },
-        ];
+        let points = vec![UPitchBendPoint {
+            time_offset_ms: 100.0,
+            pitch_offset_cents: 200.0,
+            shape: "s".to_string(),
+        }];
 
         // Before first point: holds first point pitch value (OpenUTAU behavior)
         let p_start = PitchBendSolver::get_pitch_offset_cents(0.0, &points);
@@ -149,8 +164,16 @@ mod tests {
     #[test]
     fn test_pitch_bend_two_points() {
         let points = vec![
-            UPitchBendPoint { time_offset_ms: 0.0, pitch_offset_cents: 200.0, shape: "s".to_string() },
-            UPitchBendPoint { time_offset_ms: 200.0, pitch_offset_cents: 0.0, shape: "s".to_string() },
+            UPitchBendPoint {
+                time_offset_ms: 0.0,
+                pitch_offset_cents: 200.0,
+                shape: "s".to_string(),
+            },
+            UPitchBendPoint {
+                time_offset_ms: 200.0,
+                pitch_offset_cents: 0.0,
+                shape: "s".to_string(),
+            },
         ];
 
         // At t=0: first point value
@@ -159,7 +182,11 @@ mod tests {
 
         // At midpoint t=100ms: approx 100 cents (S-curve midpoint)
         let p_mid = PitchBendSolver::get_pitch_offset_cents(100.0, &points);
-        assert!((p_mid - 100.0).abs() < 5.0, "Expected ~100 cents, got {}", p_mid);
+        assert!(
+            (p_mid - 100.0).abs() < 5.0,
+            "Expected ~100 cents, got {}",
+            p_mid
+        );
 
         // At t=200ms: last point value (0 cents)
         let p_end = PitchBendSolver::get_pitch_offset_cents(200.0, &points);

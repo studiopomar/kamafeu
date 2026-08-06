@@ -1,3 +1,5 @@
+#![allow(clippy::too_many_arguments, clippy::type_complexity)]
+
 pub mod audio;
 pub mod config;
 pub mod copaiba;

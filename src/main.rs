@@ -2,14 +2,16 @@ use clap::{Parser, Subcommand};
 use eframe::NativeOptions;
 use std::fs::{self, File};
 use std::io::BufWriter;
+use std::io::{Error, ErrorKind};
 use std::path::PathBuf;
 
 use kamafeu::{
-    formats::{UstFormat, UstxFormat},
+    drivers::{NativeResamplerDriver, NativeWavtoolDriver},
+    formats::{MidiFormat, UstFormat, UstxFormat},
     gui::KamafeuStudioApp,
     oto::Voicebank,
-    project::model::UNote,
-    renderer::TrackRenderer,
+    project::model::{UNote, UProject},
+    renderer::{ProjectRenderer, RenderOptions},
 };
 
 #[derive(Parser)]
@@ -37,13 +39,13 @@ enum Commands {
         path: PathBuf,
     },
 
-    /// Render a score/notes JSON or UST/USTX project file to a WAV audio file
+    /// Render a JSON, UST, USTX, or MIDI project to a WAV audio file
     Render {
         /// Path to UTAU voicebank directory
         #[arg(short, long)]
         voicebank: PathBuf,
 
-        /// Path to project or score file (.ustx, .ust, .json)
+        /// Path to project or score file (.ustx, .ust, .mid, .midi, .json)
         #[arg(short, long)]
         input: PathBuf,
 
@@ -157,23 +159,34 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let vb = Voicebank::new(&voicebank)?;
 
             println!("Reading input file: {:?}", input);
-            let extension = input.extension().and_then(|s| s.to_str()).unwrap_or("");
+            let mut project = load_project(&input)?;
+            project.normalize();
+            let note_count: usize = project.parts.iter().map(|part| part.notes.len()).sum();
+            if note_count == 0 {
+                return Err(Error::new(
+                    ErrorKind::InvalidData,
+                    "o projeto não contém notas renderizáveis",
+                )
+                .into());
+            }
 
-            let notes: Vec<UNote> = match extension {
-                "ust" => UstFormat::load_file(&input)?.parts[0].notes.clone(),
-                "ustx" => UstxFormat::load_file(&input)?.parts[0].notes.clone(),
-                _ => {
-                    let content = fs::read_to_string(&input)?;
-                    serde_json::from_str(&content)?
-                }
-            };
-
-            println!("Rendering {} notes at {}Hz...", notes.len(), sample_rate);
-            let audio_buffer = TrackRenderer::render_track(&notes, &vb, sample_rate);
+            println!("Rendering {} notes at {}Hz...", note_count, sample_rate);
+            let native_resampler = NativeResamplerDriver;
+            let native_wavtool = NativeWavtoolDriver;
+            let rendered = ProjectRenderer::render_project_with_drivers(
+                &project,
+                &vb,
+                sample_rate,
+                0.0,
+                &native_resampler,
+                &native_wavtool,
+                &RenderOptions::default(),
+                None,
+            );
 
             println!("Writing rendered audio to: {:?}", output);
             let spec = hound::WavSpec {
-                channels: 1,
+                channels: rendered.channels,
                 sample_rate,
                 bits_per_sample: 16,
                 sample_format: hound::SampleFormat::Int,
@@ -183,7 +196,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             let writer = BufWriter::new(file);
             let mut wav_writer = hound::WavWriter::new(writer, spec)?;
 
-            for &sample in &audio_buffer {
+            for &sample in &rendered.samples {
                 let clamped = sample.clamp(-1.0, 1.0);
                 let sample_i16 = (clamped * i16::MAX as f32) as i16;
                 wav_writer.write_sample(sample_i16)?;
@@ -195,4 +208,33 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     Ok(())
+}
+
+fn load_project(path: &PathBuf) -> Result<UProject, Box<dyn std::error::Error>> {
+    let extension = path
+        .extension()
+        .and_then(|value| value.to_str())
+        .unwrap_or_default()
+        .to_ascii_lowercase();
+
+    match extension.as_str() {
+        "ust" => UstFormat::load_file(path),
+        "ustx" => UstxFormat::load_file(path),
+        "mid" | "midi" => MidiFormat::load_file(path),
+        "json" => {
+            let content = fs::read_to_string(path)?;
+            if let Ok(project) = serde_json::from_str::<UProject>(&content) {
+                return Ok(project);
+            }
+            let notes = serde_json::from_str::<Vec<UNote>>(&content)?;
+            let mut project = UProject::default();
+            project.parts[0].notes = notes;
+            Ok(project)
+        }
+        _ => Err(Error::new(
+            ErrorKind::InvalidInput,
+            format!("formato de entrada não suportado: .{extension}"),
+        )
+        .into()),
+    }
 }

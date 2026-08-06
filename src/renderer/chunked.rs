@@ -5,6 +5,7 @@ use std::thread;
 use crate::drivers::{ResamplerDriver, WavtoolDriver};
 use crate::oto::Voicebank;
 use crate::project::model::UNote;
+use crate::renderer::RenderOptions;
 use crate::renderer::TrackRenderer;
 
 pub struct ChunkedRenderer;
@@ -33,10 +34,11 @@ impl ChunkedRenderer {
         window_duration_ms: f64,
         resampler_driver: &dyn ResamplerDriver,
         wavtool_driver: &dyn WavtoolDriver,
-        vocal_mode: Option<&crate::gui::left_panel::VocalModeParams>,
+        vocal_mode: Option<&RenderOptions>,
     ) -> Vec<f32> {
         let active_window_end = playhead_ms + window_duration_ms;
-        let mut playhead_notes = Self::filter_notes_in_window(notes, playhead_ms, active_window_end);
+        let mut playhead_notes =
+            Self::filter_notes_in_window(notes, playhead_ms, active_window_end);
 
         if playhead_notes.is_empty() {
             playhead_notes = notes.to_vec();

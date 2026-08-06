@@ -1,7 +1,7 @@
+use encoding_rs::SHIFT_JIS;
 use std::collections::HashMap;
 use std::fs;
 use std::path::Path;
-use encoding_rs::SHIFT_JIS;
 
 #[derive(Debug, Clone, Default)]
 pub struct PrefixMap {
@@ -21,7 +21,9 @@ impl PrefixMap {
     }
 
     pub fn get_prefix_suffix(&self, pitch_name: &str) -> Option<(&str, &str)> {
-        self.map.get(pitch_name).map(|(p, s)| (p.as_str(), s.as_str()))
+        self.map
+            .get(pitch_name)
+            .map(|(p, s)| (p.as_str(), s.as_str()))
     }
 
     /// Retrieve the prefixed/suffixed alias for a given lyric and pitch name.
@@ -64,7 +66,11 @@ impl PrefixMap {
                 if parts.len() >= 2 {
                     let pitch_name = parts[0].trim().to_string();
                     let prefix = clean_token(parts[1]);
-                    let suffix = if parts.len() >= 3 { clean_token(parts[2]) } else { String::new() };
+                    let suffix = if parts.len() >= 3 {
+                        clean_token(parts[2])
+                    } else {
+                        String::new()
+                    };
                     if !pitch_name.is_empty() {
                         pmap.insert(pitch_name, prefix, suffix);
                     }
@@ -74,7 +80,11 @@ impl PrefixMap {
                 if parts.len() >= 2 {
                     let pitch_name = parts[0].trim().to_string();
                     let prefix = clean_token(parts[1]);
-                    let suffix = if parts.len() >= 3 { clean_token(parts[2]) } else { String::new() };
+                    let suffix = if parts.len() >= 3 {
+                        clean_token(parts[2])
+                    } else {
+                        String::new()
+                    };
                     if !pitch_name.is_empty() {
                         pmap.insert(pitch_name, prefix, suffix);
                     }
@@ -93,11 +103,19 @@ impl PrefixMap {
     pub fn parse_yaml_str(content: &str) -> Self {
         let content = content.strip_prefix('\u{feff}').unwrap_or(content);
         let mut pmap = PrefixMap::new();
-        if let Ok(val) = serde_yaml::from_str::<serde_yaml::Value>(content) {
+        if let Ok(val) = yaml_serde::from_str::<yaml_serde::Value>(content) {
             if let Some(subbanks) = val.get("subbanks").and_then(|v| v.as_sequence()) {
                 for sub in subbanks {
-                    let prefix = sub.get("prefix").and_then(|v| v.as_str()).unwrap_or("").to_string();
-                    let suffix = sub.get("suffix").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                    let prefix = sub
+                        .get("prefix")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
+                    let suffix = sub
+                        .get("suffix")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("")
+                        .to_string();
                     if let Some(ranges) = sub.get("tone_ranges").and_then(|v| v.as_sequence()) {
                         for range in ranges {
                             if let Some(range_str) = range.as_str() {
@@ -105,14 +123,22 @@ impl PrefixMap {
                                 if parts.len() == 2 {
                                     if let (Some(min_midi), Some(max_midi)) = (
                                         crate::dsp::pitch::note_name_to_midi(parts[0]),
-                                        crate::dsp::pitch::note_name_to_midi(parts[1])
+                                        crate::dsp::pitch::note_name_to_midi(parts[1]),
                                     ) {
                                         for m in min_midi..=max_midi {
-                                            pmap.insert(crate::dsp::pitch::midi_to_note_name(m), prefix.clone(), suffix.clone());
+                                            pmap.insert(
+                                                crate::dsp::pitch::midi_to_note_name(m),
+                                                prefix.clone(),
+                                                suffix.clone(),
+                                            );
                                         }
                                     }
                                 } else if parts.len() == 1 {
-                                    pmap.insert(parts[0].trim().to_string(), prefix.clone(), suffix.clone());
+                                    pmap.insert(
+                                        parts[0].trim().to_string(),
+                                        prefix.clone(),
+                                        suffix.clone(),
+                                    );
                                 }
                             }
                         }

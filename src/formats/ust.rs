@@ -1,6 +1,6 @@
+use encoding_rs::SHIFT_JIS;
 use std::fs;
 use std::path::Path;
-use encoding_rs::SHIFT_JIS;
 
 use crate::dsp::pitch::midi_to_note_name;
 use crate::project::model::{UNote, UPitchBend, UPitchBendPoint, UProject, UVoicePart};
@@ -21,6 +21,7 @@ impl UstFormat {
         let mut current_note_num: u8 = 60;
         let mut current_length_ticks: f64 = 480.0; // 480 ticks = 1 beat (500ms at 120BPM)
         let mut current_bpm: f64 = 120.0;
+        let mut current_consonant_velocity: f64 = 100.0;
         let mut current_pb_start_ms: f64 = 0.0;
         let mut current_pb_start_cents: f64 = 0.0;
         let mut current_pbw: Vec<f64> = Vec::new();
@@ -38,8 +39,15 @@ impl UstFormat {
 
             if line.starts_with("[#") && line.ends_with(']') {
                 let section_name = &line[2..line.len() - 1];
-                if section_name != "VERSION" && section_name != "SETTING" && section_name != "TRACKEND" {
-                    if in_note_section && !current_lyric.is_empty() && current_lyric != "R" && current_lyric != "r" {
+                if section_name != "VERSION"
+                    && section_name != "SETTING"
+                    && section_name != "TRACKEND"
+                {
+                    if in_note_section
+                        && !current_lyric.is_empty()
+                        && current_lyric != "R"
+                        && current_lyric != "r"
+                    {
                         let duration_ms = (current_length_ticks / 480.0) * (60000.0 / current_bpm);
                         let mut note = UNote::new(
                             &current_lyric,
@@ -47,6 +55,8 @@ impl UstFormat {
                             current_time_ms,
                             duration_ms,
                         );
+                        note.expressions.consonant_velocity = current_consonant_velocity;
+                        note.expressions.velocity = current_consonant_velocity;
 
                         // Build pitch bend points
                         if !current_pbw.is_empty() {
@@ -60,9 +70,17 @@ impl UstFormat {
                             let mut cum_ms = current_pb_start_ms;
                             for i in 0..current_pbw.len() {
                                 cum_ms += current_pbw[i];
-                                let y_decacents = if i < current_pby.len() { current_pby[i] } else { 0.0 };
+                                let y_decacents = if i < current_pby.len() {
+                                    current_pby[i]
+                                } else {
+                                    0.0
+                                };
                                 let cents = y_decacents * 10.0;
-                                let shape = if i < current_pbm.len() { current_pbm[i].clone() } else { String::new() };
+                                let shape = if i < current_pbm.len() {
+                                    current_pbm[i].clone()
+                                } else {
+                                    String::new()
+                                };
                                 pb_points.push(UPitchBendPoint {
                                     time_offset_ms: cum_ms,
                                     pitch_offset_cents: cents,
@@ -87,6 +105,7 @@ impl UstFormat {
                     current_pbm.clear();
                     current_pb_start_ms = 0.0;
                     current_pb_start_cents = 0.0;
+                    current_consonant_velocity = 100.0;
                 }
                 continue;
             }
@@ -107,20 +126,32 @@ impl UstFormat {
                     "Lyric" => current_lyric = val.to_string(),
                     "NoteNum" => current_note_num = val.parse::<u8>().unwrap_or(60),
                     "Length" => current_length_ticks = val.parse::<f64>().unwrap_or(480.0),
+                    "Velocity" => {
+                        current_consonant_velocity =
+                            val.parse::<f64>().unwrap_or(100.0).clamp(0.0, 200.0);
+                    }
                     "PBS" => {
                         let pbs_parts: Vec<&str> = val.split(';').collect();
-                        if pbs_parts.len() >= 1 {
+                        if !pbs_parts.is_empty() {
                             current_pb_start_ms = pbs_parts[0].parse().unwrap_or(0.0);
                         }
                         if pbs_parts.len() >= 2 {
-                            current_pb_start_cents = pbs_parts[1].parse::<f64>().unwrap_or(0.0) * 10.0; // decacents to cents
+                            current_pb_start_cents =
+                                pbs_parts[1].parse::<f64>().unwrap_or(0.0) * 10.0;
+                            // decacents to cents
                         }
                     }
                     "PBW" => {
-                        current_pbw = val.split(',').filter_map(|s| s.parse::<f64>().ok()).collect();
+                        current_pbw = val
+                            .split(',')
+                            .filter_map(|s| s.parse::<f64>().ok())
+                            .collect();
                     }
                     "PBY" => {
-                        current_pby = val.split(',').filter_map(|s| s.parse::<f64>().ok()).collect();
+                        current_pby = val
+                            .split(',')
+                            .filter_map(|s| s.parse::<f64>().ok())
+                            .collect();
                     }
                     "PBM" => {
                         current_pbm = val.split(',').map(|s| s.to_string()).collect();
@@ -131,14 +162,20 @@ impl UstFormat {
         }
 
         // Push final note if present
-        if in_note_section && !current_lyric.is_empty() && current_lyric != "R" && current_lyric != "r" {
+        if in_note_section
+            && !current_lyric.is_empty()
+            && current_lyric != "R"
+            && current_lyric != "r"
+        {
             let duration_ms = (current_length_ticks / 480.0) * (60000.0 / current_bpm);
-            let note = UNote::new(
+            let mut note = UNote::new(
                 &current_lyric,
                 midi_to_note_name(current_note_num),
                 current_time_ms,
                 duration_ms,
             );
+            note.expressions.consonant_velocity = current_consonant_velocity;
+            note.expressions.velocity = current_consonant_velocity;
             notes.push(note);
         }
 
@@ -156,7 +193,10 @@ impl UstFormat {
         Self::parse_bytes(&bytes)
     }
 
-    pub fn save_file<P: AsRef<Path>>(project: &UProject, path: P) -> Result<(), Box<dyn std::error::Error>> {
+    pub fn save_file<P: AsRef<Path>>(
+        project: &UProject,
+        path: P,
+    ) -> Result<(), Box<dyn std::error::Error>> {
         let content = Self::to_ust_string(project);
         let (bytes, _, _) = SHIFT_JIS.encode(&content);
         fs::write(path, bytes)?;
@@ -183,7 +223,11 @@ impl UstFormat {
             if note.position_ms > curr_ms + 1.0 {
                 let rest_dur_ms = note.position_ms - curr_ms;
                 let rest_ticks = ((rest_dur_ms / ms_per_beat) * 480.0).round() as u64;
-                out.push_str(&format!("[#{:04}]\nLength={}\nLyric=R\nNoteNum=60\n", idx * 2, rest_ticks));
+                out.push_str(&format!(
+                    "[#{:04}]\nLength={}\nLyric=R\nNoteNum=60\n",
+                    idx * 2,
+                    rest_ticks
+                ));
             }
 
             let ticks = ((note.duration_ms / ms_per_beat) * 480.0).round() as u64;
@@ -191,6 +235,10 @@ impl UstFormat {
             out.push_str(&format!("Length={}\n", ticks.max(15)));
             out.push_str(&format!("Lyric={}\n", note.lyric));
             out.push_str(&format!("NoteNum={}\n", note.midi_key()));
+            out.push_str(&format!(
+                "Velocity={:.0}\n",
+                note.expressions.consonant_velocity.clamp(0.0, 200.0)
+            ));
 
             if !note.pitch_bend.points.is_empty() {
                 let pbs_time = note.pitch_bend.points[0].time_offset_ms;
@@ -202,9 +250,16 @@ impl UstFormat {
                 let mut pbm = Vec::new();
 
                 for w in note.pitch_bend.points.windows(2) {
-                    pbw.push(format!("{:.1}", (w[1].time_offset_ms - w[0].time_offset_ms).max(0.0)));
+                    pbw.push(format!(
+                        "{:.1}",
+                        (w[1].time_offset_ms - w[0].time_offset_ms).max(0.0)
+                    ));
                     pby.push(format!("{:.1}", w[1].pitch_offset_cents / 10.0));
-                    pbm.push(if w[1].shape.is_empty() { "s".to_string() } else { w[1].shape.clone() });
+                    pbm.push(if w[1].shape.is_empty() {
+                        "s".to_string()
+                    } else {
+                        w[1].shape.clone()
+                    });
                 }
 
                 if !pbw.is_empty() {
@@ -235,6 +290,7 @@ Tempo=145.00
 Length=480
 Lyric=ka
 NoteNum=60
+Velocity=150
 PBS=-40;0
 PBW=50,50
 PBY=0,10
@@ -248,10 +304,12 @@ NoteNum=62
         assert_eq!(proj.bpm, 145.0);
         assert_eq!(proj.parts[0].notes.len(), 2);
         assert_eq!(proj.parts[0].notes[0].lyric, "ka");
+        assert_eq!(proj.parts[0].notes[0].expressions.consonant_velocity, 150.0);
         assert_eq!(proj.parts[0].notes[1].lyric, "ki");
 
         let exported = UstFormat::to_ust_string(&proj);
         assert!(exported.contains("Lyric=ka"));
         assert!(exported.contains("Lyric=ki"));
+        assert!(exported.contains("Velocity=150"));
     }
 }

@@ -1,4 +1,6 @@
 /target
 **/*.rs.bk
 *.wav
+*.ogc
+*_wav.sc/
 .DS_Store

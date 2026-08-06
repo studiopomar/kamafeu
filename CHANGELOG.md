@@ -1,6 +1,19 @@
 # CHANGELOG - Kamafeu
 
-## [Unreleased] - v0.2.0-unstable
+## [0.2.0-alpha.1] - Unreleased
+
+### Segurança e qualidade
+- Webhooks removidos do código-fonte e notificações condicionadas ao secret `DISCORD_WEBHOOK_URL`.
+- CI adicionada com `rustfmt`, Clippy, testes e verificação do build otimizado.
+- Dependências YAML e de diálogo atualizadas para remover componentes obsoletos e avisos de incompatibilidade futura.
+
+### Mixer, formatos e robustez
+- Mixer estéreo multifaixa com Mute, Solo, volume em dB e pan por track.
+- Prévia multifaixa renderizada fora da thread da interface.
+- Importação MIDI com mapa de tempo e exportação com eventos polifônicos ordenados.
+- USTX preserva tracks, partes, offsets, expressões, pitch e controles do mixer.
+- Leitura WAV valida erros e PCM de 32 bits; amostras ausentes são registradas e puladas sem áudio sintético implícito.
+- Arquivos temporários isolados por renderização e CLI protegida contra projetos vazios ou extensões desconhecidas.
 
 ### Copaiba Voicebank Toolkit
 - **Novo Formato `copaiba.config` (JSON)**: Estrutura JSON moderna para configuração de voicebanks com suporte a:
@@ -51,13 +64,13 @@
 - **Correção de Contraste**: Tema de alto contraste para botões de seleção de taxa de amostragem (44100 Hz / 48000 Hz) e menus suspensos sobre fundo roxo escuro.
 
 ### Motor de Síntese & CI/CD
-- **Pipeline de Releases Automatizado**: Workflow do GitHub Actions configurado para compilar artefatos `.dmg` (macOS) e `.apk` (Android) etiquetados como `unstable`.
+- **Pipeline de Releases Automatizado**: CI executa formatação, Clippy, testes e build otimizado; releases geram artefatos para Windows, macOS Intel/Apple Silicon e Linux. O Android foi retirado até existir empacotamento APK nativo verificável.
 - **Suporte a Motores Externos e Nativos**: Integração de resamplers nativos Rust (TD-PSOLA/SOLA) e drivers externos (`macres`, `wavtool-yawu`).
 - **Formatos de Projeto**: Importação e exportação de projetos `.ust` (UTAU) e `.ustx` (OpenUTAU).
 
 ---
 
-## [1.0.0-alpha.1] - 2026-07-30
+## [0.1.0-alpha.1] - 2026-07-30
 
 - Versão Alpha inicial do Kamafeu Synthesizer Core.
 - Suporte a leitura de Voicebanks UTAU (`oto.ini`, `prefix.map`).
