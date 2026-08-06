@@ -2,6 +2,7 @@ pub mod chunked;
 pub mod exporter;
 pub mod options;
 pub mod project;
+pub mod timing;
 pub mod track;
 
 pub use chunked::ChunkedRenderer;

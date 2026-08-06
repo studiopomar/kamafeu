@@ -9,13 +9,28 @@ impl PitchBendSolver {
             return 0.0;
         }
 
-        // Sort points by time_offset_ms safely
+        // Pitch points are kept sorted by every editor/import path. Avoid a
+        // clone+sort for every pixel drawn in the piano roll. Malformed project
+        // files still take the safe sorting fallback.
+        if points
+            .windows(2)
+            .all(|pair| pair[0].time_offset_ms <= pair[1].time_offset_ms)
+        {
+            return Self::get_pitch_offset_cents_sorted(time_ms, points);
+        }
         let mut sorted = points.to_vec();
         sorted.sort_by(|a, b| {
             a.time_offset_ms
                 .partial_cmp(&b.time_offset_ms)
                 .unwrap_or(std::cmp::Ordering::Equal)
         });
+        Self::get_pitch_offset_cents_sorted(time_ms, &sorted)
+    }
+
+    pub fn get_pitch_offset_cents_sorted(time_ms: f64, sorted: &[UPitchBendPoint]) -> f64 {
+        if sorted.is_empty() {
+            return 0.0;
+        }
 
         let p_first = &sorted[0];
         let p_last = sorted.last().unwrap();
@@ -31,7 +46,11 @@ impl PitchBendSolver {
         }
 
         // 3. Between consecutive points: interpolate using Cosine Sigmoid S-curve
-        for window in sorted.windows(2) {
+        // Binary search reduces long hand-drawn curves from O(n) per sample to
+        // O(log n), which is especially noticeable while scrolling or zooming.
+        let right = sorted.partition_point(|point| point.time_offset_ms < time_ms);
+        let left = right.saturating_sub(1).min(sorted.len() - 2);
+        for window in sorted[left..=(left + 1)].windows(2) {
             let p0 = &window[0];
             let p1 = &window[1];
 
@@ -39,17 +58,13 @@ impl PitchBendSolver {
                 let duration = (p1.time_offset_ms - p0.time_offset_ms).max(1e-3);
                 let norm_t = ((time_ms - p0.time_offset_ms) / duration).clamp(0.0, 1.0);
 
-                let factor = match p1.shape.to_lowercase().as_str() {
-                    // Linear
-                    "r" | "l" => norm_t,
-                    // Ease-in only (quadratic)
-                    "j" => norm_t * norm_t,
-                    // Ease-out only (sqrt curve)
-                    "o" => norm_t.sqrt(),
-                    // io / inout / s: Cubic Hermite Spline (smoothstep)
-                    "s" | "i" | "io" | "" => norm_t * norm_t * (3.0 - 2.0 * norm_t),
-                    // Fallback: Cubic Hermite
-                    _ => norm_t * norm_t * (3.0 - 2.0 * norm_t),
+                let factor = match p0.shape.to_lowercase().as_str() {
+                    // OpenUtau names followed by their UTAU Mode 2 aliases.
+                    "l" | "s" => norm_t,
+                    "i" | "j" => 1.0 - (norm_t * std::f64::consts::FRAC_PI_2).cos(),
+                    "o" | "r" => (norm_t * std::f64::consts::FRAC_PI_2).sin(),
+                    "io" | "" => 0.5 - 0.5 * (norm_t * std::f64::consts::PI).cos(),
+                    _ => 0.5 - 0.5 * (norm_t * std::f64::consts::PI).cos(),
                 };
 
                 return p0.pitch_offset_cents

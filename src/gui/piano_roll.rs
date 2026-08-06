@@ -50,6 +50,9 @@ pub struct PianoRollState {
     pub initial_scrolled: bool,
     pub properties_window_for_note: Option<usize>,
     pub dragging_envelope_pt: Option<(usize, usize)>, // (note_idx, pt_idx)
+    /// A continuous pointer gesture changed note data. Commit undo/history once
+    /// on release instead of cloning the full project on every mouse frame.
+    pub continuous_edit_dirty: bool,
 }
 
 impl Default for PianoRollState {
@@ -85,6 +88,7 @@ impl Default for PianoRollState {
             initial_scrolled: false,
             properties_window_for_note: None,
             dragging_envelope_pt: None,
+            continuous_edit_dirty: false,
         }
     }
 }
@@ -118,6 +122,10 @@ pub fn draw_piano_roll(
     };
     let _total_height = key_count as f32 * state.row_height + ruler_height + param_drawer_height;
     let keyboard_width = 65.0f32;
+    let scroll_id = ui.make_persistent_id("piano_roll_scroll");
+    if let Some(scroll_state) = egui::scroll_area::State::load(ui.ctx(), scroll_id) {
+        state.horizontal_scroll_offset = scroll_state.offset.x;
+    }
     let timeline_scroll_x = state.horizontal_scroll_offset;
     let max_note_end_ms = notes
         .iter()
@@ -296,7 +304,7 @@ pub fn draw_piano_roll(
                                     match state.selected_parameter {
                                         ParameterTab::Dynamics => {
                                             note.expressions.dynamics =
-                                                (norm_y * 20.0).clamp(-20.0, 20.0);
+                                                (norm_y * 180.0 - 60.0).clamp(-240.0, 120.0);
                                         }
                                         ParameterTab::PitchDelta => {
                                             note.expressions.pitch_delta =
@@ -325,7 +333,7 @@ pub fn draw_piano_roll(
                                 }
                             }
                             if changed {
-                                on_note_changed();
+                                state.continuous_edit_dirty = true;
                             }
                         }
                     }
@@ -342,9 +350,9 @@ pub fn draw_piano_roll(
                             let (val, min_v, max_v, value_label) = match state.selected_parameter {
                                 ParameterTab::Dynamics => (
                                     note.expressions.dynamics,
-                                    -20.0,
-                                    20.0,
-                                    format!("{:+.1} dB", note.expressions.dynamics),
+                                    -240.0,
+                                    120.0,
+                                    format!("{:+.1} dB", note.expressions.dynamics * 0.1),
                                 ),
                                 ParameterTab::PitchDelta => (
                                     note.expressions.pitch_delta,
@@ -510,34 +518,35 @@ pub fn draw_piano_roll(
             .clamp(0, key_count as isize) as usize;
 
         // 2. Grid Row Backgrounds (Black vs White keys), visible rows only.
+        let row_x_min = (rect.min.x + keyboard_width).max(visible_clip.min.x);
+        let row_x_max = visible_clip.max.x.min(rect.max.x);
+
         for key_idx in first_visible_key..last_visible_key {
             let midi = state.max_midi - key_idx as u8;
             let y_top = grid_start_y + key_idx as f32 * state.row_height;
             let y_bottom = y_top + state.row_height;
 
             let is_black_key = matches!(midi % 12, 1 | 3 | 6 | 8 | 10);
-            let row_bg = if is_black_key {
-                MelodyneTheme::BG_KEYBOARD_BLACK
-            } else {
-                MelodyneTheme::BG_CANVAS
-            };
+            if is_black_key && row_x_max > row_x_min {
+                painter.rect_filled(
+                    Rect::from_min_max(
+                        Pos2::new(row_x_min, y_top),
+                        Pos2::new(row_x_max, y_bottom),
+                    ),
+                    Rounding::ZERO,
+                    MelodyneTheme::BG_KEYBOARD_BLACK,
+                );
+            }
 
-            painter.rect_filled(
-                Rect::from_min_max(
-                    Pos2::new(rect.min.x + keyboard_width, y_top),
-                    Pos2::new(rect.max.x, y_bottom),
-                ),
-                Rounding::ZERO,
-                row_bg,
-            );
-
-            painter.line_segment(
-                [
-                    Pos2::new(rect.min.x + keyboard_width, y_bottom),
-                    Pos2::new(rect.max.x, y_bottom),
-                ],
-                Stroke::new(0.5, MelodyneTheme::GRID_LINE_SUB),
-            );
+            if row_x_max > row_x_min {
+                painter.line_segment(
+                    [
+                        Pos2::new(row_x_min, y_bottom),
+                        Pos2::new(row_x_max, y_bottom),
+                    ],
+                    Stroke::new(0.5, MelodyneTheme::GRID_LINE_SUB),
+                );
+            }
         }
 
         // 3. Vertical Time Grid Lines (Bars, Beats, & Snap Subdivisions)
@@ -554,6 +563,9 @@ pub fn draw_piano_roll(
             / state.px_per_ms)
             .max(0.0) as f64;
         let mut time_ms = (visible_time_start / grid_step_ms).floor() * grid_step_ms;
+
+        let y_line_top = visible_clip.min.y.max(grid_start_y);
+        let y_line_bottom = visible_clip.max.y.min(grid_end_y);
 
         while time_ms <= total_canvas_ms.min(visible_time_end + grid_step_ms) {
             let x = rect.min.x + keyboard_width + (time_ms * state.px_per_ms as f64) as f32;
@@ -572,7 +584,7 @@ pub fn draw_piano_roll(
                 };
 
                 painter.line_segment(
-                    [Pos2::new(x, grid_start_y), Pos2::new(x, grid_end_y)],
+                    [Pos2::new(x, y_line_top), Pos2::new(x, y_line_bottom)],
                     Stroke::new(line_width, line_color),
                 );
             }
@@ -584,9 +596,17 @@ pub fn draw_piano_roll(
         let mut note_to_delete: Option<usize> = None;
         let mut commit_lyric_edit: Option<(usize, String)> = None;
 
-        let note_info: Vec<(u8, f64, f64)> = notes
+        let note_info: Vec<(u8, f64, f64, f64)> = notes
             .iter()
-            .map(|n| (n.midi_key(), n.position_ms, n.duration_ms))
+            .map(|n| {
+                let first_t = n
+                    .pitch_bend
+                    .points
+                    .first()
+                    .map(|p| p.time_offset_ms)
+                    .unwrap_or_else(|| n.pitch_bend.portamento_start_ms.clamp(-2000.0, 2000.0));
+                (n.midi_key(), n.position_ms, n.duration_ms, first_t)
+            })
             .collect();
 
         let mouse_interact_pos = ui.input(|i| i.pointer.interact_pos());
@@ -659,7 +679,7 @@ pub fn draw_piano_roll(
             // Render Audio Waveform Thumbnail Overlay inside note box
             let mut wave_x = (x_start + 4.0).max(visible_clip.min.x);
             let step = 3.0f32;
-            while wave_x < x_end - 4.0 {
+            while wave_x < (x_end - 4.0).min(visible_clip.max.x) {
                 let rel_i = (wave_x - x_start) * 0.1;
                 let amp = (rel_i.sin().abs() * 0.4 + 0.1) * (state.row_height * 0.35);
                 painter.line_segment(
@@ -670,49 +690,6 @@ pub fn draw_piano_roll(
                     Stroke::new(1.0, Color32::from_rgba_premultiplied(40, 25, 5, 160)),
                 );
                 wave_x += step;
-            }
-
-            // Render OpenUTAU Magenta Pitch Curve Overlay on Note
-            if !note.pitch_bend.points.is_empty() {
-                let mut pitch_line_pts = Vec::new();
-                let step_px = 3.0f32;
-                let mut px = x_start.max(visible_clip.min.x);
-                while px <= x_end {
-                    let rel_t = ((px - x_start) / state.px_per_ms) as f64;
-                    let cents = crate::dsp::pitch_bend::PitchBendSolver::get_pitch_offset_cents(
-                        rel_t,
-                        &note.pitch_bend.points,
-                    );
-                    let py = y_center - (cents / 100.0) as f32 * state.row_height;
-                    pitch_line_pts.push(Pos2::new(px, py));
-                    px += step_px;
-                }
-                if pitch_line_pts.len() >= 2 {
-                    for pts_win in pitch_line_pts.windows(2) {
-                        painter.line_segment(
-                            [pts_win[0], pts_win[1]],
-                            Stroke::new(2.2, Color32::from_rgb(255, 0, 128)),
-                        );
-                    }
-                }
-
-                // Render Pitch Control Points (subsampled for clean visual display)
-                for (pt_idx, pt) in note.pitch_bend.points.iter().enumerate() {
-                    if pt_idx == 0 || pt_idx == note.pitch_bend.points.len() - 1 || pt_idx % 2 == 0
-                    {
-                        let pt_x = x_start + (pt.time_offset_ms * state.px_per_ms as f64) as f32;
-                        let pt_y =
-                            y_center - (pt.pitch_offset_cents / 100.0) as f32 * state.row_height;
-                        if pt_x >= x_start && pt_x <= x_end {
-                            painter.circle_filled(Pos2::new(pt_x, pt_y), 3.0, Color32::WHITE);
-                            painter.circle_stroke(
-                                Pos2::new(pt_x, pt_y),
-                                3.0,
-                                Stroke::new(1.0, Color32::from_rgb(255, 0, 128)),
-                            );
-                        }
-                    }
-                }
             }
 
             if is_editing_lyric {
@@ -956,6 +933,7 @@ pub fn draw_piano_roll(
                             }
                             _ => {}
                         }
+                        state.continuous_edit_dirty = true;
                     }
                     if ui.input(|i| i.pointer.primary_released()) {
                         state.dragging_envelope_pt = None;
@@ -963,28 +941,44 @@ pub fn draw_piano_roll(
                 }
             }
 
-            // 5. Render Continuous Pitch Curve Spline (Melodyne Glowing Amber with Unrestricted Melismas/Vibrato Tails)
-            let min_t = note
-                .pitch_bend
-                .points
-                .first()
-                .map(|p| p.time_offset_ms)
-                .unwrap_or(0.0)
-                .min(-40.0);
-            let max_t = note
-                .pitch_bend
-                .points
-                .last()
-                .map(|p| p.time_offset_ms)
-                .unwrap_or(note.duration_ms)
-                .max(note.duration_ms + 40.0);
+            // Render the same per-note portamento curve that is sent to the
+            // resampler. The first point snaps to the previous adjacent note.
+            let (previous_midi, is_adjacent) = if idx > 0 {
+                let (prev_m, prev_pos, prev_dur, _) = note_info[idx - 1];
+                let adj = (prev_pos + prev_dur - note.position_ms).abs() <= 1.0;
+                (Some(prev_m), adj)
+            } else {
+                (None, false)
+            };
 
+            let pitch_curve = note.pitch_bend.effective_points(
+                previous_midi,
+                note.midi_key(),
+                is_adjacent,
+            );
+
+            let min_t = pitch_curve.first().map(|p| p.time_offset_ms).unwrap_or(0.0);
+            let max_t = if let Some(&(_next_m, next_pos, _next_dur, next_first_t)) = note_info.get(idx + 1) {
+                let next_adjacent = (note.position_ms + note.duration_ms - next_pos).abs() <= 1.0;
+                let next_start = next_pos + next_first_t;
+                if next_adjacent {
+                    (next_start - note.position_ms).max(min_t)
+                } else {
+                    note.duration_ms
+                }
+            } else {
+                note.duration_ms
+            };
+
+            let visible_note_start = ((visible_clip.min.x - x_start) / state.px_per_ms) as f64;
+            let visible_note_end = ((visible_clip.max.x - x_start) / state.px_per_ms) as f64;
+            let draw_min_t = min_t.max(visible_note_start);
+            let draw_max_t = max_t.min(visible_note_end);
             let mut spline_points = Vec::new();
-            let step = 10.0f64;
-            let mut t = min_t;
-            while t <= max_t {
-                let offset_cents =
-                    PitchBendSolver::get_pitch_offset_cents(t, &note.pitch_bend.points);
+            let step = (3.0 / state.px_per_ms.max(0.001)) as f64;
+            let mut t = draw_min_t;
+            while t <= draw_max_t {
+                let offset_cents = PitchBendSolver::get_pitch_offset_cents_sorted(t, &pitch_curve);
                 let px_x = x_start + (t * state.px_per_ms as f64) as f32;
                 let px_y = y_center - (offset_cents / 100.0) as f32 * state.row_height;
                 spline_points.push(Pos2::new(px_x, px_y));
@@ -992,71 +986,21 @@ pub fn draw_piano_roll(
             }
 
             if spline_points.len() >= 2 {
-                for w in spline_points.windows(2) {
-                    painter.line_segment(
-                        [w[0], w[1]],
-                        Stroke::new(2.5, MelodyneTheme::PITCH_ARM_GOLD),
-                    );
-                }
-            }
-
-            // Render Adjacent Note Pitch Transition Arms ("Bracinhos de Pitch" - Melodyne Gold S-curves)
-            if idx > 0 {
-                let (prev_midi, prev_start_ms, prev_dur_ms) = note_info[idx - 1];
-
-                let gap_ms = note.position_ms - (prev_start_ms + prev_dur_ms);
-                if gap_ms <= 150.0 {
-                    let curr_midi = note.midi_key();
-
-                    let prev_y_center = grid_start_y
-                        + (state.max_midi - prev_midi) as f32 * state.row_height
-                        + state.row_height * 0.5;
-                    let prev_x_end = rect.min.x
-                        + keyboard_width
-                        + ((prev_start_ms + prev_dur_ms) * state.px_per_ms as f64) as f32;
-
-                    let glide_ms = 80.0f64;
-                    let mut arm_points = Vec::new();
-                    let mut arm_t = -glide_ms * 0.5;
-
-                    while arm_t <= glide_ms * 0.5 {
-                        let rel_cents = PitchBendSolver::get_legato_transition_offset_cents(
-                            arm_t, prev_midi, curr_midi, glide_ms,
-                        );
-                        let arm_x = x_start + (arm_t * state.px_per_ms as f64) as f32;
-                        let arm_y = y_center - (rel_cents / 100.0) as f32 * state.row_height;
-                        arm_points.push(Pos2::new(arm_x, arm_y));
-                        arm_t += 5.0;
-                    }
-
-                    painter.line_segment(
-                        [
-                            Pos2::new(prev_x_end, prev_y_center),
-                            Pos2::new(
-                                x_start - (glide_ms * 0.5 * state.px_per_ms as f64) as f32,
-                                prev_y_center,
-                            ),
-                        ],
-                        Stroke::new(2.8, MelodyneTheme::PITCH_ARM_GOLD),
-                    );
-
-                    if arm_points.len() >= 2 {
-                        for w in arm_points.windows(2) {
-                            painter.line_segment(
-                                [w[0], w[1]],
-                                Stroke::new(2.8, MelodyneTheme::PITCH_ARM_GOLD),
-                            );
-                        }
-                    }
-                }
+                painter.add(egui::Shape::line(
+                    spline_points,
+                    Stroke::new(2.5, MelodyneTheme::PITCH_ARM_GOLD),
+                ));
             }
 
             // Render Pitch Control Anchor Circles
-            for pt in &note.pitch_bend.points {
+            for pt in &pitch_curve {
                 let px_x = x_start + (pt.time_offset_ms * state.px_per_ms as f64) as f32;
                 let px_y = y_center - (pt.pitch_offset_cents / 100.0) as f32 * state.row_height;
-                painter.circle_filled(Pos2::new(px_x, px_y), 3.8, MelodyneTheme::PITCH_ANCHOR_CYAN);
-                painter.circle_stroke(Pos2::new(px_x, px_y), 3.8, Stroke::new(1.2, Color32::WHITE));
+                let pt_pos = Pos2::new(px_x, px_y);
+                if visible_clip.contains(pt_pos) || (px_x >= visible_clip.min.x && px_x <= visible_clip.max.x) {
+                    painter.circle_filled(pt_pos, 3.8, MelodyneTheme::PITCH_ANCHOR_CYAN);
+                    painter.circle_stroke(pt_pos, 3.8, Stroke::new(1.2, Color32::WHITE));
+                }
             }
 
             // Tool Mouse Interactions & Double-Click to edit lyric
@@ -1148,6 +1092,14 @@ pub fn draw_piano_roll(
                         let cents = ((delta_y / state.row_height) * 100.0) as f64;
                         let cents = cents.clamp(-1200.0, 1200.0);
 
+                        // The two default portamento points are virtual until
+                        // the first edit. Materialize them before adding a
+                        // hand-drawn point so that drawing pitchbend never
+                        // deletes the legato transition.
+                        if note.pitch_bend.points.is_empty() {
+                            note.pitch_bend.points = pitch_curve.clone();
+                        }
+
                         note.pitch_bend
                             .points
                             .retain(|pt| (pt.time_offset_ms - rel_t).abs() >= 6.0);
@@ -1162,7 +1114,7 @@ pub fn draw_piano_roll(
                                 .partial_cmp(&b.time_offset_ms)
                                 .unwrap_or(std::cmp::Ordering::Equal)
                         });
-                        on_note_changed();
+                        state.continuous_edit_dirty = true;
                     }
 
                     if ui.input(|i| i.pointer.primary_released())
@@ -1174,7 +1126,7 @@ pub fn draw_piano_roll(
                                 2.0,
                             );
                         note.pitch_bend.points = simplified;
-                        on_note_changed();
+                        state.continuous_edit_dirty = true;
                     }
 
                     if ui.input(|i| i.pointer.secondary_clicked()) {
@@ -1190,6 +1142,11 @@ pub fn draw_piano_roll(
                 notes[idx].lyric = new_lyric;
             }
             state.editing_lyric_index = None;
+            on_note_changed();
+        }
+
+        if ui.input(|i| i.pointer.primary_released()) && state.continuous_edit_dirty {
+            state.continuous_edit_dirty = false;
             on_note_changed();
         }
 
@@ -1496,12 +1453,14 @@ pub fn draw_piano_roll(
         }
 
         // 7. Left Sticky Opaque Piano Keyboard Sidebar (Renders OVER notes so notes pass underneath)
-        let sticky_key_x = rect.min.x.max(ui.clip_rect().min.x);
+        let sticky_key_x = rect.min.x.max(visible_clip.min.x);
+        let keys_y_min = visible_clip.min.y.max(grid_start_y);
+        let keys_y_max = visible_clip.max.y.min(grid_end_y);
 
         // Draw solid background container for keys sidebar
         let keys_bg_rect = Rect::from_min_max(
-            Pos2::new(sticky_key_x, grid_start_y),
-            Pos2::new(sticky_key_x + keyboard_width, grid_end_y),
+            Pos2::new(sticky_key_x, keys_y_min),
+            Pos2::new(sticky_key_x + keyboard_width, keys_y_max),
         );
         painter.rect_filled(keys_bg_rect, Rounding::ZERO, Color32::from_rgb(20, 16, 28));
 
@@ -1530,7 +1489,7 @@ pub fn draw_piano_roll(
 
             let mouse_pos = ui.input(|i| i.pointer.interact_pos());
             if let Some(mpos) = mouse_pos {
-                if key_rect.contains(mpos) && ui.input(|i| i.pointer.any_click()) {
+                if key_rect.contains(mpos) && ui.input(|i| i.pointer.primary_pressed()) {
                     let freq = midi_to_freq(midi as f64);
                     on_preview_freq(freq);
                 }
@@ -1558,8 +1517,8 @@ pub fn draw_piano_roll(
         // Draw dividing vertical gold line separating keys sidebar from canvas grid
         painter.line_segment(
             [
-                Pos2::new(sticky_key_x + keyboard_width, grid_start_y),
-                Pos2::new(sticky_key_x + keyboard_width, grid_end_y),
+                Pos2::new(sticky_key_x + keyboard_width, keys_y_min),
+                Pos2::new(sticky_key_x + keyboard_width, keys_y_max),
             ],
             Stroke::new(2.0, MelodyneTheme::ACCENT_GOLD),
         );
@@ -1567,11 +1526,11 @@ pub fn draw_piano_roll(
         // 8. Playhead Marker Line & Handle
         let playhead_x =
             rect.min.x + keyboard_width + (state.playhead_ms * state.px_per_ms as f64) as f32;
-        if playhead_x >= sticky_key_x + keyboard_width && playhead_x <= rect.max.x {
+        if playhead_x >= sticky_key_x + keyboard_width && playhead_x <= visible_clip.max.x {
             let handle_points = vec![
-                Pos2::new(playhead_x - 6.0, rect.min.y + 2.0),
-                Pos2::new(playhead_x + 6.0, rect.min.y + 2.0),
-                Pos2::new(playhead_x, grid_start_y - 2.0),
+                Pos2::new(playhead_x - 6.0, keys_y_min + 2.0),
+                Pos2::new(playhead_x + 6.0, keys_y_min + 2.0),
+                Pos2::new(playhead_x, keys_y_min + 12.0),
             ];
             painter.add(egui::Shape::convex_polygon(
                 handle_points,
@@ -1581,8 +1540,8 @@ pub fn draw_piano_roll(
 
             painter.line_segment(
                 [
-                    Pos2::new(playhead_x, grid_start_y),
-                    Pos2::new(playhead_x, grid_end_y),
+                    Pos2::new(playhead_x, keys_y_min),
+                    Pos2::new(playhead_x, keys_y_max),
                 ],
                 Stroke::new(2.5, MelodyneTheme::PLAYHEAD_RED),
             );

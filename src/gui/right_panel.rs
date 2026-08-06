@@ -181,6 +181,15 @@ pub fn draw_right_panel(
                             let mut dynamics = notes[target_idx].expressions.dynamics;
                             let mut pitch_delta = notes[target_idx].expressions.pitch_delta;
                             let mut breathiness = notes[target_idx].expressions.breathiness;
+                            let mut consonant_velocity = notes[target_idx].expressions.consonant_velocity;
+                            let mut volume = notes[target_idx].expressions.volume;
+                            let mut attack = notes[target_idx].expressions.attack;
+                            let mut decay = notes[target_idx].expressions.decay;
+                            let mut vibrato = notes[target_idx].vibrato.clone();
+                            let mut portamento_start = notes[target_idx].pitch_bend.portamento_start_ms;
+                            let mut portamento_length = notes[target_idx].pitch_bend.portamento_length_ms;
+                            let mut portamento_shape = notes[target_idx].pitch_bend.portamento_shape.clone();
+                            let mut snap_first = notes[target_idx].pitch_bend.snap_first;
 
                             let mut changed_lyric = false;
                             let mut changed_dur = false;
@@ -188,6 +197,10 @@ pub fn draw_right_panel(
                             let mut changed_dynamics = false;
                             let mut changed_pitch = false;
                             let mut changed_breath = false;
+                            let mut changed_timing = false;
+                            let mut changed_amplitude = false;
+                            let mut changed_vibrato = false;
+                            let mut changed_portamento = false;
 
                             // Basic Note Info Section
                             Frame::none()
@@ -244,8 +257,8 @@ pub fn draw_right_panel(
                                     });
 
                                     ui.horizontal(|ui| {
-                                        ui.label("Dinâmica (Volume):");
-                                        if ui.add(egui::Slider::new(&mut dynamics, -20.0..=20.0).show_value(true)).changed() {
+                                        ui.label("Dinâmica (0,1 dB):");
+                                        if ui.add(egui::Slider::new(&mut dynamics, -240.0..=120.0).show_value(true)).changed() {
                                             changed_dynamics = true;
                                         }
                                     });
@@ -262,6 +275,67 @@ pub fn draw_right_panel(
                                         if ui.add(egui::Slider::new(&mut breathiness, 0.0..=100.0).show_value(true)).changed() {
                                             changed_breath = true;
                                         }
+                                    });
+
+                                    ui.horizontal(|ui| {
+                                        ui.label("Velocidade da consoante:");
+                                        if ui.add(egui::Slider::new(&mut consonant_velocity, 0.0..=200.0).suffix("%")).changed() {
+                                            changed_timing = true;
+                                        }
+                                    });
+                                    ui.horizontal(|ui| {
+                                        ui.label("VOL / ATK / DEC:");
+                                        changed_amplitude |= ui.add(egui::DragValue::new(&mut volume).range(0.0..=200.0)).changed();
+                                        changed_amplitude |= ui.add(egui::DragValue::new(&mut attack).range(0.0..=200.0)).changed();
+                                        changed_amplitude |= ui.add(egui::DragValue::new(&mut decay).range(0.0..=100.0)).changed();
+                                    });
+                                });
+
+                            ui.add_space(8.0);
+                            Frame::none()
+                                .fill(Color32::from_rgb(26, 20, 38))
+                                .rounding(Rounding::same(4.0))
+                                .stroke(Stroke::new(1.0, Color32::from_rgb(61, 46, 84)))
+                                .inner_margin(egui::Margin::same(8.0))
+                                .show(ui, |ui| {
+                                    ui.label(RichText::new("Portamento").strong().size(11.0).color(Color32::from_rgb(0, 255, 157)));
+                                    ui.separator();
+                                    changed_portamento |= ui.checkbox(&mut snap_first, "Ligar à nota anterior").changed();
+                                    changed_portamento |= ui.add(egui::Slider::new(&mut portamento_length, 1.0..=500.0).text("Comprimento").suffix(" ms")).changed();
+                                    changed_portamento |= ui.add(egui::Slider::new(&mut portamento_start, -500.0..=500.0).text("Início").suffix(" ms")).changed();
+                                    egui::ComboBox::from_label("Formato da curva")
+                                        .selected_text(&portamento_shape)
+                                        .show_ui(ui, |ui| {
+                                            for (value, label) in [("io", "S suave"), ("l", "Linear"), ("i", "Entrada"), ("o", "Saída")] {
+                                                if ui.selectable_value(&mut portamento_shape, value.to_string(), label).changed() {
+                                                    changed_portamento = true;
+                                                }
+                                            }
+                                        });
+                                });
+
+                            ui.add_space(8.0);
+                            Frame::none()
+                                .fill(Color32::from_rgb(26, 20, 38))
+                                .rounding(Rounding::same(4.0))
+                                .stroke(Stroke::new(1.0, Color32::from_rgb(61, 46, 84)))
+                                .inner_margin(egui::Margin::same(8.0))
+                                .show(ui, |ui| {
+                                    ui.label(RichText::new("Vibrato OpenUtau").strong().size(11.0).color(Color32::from_rgb(0, 255, 157)));
+                                    ui.separator();
+                                    changed_vibrato |= ui.add(egui::Slider::new(&mut vibrato.length_pct, 0.0..=100.0).text("Comprimento").suffix("%")) .changed();
+                                    changed_vibrato |= ui.add(egui::Slider::new(&mut vibrato.period_ms, 5.0..=500.0).text("Período").suffix(" ms")).changed();
+                                    changed_vibrato |= ui.add(egui::Slider::new(&mut vibrato.depth_cents, 0.0..=200.0).text("Profundidade").suffix(" c")).changed();
+                                    ui.horizontal(|ui| {
+                                        ui.label("Fade in/out:");
+                                        changed_vibrato |= ui.add(egui::DragValue::new(&mut vibrato.fade_in_pct).range(0.0..=100.0).suffix("%")).changed();
+                                        changed_vibrato |= ui.add(egui::DragValue::new(&mut vibrato.fade_out_pct).range(0.0..=100.0).suffix("%")).changed();
+                                    });
+                                    ui.horizontal(|ui| {
+                                        ui.label("Fase / drift / VOL link:");
+                                        changed_vibrato |= ui.add(egui::DragValue::new(&mut vibrato.shift_pct).range(0.0..=100.0)).changed();
+                                        changed_vibrato |= ui.add(egui::DragValue::new(&mut vibrato.drift_pct).range(-100.0..=100.0)).changed();
+                                        changed_vibrato |= ui.add(egui::DragValue::new(&mut vibrato.volume_link_pct).range(-100.0..=100.0)).changed();
                                     });
                                 });
 
@@ -280,6 +354,29 @@ pub fn draw_right_panel(
                                     if changed_dynamics { notes[idx].expressions.dynamics = dynamics; }
                                     if changed_pitch { notes[idx].expressions.pitch_delta = pitch_delta; }
                                     if changed_breath { notes[idx].expressions.breathiness = breathiness; }
+                                    if changed_timing { notes[idx].expressions.consonant_velocity = consonant_velocity; }
+                                    if changed_amplitude {
+                                        notes[idx].expressions.volume = volume;
+                                        notes[idx].expressions.attack = attack;
+                                        notes[idx].expressions.decay = decay;
+                                    }
+                                    if changed_vibrato { notes[idx].vibrato = vibrato.clone(); }
+                                    if changed_portamento {
+                                        notes[idx].pitch_bend.snap_first = snap_first;
+                                        notes[idx].pitch_bend.portamento_start_ms = portamento_start;
+                                        notes[idx].pitch_bend.portamento_length_ms = portamento_length;
+                                        notes[idx].pitch_bend.portamento_shape = portamento_shape.clone();
+                                        if notes[idx].pitch_bend.points.len() >= 2 {
+                                            notes[idx].pitch_bend.points[0].time_offset_ms = portamento_start;
+                                            notes[idx].pitch_bend.points[0].shape = portamento_shape.clone();
+                                            notes[idx].pitch_bend.points[1].time_offset_ms = portamento_start + portamento_length;
+                                            notes[idx].pitch_bend.points.sort_by(|left, right| {
+                                                left.time_offset_ms.partial_cmp(&right.time_offset_ms).unwrap_or(std::cmp::Ordering::Equal)
+                                            });
+                                        } else {
+                                            notes[idx].pitch_bend.points.clear();
+                                        }
+                                    }
                                 }
                             }
                         }

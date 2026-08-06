@@ -1,5 +1,9 @@
+use std::collections::HashMap;
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
+
+use rayon::prelude::*;
 
 use crate::drivers::{
     NativeResamplerDriver, NativeWavtoolDriver, ResamplerArgs, ResamplerDriver, WavtoolArgs,
@@ -8,39 +12,172 @@ use crate::drivers::{
 use crate::dsp::midi_to_freq;
 use crate::oto::Voicebank;
 use crate::project::model::UNote;
+use crate::renderer::timing::{resolve_phoneme_timings, PhonemeTimingInput};
 use crate::renderer::RenderOptions;
 
 pub struct TrackRenderer;
 
+struct PhrasePitchNote {
+    position_ms: f64,
+    duration_ms: f64,
+    midi: u8,
+    curve_start_ms: f64,
+    points: Vec<crate::project::model::UPitchBendPoint>,
+    vibrato: crate::dsp::pitch::VibratoParam,
+    pitch_delta: f64,
+}
+
 impl TrackRenderer {
-    fn mix_note_with_crossfade(
+    fn phrase_pitch_notes(notes: &[UNote]) -> Vec<PhrasePitchNote> {
+        let mut result = notes
+            .iter()
+            .enumerate()
+            .map(|(index, note)| {
+                let previous = index.checked_sub(1).and_then(|index| notes.get(index));
+                let adjacent = previous.is_some_and(|previous| {
+                    (previous.position_ms + previous.duration_ms - note.position_ms).abs() <= 1.0
+                });
+                let points = note.pitch_bend.effective_points(
+                    previous.map(UNote::midi_key),
+                    note.midi_key(),
+                    adjacent,
+                );
+                PhrasePitchNote {
+                    position_ms: note.position_ms,
+                    duration_ms: note.duration_ms,
+                    midi: note.midi_key(),
+                    // A note owns its base pitch from its musical start. Only
+                    // a negative first point may begin that ownership earlier
+                    // to form a portamento from the previous note.
+                    curve_start_ms: note.position_ms
+                        + points
+                            .first()
+                            .map(|point| point.time_offset_ms.min(0.0))
+                            .unwrap_or(0.0),
+                    points,
+                    vibrato: note.vibrato.clone(),
+                    pitch_delta: note.expressions.pitch_delta,
+                }
+            })
+            .collect::<Vec<_>>();
+        result.sort_by(|left, right| {
+            left.curve_start_ms
+                .partial_cmp(&right.curve_start_ms)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+        result
+    }
+
+    fn phrase_pitch_cents_at(
+        pitch_notes: &[PhrasePitchNote],
+        absolute_time_ms: f64,
+        tone_shift: f64,
+    ) -> f64 {
+        use crate::dsp::pitch_bend::PitchBendSolver;
+        if pitch_notes.is_empty() {
+            return (60.0 + tone_shift) * 100.0;
+        }
+        let upper = pitch_notes.partition_point(|note| note.curve_start_ms <= absolute_time_ms);
+        let index = upper.saturating_sub(1).min(pitch_notes.len() - 1);
+        let note = &pitch_notes[index];
+        let relative_time_ms = absolute_time_ms - note.position_ms;
+        let bend = PitchBendSolver::get_pitch_offset_cents_sorted(relative_time_ms, &note.points);
+        let vibrato = note
+            .vibrato
+            .pitch_offset_cents_at(relative_time_ms, note.duration_ms);
+        (f64::from(note.midi) + tone_shift) * 100.0 + note.pitch_delta + bend + vibrato
+    }
+
+    fn combined_pitch_points(
+        phone: &crate::phonemizer::RenderPhone,
+        pitch_notes: &[PhrasePitchNote],
+        segment_start_ms: f64,
+        duration_ms: f64,
+        tone_shift: f64,
+    ) -> Vec<crate::project::model::UPitchBendPoint> {
+        use crate::dsp::pitch_bend::PitchBendSolver;
+        use crate::project::model::UPitchBendPoint;
+
+        let step_ms = 5.0;
+        let count = (duration_ms.max(1.0) / step_ms).ceil() as usize + 1;
+        let mut points = Vec::with_capacity(count);
+        for index in 0..count {
+            let time_ms = (index as f64 * step_ms).min(duration_ms);
+            let absolute_pitch =
+                Self::phrase_pitch_cents_at(pitch_notes, segment_start_ms + time_ms, tone_shift);
+            let cents = absolute_pitch - f64::from(phone.midi_key()) * 100.0;
+            points.push(UPitchBendPoint {
+                time_offset_ms: time_ms,
+                pitch_offset_cents: cents,
+                shape: "l".to_string(),
+            });
+        }
+        PitchBendSolver::simplify_pitch_points(&points, 0.25)
+    }
+
+    fn mix_phase_aligned(
         track_buffer: &mut [f32],
         note_samples: &[f32],
-        start_sample: usize,
+        mut start_sample: usize,
         previous_end_sample: usize,
     ) -> usize {
         if note_samples.is_empty() || start_sample >= track_buffer.len() {
             return previous_end_sample;
         }
 
-        let available = (track_buffer.len() - start_sample).min(note_samples.len());
-        let overlap_len = previous_end_sample
-            .saturating_sub(start_sample)
-            .min(available);
+        // SharpWavtool aligns the phase at each boundary. Here the same idea is
+        // implemented with a short normalized cross-correlation search, which
+        // also works for resamplers that do not expose an F0 estimate.
+        let nominal_overlap = previous_end_sample.saturating_sub(start_sample);
+        if nominal_overlap >= 64 && !note_samples.is_empty() {
+            let search = (nominal_overlap / 3).min(128) as isize;
+            let nominal = start_sample as isize;
+            let mut best_start = start_sample;
+            let mut best_score = -2.0f64;
+            for lag in -search..=search {
+                let candidate_signed = nominal + lag;
+                if candidate_signed < 0 {
+                    continue;
+                }
+                let candidate = candidate_signed as usize;
+                let overlap = previous_end_sample
+                    .saturating_sub(candidate)
+                    .min(note_samples.len())
+                    .min(2048);
+                if overlap < 32 || candidate + overlap > track_buffer.len() {
+                    continue;
+                }
+                let mut dot = 0.0f64;
+                let mut old_energy = 0.0f64;
+                let mut new_energy = 0.0f64;
+                for i in 0..overlap {
+                    let old = track_buffer[candidate + i] as f64;
+                    let new = note_samples[i] as f64;
+                    dot += old * new;
+                    old_energy += old * old;
+                    new_energy += new * new;
+                }
+                if old_energy > 1e-9 && new_energy > 1e-9 {
+                    let score =
+                        dot / (old_energy * new_energy).sqrt() - (lag.unsigned_abs() as f64 * 1e-7);
+                    if score > best_score {
+                        best_score = score;
+                        best_start = candidate;
+                    }
+                }
+            }
+            if best_score > 0.1 {
+                start_sample = best_start;
+            }
+        }
 
+        let available = (track_buffer.len() - start_sample).min(note_samples.len());
         for (index, &sample) in note_samples.iter().take(available).enumerate() {
             let track_index = start_sample + index;
-            if index < overlap_len && overlap_len > 1 {
-                let t = index as f32 / (overlap_len - 1) as f32;
-                // Complementary smoothstep gains keep correlated vowels from
-                // doubling in amplitude while avoiding sharp slope changes.
-                let new_gain = t * t * (3.0 - 2.0 * t);
-                let old_gain = 1.0 - new_gain;
-                track_buffer[track_index] =
-                    track_buffer[track_index] * old_gain + sample * new_gain;
-            } else {
-                track_buffer[track_index] += sample;
-            }
+            // Each segment already carries the complementary five-point
+            // phoneme envelope. SharpWavtool adds those enveloped segments;
+            // another crossfade here would attenuate the transition twice.
+            track_buffer[track_index] += sample;
         }
 
         previous_end_sample.max(start_sample + available)
@@ -248,220 +385,303 @@ impl TrackRenderer {
         };
         let phones =
             crate::phonemizer::JapanesePhonemizer::apply_phonemizer(notes, voicebank, mode);
+        let pitch_notes = Self::phrase_pitch_notes(notes);
+
+        let timing_inputs = phones
+            .iter()
+            .map(|phone| {
+                let oto = voicebank.find_entry(&phone.lyric, &phone.pitch);
+                PhonemeTimingInput {
+                    position_ms: phone.position_ms,
+                    duration_ms: phone.duration_ms,
+                    oto_preutter_ms: oto.map(|entry| entry.preutterance).unwrap_or(0.0),
+                    oto_overlap_ms: oto.map(|entry| entry.overlap).unwrap_or(0.0),
+                    velocity: phone.expressions.consonant_velocity,
+                }
+            })
+            .collect::<Vec<_>>();
+        let timings = resolve_phoneme_timings(&timing_inputs);
 
         let total_phones = phones.len().max(1);
 
-        for (idx, phone) in phones.into_iter().enumerate() {
-            if cancel.is_some_and(|token| token.load(Ordering::Relaxed)) {
-                log(1.0, "[Render] Cancelled");
-                return Vec::new();
-            }
-            let progress = (idx as f32) / (total_phones as f32);
+        // ------------------------------------------------------------------
+        // Phase 0: Pre-load all unique WAV files into a shared in-memory
+        // cache.  This eliminates repeated disk reads for voicebanks where
+        // many notes share the same sample file (e.g. all 'あ' notes use the
+        // same あ.wav).  The load itself is also parallelised with rayon.
+        // ------------------------------------------------------------------
+        let unique_wav_paths: std::collections::HashSet<std::path::PathBuf> = phones
+            .iter()
+            .map(|phone| {
+                let rel = voicebank
+                    .find_entry(&phone.lyric, &phone.pitch)
+                    .map(|e| e.wav_filename.clone())
+                    .unwrap_or_else(|| format!("{}.wav", phone.lyric));
+                voicebank.root_path.join(rel)
+            })
+            .collect();
 
-            let oto_entry = voicebank.find_entry(&phone.lyric, &phone.pitch);
+        // Collect paths into a Vec so rayon can index them.
+        let wav_paths_vec: Vec<std::path::PathBuf> = unique_wav_paths.into_iter().collect();
+        let wav_cache: HashMap<std::path::PathBuf, Arc<(Vec<f32>, u32)>> = wav_paths_vec
+            .into_par_iter()
+            .filter_map(|path| {
+                Self::load_wav_samples(&path)
+                    .ok()
+                    .map(|(samples, rate)| (path, Arc::new((samples, rate))))
+            })
+            .collect();
 
-            let (wav_rel_path, offset_ms, consonant_ms, cutoff_ms, preutterance_ms, overlap_ms) =
-                if let Some(entry) = oto_entry {
-                    (
-                        entry.wav_filename.clone(),
-                        entry.offset,
-                        entry.consonant,
-                        entry.cutoff,
-                        entry.preutterance,
-                        entry.overlap,
-                    )
+        // ------------------------------------------------------------------
+        // Phase 1: Render each phone in parallel.
+        //
+        // Each phone is self-contained: it reads from the shared `wav_cache`,
+        // computes pitch curves and calls the resampler + wavtool.  The
+        // results are collected in an unsorted Vec and then sorted by `idx`
+        // before the sequential merge below.
+        // ------------------------------------------------------------------
+
+        // Holds all the data needed for the sequential merge phase.
+        struct PhoneResult {
+            idx: usize,
+            note_rendered: Vec<f32>,
+            actual_start_ms: f64,
+            source_skip_ms: f64,
+            logs: Vec<(f32, String)>,
+        }
+
+        let temp_dir_path = temp_dir.path().to_path_buf();
+        let pitch_notes_ref = &pitch_notes;
+
+        let mut phone_results: Vec<PhoneResult> = phones
+            .into_par_iter()
+            .enumerate()
+            .filter_map(|(idx, phone)| {
+                if cancel.is_some_and(|t| t.load(Ordering::Relaxed)) {
+                    return None;
+                }
+
+                let mut logs: Vec<(f32, String)> = Vec::new();
+                let progress = idx as f32 / total_phones as f32;
+                let timing = timings[idx];
+
+                let oto_entry = voicebank.find_entry(&phone.lyric, &phone.pitch);
+                let (wav_rel_path, offset_ms, consonant_ms, cutoff_ms) =
+                    if let Some(entry) = oto_entry {
+                        (
+                            entry.wav_filename.clone(),
+                            entry.offset,
+                            entry.consonant,
+                            entry.cutoff,
+                        )
+                    } else {
+                        (format!("{}.wav", phone.lyric), 0.0, 50.0, 0.0)
+                    };
+
+                let wav_full_path = voicebank.root_path.join(&wav_rel_path);
+                logs.push((progress, format!(
+                    "[Render] Phone '{}' ({}/{}) pitch={} pos={:.0}ms dur={:.0}ms wav={:?} oto={}",
+                    phone.lyric, idx + 1, total_phones, phone.pitch,
+                    phone.position_ms, phone.duration_ms, wav_full_path, oto_entry.is_some()
+                )));
+
+                // Retrieve samples from the in-memory cache (zero disk I/O).
+                let cached = wav_cache.get(&wav_full_path);
+                let (raw_samples, src_sample_rate) = if let Some(arc) = cached {
+                    logs.push((progress, format!(
+                        "  [WAV] Cache hit: {} samples @ {}Hz", arc.0.len(), arc.1
+                    )));
+                    (arc.0.as_slice(), arc.1)
                 } else {
-                    let default_filename = format!("{}.wav", phone.lyric);
-                    (default_filename, 0.0, 50.0, 0.0, 0.0, 0.0)
+                    logs.push((progress, format!(
+                        "  [WAV] Load FAILED: {:?} — note skipped", wav_full_path
+                    )));
+                    return None;
                 };
 
-            let wav_full_path = voicebank.root_path.join(&wav_rel_path);
-            let phone_msg = format!(
-                "[Render] Phone '{}' ({}/{}) pitch={} pos={:.0}ms dur={:.0}ms wav={:?} oto={}",
-                phone.lyric,
-                idx + 1,
-                total_phones,
-                phone.pitch,
-                phone.position_ms,
-                phone.duration_ms,
-                wav_full_path,
-                oto_entry.is_some()
-            );
-            log(progress, &phone_msg);
+                let base_midi = phone.midi_key() as f64;
+                let target_freq = midi_to_freq(base_midi);
 
-            let (raw_samples, src_sample_rate) = match Self::load_wav_samples(&wav_full_path) {
-                Ok(res) => {
-                    log(
-                        progress,
-                        &format!("  [WAV] Loaded {} samples @ {}Hz", res.0.len(), res.1),
-                    );
-                    res
-                }
-                Err(e) => {
-                    log(
-                        progress,
-                        &format!("  [WAV] Load FAILED: {e} — note skipped"),
-                    );
-                    continue;
-                }
-            };
+                let consonant_velocity = if phone.expressions.consonant_velocity.is_finite() {
+                    phone.expressions.consonant_velocity.clamp(0.0, 200.0)
+                } else {
+                    100.0
+                };
+                let consonant_time_scale =
+                    crate::phonemizer::consonant_velocity_time_scale(consonant_velocity);
+                let active_consonant_ms = consonant_ms.max(0.0) * consonant_time_scale;
 
-            let base_midi =
-                phone.midi_key() as f64 + tone_shift + (phone.expressions.pitch_delta / 100.0);
-            let target_freq = midi_to_freq(base_midi);
-
-            let consonant_velocity = if phone.expressions.consonant_velocity.is_finite() {
-                phone.expressions.consonant_velocity.clamp(0.0, 200.0)
-            } else {
-                100.0
-            };
-            let consonant_time_scale =
-                crate::phonemizer::consonant_velocity_time_scale(consonant_velocity);
-            let active_consonant_ms = consonant_ms.max(0.0) * consonant_time_scale;
-
-            let scaled_preutterance_ms = (preutterance_ms.max(0.0) * consonant_time_scale).max(0.0);
-            let timing_overlap_ms =
-                (overlap_ms.max(0.0) * consonant_time_scale).min(scaled_preutterance_ms);
-            let authored_lead_ms = (scaled_preutterance_ms - timing_overlap_ms).max(0.0);
-            let target_render_ms = (phone.duration_ms + authored_lead_ms)
-                .max(active_consonant_ms)
-                .max(1.0);
-            let dur_required = ((target_render_ms / 50.0).ceil() * 50.0).max(50.0);
-            log(
-                progress,
-                &format!(
+                let timing_overlap_ms = timing.overlap_ms;
+                let duration_correction_ms =
+                    timing.preutter_ms - timing.tail_intrude_ms + timing.tail_overlap_ms;
+                let target_render_ms = (phone.duration_ms
+                    + duration_correction_ms
+                    + timing.skip_over_ms)
+                    .max(active_consonant_ms)
+                    .max(1.0);
+                let dur_required =
+                    ((target_render_ms / 50.0 + 0.5).ceil() * 50.0).max(50.0);
+                logs.push((progress, format!(
                     "  [Timing] consonant velocity={:.0}%: {:.1}ms -> {:.1}ms",
                     consonant_velocity, consonant_ms, active_consonant_ms
-                ),
-            );
+                )));
 
-            let pitch_bend_encoded = crate::dsp::pitch_encoder::encode_utau_base64_pitch(
-                &phone.pitch_bend.points,
-                dur_required,
-            );
-
-            let total_gender = phone.expressions.gender + gender_offset;
-            let total_breathiness = phone.expressions.breathiness + breathiness_offset;
-
-            let mut flags = phone.flags.clone();
-            if total_gender != 0.0 {
-                flags.push_str(&format!("g{:.0}", total_gender));
-            }
-            if total_breathiness != 0.0 {
-                flags.push_str(&format!("B{:.0}", total_breathiness.abs()));
-            }
-
-            let safe_lyric = phone.lyric.replace(['/', '\\', ' ', ':'], "_");
-            let res_args = ResamplerArgs {
-                input_wav: wav_full_path.clone(),
-                output_wav: temp_dir
-                    .path()
-                    .join(format!("render_{idx}_{safe_lyric}.wav")),
-                pitch_name: phone.pitch.clone(),
-                pitch_freq: target_freq,
-                velocity: consonant_velocity,
-                flags,
-                offset_ms,
-                duration_ms: dur_required,
-                source_consonant_ms: consonant_ms.max(0.0),
-                consonant_ms: active_consonant_ms,
-                cutoff_ms,
-                volume: 100.0,
-                modulation: phone.expressions.modulation,
-                tempo: tempo_bpm,
-                pitch_bend_str: pitch_bend_encoded,
-                pitch_points: phone.pitch_bend.points.clone(),
-            };
-
-            let mut note_rendered = resampler_driver
-                .render_sample(&raw_samples, src_sample_rate, &res_args)
-                .unwrap_or_else(|e| {
-                    log(
-                        progress,
-                        &format!("  [Resampler] FAILED: {} — using raw samples", e),
-                    );
-                    raw_samples.clone()
-                });
-
-            if src_sample_rate != sample_rate {
-                note_rendered =
-                    Self::convert_sample_rate(&note_rendered, src_sample_rate, sample_rate);
-                log(
-                    progress,
-                    &format!("  [Sample Rate] Converted {src_sample_rate}Hz -> {sample_rate}Hz"),
+                let combined_pitch = Self::combined_pitch_points(
+                    &phone,
+                    pitch_notes_ref,
+                    phone.position_ms - timing.pitch_leading_ms,
+                    target_render_ms,
+                    tone_shift,
                 );
-            }
+                let pitch_bend_encoded = crate::dsp::pitch_encoder::encode_utau_base64_pitch(
+                    &combined_pitch,
+                    target_render_ms,
+                    tempo_bpm,
+                );
 
-            // Resamplers commonly round output to 50 ms blocks. Keep the exact
-            // phone length so that it ends on the musical note boundary.
-            let target_render_samples =
-                ((target_render_ms / 1000.0) * sample_rate as f64).round() as usize;
-            note_rendered.resize(target_render_samples.max(1), 0.0);
+                let total_gender = phone.expressions.gender + gender_offset;
+                let total_breathiness = phone.expressions.breathiness + breathiness_offset;
 
-            let rendered_max = note_rendered.iter().map(|s| s.abs()).fold(0.0f32, f32::max);
-            log(
-                progress,
-                &format!(
-                    "  [Resampler] {} samples, max_amp={:.4}",
-                    note_rendered.len(),
-                    rendered_max
-                ),
-            );
-
-            let active_overlap = timing_overlap_ms.max(crossfade_ms.max(0.0));
-            let envelope_duration_ms = (target_render_ms - phone.envelope.p5.max(0.0)).max(1.0);
-
-            let wav_args = WavtoolArgs {
-                output_wav: temp_dir.path().join(format!("wavtool_{idx}.wav")),
-                input_rendered_wav: res_args.output_wav.clone(),
-                offset_ms,
-                duration_ms: envelope_duration_ms,
-                envelope: phone.envelope.clone(),
-                overlap_ms: active_overlap,
-            };
-
-            wavtool_driver.process_note(&mut note_rendered, sample_rate, &wav_args);
-            let post_wavtool_max = note_rendered.iter().map(|s| s.abs()).fold(0.0f32, f32::max);
-            log(
-                progress,
-                &format!(
-                    "  [Wavtool] {} samples, max_amp={:.4}",
-                    note_rendered.len(),
-                    post_wavtool_max
-                ),
-            );
-
-            let total_dyn = phone.expressions.dynamics + loudness_db;
-            if total_dyn != 0.0 {
-                let dyn_gain = 10.0f32.powf((total_dyn / 20.0) as f32);
-                for s in note_rendered.iter_mut() {
-                    *s *= dyn_gain;
+                let mut flags = phone.flags.clone();
+                if total_gender != 0.0 {
+                    flags.push_str(&format!("g{:.0}", total_gender));
                 }
-            }
+                if total_breathiness != 0.0 {
+                    flags.push_str(&format!("B{:.0}", total_breathiness.abs()));
+                }
 
-            // Preserve the oto.ini preutterance alignment. The user crossfade
-            // setting may shorten the audible lead, but authored overlap values
-            // remain a lower bound for VCV/CVVC transition samples.
-            let audible_lead_ms = if crossfade_ms <= 0.0 {
-                0.0
-            } else {
-                authored_lead_ms.min(crossfade_ms.max(timing_overlap_ms))
-            };
-            let mut source_skip_ms = (authored_lead_ms - audible_lead_ms).max(0.0);
-            let unclamped_start_ms = phone.position_ms - audible_lead_ms;
-            let actual_start_ms = unclamped_start_ms.max(0.0);
-            if unclamped_start_ms < 0.0 {
-                source_skip_ms += -unclamped_start_ms;
+                let safe_lyric = phone.lyric.replace(['/', '\\', ' ', ':'], "_");
+                let res_args = ResamplerArgs {
+                    input_wav: wav_full_path.clone(),
+                    output_wav: temp_dir_path.join(format!("render_{idx}_{safe_lyric}.wav")),
+                    pitch_name: phone.pitch.clone(),
+                    pitch_freq: target_freq,
+                    velocity: consonant_velocity,
+                    flags,
+                    offset_ms,
+                    duration_ms: dur_required,
+                    source_consonant_ms: consonant_ms.max(0.0),
+                    consonant_ms: active_consonant_ms,
+                    cutoff_ms,
+                    volume: phone.expressions.volume,
+                    modulation: phone.expressions.modulation,
+                    tempo: tempo_bpm,
+                    pitch_bend_str: pitch_bend_encoded,
+                    pitch_points: combined_pitch,
+                };
+
+                let mut note_rendered = resampler_driver
+                    .render_sample(raw_samples, src_sample_rate, &res_args)
+                    .unwrap_or_else(|e| {
+                        logs.push((progress, format!("  [Resampler] FAILED: {} — using raw samples", e)));
+                        raw_samples.to_vec()
+                    });
+
+                if src_sample_rate != sample_rate {
+                    note_rendered =
+                        Self::convert_sample_rate(&note_rendered, src_sample_rate, sample_rate);
+                    logs.push((progress, format!(
+                        "  [Sample Rate] Converted {src_sample_rate}Hz -> {sample_rate}Hz"
+                    )));
+                }
+
+                let target_render_samples =
+                    ((target_render_ms / 1000.0) * sample_rate as f64).round() as usize;
+                note_rendered.resize(target_render_samples.max(1), 0.0);
+
+                let rendered_max = note_rendered.iter().map(|s| s.abs()).fold(0.0f32, f32::max);
+                logs.push((progress, format!(
+                    "  [Resampler] {} samples, max_amp={:.4}",
+                    note_rendered.len(), rendered_max
+                )));
+
+                let active_overlap = timing_overlap_ms.max(crossfade_ms.max(0.0));
+                let envelope_duration_ms = phone.duration_ms.max(1.0);
+                let phoneme_envelope = phone.envelope.phoneme_points(
+                    timing.preutter_ms,
+                    phone.duration_ms,
+                    timing.tail_intrude_ms,
+                    timing.tail_overlap_ms,
+                    timing.overlap_ms,
+                    phone.expressions.volume,
+                    phone.expressions.attack,
+                    phone.expressions.decay,
+                );
+
+                let wav_args = WavtoolArgs {
+                    output_wav: temp_dir_path.join(format!("wavtool_{idx}.wav")),
+                    input_rendered_wav: res_args.output_wav.clone(),
+                    offset_ms,
+                    duration_ms: envelope_duration_ms,
+                    envelope: phone.envelope.clone(),
+                    overlap_ms: active_overlap,
+                    phoneme_envelope,
+                    sample_time_zero_ms: -timing.pitch_leading_ms,
+                };
+
+                wavtool_driver.process_note(&mut note_rendered, sample_rate, &wav_args);
+                let post_wavtool_max =
+                    note_rendered.iter().map(|s| s.abs()).fold(0.0f32, f32::max);
+                logs.push((progress, format!(
+                    "  [Wavtool] {} samples, max_amp={:.4}",
+                    note_rendered.len(), post_wavtool_max
+                )));
+
+                let total_dyn_db = phone.expressions.dynamics * 0.1 + loudness_db;
+                for (sample_index, sample) in note_rendered.iter_mut().enumerate() {
+                    let time_ms = sample_index as f64 * 1000.0 / sample_rate as f64
+                        - timing.pitch_leading_ms;
+                    let dyn_gain = 10.0f64.powf(total_dyn_db / 20.0);
+                    let vibrato_volume =
+                        phone.vibrato.volume_multiplier_at(time_ms, phone.duration_ms);
+                    *sample *= (dyn_gain * vibrato_volume) as f32;
+                }
+
+                let mut source_skip_ms = timing.skip_over_ms;
+                let unclamped_start_ms = phone.position_ms - timing.preutter_ms;
+                let actual_start_ms = unclamped_start_ms.max(0.0);
+                if unclamped_start_ms < 0.0 {
+                    source_skip_ms += -unclamped_start_ms;
+                }
+
+                Some(PhoneResult {
+                    idx,
+                    note_rendered,
+                    actual_start_ms,
+                    source_skip_ms,
+                    logs,
+                })
+            })
+            .collect();
+
+        // ------------------------------------------------------------------
+        // Phase 2: Sequential merge.
+        //
+        // `mix_phase_aligned` is order-dependent (uses `previous_phone_end`
+        // for phase-locked crossfade), so it must run in idx order.
+        // ------------------------------------------------------------------
+        if cancel.is_some_and(|t| t.load(Ordering::Relaxed)) {
+            log(1.0, "[Render] Cancelled");
+            return Vec::new();
+        }
+
+        phone_results.sort_unstable_by_key(|r| r.idx);
+
+        for result in phone_results {
+            // Replay per-phone log messages in-order now that we are sequential.
+            for (progress, msg) in result.logs {
+                log(progress, &msg);
             }
 
             let source_skip_samples =
-                ((source_skip_ms / 1000.0) * sample_rate as f64).round() as usize;
-            let audible_samples = note_rendered
-                .get(source_skip_samples.min(note_rendered.len())..)
+                ((result.source_skip_ms / 1000.0) * sample_rate as f64).round() as usize;
+            let audible_samples = result
+                .note_rendered
+                .get(source_skip_samples.min(result.note_rendered.len())..)
                 .unwrap_or(&[]);
             let start_sample_idx =
-                ((actual_start_ms / 1000.0) * sample_rate as f64).round() as usize;
-            previous_phone_end_sample = Self::mix_note_with_crossfade(
+                ((result.actual_start_ms / 1000.0) * sample_rate as f64).round() as usize;
+            previous_phone_end_sample = Self::mix_phase_aligned(
                 &mut track_buffer,
                 audible_samples,
                 start_sample_idx,
@@ -541,6 +761,11 @@ impl TrackRenderer {
 #[cfg(test)]
 mod wav_tests {
     use super::TrackRenderer;
+    use crate::drivers::{NativeResamplerDriver, NativeWavtoolDriver};
+    use crate::oto::Voicebank;
+    use crate::phonemizer::PhonemizerMode;
+    use crate::project::model::UNote;
+    use crate::renderer::RenderOptions;
 
     #[test]
     fn reads_32_bit_pcm_without_sign_overflow() {
@@ -570,12 +795,18 @@ mod wav_tests {
     }
 
     #[test]
-    fn crossfade_uses_complementary_smooth_gains() {
-        let mut track = vec![1.0; 10];
+    fn mixer_adds_pre_enveloped_segments_without_a_second_fade() {
+        let mut track = vec![0.0; 10];
+        for (index, sample) in track[5..10].iter_mut().enumerate() {
+            *sample = 1.0 - index as f32 / 4.0;
+        }
         track.resize(15, 0.0);
-        let next = vec![1.0; 10];
+        let mut next = vec![1.0; 10];
+        for (index, sample) in next[..5].iter_mut().enumerate() {
+            *sample = index as f32 / 4.0;
+        }
 
-        let end = TrackRenderer::mix_note_with_crossfade(&mut track, &next, 5, 10);
+        let end = TrackRenderer::mix_phase_aligned(&mut track, &next, 5, 10);
 
         assert_eq!(end, 15);
         assert!((track[5] - 1.0).abs() < 1e-6);
@@ -585,5 +816,60 @@ mod wav_tests {
             let jump = (pair[1] - pair[0]).abs();
             jump < 1e-5
         }));
+    }
+
+    #[test]
+    fn real_vcv_fixture_has_no_silent_transition_hole() {
+        let voicebank = Voicebank::new("tests/fixtures/vcv").unwrap();
+        let notes = vec![
+            UNote::new("ka", "C4", 0.0, 500.0),
+            UNote::new("ki", "D4", 500.0, 500.0),
+        ];
+        let options = RenderOptions {
+            phonemizer_mode: PhonemizerMode::VCV,
+            ..RenderOptions::default()
+        };
+        let audio = TrackRenderer::render_track_with_drivers(
+            &notes,
+            &voicebank,
+            44_100,
+            120.0,
+            &NativeResamplerDriver,
+            &NativeWavtoolDriver,
+            Some(&options),
+        );
+
+        // With 300 ms preutterance and 100 ms overlap the VCV transition is
+        // 200..300 ms. The previous bug positioned the next segment at 400 ms,
+        // leaving this interval silent or ending it with a hard onset.
+        for center_ms in [220.0, 250.0, 280.0] {
+            let center = (center_ms * 44.1) as usize;
+            let radius = 220usize;
+            let window = &audio[center - radius..center + radius];
+            let rms = (window
+                .iter()
+                .map(|sample| f64::from(*sample) * f64::from(*sample))
+                .sum::<f64>()
+                / window.len() as f64)
+                .sqrt();
+            assert!(
+                rms > 0.005,
+                "silent VCV transition at {center_ms} ms: {rms}"
+            );
+        }
+    }
+
+    #[test]
+    fn phrase_portamento_is_shared_across_adjacent_phonemes() {
+        let notes = vec![
+            UNote::new("ka", "C4", 0.0, 500.0),
+            UNote::new("ki", "D4", 500.0, 500.0),
+        ];
+        let curve = TrackRenderer::phrase_pitch_notes(&notes);
+        let at = |time| TrackRenderer::phrase_pitch_cents_at(&curve, time, 0.0);
+        assert!((at(450.0) - 6000.0).abs() < 1e-6);
+        assert!((at(460.0) - 6000.0).abs() < 1e-6);
+        assert!((at(500.0) - 6100.0).abs() < 1e-6);
+        assert!((at(540.0) - 6200.0).abs() < 1e-6);
     }
 }

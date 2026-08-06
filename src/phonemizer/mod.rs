@@ -23,6 +23,7 @@ pub fn consonant_velocity_time_scale(velocity: f64) -> f64 {
 }
 
 pub struct RenderPhone {
+    pub note_index: usize,
     pub lyric: String,
     pub pitch: String,
     pub position_ms: f64,
@@ -30,6 +31,7 @@ pub struct RenderPhone {
     pub envelope: crate::dsp::envelope::UtauEnvelope,
     pub expressions: crate::project::model::UExpressions,
     pub pitch_bend: crate::project::model::UPitchBend,
+    pub vibrato: crate::dsp::pitch::VibratoParam,
     pub flags: String,
 }
 
@@ -108,7 +110,7 @@ impl JapanesePhonemizer {
         let mut prev_vowel: Option<&'static str> = None;
         let mut prev_note_end_ms: Option<f64> = None;
 
-        for note in notes.iter() {
+        for (note_index, note) in notes.iter().enumerate() {
             let cur_vowel = Self::extract_vowel(&note.lyric);
             let cur_consonant = Self::extract_consonant(&note.lyric);
 
@@ -133,6 +135,7 @@ impl JapanesePhonemizer {
                     }
 
                     phones.push(RenderPhone {
+                        note_index,
                         lyric: alias,
                         pitch: note.pitch.clone(),
                         position_ms: note.position_ms,
@@ -140,6 +143,7 @@ impl JapanesePhonemizer {
                         envelope: note.envelope.clone(),
                         expressions: note.expressions.clone(),
                         pitch_bend: note.pitch_bend.clone(),
+                        vibrato: note.vibrato.clone(),
                         flags: note.flags.clone(),
                     });
                 }
@@ -161,6 +165,7 @@ impl JapanesePhonemizer {
                     }
 
                     phones.push(RenderPhone {
+                        note_index,
                         lyric: alias,
                         pitch: note.pitch.clone(),
                         position_ms: note.position_ms,
@@ -168,6 +173,7 @@ impl JapanesePhonemizer {
                         envelope: note.envelope.clone(),
                         expressions: note.expressions.clone(),
                         pitch_bend: note.pitch_bend.clone(),
+                        vibrato: note.vibrato.clone(),
                         flags: note.flags.clone(),
                     });
                 }
@@ -193,6 +199,7 @@ impl JapanesePhonemizer {
                                     if vc_length_ms > 0.0 {
                                         last_phone.duration_ms -= vc_length_ms;
                                         phones.push(RenderPhone {
+                                            note_index,
                                             lyric: entry.alias.clone(),
                                             pitch: note.pitch.clone(),
                                             position_ms: note.position_ms - vc_length_ms,
@@ -201,6 +208,7 @@ impl JapanesePhonemizer {
                                             expressions: note.expressions.clone(),
                                             pitch_bend: crate::project::model::UPitchBend::default(
                                             ),
+                                            vibrato: crate::dsp::pitch::VibratoParam::default(),
                                             flags: note.flags.clone(),
                                         });
                                     }
@@ -217,6 +225,7 @@ impl JapanesePhonemizer {
 
                     // Push the main CV / head note
                     phones.push(RenderPhone {
+                        note_index,
                         lyric: cv_alias,
                         pitch: note.pitch.clone(),
                         position_ms: note.position_ms,
@@ -224,6 +233,7 @@ impl JapanesePhonemizer {
                         envelope: note.envelope.clone(),
                         expressions: note.expressions.clone(),
                         pitch_bend: note.pitch_bend.clone(),
+                        vibrato: note.vibrato.clone(),
                         flags: note.flags.clone(),
                     });
                 }

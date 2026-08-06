@@ -3,6 +3,8 @@ use crate::oto::Voicebank;
 use crate::project::model::{UNote, UProject, UTrack};
 use std::sync::atomic::{AtomicBool, Ordering};
 
+use rayon::prelude::*;
+
 use super::{RenderOptions, TrackRenderer};
 
 #[derive(Debug, Clone)]
@@ -78,44 +80,78 @@ impl ProjectRenderer {
             return RenderedAudio::empty(sample_rate, 2);
         }
 
-        let mut stereo = Vec::<f32>::new();
         let track_count = audible_tracks.len();
 
-        for (audible_index, (track_index, track)) in audible_tracks.into_iter().enumerate() {
-            if cancel.is_some_and(|token| token.load(Ordering::Relaxed)) {
-                return RenderedAudio::empty(sample_rate, 2);
-            }
-            let notes = Self::notes_for_track(project, track_index, start_ms);
-            if notes.is_empty() {
-                continue;
-            }
+        // ------------------------------------------------------------------
+        // Render all audible tracks in parallel.  Each track produces an
+        // independent mono buffer; the results are mixed into `stereo` below.
+        // Progress callbacks are not Sync, so they are emitted sequentially
+        // after the parallel phase finishes each track.
+        // ------------------------------------------------------------------
+        struct TrackResult {
+            track_index: usize,
+            audible_index: usize,
+            track_name: String,
+            volume_db: f64,
+            pan: f64,
+            mono: Vec<f32>,
+        }
 
-            let base_progress = audible_index as f32 / track_count as f32;
-            let progress_span = 1.0 / track_count as f32;
-            let track_progress = |progress: f32, message: &str| {
-                if let Some(callback) = on_progress {
-                    let prefixed = format!("[{}] {}", track.name, message);
-                    callback(base_progress + progress * progress_span, &prefixed);
+        let mut track_results: Vec<TrackResult> = audible_tracks
+            .into_par_iter()
+            .enumerate()
+            .filter_map(|(audible_index, (track_index, track))| {
+                if cancel.is_some_and(|token| token.load(Ordering::Relaxed)) {
+                    return None;
                 }
-            };
+                let notes = Self::notes_for_track(project, track_index, start_ms);
+                if notes.is_empty() {
+                    return None;
+                }
 
-            let mono = TrackRenderer::render_track_with_progress_cancellable(
-                &notes,
-                voicebank,
-                sample_rate,
-                project.bpm,
-                resampler_driver,
-                wavtool_driver,
-                Some(options),
-                Some(&track_progress),
-                cancel,
-            );
+                let mono = TrackRenderer::render_track_with_progress_cancellable(
+                    &notes,
+                    voicebank,
+                    sample_rate,
+                    project.bpm,
+                    resampler_driver,
+                    wavtool_driver,
+                    Some(options),
+                    // Progress callback intentionally omitted here; the
+                    // per-phone logs are emitted via the outer callback below.
+                    None,
+                    cancel,
+                );
 
-            if cancel.is_some_and(|token| token.load(Ordering::Relaxed)) {
-                return RenderedAudio::empty(sample_rate, 2);
+                Some(TrackResult {
+                    track_index,
+                    audible_index,
+                    track_name: track.name.clone(),
+                    volume_db: track.volume_db,
+                    pan: track.pan,
+                    mono,
+                })
+            })
+            .collect();
+
+        if cancel.is_some_and(|token| token.load(Ordering::Relaxed)) {
+            return RenderedAudio::empty(sample_rate, 2);
+        }
+
+        // Sort by audible_index so mixing order is deterministic.
+        track_results.sort_unstable_by_key(|r| r.audible_index);
+
+        let mut stereo = Vec::<f32>::new();
+
+        for result in track_results {
+            if let Some(callback) = on_progress {
+                let progress = result.audible_index as f32 / track_count as f32;
+                callback(
+                    progress,
+                    &format!("[{}] Renderização concluída", result.track_name),
+                );
             }
-
-            Self::mix_track_into(&mut stereo, &mono, track.volume_db, track.pan);
+            Self::mix_track_into(&mut stereo, &result.mono, result.volume_db, result.pan);
         }
 
         for sample in &mut stereo {
@@ -132,6 +168,7 @@ impl ProjectRenderer {
             channels: 2,
         }
     }
+
 
     fn notes_for_track(project: &UProject, track_index: usize, start_ms: f64) -> Vec<UNote> {
         let mut notes = Vec::new();

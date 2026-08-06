@@ -284,16 +284,6 @@ pub fn draw_left_panel(
                         ui.add_space(4.0);
 
                         ui.label(
-                            RichText::new("Deslizamento Legato (Portamento)")
-                                .color(MelodyneTheme::TEXT_MUTED),
-                        );
-                        ui.add(
-                            egui::Slider::new(&mut params.legato_glide_ms, 0.0..=300.0)
-                                .suffix(" ms"),
-                        );
-                        ui.add_space(6.0);
-
-                        ui.label(
                             RichText::new("Predefinições de Transição:")
                                 .size(11.0)
                                 .color(MelodyneTheme::TEXT_GOLD_LABEL),
@@ -305,7 +295,6 @@ pub fn draw_left_panel(
                                 params.breathiness = 10.0;
                                 params.gender = 0.0;
                                 params.crossfade_ms = 60.0;
-                                params.legato_glide_ms = 120.0;
                             }
                             if ui.button(RichText::new("Pop Natural").size(10.0)).clicked() {
                                 params.loudness = 2.0;
@@ -313,7 +302,6 @@ pub fn draw_left_panel(
                                 params.breathiness = 0.0;
                                 params.gender = 0.0;
                                 params.crossfade_ms = 40.0;
-                                params.legato_glide_ms = 80.0;
                             }
                             if ui
                                 .button(RichText::new("Direto / Robótico").size(10.0))
@@ -324,7 +312,6 @@ pub fn draw_left_panel(
                                 params.breathiness = 0.0;
                                 params.gender = 0.0;
                                 params.crossfade_ms = 5.0;
-                                params.legato_glide_ms = 10.0;
                             }
                         });
                     });

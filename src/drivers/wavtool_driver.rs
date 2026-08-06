@@ -10,6 +10,8 @@ pub struct WavtoolArgs {
     pub duration_ms: f64,
     pub envelope: UtauEnvelope,
     pub overlap_ms: f64,
+    pub phoneme_envelope: [(f64, f64); 5],
+    pub sample_time_zero_ms: f64,
 }
 
 pub trait WavtoolDriver: Send + Sync {
@@ -36,8 +38,12 @@ impl WavtoolDriver for NativeWavtoolDriver {
 
         // Apply the per-note amplitude envelope. The track mixer performs the
         // complementary crossfade against the preceding phone.
-        args.envelope
-            .apply(note_samples, sample_rate, args.duration_ms);
+        UtauEnvelope::apply_points(
+            note_samples,
+            sample_rate,
+            args.sample_time_zero_ms,
+            &args.phoneme_envelope,
+        );
     }
 }
 
@@ -109,8 +115,12 @@ impl WavtoolDriver for WavtoolYawuDriver {
         }
 
         // Apply native envelope processing for seamless audio output
-        args.envelope
-            .apply(note_samples, sample_rate, args.duration_ms);
+        UtauEnvelope::apply_points(
+            note_samples,
+            sample_rate,
+            args.sample_time_zero_ms,
+            &args.phoneme_envelope,
+        );
     }
 }
 
@@ -157,7 +167,11 @@ impl WavtoolDriver for ExternalWavtoolDriver {
             let _ = cmd.output();
         }
 
-        args.envelope
-            .apply(note_samples, sample_rate, args.duration_ms);
+        UtauEnvelope::apply_points(
+            note_samples,
+            sample_rate,
+            args.sample_time_zero_ms,
+            &args.phoneme_envelope,
+        );
     }
 }

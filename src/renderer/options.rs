@@ -9,7 +9,6 @@ pub struct RenderOptions {
     pub gender: f64,
     pub tone_shift: f64,
     pub crossfade_ms: f64,
-    pub legato_glide_ms: f64,
     pub phonemizer_mode: PhonemizerMode,
 }
 
@@ -22,7 +21,6 @@ impl Default for RenderOptions {
             gender: 0.0,
             tone_shift: 0.0,
             crossfade_ms: 45.0,
-            legato_glide_ms: 85.0,
             phonemizer_mode: PhonemizerMode::BasicCV,
         }
     }

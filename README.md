@@ -92,7 +92,11 @@ Os parâmetros podem ser ajustados por nota ou globalmente na faixa:
 * **Soprosidade (`B`)**: Adição de ruído filtrado para simular voz sussurrada ou aspirada.
 * **Velocidade de Consoante (`VEL`)**: Ajuste do tempo de estiramento do ataque consonantal.
 * **Modulação (`MOD`)**: Percentual de variação de pitch em relação à afinação original da amostra.
-* **Volume & Dinâmica (`DYN`)**: Curva de atenuação de amplitude nota a nota.
+* **Volume & Dinâmica (`VOL` / `DYN`)**: `VOL` controla o nível do fonema e `DYN` usa a convenção OpenUtau de décimos de dB (`-240..120`).
+* **Ataque e Decaimento (`ATK` / `DEC`)**: Controle dos níveis do envelope fonético, inclusive nas sobreposições VCV/CVVC.
+* **Vibrato completo**: Comprimento, período, profundidade, fade-in, fade-out, fase, drift e vínculo de volume, preservados em UST/USTX.
+
+O wavtool interno resolve `preutterance` e `overlap` por fonema, limita ataques que invadiriam notas curtas e alinha a fase das regiões sobrepostas por correlação cruzada antes do crossfade. Isso evita o efeito truncado comum ao concatenar cada nota como um bloco independente.
 
 ### 5. Curvas de Pitch (Mode 2 Pitch Bends)
 O sistema implementa o modelo de pitch bend Mode 2 do UTAU e do OpenUTAU:

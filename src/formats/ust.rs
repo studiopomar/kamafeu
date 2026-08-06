@@ -2,7 +2,9 @@ use encoding_rs::SHIFT_JIS;
 use std::fs;
 use std::path::Path;
 
+use crate::dsp::envelope::UtauEnvelope;
 use crate::dsp::pitch::midi_to_note_name;
+use crate::dsp::pitch::VibratoParam;
 use crate::project::model::{UNote, UPitchBend, UPitchBendPoint, UProject, UVoicePart};
 
 pub struct UstFormat;
@@ -27,6 +29,11 @@ impl UstFormat {
         let mut current_pbw: Vec<f64> = Vec::new();
         let mut current_pby: Vec<f64> = Vec::new();
         let mut current_pbm: Vec<String> = Vec::new();
+        let mut current_vibrato = VibratoParam::default();
+        let mut current_envelope = UtauEnvelope::default();
+        let mut current_volume = 100.0f64;
+        let mut current_modulation = 0.0f64;
+        let mut current_flags = String::new();
 
         let mut current_time_ms = 0.0f64;
         let mut in_note_section = false;
@@ -57,6 +64,11 @@ impl UstFormat {
                         );
                         note.expressions.consonant_velocity = current_consonant_velocity;
                         note.expressions.velocity = current_consonant_velocity;
+                        note.expressions.volume = current_volume;
+                        note.expressions.modulation = current_modulation;
+                        note.vibrato = current_vibrato.clone();
+                        note.envelope = current_envelope.clone();
+                        note.flags = current_flags.clone();
 
                         // Build pitch bend points
                         if !current_pbw.is_empty() {
@@ -88,7 +100,11 @@ impl UstFormat {
                                 });
                             }
 
-                            note.pitch_bend = UPitchBend { points: pb_points };
+                            note.pitch_bend = UPitchBend {
+                                points: pb_points,
+                                snap_first: false,
+                                ..UPitchBend::default()
+                            };
                         }
 
                         notes.push(note);
@@ -106,6 +122,11 @@ impl UstFormat {
                     current_pb_start_ms = 0.0;
                     current_pb_start_cents = 0.0;
                     current_consonant_velocity = 100.0;
+                    current_vibrato = VibratoParam::default();
+                    current_envelope = UtauEnvelope::default();
+                    current_volume = 100.0;
+                    current_modulation = 0.0;
+                    current_flags.clear();
                 }
                 continue;
             }
@@ -129,6 +150,44 @@ impl UstFormat {
                     "Velocity" => {
                         current_consonant_velocity =
                             val.parse::<f64>().unwrap_or(100.0).clamp(0.0, 200.0);
+                    }
+                    "Intensity" => current_volume = val.parse().unwrap_or(100.0),
+                    "Modulation" => current_modulation = val.parse().unwrap_or(0.0),
+                    "Flags" => current_flags = val.to_string(),
+                    "VBR" => {
+                        let values = val
+                            .split(',')
+                            .map(|item| item.trim().replace(',', ".").parse::<f64>().unwrap_or(0.0))
+                            .collect::<Vec<_>>();
+                        if values.len() >= 3 {
+                            current_vibrato.length_pct = values[0];
+                            current_vibrato.period_ms = values[1];
+                            current_vibrato.depth_cents = values[2];
+                            current_vibrato.fade_in_pct = *values.get(3).unwrap_or(&0.0);
+                            current_vibrato.fade_out_pct = *values.get(4).unwrap_or(&0.0);
+                            current_vibrato.shift_pct = *values.get(5).unwrap_or(&0.0);
+                            current_vibrato.drift_pct = *values.get(6).unwrap_or(&0.0);
+                        }
+                    }
+                    "Envelope" => {
+                        let values = val
+                            .split(',')
+                            .filter_map(|item| item.trim().parse::<f64>().ok())
+                            .collect::<Vec<_>>();
+                        if values.len() >= 7 {
+                            current_envelope.p1 = values[0];
+                            current_envelope.p2 = values[1];
+                            current_envelope.p5 = values[2];
+                            current_envelope.v1 = values[3];
+                            current_envelope.v2 = values[4];
+                            current_envelope.v4 = values[5];
+                            current_envelope.v5 = values[6];
+                            if values.len() >= 11 {
+                                current_envelope.p4 = values[8];
+                                current_envelope.p3 = values[9];
+                                current_envelope.v3 = values[10];
+                            }
+                        }
                     }
                     "PBS" => {
                         let pbs_parts: Vec<&str> = val.split(';').collect();
@@ -176,6 +235,11 @@ impl UstFormat {
             );
             note.expressions.consonant_velocity = current_consonant_velocity;
             note.expressions.velocity = current_consonant_velocity;
+            note.expressions.volume = current_volume;
+            note.expressions.modulation = current_modulation;
+            note.vibrato = current_vibrato;
+            note.envelope = current_envelope;
+            note.flags = current_flags;
             notes.push(note);
         }
 
@@ -239,26 +303,64 @@ impl UstFormat {
                 "Velocity={:.0}\n",
                 note.expressions.consonant_velocity.clamp(0.0, 200.0)
             ));
+            out.push_str(&format!(
+                "Intensity={:.0}\n",
+                note.expressions.volume.clamp(0.0, 200.0)
+            ));
+            out.push_str(&format!(
+                "Modulation={:.0}\n",
+                note.expressions.modulation.clamp(0.0, 100.0)
+            ));
+            if !note.flags.is_empty() {
+                out.push_str(&format!("Flags={}\n", note.flags));
+            }
+            if note.vibrato.length_pct > 0.0 {
+                out.push_str(&format!(
+                    "VBR={:.1},{:.1},{:.1},{:.1},{:.1},{:.1},{:.1}\n",
+                    note.vibrato.length_pct,
+                    note.vibrato.period_ms,
+                    note.vibrato.depth_cents,
+                    note.vibrato.fade_in_pct,
+                    note.vibrato.fade_out_pct,
+                    note.vibrato.shift_pct,
+                    note.vibrato.drift_pct,
+                ));
+            }
+            let env = &note.envelope;
+            out.push_str(&format!(
+                "Envelope={:.1},{:.1},{:.1},{:.0},{:.0},{:.0},{:.0},0,{:.1},{:.1},{:.0}\n",
+                env.p1, env.p2, env.p5, env.v1, env.v2, env.v4, env.v5, env.p4, env.p3, env.v3,
+            ));
 
-            if !note.pitch_bend.points.is_empty() {
-                let pbs_time = note.pitch_bend.points[0].time_offset_ms;
-                let pbs_cents = note.pitch_bend.points[0].pitch_offset_cents / 10.0;
+            let previous = idx.checked_sub(1).and_then(|index| notes.get(index));
+            let adjacent = previous.is_some_and(|previous| {
+                (previous.position_ms + previous.duration_ms - note.position_ms).abs() <= 1.0
+            });
+            let pitch_points = note.pitch_bend.effective_points(
+                previous.map(UNote::midi_key),
+                note.midi_key(),
+                adjacent,
+            );
+            if !pitch_points.is_empty() {
+                let pbs_time = pitch_points[0].time_offset_ms;
+                let pbs_cents = pitch_points[0].pitch_offset_cents / 10.0;
                 out.push_str(&format!("PBS={:.1};{:.1}\n", pbs_time, pbs_cents));
 
                 let mut pbw = Vec::new();
                 let mut pby = Vec::new();
                 let mut pbm = Vec::new();
 
-                for w in note.pitch_bend.points.windows(2) {
+                for w in pitch_points.windows(2) {
                     pbw.push(format!(
                         "{:.1}",
                         (w[1].time_offset_ms - w[0].time_offset_ms).max(0.0)
                     ));
                     pby.push(format!("{:.1}", w[1].pitch_offset_cents / 10.0));
-                    pbm.push(if w[1].shape.is_empty() {
-                        "s".to_string()
-                    } else {
-                        w[1].shape.clone()
+                    pbm.push(match w[0].shape.as_str() {
+                        "l" | "s" => "s".to_string(),
+                        "i" | "j" => "j".to_string(),
+                        "o" | "r" => "r".to_string(),
+                        _ => String::new(),
                     });
                 }
 
@@ -311,5 +413,35 @@ NoteNum=62
         assert!(exported.contains("Lyric=ka"));
         assert!(exported.contains("Lyric=ki"));
         assert!(exported.contains("Velocity=150"));
+    }
+
+    #[test]
+    fn vibrato_envelope_and_volume_roundtrip() {
+        let source = r#"[#SETTING]
+Tempo=120
+[#0000]
+Length=480
+Lyric=a
+NoteNum=69
+Velocity=130
+Intensity=82
+Modulation=7
+Flags=g-4
+VBR=65,180,40,20,25,10,-5
+Envelope=0,8,40,0,90,75,0,15,5,30,85
+[#TRACKEND]
+"#;
+        let project = UstFormat::parse_str(source).unwrap();
+        let note = &project.parts[0].notes[0];
+        assert_eq!(note.vibrato.length_pct, 65.0);
+        assert_eq!(note.vibrato.fade_out_pct, 25.0);
+        assert_eq!(note.expressions.volume, 82.0);
+        assert_eq!(note.expressions.modulation, 7.0);
+        assert_eq!(note.flags, "g-4");
+        assert_eq!(note.envelope.v3, 85.0);
+        let exported = UstFormat::to_ust_string(&project);
+        assert!(exported.contains("VBR=65.0,180.0,40.0,20.0,25.0,10.0,-5.0"));
+        assert!(exported.contains("Intensity=82"));
+        assert!(exported.contains("Envelope="));
     }
 }

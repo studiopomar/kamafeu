@@ -9,6 +9,7 @@ pub enum InspectorTab {
     Gender,
     PitchDelta,
     Breathiness,
+    Vibrato,
 }
 
 pub fn draw_inspector_panel(
@@ -32,6 +33,7 @@ pub fn draw_inspector_panel(
             (InspectorTab::Gender, "GEN (Formant)"),
             (InspectorTab::PitchDelta, "PITD (Pitch)"),
             (InspectorTab::Breathiness, "BRE (Breath)"),
+            (InspectorTab::Vibrato, "Vibrato"),
         ];
 
         for (tab, label) in tabs {
@@ -123,9 +125,15 @@ pub fn draw_inspector_panel(
                 InspectorTab::Dynamics => {
                     ui.label("Dynamics Offset (DYN):");
                     ui.add(
-                        egui::Slider::new(&mut note.expressions.dynamics, -100.0..=100.0)
-                            .suffix(" dB"),
+                        egui::Slider::new(&mut note.expressions.dynamics, -240.0..=120.0)
+                            .suffix(" ×0.1 dB"),
                     );
+                    ui.label("VOL:");
+                    ui.add(egui::Slider::new(&mut note.expressions.volume, 0.0..=200.0));
+                    ui.label("ATK:");
+                    ui.add(egui::Slider::new(&mut note.expressions.attack, 0.0..=200.0));
+                    ui.label("DEC:");
+                    ui.add(egui::Slider::new(&mut note.expressions.decay, 0.0..=100.0));
                 }
                 InspectorTab::Gender => {
                     ui.label("Gender / Formant Shift (GEN):");
@@ -145,8 +153,47 @@ pub fn draw_inspector_panel(
                     ui.label("Breathiness (BRE):");
                     ui.add(egui::Slider::new(
                         &mut note.expressions.breathiness,
-                        -100.0..=100.0,
+                        0.0..=100.0,
                     ));
+                }
+                InspectorTab::Vibrato => {
+                    ui.label("Comprimento:");
+                    ui.add(
+                        egui::Slider::new(&mut note.vibrato.length_pct, 0.0..=100.0).suffix("%"),
+                    );
+                    ui.label("Período:");
+                    ui.add(
+                        egui::DragValue::new(&mut note.vibrato.period_ms)
+                            .range(5.0..=500.0)
+                            .suffix(" ms"),
+                    );
+                    ui.label("Profundidade:");
+                    ui.add(
+                        egui::Slider::new(&mut note.vibrato.depth_cents, 0.0..=200.0).suffix(" c"),
+                    );
+                    ui.label("Entrada / saída:");
+                    ui.add(
+                        egui::DragValue::new(&mut note.vibrato.fade_in_pct)
+                            .range(0.0..=100.0)
+                            .suffix("%"),
+                    );
+                    ui.add(
+                        egui::DragValue::new(&mut note.vibrato.fade_out_pct)
+                            .range(0.0..=100.0)
+                            .suffix("%"),
+                    );
+                    ui.label("Fase / drift / VOL link:");
+                    ui.add(
+                        egui::DragValue::new(&mut note.vibrato.shift_pct)
+                            .range(0.0..=100.0)
+                            .suffix("%"),
+                    );
+                    ui.add(egui::DragValue::new(&mut note.vibrato.drift_pct).range(-100.0..=100.0));
+                    ui.add(
+                        egui::DragValue::new(&mut note.vibrato.volume_link_pct)
+                            .range(-100.0..=100.0)
+                            .suffix("%"),
+                    );
                 }
             }
         } else {

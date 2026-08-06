@@ -1006,11 +1006,11 @@ impl eframe::App for KamafeuStudioApp {
                     self.pause_audio();
                 }
             }
-            ctx.request_repaint_after(std::time::Duration::from_millis(33));
+            ctx.request_repaint();
         }
 
         if self.render_rx.is_some() || self.export_rx.is_some() {
-            ctx.request_repaint_after(std::time::Duration::from_millis(33));
+            ctx.request_repaint();
         }
 
         let cur_ms = self.piano_roll_state.playhead_ms.max(0.0);

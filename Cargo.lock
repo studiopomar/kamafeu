@@ -1992,6 +1992,7 @@ dependencies = [
  "hound",
  "image",
  "midly",
+ "rayon",
  "rfd",
  "rodio",
  "rustfft",

@@ -81,10 +81,25 @@ impl LpcExtractor {
                     val -= lpc_coeffs[k] * synthesized[n - k];
                 }
             }
-            // Add a small clamp to prevent unstable filter blowups
-            synthesized[n] = val.clamp(-2.0, 2.0);
+            // Clamp to ±1.0 to prevent unstable filter divergence from causing
+            // hearing-damaging audio spikes. The previous limit of ±2.0 was
+            // incorrect and allowed twice the maximum sample amplitude.
+            synthesized[n] = val.clamp(-1.0, 1.0);
+        }
+
+        // If the filter was near-unstable, the peak may still be very high.
+        // Normalize the output so it never exceeds the input peak amplitude,
+        // preserving the relative dynamics without introducing DC offset.
+        let output_peak = synthesized.iter().map(|s| s.abs()).fold(0.0f32, f32::max);
+        let input_peak = excitation.iter().map(|s| s.abs()).fold(0.0f32, f32::max);
+        if output_peak > 1e-6 && input_peak > 1e-6 && output_peak > input_peak {
+            let scale = input_peak / output_peak;
+            for s in &mut synthesized {
+                *s *= scale;
+            }
         }
 
         synthesized
     }
+
 }

@@ -194,10 +194,32 @@ impl UstxFormat {
                                         "bre" | "bsh" => u_note.expressions.breathiness = val_num,
                                         "gen" | "g" => u_note.expressions.gender = val_num,
                                         "pitd" => u_note.expressions.pitch_delta = val_num,
+                                        "vol" => u_note.expressions.volume = val_num,
+                                        "atk" => u_note.expressions.attack = val_num,
+                                        "dec" => u_note.expressions.decay = val_num,
+                                        "mod" => u_note.expressions.modulation = val_num,
                                         _ => {}
                                     }
                                 }
                             }
+                        }
+
+                        if let Some(vibrato) = note_val.get("vibrato") {
+                            let number = |key: &str| {
+                                vibrato.get(key).and_then(|value| {
+                                    value.as_f64().or_else(|| value.as_i64().map(|n| n as f64))
+                                })
+                            };
+                            u_note.vibrato.length_pct = number("length").unwrap_or(0.0);
+                            u_note.vibrato.period_ms = number("period").unwrap_or(175.0);
+                            u_note.vibrato.depth_cents = number("depth").unwrap_or(35.0);
+                            u_note.vibrato.fade_in_pct = number("in").unwrap_or(20.0);
+                            u_note.vibrato.fade_out_pct = number("out").unwrap_or(20.0);
+                            u_note.vibrato.shift_pct = number("shift").unwrap_or(0.0);
+                            u_note.vibrato.drift_pct = number("drift").unwrap_or(0.0);
+                            u_note.vibrato.volume_link_pct = number("volLink")
+                                .or_else(|| number("vol_link"))
+                                .unwrap_or(0.0);
                         }
 
                         // Parse pitch bend points if present
@@ -227,14 +249,36 @@ impl UstxFormat {
                                     .to_string();
 
                                 pts.push(UPitchBendPoint {
-                                    time_offset_ms: px * ms_per_tick,
+                                    // OpenUtau stores pitch point X directly in
+                                    // milliseconds, unlike note positions.
+                                    time_offset_ms: px,
                                     pitch_offset_cents: py * 10.0,
                                     shape: pshape,
                                 });
                             }
                             if !pts.is_empty() {
-                                u_note.pitch_bend = UPitchBend { points: pts };
+                                let portamento_start_ms = pts[0].time_offset_ms;
+                                let portamento_length_ms = pts
+                                    .get(1)
+                                    .map(|second| second.time_offset_ms - pts[0].time_offset_ms)
+                                    .unwrap_or(80.0)
+                                    .max(1.0);
+                                let portamento_shape = pts[0].shape.clone();
+                                u_note.pitch_bend = UPitchBend {
+                                    points: pts,
+                                    portamento_start_ms,
+                                    portamento_length_ms,
+                                    portamento_shape,
+                                    ..UPitchBend::default()
+                                };
                             }
+                        }
+                        if let Some(snap_first) = note_val
+                            .get("pitch")
+                            .and_then(|pitch| pitch.get("snap_first"))
+                            .and_then(|value| value.as_bool())
+                        {
+                            u_note.pitch_bend.snap_first = snap_first;
                         }
 
                         part.notes.push(u_note);
@@ -288,14 +332,25 @@ impl UstxFormat {
                 let notes = part
                     .notes
                     .iter()
-                    .map(|note| {
-                        let pitch_data = note
-                            .pitch_bend
-                            .points
+                    .enumerate()
+                    .map(|(note_index, note)| {
+                        let previous = note_index
+                            .checked_sub(1)
+                            .and_then(|index| part.notes.get(index));
+                        let adjacent = previous.is_some_and(|previous| {
+                            (previous.position_ms + previous.duration_ms - note.position_ms).abs()
+                                <= 1.0
+                        });
+                        let pitch_points = note.pitch_bend.effective_points(
+                            previous.map(UNote::midi_key),
+                            note.midi_key(),
+                            adjacent,
+                        );
+                        let pitch_data = pitch_points
                             .iter()
                             .map(|point| {
                                 serde_json::json!({
-                                    "x": (point.time_offset_ms * ticks_per_ms).round() as i64,
+                                    "x": point.time_offset_ms,
                                     "y": point.pitch_offset_cents / 10.0,
                                     "shape": point.shape,
                                 })
@@ -306,13 +361,30 @@ impl UstxFormat {
                             "duration": (note.duration_ms.max(1.0) * ticks_per_ms).round() as i64,
                             "tone": note.midi_key(),
                             "lyric": note.lyric,
-                            "pitch": { "data": pitch_data },
+                            "pitch": {
+                                "data": pitch_data,
+                                "snap_first": note.pitch_bend.snap_first,
+                            },
+                            "vibrato": {
+                                "length": note.vibrato.length_pct,
+                                "period": note.vibrato.period_ms,
+                                "depth": note.vibrato.depth_cents,
+                                "in": note.vibrato.fade_in_pct,
+                                "out": note.vibrato.fade_out_pct,
+                                "shift": note.vibrato.shift_pct,
+                                "drift": note.vibrato.drift_pct,
+                                "volLink": note.vibrato.volume_link_pct,
+                            },
                             "expressions": [
                                 { "abbr": "vel", "value": note.expressions.consonant_velocity },
                                 { "abbr": "dyn", "value": note.expressions.dynamics },
                                 { "abbr": "bre", "value": note.expressions.breathiness },
                                 { "abbr": "gen", "value": note.expressions.gender },
                                 { "abbr": "pitd", "value": note.expressions.pitch_delta },
+                                { "abbr": "vol", "value": note.expressions.volume },
+                                { "abbr": "atk", "value": note.expressions.attack },
+                                { "abbr": "dec", "value": note.expressions.decay },
+                                { "abbr": "mod", "value": note.expressions.modulation },
                             ],
                         })
                     })
@@ -417,6 +489,58 @@ voice_parts:
         assert!((parsed.parts[1].position_ms - 250.0).abs() < 0.01);
         assert!((parsed.parts[1].notes[0].position_ms - 125.0).abs() < 0.01);
         assert_eq!(parsed.parts[1].notes[0].midi_key(), 64);
+    }
+
+    #[test]
+    fn openutau_vibrato_and_amplitude_expressions_roundtrip() {
+        let mut project = UProject::default();
+        let mut note = UNote::new("a", "A4", 0.0, 1000.0);
+        note.vibrato.length_pct = 65.0;
+        note.vibrato.fade_out_pct = 30.0;
+        note.vibrato.volume_link_pct = -25.0;
+        note.expressions.volume = 80.0;
+        note.expressions.attack = 60.0;
+        note.expressions.decay = 15.0;
+        project.parts[0].notes.push(note);
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("expressions.ustx");
+        UstxFormat::save_file(&project, &path).unwrap();
+        let parsed = UstxFormat::load_file(path).unwrap();
+        let note = &parsed.parts[0].notes[0];
+        assert_eq!(note.vibrato.length_pct, 65.0);
+        assert_eq!(note.vibrato.fade_out_pct, 30.0);
+        assert_eq!(note.vibrato.volume_link_pct, -25.0);
+        assert_eq!(note.expressions.volume, 80.0);
+        assert_eq!(note.expressions.attack, 60.0);
+        assert_eq!(note.expressions.decay, 15.0);
+    }
+
+    #[test]
+    fn openutau_pitch_point_x_is_milliseconds() {
+        let source = r#"
+name: Portamento
+bpm: 120
+tracks: [{name: Track}]
+voice_parts:
+  - track_no: 0
+    position: 0
+    notes:
+      - position: 0
+        duration: 480
+        tone: 60
+        lyric: a
+        pitch:
+          snap_first: true
+          data:
+            - {x: -25, y: 0, shape: io}
+            - {x: 25, y: 0, shape: io}
+"#;
+        let project = UstxFormat::parse_str(source).unwrap();
+        let pitch = &project.parts[0].notes[0].pitch_bend;
+        assert_eq!(pitch.points[0].time_offset_ms, -25.0);
+        assert_eq!(pitch.portamento_start_ms, -25.0);
+        assert_eq!(pitch.portamento_length_ms, 50.0);
+        assert!(pitch.snap_first);
     }
 
     #[test]

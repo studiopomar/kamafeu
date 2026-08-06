@@ -9,14 +9,88 @@ pub struct UPitchBendPoint {
     pub shape: String, // "", "s" (linear), "j" (exp), "r" (log)
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
 pub struct UPitchBend {
     pub points: Vec<UPitchBendPoint>,
+    pub snap_first: bool,
+    pub portamento_start_ms: f64,
+    pub portamento_length_ms: f64,
+    pub portamento_shape: String,
+}
+
+impl Default for UPitchBend {
+    fn default() -> Self {
+        Self {
+            points: Vec::new(),
+            snap_first: true,
+            portamento_start_ms: -40.0,
+            portamento_length_ms: 80.0,
+            portamento_shape: "io".to_string(),
+        }
+    }
+}
+
+impl UPitchBend {
+    pub fn effective_points(
+        &self,
+        previous_midi: Option<u8>,
+        current_midi: u8,
+        adjacent: bool,
+    ) -> Vec<UPitchBendPoint> {
+        let start = self.portamento_start_ms.clamp(-2000.0, 2000.0);
+        let length = self.portamento_length_ms.clamp(1.0, 2000.0);
+        let automatic_portamento = || {
+            vec![
+                UPitchBendPoint {
+                    time_offset_ms: start,
+                    pitch_offset_cents: 0.0,
+                    shape: self.portamento_shape.clone(),
+                },
+                UPitchBendPoint {
+                    time_offset_ms: start + length,
+                    pitch_offset_cents: 0.0,
+                    shape: self.portamento_shape.clone(),
+                },
+            ]
+        };
+        let mut points = if self.points.is_empty() {
+            automatic_portamento()
+        } else {
+            self.points.clone()
+        };
+        points.sort_by(|left, right| {
+            left.time_offset_ms
+                .partial_cmp(&right.time_offset_ms)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+
+        // PitchDraw stores only points touched by the user. Preserve the
+        // automatic portamento when the first hand-drawn point occurs later;
+        // otherwise the previous note would be held until that point.
+        if points
+            .first()
+            .is_some_and(|first| first.time_offset_ms > start + 1e-6)
+        {
+            points.extend(automatic_portamento());
+            points.sort_by(|left, right| {
+                left.time_offset_ms
+                    .partial_cmp(&right.time_offset_ms)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            });
+        }
+        if self.snap_first && adjacent {
+            if let (Some(previous), Some(first)) = (previous_midi, points.first_mut()) {
+                first.pitch_offset_cents = (f64::from(previous) - f64::from(current_midi)) * 100.0;
+            }
+        }
+        points
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UExpressions {
-    pub dynamics: f64,    // DYN (-100 to +100, default 0)
+    pub dynamics: f64,    // DYN (-240 to +120, in 0.1 dB units)
     pub pitch_delta: f64, // PITD (-1200 to +1200 cents, default 0)
     pub gender: f64,      // GEN (-100 to +100, default 0)
     #[serde(default = "default_velocity")]
@@ -26,6 +100,16 @@ pub struct UExpressions {
     pub consonant_velocity: f64, // (0 to 200, default 100)
     #[serde(default = "default_modulation")]
     pub modulation: f64, // MOD (0 to 200, default 0)
+    #[serde(default = "default_expression_percent")]
+    pub volume: f64, // VOL (0 to 200, default 100)
+    #[serde(default = "default_expression_percent")]
+    pub attack: f64, // ATK (0 to 200, default 100)
+    #[serde(default)]
+    pub decay: f64, // DEC (0 to 100, default 0)
+}
+
+fn default_expression_percent() -> f64 {
+    100.0
 }
 
 fn default_modulation() -> f64 {
@@ -49,6 +133,9 @@ impl Default for UExpressions {
             breathiness: 0.0,
             consonant_velocity: 100.0,
             modulation: 0.0,
+            volume: 100.0,
+            attack: 100.0,
+            decay: 0.0,
         }
     }
 }
@@ -260,6 +347,64 @@ impl UProject {
                 }
                 note.expressions.consonant_velocity =
                     note.expressions.consonant_velocity.clamp(0.0, 200.0);
+                if !note.expressions.velocity.is_finite() {
+                    note.expressions.velocity = 100.0;
+                }
+                if !note.expressions.dynamics.is_finite() {
+                    note.expressions.dynamics = 0.0;
+                }
+                if !note.expressions.pitch_delta.is_finite() {
+                    note.expressions.pitch_delta = 0.0;
+                }
+                if !note.expressions.gender.is_finite() {
+                    note.expressions.gender = 0.0;
+                }
+                if !note.expressions.breathiness.is_finite() {
+                    note.expressions.breathiness = 0.0;
+                }
+                if !note.expressions.modulation.is_finite() {
+                    note.expressions.modulation = 0.0;
+                }
+                if !note.expressions.volume.is_finite() {
+                    note.expressions.volume = 100.0;
+                }
+                if !note.expressions.attack.is_finite() {
+                    note.expressions.attack = 100.0;
+                }
+                if !note.expressions.decay.is_finite() {
+                    note.expressions.decay = 0.0;
+                }
+                note.expressions.velocity = note.expressions.velocity.clamp(0.0, 200.0);
+                note.expressions.dynamics = note.expressions.dynamics.clamp(-240.0, 120.0);
+                note.expressions.pitch_delta = note.expressions.pitch_delta.clamp(-1200.0, 1200.0);
+                note.expressions.gender = note.expressions.gender.clamp(-100.0, 100.0);
+                note.expressions.breathiness = note.expressions.breathiness.clamp(0.0, 100.0);
+                note.expressions.modulation = note.expressions.modulation.clamp(0.0, 100.0);
+                note.expressions.volume = note.expressions.volume.clamp(0.0, 200.0);
+                note.expressions.attack = note.expressions.attack.clamp(0.0, 200.0);
+                note.expressions.decay = note.expressions.decay.clamp(0.0, 100.0);
+                note.vibrato.normalize();
+                if !note.pitch_bend.portamento_start_ms.is_finite() {
+                    note.pitch_bend.portamento_start_ms = -40.0;
+                }
+                if !note.pitch_bend.portamento_length_ms.is_finite() {
+                    note.pitch_bend.portamento_length_ms = 80.0;
+                }
+                note.pitch_bend.portamento_start_ms =
+                    note.pitch_bend.portamento_start_ms.clamp(-2000.0, 2000.0);
+                note.pitch_bend.portamento_length_ms =
+                    note.pitch_bend.portamento_length_ms.clamp(1.0, 2000.0);
+                if note.pitch_bend.portamento_shape.is_empty() {
+                    note.pitch_bend.portamento_shape = "io".to_string();
+                }
+                note.pitch_bend.points.retain(|point| {
+                    point.time_offset_ms.is_finite() && point.pitch_offset_cents.is_finite()
+                });
+                note.pitch_bend.points.sort_by(|left, right| {
+                    left.time_offset_ms
+                        .partial_cmp(&right.time_offset_ms)
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                });
             }
         }
     }
@@ -397,5 +542,25 @@ mod project_tests {
         assert_eq!(project.set_bpm_preserving_beats(f64::NAN), None);
         assert_eq!(project.bpm, 120.0);
         assert_eq!(project.parts[0].position_ms, original);
+    }
+
+    #[test]
+    fn hand_drawn_pitch_after_onset_keeps_automatic_portamento() {
+        let bend = UPitchBend {
+            points: vec![UPitchBendPoint {
+                time_offset_ms: 30.0,
+                pitch_offset_cents: 25.0,
+                shape: "l".to_string(),
+            }],
+            ..UPitchBend::default()
+        };
+
+        let points = bend.effective_points(Some(60), 62, true);
+        assert_eq!(points[0].time_offset_ms, -40.0);
+        assert_eq!(points[0].pitch_offset_cents, -200.0);
+        assert!(points.iter().any(|point| {
+            (point.time_offset_ms - 30.0).abs() < 1e-6
+                && (point.pitch_offset_cents - 25.0).abs() < 1e-6
+        }));
     }
 }

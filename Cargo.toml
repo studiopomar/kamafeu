@@ -20,3 +20,22 @@ rfd = "0.17"
 midly = "0.5"
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "bmp"] }
 tempfile = "3.8"
+rayon = "1.10"
+
+
+# --------------------------------------------------------------------------
+# Profile otimizado para desenvolvimento: compilação rápida + desempenho
+# real para código de GUI/DSP (egui, rodio, rustfft, etc).
+# --------------------------------------------------------------------------
+[profile.dev]
+# Nível 1: habilita otimizações básicas (auto-vectorização, inlining) no
+# crate principal sem um tempo de compilação muito longo.
+opt-level = 1
+debug = true          # mantém informações de debug / rastreamentos de pilha
+
+[profile.dev.package."*"]
+# Nível 3: todas as dependências compiladas com otimização total.
+# egui, eframe, rodio, rustfft e similares são altamente sensíveis ao
+# nível de otimização — sem isso, o framerate cai para 5-15 FPS.
+opt-level = 3
+
