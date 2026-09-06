@@ -1,0 +1,203 @@
+name: Build & Publish Release Binaries
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: Build ${{ matrix.job.name }}
+    runs-on: ${{ matrix.job.os }}
+    continue-on-error: ${{ matrix.job.allow_failure || false }}
+    strategy:
+      fail-fast: false
+      matrix:
+        job:
+          - name: Windows x64
+            os: windows-latest
+            target: x86_64-pc-windows-msvc
+            binary: kamafeu.exe
+            toolkit_binary: copaiba.exe
+            archive: kamafeu-${{ github.ref_name }}-windows-x64.zip
+            use_cross: false
+
+          - name: Windows x86 (32-bit)
+            os: windows-latest
+            target: i686-pc-windows-msvc
+            binary: kamafeu.exe
+            toolkit_binary: copaiba.exe
+            archive: kamafeu-${{ github.ref_name }}-windows-x86.zip
+            use_cross: false
+
+          - name: macOS Intel (x86_64)
+            os: macos-15-intel
+            target: x86_64-apple-darwin
+            binary: kamafeu
+            toolkit_binary: copaiba
+            archive: kamafeu-${{ github.ref_name }}-macos-intel.dmg
+            use_cross: false
+
+          - name: macOS Apple Silicon (ARM64)
+            os: macos-15
+            target: aarch64-apple-darwin
+            binary: kamafeu
+            toolkit_binary: copaiba
+            archive: kamafeu-${{ github.ref_name }}-macos-arm64.dmg
+            use_cross: false
+
+          - name: Linux x64
+            os: ubuntu-latest
+            target: x86_64-unknown-linux-gnu
+            binary: kamafeu
+            toolkit_binary: copaiba
+            archive: kamafeu-${{ github.ref_name }}-linux-x64.tar.gz
+            use_cross: false
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install System Dependencies (Linux)
+        if: matrix.job.os == 'ubuntu-latest' && matrix.job.use_cross == false
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libasound2-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev pkg-config
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.job.target }}
+
+      - name: Build Binary (Native)
+        if: matrix.job.use_cross == false
+        run: cargo build --release --bins --target ${{ matrix.job.target }}
+
+      - name: Prepare Artifacts (Windows)
+        if: matrix.job.os == 'windows-latest'
+        shell: powershell
+        run: |
+          $bin_path = "target/${{ matrix.job.target }}/release/${{ matrix.job.binary }}"
+          $toolkit_path = "target/${{ matrix.job.target }}/release/${{ matrix.job.toolkit_binary }}"
+          if (-Not (Test-Path $bin_path)) { throw "Missing Studio binary: $bin_path" }
+          if (-Not (Test-Path $toolkit_path)) { throw "Missing Copaiba binary: $toolkit_path" }
+          Compress-Archive -Path $bin_path, $toolkit_path, "README.md", "LICENSE" -DestinationPath "${{ matrix.job.archive }}"
+
+      - name: Prepare Artifacts (Unix / Linux / macOS)
+        if: matrix.job.os != 'windows-latest'
+        run: |
+          BIN_PATH="target/${{ matrix.job.target }}/release/${{ matrix.job.binary }}"
+          TOOLKIT_PATH="target/${{ matrix.job.target }}/release/${{ matrix.job.toolkit_binary }}"
+          test -f "$BIN_PATH"
+          test -f "$TOOLKIT_PATH"
+          mkdir -p package_root
+          cp "$BIN_PATH" package_root/kamafeu
+          cp "$TOOLKIT_PATH" package_root/copaiba
+          cp README.md LICENSE package_root/
+          if [[ "${{ matrix.job.target }}" == "aarch64-apple-darwin" ]]; then
+            mkdir -p package_root/resamplers
+            cp resamplers/organum-resampler resamplers/straycat-rs resamplers/README.md package_root/resamplers/
+            cp -R resamplers/licenses package_root/resamplers/
+            chmod +x package_root/resamplers/organum-resampler package_root/resamplers/straycat-rs
+          elif [[ "${{ matrix.job.target }}" == "x86_64-apple-darwin" ]]; then
+            mkdir -p package_root/resamplers
+            cp resamplers/macres resamplers/README.md package_root/resamplers/
+            cp -R resamplers/licenses package_root/resamplers/
+            chmod +x package_root/resamplers/macres
+          fi
+          if [[ "${{ matrix.job.os }}" == *"macos"* ]]; then
+            hdiutil create -volname "Kamafeu" -srcfolder package_root -ov -format UDZO "${{ matrix.job.archive }}"
+          else
+            tar -czvf "${{ matrix.job.archive }}" -C package_root .
+          fi
+
+      - name: Upload Artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.job.archive }}
+          path: ${{ matrix.job.archive }}
+
+  create-release:
+    name: Create GitHub Release & Notify Discord
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Download all build artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: ./artifacts
+
+      - name: Flatten Artifacts & Generate SHA256 Checksums
+        run: |
+          mkdir -p ./release_assets
+          find ./artifacts -type f \( -name "*.zip" -o -name "*.tar.gz" -o -name "*.dmg" \) -exec cp {} ./release_assets/ \;
+          cd ./release_assets
+          sha256sum * > SHA256SUMS.txt
+          ls -la
+
+      - name: Publish Official GitHub Release
+        id: release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ./release_assets/*
+          name: Kamafeu Release ${{ github.ref_name }}
+          tag_name: ${{ github.ref_name }}
+          draft: false
+          prerelease: false
+          make_latest: true
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Send Discord Notification (Bidu)
+        env:
+          DISCORD_WEBHOOK: ${{ secrets.DISCORD_WEBHOOK_URL }}
+          TAG_NAME: ${{ github.ref_name }}
+          RELEASE_URL: ${{ steps.release.outputs.url }}
+          REPOSITORY: ${{ github.repository }}
+        run: |
+          if [ -z "$DISCORD_WEBHOOK" ]; then
+            echo "DISCORD_WEBHOOK_URL is not configured; skipping notification."
+            exit 0
+          fi
+          if [ -z "$RELEASE_URL" ]; then
+            RELEASE_URL="https://github.com/$REPOSITORY/releases/tag/$TAG_NAME"
+          fi
+
+          PAYLOAD=$(jq -n \
+            --arg title "🚀 Kamafeu $TAG_NAME Publicado no GitHub Releases!" \
+            --arg url "$RELEASE_URL" \
+            --arg download_url "$RELEASE_URL" \
+            --arg desc "Todos os binários oficiais foram compilados e estão disponíveis para download direto!" \
+            --arg username "Bidu" \
+            '{
+              username: $username,
+              content: "🐶 **Bidu avisa: Binários Oficiais do Kamafeu Publicados no GitHub Releases!**",
+              embeds: [{
+                title: $title,
+                url: $url,
+                description: $desc,
+                color: 65280,
+                fields: [
+                  { name: "💻 Windows x64", value: ("[Download .zip](" + $download_url + ")"), inline: true },
+                  { name: "💻 Windows x86 (32-bit)", value: ("[Download .zip](" + $download_url + ")"), inline: true },
+                  { name: "🍏 macOS Apple Silicon", value: ("[Download .dmg](" + $download_url + ")"), inline: true },
+                  { name: "🍎 macOS Intel", value: ("[Download .dmg](" + $download_url + ")"), inline: true },
+                  { name: "🐧 Linux x64", value: ("[Download .tar.gz](" + $download_url + ")"), inline: true }
+                ],
+                footer: { text: "studiopomar/kamafeu • Releases Oficial" },
+                timestamp: (now | strftime("%Y-%m-%dT%H:%M:%SZ"))
+              }]
+            }')
+
+          curl -H "Content-Type: application/json" -X POST -d "$PAYLOAD" "$DISCORD_WEBHOOK"
