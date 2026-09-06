@@ -2568,7 +2568,9 @@ impl eframe::App for KamafeuStudioApp {
                 let mut loaded_vb: Option<Voicebank> = None;
                 let mut preview_alias: Option<String> = None;
                 let mut insert_alias: Option<String> = None;
-                let mut edit_alias: Option<String> = None;
+                let mut palette_edit_alias: Option<String> = None;
+                let mut selected_ruler_alias_to_edit: Option<(String, String)> = None;
+                let selected_ruler_alias = self.piano_roll_state.selected_copaiba_alias.clone();
 
                 let notes = &mut self.project.parts[part_idx].notes[..];
 
@@ -2588,6 +2590,9 @@ impl eframe::App for KamafeuStudioApp {
                     selected_idx,
                     notes,
                     &selected_indices,
+                    selected_ruler_alias
+                        .as_ref()
+                        .map(|(alias, _)| alias.as_str()),
                     &mut self.right_sidebar_tab,
                     &mut self.phoneme_palette_state,
                     &mut self.render_threads,
@@ -2626,7 +2631,8 @@ impl eframe::App for KamafeuStudioApp {
                     &mut || open_singers_gallery = true,
                     &mut |alias| preview_alias = Some(alias.to_string()),
                     &mut |alias| insert_alias = Some(alias.to_string()),
-                    &mut |alias| edit_alias = Some(alias.to_string()),
+                    &mut |alias| palette_edit_alias = Some(alias.to_string()),
+                    &mut || selected_ruler_alias_to_edit = selected_ruler_alias.clone(),
                 );
 
                 if open_folder_picker {
@@ -2707,8 +2713,10 @@ impl eframe::App for KamafeuStudioApp {
                 }
 
                 #[cfg(not(target_os = "android"))]
-                if let Some(alias) = edit_alias {
-                    self.open_copaiba_for_alias(&alias, "C4");
+                let edit_alias = selected_ruler_alias_to_edit
+                    .or_else(|| palette_edit_alias.map(|alias| (alias, "C4".to_string())));
+                if let Some((alias, pitch)) = edit_alias {
+                    self.open_copaiba_for_alias(&alias, &pitch);
                 }
             });
 

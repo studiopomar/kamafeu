@@ -512,6 +512,11 @@ pub fn draw_phoneme_ruler(
                                 let pill_resp = ui.interact(pill_rect, pill_id, Sense::click());
                                 let alias_for_copaiba = copaiba_editable_alias(label);
                                 let pitch_for_copaiba = note.pitch.clone();
+                                if pill_resp.clicked() {
+                                    state.selected_copaiba_alias = alias_for_copaiba.map(|alias| {
+                                        (alias.to_string(), pitch_for_copaiba.clone())
+                                    });
+                                }
                                 if let Some(alias) = alias_for_copaiba {
                                     pill_resp.context_menu(|ui| {
                                         if ui.button("Editar no Copaiba NEO").clicked() {
@@ -811,6 +816,10 @@ pub fn draw_phoneme_ruler(
                             .first()
                             .and_then(|(label, _, _)| copaiba_editable_alias(label));
                         let pitch_for_copaiba = note.pitch.clone();
+                        if pill_resp.clicked() {
+                            state.selected_copaiba_alias = alias_for_copaiba
+                                .map(|alias| (alias.to_string(), pitch_for_copaiba.clone()));
+                        }
                         if let Some(alias) = alias_for_copaiba {
                             pill_resp.context_menu(|ui| {
                                 if ui.button("Editar no Copaiba NEO").clicked() {

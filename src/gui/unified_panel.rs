@@ -18,6 +18,7 @@ pub fn draw_unified_panel(
     selected_note_idx: Option<usize>,
     notes: &mut [UNote],
     selected_indices: &std::collections::HashSet<usize>,
+    selected_ruler_alias: Option<&str>,
     active_tab: &mut RightSidebarTab,
     phoneme_state: &mut PhonemePaletteState,
     render_threads: &mut u32,
@@ -34,6 +35,7 @@ pub fn draw_unified_panel(
     on_preview_phoneme: &mut dyn FnMut(&str),
     on_insert_phoneme: &mut dyn FnMut(&str),
     on_edit_phoneme: &mut dyn FnMut(&str),
+    on_edit_selected_ruler_alias: &mut dyn FnMut(),
 ) {
     let vb_name = voicebank
         .map(|v| v.name.as_str())
@@ -465,6 +467,16 @@ pub fn draw_unified_panel(
                                         ui.label("Letra:");
                                         if ui.text_edit_singleline(&mut lyric).changed() {
                                             changed_lyric = true;
+                                        }
+                                    });
+                                    ui.add_enabled_ui(selected_ruler_alias.is_some(), |ui| {
+                                        let label = selected_ruler_alias
+                                            .map(|alias| format!("Editar {alias} no Copaiba NEO"))
+                                            .unwrap_or_else(|| {
+                                                "Selecione um alias na régua inferior".to_string()
+                                            });
+                                        if ui.button(label).clicked() {
+                                            on_edit_selected_ruler_alias();
                                         }
                                     });
                                     ui.horizontal(|ui| {
