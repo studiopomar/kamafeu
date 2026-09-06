@@ -12,6 +12,7 @@
 pub mod audio;
 pub mod config;
 pub mod copaiba;
+pub mod copaiba_bridge;
 pub mod dialogs;
 pub mod discord_rpc;
 pub mod drivers;
