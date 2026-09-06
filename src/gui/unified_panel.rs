@@ -467,10 +467,6 @@ pub fn draw_unified_panel(
                                             changed_lyric = true;
                                         }
                                     });
-                                    if ui.button("Editar alias no Copaiba NEO").clicked() {
-                                        on_edit_phoneme(&lyric);
-                                    }
-
                                     ui.horizontal(|ui| {
                                         ui.label("Tom / Nota:");
                                         ui.label(RichText::new(&pitch_str).strong().color(Color32::from_rgb(216, 180, 254)));

@@ -13,6 +13,7 @@ pub fn draw_phoneme_ruler(
     bpm: f64,
     on_before_change: &mut dyn FnMut(),
     on_note_changed: &mut dyn FnMut(),
+    on_edit_oto_alias: &mut dyn FnMut(&str, &str),
 ) {
     let ruler_h = 76.0f32;
 
@@ -509,6 +510,16 @@ pub fn draw_phoneme_ruler(
 
                                 let pill_id = ui.id().with(("subphoneme_pill", note_index, index));
                                 let pill_resp = ui.interact(pill_rect, pill_id, Sense::click());
+                                let alias_for_copaiba = copaiba_editable_alias(label);
+                                let pitch_for_copaiba = note.pitch.clone();
+                                if let Some(alias) = alias_for_copaiba {
+                                    pill_resp.context_menu(|ui| {
+                                        if ui.button("Editar no Copaiba NEO").clicked() {
+                                            on_edit_oto_alias(alias, &pitch_for_copaiba);
+                                            ui.close_menu();
+                                        }
+                                    });
+                                }
                                 if !was_editing_phoneme && pill_resp.double_clicked() {
                                     state.editing_phoneme_index = Some((note_index, index));
                                     state.phoneme_buffer = label.clone();
@@ -796,6 +807,18 @@ pub fn draw_phoneme_ruler(
                         let is_editing_this = state.editing_phoneme_index == Some((note_index, 0));
                         let pill_id = ui.id().with(("phoneme_pill_single", note_index));
                         let pill_resp = ui.interact(pill_rect, pill_id, Sense::click());
+                        let alias_for_copaiba = subphonemes
+                            .first()
+                            .and_then(|(label, _, _)| copaiba_editable_alias(label));
+                        let pitch_for_copaiba = note.pitch.clone();
+                        if let Some(alias) = alias_for_copaiba {
+                            pill_resp.context_menu(|ui| {
+                                if ui.button("Editar no Copaiba NEO").clicked() {
+                                    on_edit_oto_alias(alias, &pitch_for_copaiba);
+                                    ui.close_menu();
+                                }
+                            });
+                        }
                         if !was_editing_phoneme && pill_resp.double_clicked() {
                             state.editing_phoneme_index = Some((note_index, 0));
                             state.phoneme_buffer = lyric_trimmed.clone();
@@ -1012,4 +1035,21 @@ pub fn draw_phoneme_ruler(
                 }
             });
         });
+}
+
+fn copaiba_editable_alias(alias: &str) -> Option<&str> {
+    let alias = alias.trim();
+    (!alias.is_empty() && alias != "+").then_some(alias)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::copaiba_editable_alias;
+
+    #[test]
+    fn keeps_only_real_ruler_aliases_for_copaiba() {
+        assert_eq!(copaiba_editable_alias(" shi i "), Some("shi i"));
+        assert_eq!(copaiba_editable_alias("+"), None);
+        assert_eq!(copaiba_editable_alias("   "), None);
+    }
 }

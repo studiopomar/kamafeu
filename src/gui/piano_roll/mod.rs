@@ -25,6 +25,7 @@ pub fn draw_piano_roll(
     on_before_change: &mut dyn FnMut(),
     on_note_changed: &mut dyn FnMut(),
     on_playhead_scrubbed: &mut dyn FnMut(f64),
+    on_edit_oto_alias: &mut dyn FnMut(&str, &str),
 ) {
     let was_editing_lyric = state.editing_lyric_index.is_some();
     let key_count = (state.max_midi - state.min_midi + 1) as usize;
@@ -349,6 +350,7 @@ pub fn draw_piano_roll(
         bpm,
         on_before_change,
         on_note_changed,
+        on_edit_oto_alias,
     );
 
     if state.show_envelope_handles {

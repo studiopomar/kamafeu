@@ -491,7 +491,10 @@ impl KamafeuStudioApp {
     }
 
     #[cfg(not(target_os = "android"))]
-    fn open_copaiba_for_alias(&mut self, requested_alias: &str) {
+    fn open_copaiba_for_alias(&mut self, requested_alias: &str, pitch: &str) {
+        if requested_alias.trim().is_empty() || requested_alias.trim() == "+" {
+            return;
+        }
         let Some(voicebank) = self.voicebank.as_ref() else {
             self.transport_state.status_message =
                 "Carregue um voicebank para editar o oto.ini.".to_string();
@@ -504,7 +507,7 @@ impl KamafeuStudioApp {
             .cloned()
             .or_else(|| {
                 voicebank
-                    .find_entry(requested_alias, "C4")
+                    .find_entry(requested_alias, pitch)
                     .map(|entry| entry.alias.clone())
             })
             .unwrap_or_else(|| requested_alias.trim().to_string());
@@ -2705,7 +2708,7 @@ impl eframe::App for KamafeuStudioApp {
 
                 #[cfg(not(target_os = "android"))]
                 if let Some(alias) = edit_alias {
-                    self.open_copaiba_for_alias(&alias);
+                    self.open_copaiba_for_alias(&alias, "C4");
                 }
             });
 
@@ -2758,6 +2761,8 @@ impl eframe::App for KamafeuStudioApp {
             })
             .then(|| self.project.clone());
 
+        let mut ruler_alias_to_edit: Option<(String, String)> = None;
+
         CentralPanel::default()
             .frame(Frame::none().fill(MelodyneTheme::BG_CANVAS))
             .show(ctx, |ui| {
@@ -2793,6 +2798,9 @@ impl eframe::App for KamafeuStudioApp {
                     &mut || before_changed = true,
                     &mut || note_changed = true,
                     &mut |t| scrubbed_t = Some(t),
+                    &mut |alias, pitch| {
+                        ruler_alias_to_edit = Some((alias.to_string(), pitch.to_string()));
+                    },
                 );
 
                 if let Some(t) = scrubbed_t {
@@ -2896,6 +2904,11 @@ impl eframe::App for KamafeuStudioApp {
                     );
                 }
             });
+
+        #[cfg(not(target_os = "android"))]
+        if let Some((alias, pitch)) = ruler_alias_to_edit {
+            self.open_copaiba_for_alias(&alias, &pitch);
+        }
 
         self.draw_mini_log_window(ctx);
 
