@@ -319,6 +319,7 @@ pub fn draw_left_panel(
                     phoneme_state,
                     on_preview_phoneme,
                     on_insert_phoneme,
+                    &mut |_| {},
                 );
             }
         }

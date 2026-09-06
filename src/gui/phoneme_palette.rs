@@ -24,6 +24,7 @@ pub fn draw_phoneme_palette(
     state: &mut PhonemePaletteState,
     on_preview_phoneme: &mut dyn FnMut(&str),
     on_insert_phoneme: &mut dyn FnMut(&str),
+    on_edit_phoneme: &mut dyn FnMut(&str),
 ) {
     ui.vertical(|ui| {
         ui.add_space(4.0);
@@ -147,6 +148,13 @@ pub fn draw_phoneme_palette(
                             } else if response.clicked() && !response.dragged() {
                                 on_preview_phoneme(alias);
                             }
+
+                            response.context_menu(|ui| {
+                                if ui.button("Editar no Copaiba NEO").clicked() {
+                                    on_edit_phoneme(alias);
+                                    ui.close_menu();
+                                }
+                            });
                         }
                     });
                 });

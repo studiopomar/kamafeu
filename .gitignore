@@ -1,4 +1,5 @@
 /target
+/copaiba-neo/
 **/*.rs.bk
 *.bk
 *.wav

@@ -67,6 +67,8 @@ pub struct KamafeuStudioApp {
     project: UProject,
     current_project_path: Option<PathBuf>,
     voicebank: Option<Voicebank>,
+    voicebank_oto_signature: Option<crate::copaiba_bridge::OtoSignature>,
+    last_voicebank_oto_check: Instant,
     piano_roll_state: PianoRollState,
     transport_state: TransportState,
     right_sidebar_tab: RightSidebarTab,
@@ -303,6 +305,9 @@ impl KamafeuStudioApp {
             transport_state.voicebank_name = vb.name.clone();
             transport_state.voicebank_path = Some(vb.root_path.clone());
         }
+        let voicebank_oto_signature = voicebank
+            .as_ref()
+            .and_then(|vb| crate::copaiba_bridge::oto_signature(&vb.root_path).ok());
 
         let wavtool_default_path = PathBuf::from("./wavtools/wavtool-yawu");
 
@@ -310,6 +315,8 @@ impl KamafeuStudioApp {
             project,
             current_project_path: None,
             voicebank,
+            voicebank_oto_signature,
+            last_voicebank_oto_check: Instant::now(),
             piano_roll_state: PianoRollState::default(),
             transport_state,
             right_sidebar_tab: RightSidebarTab::default(),
@@ -445,6 +452,67 @@ impl KamafeuStudioApp {
 
     pub fn reload_singers(&mut self) {
         self.singers_list = crate::oto::SingerScanner::scan_directories(&self.config.singers_paths);
+    }
+
+    fn refresh_voicebank_oto(&mut self) {
+        if self.last_voicebank_oto_check.elapsed() < std::time::Duration::from_millis(350) {
+            return;
+        }
+        self.last_voicebank_oto_check = Instant::now();
+
+        let Some(root_path) = self
+            .voicebank
+            .as_ref()
+            .map(|voicebank| voicebank.root_path.clone())
+        else {
+            return;
+        };
+        let Ok(signature) = crate::copaiba_bridge::oto_signature(&root_path) else {
+            return;
+        };
+        if self.voicebank_oto_signature.is_none() {
+            self.voicebank_oto_signature = Some(signature);
+            return;
+        }
+        if self.voicebank_oto_signature == Some(signature) {
+            return;
+        }
+
+        if let Ok(voicebank) = Voicebank::new(&root_path) {
+            self.transport_state.voicebank_name = voicebank.name.clone();
+            self.transport_state.voicebank_path = Some(voicebank.root_path.clone());
+            self.voicebank = Some(voicebank);
+            self.voicebank_oto_signature = Some(signature);
+            self.piano_roll_state.phoneme_cache_hash = 0;
+            self.piano_roll_state.phoneme_cache.clear();
+            self.piano_roll_state.note_phonemes_cache.clear();
+            self.transport_state.status_message = "oto.ini atualizado pelo Copaiba NEO".to_string();
+        }
+    }
+
+    #[cfg(not(target_os = "android"))]
+    fn open_copaiba_for_alias(&mut self, requested_alias: &str) {
+        let Some(voicebank) = self.voicebank.as_ref() else {
+            self.transport_state.status_message =
+                "Carregue um voicebank para editar o oto.ini.".to_string();
+            return;
+        };
+        let alias = voicebank
+            .entries
+            .keys()
+            .find(|alias| alias.trim().eq_ignore_ascii_case(requested_alias.trim()))
+            .cloned()
+            .or_else(|| {
+                voicebank
+                    .find_entry(requested_alias, "C4")
+                    .map(|entry| entry.alias.clone())
+            })
+            .unwrap_or_else(|| requested_alias.trim().to_string());
+        let result = crate::copaiba_bridge::launch_editor(&voicebank.root_path, &alias);
+        self.transport_state.status_message = match result {
+            Ok(()) => format!("Copaiba NEO aberto em: {alias}"),
+            Err(error) => error,
+        };
     }
 
     pub fn current_notes(&self) -> &[UNote] {
@@ -1977,6 +2045,7 @@ impl eframe::App for KamafeuStudioApp {
 
         // Keep the editor invariant: every active track owns an editable part.
         let _ = self.current_notes_mut();
+        self.refresh_voicebank_oto();
 
         if let Some(ref rx) = self.render_log_channel_rx {
             // Keep UI frames responsive even if a renderer emits a burst of logs.
@@ -2496,6 +2565,7 @@ impl eframe::App for KamafeuStudioApp {
                 let mut loaded_vb: Option<Voicebank> = None;
                 let mut preview_alias: Option<String> = None;
                 let mut insert_alias: Option<String> = None;
+                let mut edit_alias: Option<String> = None;
 
                 let notes = &mut self.project.parts[part_idx].notes[..];
 
@@ -2553,6 +2623,7 @@ impl eframe::App for KamafeuStudioApp {
                     &mut || open_singers_gallery = true,
                     &mut |alias| preview_alias = Some(alias.to_string()),
                     &mut |alias| insert_alias = Some(alias.to_string()),
+                    &mut |alias| edit_alias = Some(alias.to_string()),
                 );
 
                 if open_folder_picker {
@@ -2630,6 +2701,11 @@ impl eframe::App for KamafeuStudioApp {
                         let new_note = UNote::new(&alias, "C4", playhead_ms, 400.0);
                         notes_mut.push(new_note);
                     }
+                }
+
+                #[cfg(not(target_os = "android"))]
+                if let Some(alias) = edit_alias {
+                    self.open_copaiba_for_alias(&alias);
                 }
             });
 

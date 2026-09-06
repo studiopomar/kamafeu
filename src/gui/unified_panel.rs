@@ -33,6 +33,7 @@ pub fn draw_unified_panel(
     on_open_gallery: &mut dyn FnMut(),
     on_preview_phoneme: &mut dyn FnMut(&str),
     on_insert_phoneme: &mut dyn FnMut(&str),
+    on_edit_phoneme: &mut dyn FnMut(&str),
 ) {
     let vb_name = voicebank
         .map(|v| v.name.as_str())
@@ -466,6 +467,9 @@ pub fn draw_unified_panel(
                                             changed_lyric = true;
                                         }
                                     });
+                                    if ui.button("Editar alias no Copaiba NEO").clicked() {
+                                        on_edit_phoneme(&lyric);
+                                    }
 
                                     ui.horizontal(|ui| {
                                         ui.label("Tom / Nota:");
@@ -685,6 +689,7 @@ pub fn draw_unified_panel(
                     phoneme_state,
                     on_preview_phoneme,
                     on_insert_phoneme,
+                    on_edit_phoneme,
                 );
             }
 
