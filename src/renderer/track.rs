@@ -197,10 +197,26 @@ impl TrackRenderer {
         let available = (track_buffer.len() - start_sample).min(note_samples.len());
         for (index, &sample) in note_samples.iter().take(available).enumerate() {
             let track_index = start_sample + index;
-            track_buffer[track_index] += sample;
+            let previous = track_buffer[track_index];
+            let mixed = previous + sample;
+            track_buffer[track_index] = if previous.abs() > 1e-6 && sample.abs() > 1e-6 {
+                Self::soft_limit_transition(mixed)
+            } else {
+                mixed
+            };
         }
 
         previous_end_sample.max(start_sample + available)
+    }
+
+    fn soft_limit_transition(sample: f32) -> f32 {
+        const KNEE: f32 = 0.98;
+        let magnitude = sample.abs();
+        if magnitude <= KNEE {
+            sample
+        } else {
+            sample.signum() * (KNEE + (1.0 - KNEE) * ((magnitude - KNEE) / (1.0 - KNEE)).tanh())
+        }
     }
 
     /// Helper to read a WAV file from disk into f32 mono samples
@@ -978,11 +994,23 @@ mod wav_tests {
         assert_eq!(end, 15);
         assert!((track[5] - 1.0).abs() < 1e-6);
         assert!((track[9] - 1.0).abs() < 1e-6);
+        assert!(track[5..10].iter().all(|sample| *sample >= 0.99));
         assert!(track[5..10].iter().all(|sample| *sample <= 1.000_001));
         assert!(track[5..10].windows(2).all(|pair| {
             let jump = (pair[1] - pair[0]).abs();
-            jump < 1e-5
+            jump < 0.01
         }));
+    }
+
+    #[test]
+    fn mixer_soft_limits_overlapping_transition_peaks() {
+        let mut track = vec![0.8; 20];
+        let next = vec![0.8; 10];
+
+        TrackRenderer::mix_phase_aligned(&mut track, &next, 5, 15, 0, 261.63, 44_100);
+
+        assert!(track[5..15].iter().all(|sample| sample.abs() <= 1.0));
+        assert!(track[5..15].iter().all(|sample| sample.abs() > 0.98));
     }
 
     #[test]

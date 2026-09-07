@@ -284,17 +284,12 @@ impl SolaResampler {
         // Keep consonant timing independent while retuning any voiced portion
         // of the transition to the note pitch.
         if target_consonant_samples > 0 && !consonant_slice.is_empty() {
-            output.extend(Self::render_vowel_psola(
+            output.extend(Self::render_consonant(
                 consonant_slice,
                 sample_rate,
                 target_consonant_samples,
                 target_pitch_freq,
                 pitch_points,
-                0.0,
-                None,
-                None,
-                None,
-                SolaStretchMode::Stretch,
             ));
         } else if target_consonant_samples > 0 {
             output.resize(target_consonant_samples, 0.0);
@@ -459,6 +454,79 @@ impl SolaResampler {
             }
         };
         loop_start as f64 + mapped.min(loop_len.saturating_sub(1) as f64)
+    }
+
+    fn voiced_transition_start(samples: &[f32], sample_rate: u32) -> Option<usize> {
+        if samples.len() < 32 || sample_rate == 0 {
+            return None;
+        }
+        let window = ((sample_rate as f64 * 0.07).round() as usize)
+            .clamp(64, 4_096)
+            .min(samples.len());
+        if window == samples.len() {
+            return Self::estimate_pitch(samples, sample_rate)
+                .filter(|estimate| estimate.periodicity >= 0.32)
+                .map(|_| 0);
+        }
+
+        let hop = ((sample_rate as f64 * 0.015).round() as usize).max(1);
+        let mut candidate = None;
+        let mut consecutive = 0;
+        let last_start = samples.len() - window;
+        for start in (0..=last_start).step_by(hop) {
+            let voiced = Self::estimate_pitch(&samples[start..start + window], sample_rate)
+                .is_some_and(|estimate| estimate.periodicity >= 0.32);
+            if voiced {
+                candidate.get_or_insert(start);
+                consecutive += 1;
+                if consecutive >= 2 {
+                    return candidate;
+                }
+            } else {
+                candidate = None;
+                consecutive = 0;
+            }
+        }
+        None
+    }
+
+    fn render_consonant(
+        consonant: &[f32],
+        sample_rate: u32,
+        target_samples: usize,
+        target_pitch_freq: f64,
+        pitch_points: &[UPitchBendPoint],
+    ) -> Vec<f32> {
+        let preserved = crate::dsp::resize_preserving_pitch(consonant, target_samples, sample_rate);
+        let Some(voiced_start) = Self::voiced_transition_start(consonant, sample_rate) else {
+            return preserved;
+        };
+        let pitched = Self::render_vowel_psola(
+            consonant,
+            sample_rate,
+            target_samples,
+            target_pitch_freq,
+            pitch_points,
+            0.0,
+            None,
+            None,
+            None,
+            SolaStretchMode::Stretch,
+        );
+        let target_voiced_start =
+            voiced_start as f64 * target_samples as f64 / consonant.len().max(1) as f64;
+        let crossfade_samples = (sample_rate as f64 * 0.012).round().max(1.0);
+
+        preserved
+            .into_iter()
+            .zip(pitched)
+            .enumerate()
+            .map(|(index, (preserved, pitched))| {
+                let phase = ((index as f64 - target_voiced_start) / crossfade_samples)
+                    .clamp(0.0, 1.0) as f32;
+                preserved * (1.0 - phase) + pitched * phase
+            })
+            .collect()
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -741,6 +809,43 @@ mod tests {
         assert!(
             (measured_frequency - 440.0).abs() < 20.0,
             "voiced transition measured {measured_frequency:.1} Hz"
+        );
+    }
+
+    #[test]
+    fn unvoiced_consonant_attack_is_preserved_before_retuning() {
+        let sample_rate = 16_000;
+        let attack_len = sample_rate as usize * 120 / 1_000;
+        let mut state = 0x4d59_5df4u32;
+        let mut input = (0..attack_len)
+            .map(|_| {
+                state = state.wrapping_mul(1_664_525).wrapping_add(1_013_904_223);
+                ((state >> 8) as f32 / 0x00ff_ffff as f32 - 0.5) * 0.5
+            })
+            .collect::<Vec<_>>();
+        input.extend(voice_like_tone(sample_rate, 220.0, 0.18));
+
+        let output = SolaResampler::render_consonant(&input, sample_rate, input.len(), 440.0, &[]);
+        let comparison_len = sample_rate as usize * 50 / 1_000;
+        let mean_squared_error = input[..comparison_len]
+            .iter()
+            .zip(&output[..comparison_len])
+            .map(|(source, rendered)| f64::from(source - rendered).powi(2))
+            .sum::<f64>()
+            / comparison_len as f64;
+
+        assert!(
+            mean_squared_error < 1e-12,
+            "unvoiced attack changed with MSE {mean_squared_error}"
+        );
+        let voiced_tail = &output[output.len() - sample_rate as usize * 90 / 1_000..];
+        let measured_frequency = sample_rate as f64
+            / SolaResampler::estimate_pitch(voiced_tail, sample_rate)
+                .unwrap()
+                .period;
+        assert!(
+            (measured_frequency - 440.0).abs() < 22.0,
+            "voiced consonant tail measured {measured_frequency:.1} Hz"
         );
     }
 

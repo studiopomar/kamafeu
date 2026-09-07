@@ -310,8 +310,7 @@ impl WavtoolYawuDriver {
         for output_index in 0..output_len {
             let source_index = output_index as isize + source_offset;
             if source_index >= 0 && (source_index as usize) < source.len() {
-                note_samples[output_index] =
-                    (source[source_index as usize] * envelope[output_index]).clamp(-1.0, 1.0);
+                note_samples[output_index] = source[source_index as usize] * envelope[output_index];
             }
         }
     }
@@ -647,6 +646,19 @@ mod tests {
 
         assert!((phone[500] - 0.3).abs() < 1e-3);
         assert!(phone[1_000..].iter().all(|sample| sample.abs() < 1e-6));
+    }
+
+    #[test]
+    fn integrated_yawu_preserves_float_headroom_for_the_mixer() {
+        let mut phone = vec![1.25; 1_000];
+        let mut args = yawu_test_args(1_000.0, 0.0);
+        args.envelope.p1 = 0.0;
+        args.envelope.p2 = 0.0;
+        args.envelope.v1 = 100.0;
+
+        WavtoolYawuDriver::process_integrated(&mut phone, 1_000, &args);
+
+        assert!(phone[500] > 1.2);
     }
 
     #[test]
