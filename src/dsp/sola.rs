@@ -281,12 +281,20 @@ impl SolaResampler {
 
         let mut output = Vec::with_capacity(target_total_samples);
 
-        // 1. Process Consonant (Preserve timing and formants)
+        // Keep consonant timing independent while retuning any voiced portion
+        // of the transition to the note pitch.
         if target_consonant_samples > 0 && !consonant_slice.is_empty() {
-            output.extend(crate::dsp::resize_preserving_pitch(
+            output.extend(Self::render_vowel_psola(
                 consonant_slice,
-                target_consonant_samples,
                 sample_rate,
+                target_consonant_samples,
+                target_pitch_freq,
+                pitch_points,
+                0.0,
+                None,
+                None,
+                None,
+                SolaStretchMode::Stretch,
             ));
         } else if target_consonant_samples > 0 {
             output.resize(target_consonant_samples, 0.0);
@@ -426,10 +434,11 @@ impl SolaResampler {
         let mapped = match mode {
             SolaStretchMode::Loop => (middle_position % loop_len) as f64,
             SolaStretchMode::Stretch => {
-                if target_middle_len <= loop_len {
-                    middle_position as f64 * loop_len as f64 / target_middle_len as f64
+                if target_middle_len <= 1 || loop_len <= 1 {
+                    0.0
                 } else {
-                    (middle_position % loop_len) as f64
+                    middle_position.min(target_middle_len - 1) as f64 * (loop_len - 1) as f64
+                        / (target_middle_len - 1) as f64
                 }
             }
             SolaStretchMode::Spline => {
@@ -472,25 +481,33 @@ impl SolaResampler {
 
         // Resolve the stable sustain before analysis so noisy attacks and
         // releases do not dominate F0 detection.
-        let fallback_loop = || {
+        let fallback_sustain = || {
             let start = v_len / 4;
             let end = (v_len * 3 / 4).max(start + 16).min(v_len);
             (start, end)
         };
-        let (loop_start_samp, loop_end_samp) = match (loop_start_ms, loop_end_ms) {
+        let explicit_loop = match (loop_start_ms, loop_end_ms) {
             (Some(ls), Some(le)) => {
                 let s = ((ls / 1000.0) * sample_rate as f64).round() as usize;
                 let e = ((le / 1000.0) * sample_rate as f64).round() as usize;
                 if s + 16 < e && e <= v_len {
-                    (s, e)
+                    Some((s, e))
                 } else {
-                    fallback_loop()
+                    None
                 }
             }
-            _ => fallback_loop(),
+            _ => None,
         };
+        let (analysis_start, analysis_end) = explicit_loop.unwrap_or_else(fallback_sustain);
+        let (loop_start_samp, loop_end_samp) = explicit_loop.unwrap_or_else(|| {
+            if mode == SolaStretchMode::Stretch {
+                (0, v_len)
+            } else {
+                fallback_sustain()
+            }
+        });
 
-        let analysis_slice = &vowel[loop_start_samp..loop_end_samp];
+        let analysis_slice = &vowel[analysis_start..analysis_end];
         let Some(estimate) = Self::estimate_pitch(analysis_slice, sample_rate)
             .or_else(|| Self::estimate_pitch(vowel, sample_rate))
         else {
@@ -499,7 +516,7 @@ impl SolaResampler {
 
         // PSOLA makes noise periodic. Route genuinely unvoiced/breathy regions
         // through WSOLA, which preserves their stochastic texture and timing.
-        if estimate.periodicity < 0.42 {
+        if estimate.periodicity < 0.15 {
             return crate::dsp::resize_preserving_pitch(vowel, target_samples, sample_rate);
         }
 
@@ -511,7 +528,8 @@ impl SolaResampler {
 
         let tail_start_samp = tail_start_ms
             .map(|ms| ((ms / 1000.0) * sample_rate as f64).round() as usize)
-            .filter(|&sample| sample < v_len && sample > loop_start_samp);
+            .filter(|&sample| sample < v_len && sample > loop_start_samp)
+            .or_else(|| explicit_loop.and_then(|(_, end)| (end < v_len).then_some(end)));
 
         let mut output = vec![0.0f32; target_samples];
         let mut weights = vec![0.0f32; target_samples];
@@ -674,6 +692,111 @@ mod tests {
                 "unstable RMS {level:.3} at {target_frequency:.1} Hz"
             );
         }
+    }
+
+    #[test]
+    fn stretch_maps_the_source_forward_without_wrapping() {
+        let positions = (0..800)
+            .step_by(10)
+            .map(|position| {
+                SolaResampler::source_position(
+                    position,
+                    800,
+                    400,
+                    0,
+                    400,
+                    None,
+                    SolaStretchMode::Stretch,
+                )
+            })
+            .collect::<Vec<_>>();
+
+        assert!(positions.windows(2).all(|pair| pair[1] >= pair[0]));
+        assert!(positions.last().copied().unwrap_or_default() > 390.0);
+    }
+
+    #[test]
+    fn voiced_consonant_transition_is_retuned_to_the_note() {
+        let sample_rate = 16_000;
+        let input = voice_like_tone(sample_rate, 220.0, 0.4);
+        let output = SolaResampler::render_sample(
+            &input,
+            sample_rate,
+            0.0,
+            220.0,
+            220.0,
+            0.0,
+            400.0,
+            440.0,
+            &[],
+            None,
+            None,
+            None,
+        );
+        let transition =
+            &output[sample_rate as usize * 40 / 1_000..sample_rate as usize * 170 / 1_000];
+        let estimate = SolaResampler::estimate_pitch(transition, sample_rate).unwrap();
+        let measured_frequency = sample_rate as f64 / estimate.period;
+
+        assert!(
+            (measured_frequency - 440.0).abs() < 20.0,
+            "voiced transition measured {measured_frequency:.1} Hz"
+        );
+    }
+
+    #[test]
+    fn psola_follows_a_portamento_curve() {
+        let sample_rate = 16_000;
+        let input = voice_like_tone(sample_rate, 220.0, 0.5);
+        let pitch_points = [
+            UPitchBendPoint {
+                time_offset_ms: 0.0,
+                pitch_offset_cents: 0.0,
+                shape: "l".to_string(),
+            },
+            UPitchBendPoint {
+                time_offset_ms: 180.0,
+                pitch_offset_cents: 0.0,
+                shape: "l".to_string(),
+            },
+            UPitchBendPoint {
+                time_offset_ms: 380.0,
+                pitch_offset_cents: 1_200.0,
+                shape: "l".to_string(),
+            },
+            UPitchBendPoint {
+                time_offset_ms: 600.0,
+                pitch_offset_cents: 1_200.0,
+                shape: "l".to_string(),
+            },
+        ];
+        let output = SolaResampler::render_sample(
+            &input,
+            sample_rate,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            600.0,
+            220.0,
+            &pitch_points,
+            None,
+            None,
+            None,
+        );
+        let early = &output[sample_rate as usize * 50 / 1_000..sample_rate as usize * 150 / 1_000];
+        let late = &output[sample_rate as usize * 440 / 1_000..sample_rate as usize * 560 / 1_000];
+        let early_frequency = sample_rate as f64
+            / SolaResampler::estimate_pitch(early, sample_rate)
+                .unwrap()
+                .period;
+        let late_frequency = sample_rate as f64
+            / SolaResampler::estimate_pitch(late, sample_rate)
+                .unwrap()
+                .period;
+
+        assert!((early_frequency - 220.0).abs() < 12.0);
+        assert!((late_frequency - 440.0).abs() < 22.0);
     }
 
     #[test]

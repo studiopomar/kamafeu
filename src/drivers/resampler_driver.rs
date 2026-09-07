@@ -317,6 +317,10 @@ impl ResamplerDriver for NativeSolaResamplerDriver {
         }
     }
 
+    fn cache_identity(&self) -> String {
+        format!("{}:pitch-v2", self.name())
+    }
+
     fn render_sample(
         &self,
         raw_samples: &[f32],
