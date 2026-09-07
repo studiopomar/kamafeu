@@ -298,72 +298,21 @@ impl WavtoolYawuDriver {
 
         let source = note_samples.to_vec();
         note_samples.fill(0.0);
-        let output_len = ((args.duration_ms.max(0.0) * sample_rate as f64 / 1_000.0).round()
-            as usize)
-            .min(note_samples.len());
-        if output_len == 0 {
-            return;
-        }
+        let source_offset =
+            (args.skip_over_ms.max(0.0) * sample_rate as f64 / 1_000.0).round() as usize;
+        let available = note_samples
+            .len()
+            .min(source.len().saturating_sub(source_offset));
+        note_samples[..available]
+            .copy_from_slice(&source[source_offset..source_offset + available]);
 
-        let envelope = yawu_envelope(output_len, sample_rate, &args.envelope);
-        let source_offset = (args.skip_over_ms * sample_rate as f64 / 1_000.0).round() as isize;
-        for output_index in 0..output_len {
-            let source_index = output_index as isize + source_offset;
-            if source_index >= 0 && (source_index as usize) < source.len() {
-                note_samples[output_index] = source[source_index as usize] * envelope[output_index];
-            }
-        }
+        UtauEnvelope::apply_points(
+            note_samples,
+            sample_rate,
+            args.sample_time_zero_ms + args.skip_over_ms.max(0.0),
+            &args.phoneme_envelope,
+        );
     }
-}
-
-fn yawu_envelope(sample_count: usize, sample_rate: u32, envelope: &UtauEnvelope) -> Vec<f32> {
-    if sample_count == 0 {
-        return Vec::new();
-    }
-
-    let samples_per_ms = sample_rate as f64 / 1_000.0;
-    let last = sample_count.saturating_sub(1) as f64;
-    let points = [
-        (0.0, 0.0),
-        (envelope.p1 * samples_per_ms, envelope.v1 / 100.0),
-        (
-            (envelope.p1 + envelope.p2) * samples_per_ms,
-            envelope.v2 / 100.0,
-        ),
-        (
-            (envelope.p1 + envelope.p2 + envelope.p5) * samples_per_ms,
-            envelope.v5 / 100.0,
-        ),
-        (
-            last - (envelope.p3 + envelope.p4) * samples_per_ms,
-            envelope.v3 / 100.0,
-        ),
-        (last - envelope.p4 * samples_per_ms, envelope.v4 / 100.0),
-        (last, 0.0),
-    ];
-    let mut result = vec![0.0f32; sample_count];
-    for pair in points.windows(2) {
-        let (start_position, start_value) = pair[0];
-        let (end_position, end_value) = pair[1];
-        if (end_position - start_position).abs() < f64::EPSILON {
-            continue;
-        }
-        let range_start = start_position.min(end_position).clamp(0.0, last).ceil() as usize;
-        let range_end = start_position.max(end_position).clamp(0.0, last).floor() as usize;
-        for (index, gain) in result
-            .iter_mut()
-            .enumerate()
-            .take(range_end.saturating_add(1))
-            .skip(range_start)
-        {
-            let position = index as f64;
-            let phase =
-                ((position - start_position) / (end_position - start_position)).clamp(0.0, 1.0);
-            let value = start_value + phase * (end_value - start_value);
-            *gain = gain.max(value.max(0.0) as f32);
-        }
-    }
-    result
 }
 
 impl WavtoolDriver for WavtoolYawuDriver {
@@ -610,8 +559,14 @@ mod tests {
                 crossfade_ms: 0.0,
             },
             overlap_ms: 0.0,
-            phoneme_envelope: [(0.0, 1.0); 5],
-            sample_time_zero_ms: 0.0,
+            phoneme_envelope: [
+                (-100.0, 0.0),
+                (-50.0, 1.0),
+                (0.0, 1.0),
+                (900.0, 1.0),
+                (950.0, 0.0),
+            ],
+            sample_time_zero_ms: -100.0,
         }
     }
 
@@ -636,7 +591,7 @@ mod tests {
     }
 
     #[test]
-    fn integrated_yawu_consumes_stp_once_and_limits_note_length() {
+    fn integrated_yawu_consumes_stp_once_and_keeps_timeline_alignment() {
         let mut phone = (0..2_000)
             .map(|index| index as f32 / 2_000.0)
             .collect::<Vec<_>>();
@@ -662,12 +617,22 @@ mod tests {
     }
 
     #[test]
-    fn yawu_envelope_fades_the_render_boundaries() {
-        let args = yawu_test_args(1_000.0, 0.0);
-        let envelope = yawu_envelope(1_000, 1_000, &args.envelope);
+    fn integrated_yawu_keeps_release_after_the_musical_duration() {
+        let mut phone = vec![0.75; 1_200];
+        let mut args = yawu_test_args(1_000.0, 0.0);
+        args.sample_time_zero_ms = 0.0;
+        args.phoneme_envelope = [
+            (0.0, 0.0),
+            (10.0, 1.0),
+            (20.0, 1.0),
+            (1_050.0, 1.0),
+            (1_100.0, 0.0),
+        ];
 
-        assert_eq!(envelope[0], 0.0);
-        assert!(envelope[500] > 0.99);
-        assert_eq!(envelope[999], 0.0);
+        WavtoolYawuDriver::process_integrated(&mut phone, 1_000, &args);
+
+        assert!(phone[1_025] > 0.7);
+        assert!(phone[1_075] > 0.3);
+        assert_eq!(phone[1_100], 0.0);
     }
 }
