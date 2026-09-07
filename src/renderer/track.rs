@@ -736,20 +736,27 @@ impl TrackRenderer {
                     sample_time_zero_ms: -timing.pitch_leading_ms,
                 };
 
-                if let Err(error) =
-                    wavtool_driver.process_note(&mut note_rendered, sample_rate, &wav_args, cancel)
-                {
-                    logs.push((
-                        progress,
-                        format!("  [Wavtool] {error}; usando processamento nativo"),
-                    ));
-                    let _ = NativeWavtoolDriver.process_note(
-                        &mut note_rendered,
-                        sample_rate,
-                        &wav_args,
-                        cancel,
-                    );
-                }
+                let wavtool_consumed_skip = match wavtool_driver.process_note(
+                    &mut note_rendered,
+                    sample_rate,
+                    &wav_args,
+                    cancel,
+                ) {
+                    Ok(()) => wavtool_driver.consumes_skip_over(),
+                    Err(error) => {
+                        logs.push((
+                            progress,
+                            format!("  [Wavtool] {error}; usando processamento nativo"),
+                        ));
+                        let _ = NativeWavtoolDriver.process_note(
+                            &mut note_rendered,
+                            sample_rate,
+                            &wav_args,
+                            cancel,
+                        );
+                        false
+                    }
+                };
                 let post_wavtool_max = note_rendered.iter().map(|s| s.abs()).fold(0.0f32, f32::max);
                 logs.push((
                     progress,
@@ -771,7 +778,11 @@ impl TrackRenderer {
                     *sample *= (dyn_gain * vibrato_volume) as f32;
                 }
 
-                let mut source_skip_ms = timing.skip_over_ms;
+                let mut source_skip_ms = if wavtool_consumed_skip {
+                    0.0
+                } else {
+                    timing.skip_over_ms
+                };
                 let unclamped_start_ms = phone.position_ms - timing.preutter_ms;
                 let actual_start_ms = unclamped_start_ms.max(0.0);
                 if unclamped_start_ms < 0.0 {

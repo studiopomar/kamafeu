@@ -224,7 +224,7 @@ O Studio também executa resamplers e wavtools pela interface de linha de comand
 
 Os pacotes de distribuição podem incluir apenas parte dessas ferramentas. Consulte o [inventário de resamplers](resamplers/README.md) para plataformas, licenças e checksums. Para executar ferramentas Windows (`.exe`) no macOS ou Linux, a integração utiliza uma instalação local do Wine.
 
-O arquivo `wavtools/wavtool-yawu` deste repositório é um script simplificado de cópia de áudio. Para usar os recursos do wavtool-yawu completo, configure o executável correspondente no painel do motor.
+O perfil `wavtool-yawu` inclui uma implementação integrada e multiplataforma do corte STP e do envelope do YAWU. Se um executável oficial for configurado no painel do motor, o Kamafeu usa esse executável com o mesmo contrato UTAU.
 
 ## Pipeline de renderização
 

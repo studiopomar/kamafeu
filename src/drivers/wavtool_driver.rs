@@ -17,6 +17,9 @@ pub struct WavtoolArgs {
 
 pub trait WavtoolDriver: Send + Sync {
     fn name(&self) -> &str;
+    fn consumes_skip_over(&self) -> bool {
+        false
+    }
     fn process_note(
         &self,
         note_samples: &mut [f32],
@@ -279,11 +282,98 @@ impl WavtoolYawuDriver {
     pub fn find_executable() -> Option<PathBuf> {
         KnownWavtool::WavtoolYawu.find_executable()
     }
+
+    fn uses_integrated_backend(&self) -> bool {
+        if !self.executable_path.is_file() {
+            return true;
+        }
+        std::fs::read_to_string(&self.executable_path)
+            .is_ok_and(|contents| contents.contains("Kamafeu Internal Wavtool-Yawu Driver Wrapper"))
+    }
+
+    fn process_integrated(note_samples: &mut [f32], sample_rate: u32, args: &WavtoolArgs) {
+        if note_samples.is_empty() || sample_rate == 0 {
+            return;
+        }
+
+        let source = note_samples.to_vec();
+        note_samples.fill(0.0);
+        let output_len = ((args.duration_ms.max(0.0) * sample_rate as f64 / 1_000.0).round()
+            as usize)
+            .min(note_samples.len());
+        if output_len == 0 {
+            return;
+        }
+
+        let envelope = yawu_envelope(output_len, sample_rate, &args.envelope);
+        let source_offset = (args.skip_over_ms * sample_rate as f64 / 1_000.0).round() as isize;
+        for output_index in 0..output_len {
+            let source_index = output_index as isize + source_offset;
+            if source_index >= 0 && (source_index as usize) < source.len() {
+                note_samples[output_index] =
+                    (source[source_index as usize] * envelope[output_index]).clamp(-1.0, 1.0);
+            }
+        }
+    }
+}
+
+fn yawu_envelope(sample_count: usize, sample_rate: u32, envelope: &UtauEnvelope) -> Vec<f32> {
+    if sample_count == 0 {
+        return Vec::new();
+    }
+
+    let samples_per_ms = sample_rate as f64 / 1_000.0;
+    let last = sample_count.saturating_sub(1) as f64;
+    let points = [
+        (0.0, 0.0),
+        (envelope.p1 * samples_per_ms, envelope.v1 / 100.0),
+        (
+            (envelope.p1 + envelope.p2) * samples_per_ms,
+            envelope.v2 / 100.0,
+        ),
+        (
+            (envelope.p1 + envelope.p2 + envelope.p5) * samples_per_ms,
+            envelope.v5 / 100.0,
+        ),
+        (
+            last - (envelope.p3 + envelope.p4) * samples_per_ms,
+            envelope.v3 / 100.0,
+        ),
+        (last - envelope.p4 * samples_per_ms, envelope.v4 / 100.0),
+        (last, 0.0),
+    ];
+    let mut result = vec![0.0f32; sample_count];
+    for pair in points.windows(2) {
+        let (start_position, start_value) = pair[0];
+        let (end_position, end_value) = pair[1];
+        if (end_position - start_position).abs() < f64::EPSILON {
+            continue;
+        }
+        let range_start = start_position.min(end_position).clamp(0.0, last).ceil() as usize;
+        let range_end = start_position.max(end_position).clamp(0.0, last).floor() as usize;
+        for (index, gain) in result
+            .iter_mut()
+            .enumerate()
+            .take(range_end.saturating_add(1))
+            .skip(range_start)
+        {
+            let position = index as f64;
+            let phase =
+                ((position - start_position) / (end_position - start_position)).clamp(0.0, 1.0);
+            let value = start_value + phase * (end_value - start_value);
+            *gain = gain.max(value.max(0.0) as f32);
+        }
+    }
+    result
 }
 
 impl WavtoolDriver for WavtoolYawuDriver {
     fn name(&self) -> &str {
         "wavtool-yawu (m13253/wavtool-yawu)"
+    }
+
+    fn consumes_skip_over(&self) -> bool {
+        true
     }
 
     fn process_note(
@@ -293,6 +383,11 @@ impl WavtoolDriver for WavtoolYawuDriver {
         args: &WavtoolArgs,
         cancel: Option<&AtomicBool>,
     ) -> Result<(), String> {
+        if self.uses_integrated_backend() {
+            Self::process_integrated(note_samples, sample_rate, args);
+            return Ok(());
+        }
+
         let resolved_exe = if self.executable_path.is_file() {
             Some(self.executable_path.clone())
         } else {
@@ -363,16 +458,7 @@ impl WavtoolDriver for WavtoolYawuDriver {
             }
         }
 
-        // The bundled yawu launcher is intentionally a pass-through wrapper;
-        // still read its output so replacing it with the real engine works.
         load_wavtool_output(note_samples, sample_rate, &args.output_wav)?;
-
-        UtauEnvelope::apply_points(
-            note_samples,
-            sample_rate,
-            args.sample_time_zero_ms,
-            &args.phoneme_envelope,
-        );
         Ok(())
     }
 }
@@ -411,6 +497,10 @@ impl ExternalWavtoolDriver {
 impl WavtoolDriver for ExternalWavtoolDriver {
     fn name(&self) -> &str {
         &self.display_name
+    }
+
+    fn consumes_skip_over(&self) -> bool {
+        true
     }
 
     fn process_note(
@@ -501,6 +591,31 @@ impl WavtoolDriver for ExternalWavtoolDriver {
 mod tests {
     use super::*;
 
+    fn yawu_test_args(duration_ms: f64, skip_over_ms: f64) -> WavtoolArgs {
+        WavtoolArgs {
+            output_wav: PathBuf::from("unused-output.wav"),
+            input_rendered_wav: PathBuf::from("unused-input.wav"),
+            skip_over_ms,
+            duration_ms,
+            envelope: UtauEnvelope {
+                p1: 10.0,
+                p2: 10.0,
+                p3: 1.0,
+                p4: 0.0,
+                p5: 1.0,
+                v1: 0.0,
+                v2: 100.0,
+                v3: 100.0,
+                v4: 0.0,
+                v5: 100.0,
+                crossfade_ms: 0.0,
+            },
+            overlap_ms: 0.0,
+            phoneme_envelope: [(0.0, 1.0); 5],
+            sample_time_zero_ms: 0.0,
+        }
+    }
+
     #[test]
     fn known_wavtools_roundtrip_their_labels() {
         for profile in KnownWavtool::ALL {
@@ -519,5 +634,28 @@ mod tests {
         load_wavtool_output(&mut phone, 44_100, &output).unwrap();
 
         assert!(phone.iter().all(|sample| (sample - 0.25).abs() < 1e-3));
+    }
+
+    #[test]
+    fn integrated_yawu_consumes_stp_once_and_limits_note_length() {
+        let mut phone = (0..2_000)
+            .map(|index| index as f32 / 2_000.0)
+            .collect::<Vec<_>>();
+        let args = yawu_test_args(1_000.0, 100.0);
+
+        WavtoolYawuDriver::process_integrated(&mut phone, 1_000, &args);
+
+        assert!((phone[500] - 0.3).abs() < 1e-3);
+        assert!(phone[1_000..].iter().all(|sample| sample.abs() < 1e-6));
+    }
+
+    #[test]
+    fn yawu_envelope_fades_the_render_boundaries() {
+        let args = yawu_test_args(1_000.0, 0.0);
+        let envelope = yawu_envelope(1_000, 1_000, &args.envelope);
+
+        assert_eq!(envelope[0], 0.0);
+        assert!(envelope[500] > 0.99);
+        assert_eq!(envelope[999], 0.0);
     }
 }
