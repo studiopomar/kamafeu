@@ -152,7 +152,7 @@ O Kamafeu Studio permite alternar entre o pipeline nativo de processamento e fer
 
 > **Aviso de desenvolvimento:** O Copaiba Toolkit é um utilitário em estágio experimental e não está pronto para uso em produção. Sua interface, estrutura de dados e rotinas de gravação de arquivos ainda passam por alterações frequentes.
 
-O **Copaiba** foi projetado para calibragem, teste e organização de bancos de voz UTAU. Ele pode ser aberto como utilitário independente (`copaiba`) ou acionado a partir de qualquer fonema na régua do Kamafeu para inspeção dos parâmetros do `oto.ini`:
+O **Copaiba** foi projetado para calibragem, teste e organização de bancos de voz UTAU. Ele pode ser aberto como utilitário independente (`copaiba`) ou acionado a partir de qualquer fonema na régua do Kamafeu para inspeção dos parâmetros da `oto.ini`:
 
 - **Offset:** Início útil da amostra, descartando silêncios ou ruídos mecânicos de captação.
 - **Consonant (Consoante fixa):** Intervalo temporal que não sofre estiramento durante alterações de andamento.
@@ -388,7 +388,7 @@ No macOS, utilize a tecla `Cmd` no lugar de `Ctrl`.
 | `Ctrl + L` / `Cmd + L` | Exibir ou ocultar janela de log em tempo real do motor de áudio |
 | `Tab` | Exibir ou ocultar gaveta inferior de parâmetros e expressões |
 | `Alt + A` | Exibir ou ocultar painel de arranjo multifaixa |
-| `Alt + O` | Exibir ou ocultar régua de fonemas e limites do OTO |
+| `Alt + O` | Exibir ou ocultar régua de fonemas e limites da OTO |
 | `Ctrl + B` / `Cmd + B` | Exibir ou ocultar inspetor lateral direito |
 | `F1` / `Cmd + ?` | Abrir guia interativo de teclas de atalho |
 | `F11` | Alternar modo de tela cheia |

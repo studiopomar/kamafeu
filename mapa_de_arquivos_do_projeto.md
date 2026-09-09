@@ -70,7 +70,7 @@ Este documento serve como referência e índice técnico completo de todos os ar
 | Arquivo | Descrição |
 | --- | --- |
 | `src/copaiba/mod.rs` | Módulo central do Copaiba: estruturas de dados de edição de amostras, aliases e gerenciamento de arquivos. |
-| `src/copaiba/gui.rs` | Interface visual do Copaiba: renderização gráfica da forma de onda da amostra WAV, réguas de calibração interativa dos parâmetros do `oto.ini` (*Offset*, *Consonant*, *Cutoff*, *Preutterance*, *Overlap*) com arraste de linhas e teste de reprodução por fatia. |
+| `src/copaiba/gui.rs` | Interface visual do Copaiba: renderização gráfica da forma de onda da amostra WAV, réguas de calibração interativa dos parâmetros da `oto.ini` (*Offset*, *Consonant*, *Cutoff*, *Preutterance*, *Overlap*) com arraste de linhas e teste de reprodução por fatia. |
 
 ---
 
@@ -135,7 +135,7 @@ Este documento serve como referência e índice técnico completo de todos os ar
 | `src/gui/inspector.rs` | Painel inspetor lateral direito: propriedades da nota selecionada, parâmetros OTO e expressões dinâmicas. |
 | `src/gui/left_panel.rs` | Painel lateral esquerdo: biblioteca de cantores, lista de voicebanks e navegador de arquivos. |
 | `src/gui/right_panel.rs` | Painel lateral complementar para inspeção e propriedades avançadas. |
-| `src/gui/phoneme_ruler.rs` | Régua inferior de fonemas: limites visuais do `oto.ini` (*preutterance*, *overlap*, consoante fixa e corte). |
+| `src/gui/phoneme_ruler.rs` | Régua inferior de fonemas: limites visuais da `oto.ini` (*preutterance*, *overlap*, consoante fixa e corte). |
 | `src/gui/phoneme_palette.rs` | Paleta de atalhos e seleção rápida de fonemas disponíveis no voicebank ativo. |
 | `src/gui/history.rs` | Gerenciamento da pilha de histórico de ações (Desfazer / Refazer). |
 | `src/gui/playback.rs` | Lógica de interação entre a interface gráfica e o reprodutor `AudioPlayer`. |
@@ -230,7 +230,7 @@ Este documento serve como referência e índice técnico completo de todos os ar
 | `src/gui/preferences_dialog.rs` | Janela principal de preferências do sistema. |
 | `src/gui/preferences_dialog/audio_settings.rs` | Configurações de drivers de áudio, dispositivo de saída e tamanho de buffer. |
 | `src/gui/preferences_dialog/dsp_settings.rs` | Configurações do algoritmo VENUS, alinhamento de fase e equal-power crossfade. |
-| `src/gui/preferences_dialog/voicebank_tuning.rs` | Ajustes globais de tolerância de timing e resolução de aliases do OTO. |
+| `src/gui/preferences_dialog/voicebank_tuning.rs` | Ajustes globais de tolerância de timing e resolução de aliases da oto.ini. |
 | `src/gui/preferences_dialog/memory_cache.rs` | Gerenciamento de limite de memória RAM para cache de amostras WAV e fonemas. |
 | `src/gui/preferences_dialog/ui_workflow.rs` | Preferências de layout, comportamento do cursor e atalhos. |
 | `src/gui/preferences_dialog/export_defaults.rs` | Padrões de taxa de amostragem e formato de exportação. |
