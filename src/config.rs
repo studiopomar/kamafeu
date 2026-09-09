@@ -87,7 +87,7 @@ fn default_resampler_str() -> String {
 }
 
 fn default_wavtool_str() -> String {
-    "Native Rust (Crossfader)".to_string()
+    "Andromeda (Nativo)".to_string()
 }
 
 fn default_pitch_step() -> f32 {

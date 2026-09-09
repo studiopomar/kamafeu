@@ -391,11 +391,13 @@ impl ResamplerDriver for NativeResamplerDriver {
     }
 }
 
-pub struct NativeWorldResamplerDriver;
+pub struct NativeVenusResamplerDriver;
 
-impl ResamplerDriver for NativeWorldResamplerDriver {
+pub type NativeWorldResamplerDriver = NativeVenusResamplerDriver;
+
+impl ResamplerDriver for NativeVenusResamplerDriver {
     fn name(&self) -> &str {
-        "Nativo (Venus)"
+        "VENUS (Nativo)"
     }
 
     fn cache_identity(&self) -> String {
@@ -412,7 +414,7 @@ impl ResamplerDriver for NativeWorldResamplerDriver {
         let gender = parse_flag_numeric(&args.flags, 'g').unwrap_or(0.0) * 100.0;
         let breathiness = parse_flag_numeric(&args.flags, 'B').unwrap_or(0.0);
 
-        let rendered = crate::dsp::WorldResampler::render_sample(
+        let rendered = crate::dsp::VenusResampler::render_sample(
             raw_samples,
             sample_rate,
             args.offset_ms,

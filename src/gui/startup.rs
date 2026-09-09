@@ -84,7 +84,7 @@ impl KamafeuStudioApp {
             sample_rate: 44100,
             render_threads: 4,
             selected_resampler: "straycat-rs (UtaUtaUtau) [Padrão Recomendado]".to_string(),
-            selected_wavtool: "Native Rust (Crossfader)".to_string(),
+            selected_wavtool: "Andromeda (Nativo)".to_string(),
             custom_resampler_path: None,
             custom_wavtool_path: None,
 

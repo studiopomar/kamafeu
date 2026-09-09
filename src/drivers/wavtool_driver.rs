@@ -323,7 +323,7 @@ pub fn concatenate_external(
 
 impl WavtoolDriver for NativeWavtoolDriver {
     fn name(&self) -> &str {
-        "Native Rust (Crossfader)"
+        "Andromeda (Nativo)"
     }
 
     fn process_note(

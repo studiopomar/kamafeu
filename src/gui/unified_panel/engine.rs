@@ -63,8 +63,8 @@ pub(super) fn draw(
                         if ui
                             .radio_value(
                                 selected_resampler,
-                                "Nativo (Venus)".to_string(),
-                                lang.tr("Nativo (Venus)", "Native (Venus)"),
+                                "VENUS (Nativo)".to_string(),
+                                lang.tr("VENUS (Nativo)", "VENUS (Native)"),
                             )
                             .clicked()
                         {
@@ -76,45 +76,6 @@ pub(super) fn draw(
                                 .color(theme.accent_c32()),
                         );
                     });
-
-                    ui.horizontal(|ui| {
-                        if ui
-                            .radio_value(
-                                selected_resampler,
-                                "Nativo (TD-PSOLA)".to_string(),
-                                lang.tr("Nativo (TD-PSOLA)", "Native (TD-PSOLA)"),
-                            )
-                            .clicked()
-                        {
-                            *custom_resampler_path = None;
-                        }
-                        ui.label(
-                            RichText::new(lang.tr("incluso", "included"))
-                                .size(9.0)
-                                .color(theme.text_muted_c32()),
-                        );
-                    });
-
-                    for (value, label_pt, label_en) in [
-                        ("Nativo (SOLA Stretch)", "SOLA Stretch (Natural)", "SOLA Stretch (Natural)"),
-                        ("Nativo (SOLA Loop)", "SOLA Loop (Sustentação)", "SOLA Loop (Sustain)"),
-                        ("Nativo (SOLA Spline)", "SOLA Spline (Suave)", "SOLA Spline (Smooth)"),
-                        ("Nativo (SOLA Híbrido)", "SOLA Híbrido (Completo)", "SOLA Hybrid (Full)"),
-                    ] {
-                        ui.horizontal(|ui| {
-                            if ui
-                                .radio_value(selected_resampler, value.to_string(), lang.tr(label_pt, label_en))
-                                .clicked()
-                            {
-                                *custom_resampler_path = None;
-                            }
-                            ui.label(
-                                RichText::new(lang.tr("incluso", "included"))
-                                    .size(9.0)
-                                    .color(theme.text_muted_c32()),
-                            );
-                        });
-                    }
 
                     ui.add_space(4.0);
                     egui::CollapsingHeader::new(
@@ -216,8 +177,8 @@ pub(super) fn draw(
                         if ui
                             .radio_value(
                                 selected_wavtool,
-                                "Native Rust (Crossfader)".to_string(),
-                                lang.tr("Nativo Rust (Recomendado)", "Native Rust (Recommended)"),
+                                "Andromeda (Nativo)".to_string(),
+                                lang.tr("Andromeda (Recomendado)", "Andromeda (Recommended)"),
                             )
                             .clicked()
                         {
@@ -226,7 +187,7 @@ pub(super) fn draw(
                         ui.label(
                             RichText::new(lang.tr("incluso", "included"))
                                 .size(9.0)
-                                .color(theme.text_muted_c32()),
+                                .color(theme.accent_c32()),
                         );
                     });
 

@@ -304,7 +304,8 @@ impl SolaResampler {
         // 2. Process vowel via adaptive TD-PSOLA (or resize_preserving_pitch for finite transitions).
         // Render the shared boundary once more so it can be equal-power crossfaded into the consonant.
         if target_vowel_samples > 0 && !vowel_slice.is_empty() {
-            let vowel_out = if is_finite_transition {
+            let vowel_out = if vowel_slice.len() < 32 {
+                // Truly too short for any periodic analysis; nothing to retune.
                 let mut out = crate::dsp::resize_preserving_pitch(
                     vowel_slice,
                     target_vowel_samples + target_join_samples,
@@ -315,6 +316,18 @@ impl SolaResampler {
                 }
                 out
             } else {
+                // A negative cutoff_ms (fixed-length vowel region) or a short vowel
+                // segment only means "don't loop this" — it does NOT mean the
+                // segment is unvoiced. Route it through PSOLA too (forcing
+                // Stretch mode so no loop is attempted) so it still gets retuned
+                // to the piano-roll pitch. render_vowel_psola still falls back to
+                // resize_preserving_pitch internally for genuinely unvoiced /
+                // low-periodicity material.
+                let effective_mode = if is_finite_transition {
+                    SolaStretchMode::Stretch
+                } else {
+                    mode
+                };
                 Self::render_vowel_psola(
                     vowel_slice,
                     sample_rate,
@@ -339,7 +352,7 @@ impl SolaResampler {
                             + join_samples as f64 * 1_000.0 / sample_rate as f64)
                             .max(0.0)
                     }),
-                    mode,
+                    effective_mode,
                 )
             };
 
@@ -654,17 +667,22 @@ impl SolaResampler {
             let mark_index = Self::nearest_mark_index(&pitch_marks, source_position);
             let source_mark = pitch_marks[mark_index] as f64;
             let source_period = Self::local_period(&pitch_marks, mark_index, estimate.period);
-            let grain_radius = target_period;
+            // Formant preservation: the extracted grain keeps the ORIGINAL source
+            // period as its window/content size, unscaled. Pitch is shifted purely
+            // by how far apart successive grains are placed in the output
+            // (`output_center += target_period`, below), never by resampling the
+            // waveform inside the grain itself — resampling grain content ties
+            // formants to pitch and causes the classic PSOLA "chipmunk" artifact.
+            let grain_radius = source_period;
             let first = (output_center - grain_radius).ceil() as isize;
             let last = (output_center + grain_radius).floor() as isize;
-            let stretch_ratio = source_period / target_period;
 
             for output_index in first..=last {
                 if output_index < 0 || output_index as usize >= target_samples {
                     continue;
                 }
                 let delta = output_index as f64 - output_center;
-                let source_sample_position = source_mark + delta * stretch_ratio;
+                let source_sample_position = source_mark + delta;
                 if source_sample_position < 0.0 || source_sample_position >= v_len as f64 {
                     continue;
                 }

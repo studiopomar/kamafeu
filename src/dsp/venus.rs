@@ -412,9 +412,11 @@ impl WorldSynthesizer {
 }
 
 /// The high-level pure-Rust Vocoder Resampler (Venus) for Kamafeu Studio.
-pub struct WorldResampler;
+pub struct VenusResampler;
 
-impl WorldResampler {
+pub type WorldResampler = VenusResampler;
+
+impl VenusResampler {
     /// Renders a phonetic sample according to UTAU timing, microtonal pitch bends,
     /// target duration, gender formant shift, and breathiness.
     /// Preserves 100% of recorded acoustic consonant clarity and articulation (no eaten aliases),

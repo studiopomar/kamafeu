@@ -33,9 +33,25 @@ impl TrackRenderer {
             .saturating_add_signed(shift)
             .min(track_buffer.len());
         let available = (track_buffer.len() - start_sample).min(note_samples.len());
+
+        // Equal-power crossfade across the overlap with whatever the previous
+        // note already wrote into `track_buffer`. Without this, two
+        // near-full-amplitude notes summed in the overlap region can spike
+        // well past 1.0, which the exporter then hard-clips (flat-tops).
+        let fade_len = crossfade_samples
+            .min(previous_end_sample.saturating_sub(start_sample))
+            .min(available);
+
         for (index, &sample) in note_samples.iter().take(available).enumerate() {
             let track_index = start_sample + index;
-            track_buffer[track_index] += sample;
+            if fade_len > 0 && index < fade_len {
+                let phase = (index as f32 + 0.5) / fade_len as f32;
+                let w_in = (phase * std::f32::consts::FRAC_PI_2).sin();
+                let w_out = (phase * std::f32::consts::FRAC_PI_2).cos();
+                track_buffer[track_index] = track_buffer[track_index] * w_out + sample * w_in;
+            } else {
+                track_buffer[track_index] += sample;
+            }
         }
 
         previous_end_sample.max(start_sample + available)

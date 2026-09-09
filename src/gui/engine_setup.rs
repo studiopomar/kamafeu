@@ -3,9 +3,7 @@ use crate::drivers::ExternalWavtoolDriver;
 use crate::drivers::KnownResampler;
 use crate::drivers::KnownWavtool;
 use crate::drivers::MacResDriver;
-use crate::drivers::NativeResamplerDriver;
-use crate::drivers::NativeSolaResamplerDriver;
-use crate::drivers::NativeWorldResamplerDriver;
+use crate::drivers::NativeVenusResamplerDriver;
 use crate::drivers::NativeWavtoolDriver;
 use crate::drivers::ResamplerDriver;
 use crate::drivers::WavtoolDriver;
@@ -48,44 +46,15 @@ impl KamafeuStudioApp {
                 ));
             }
 
-            if self.selected_resampler.contains("Phase Vocoder")
-                || self.selected_resampler.contains("SOLA Híbrido")
-            {
-                return Box::new(NativeSolaResamplerDriver {
-                    mode: crate::dsp::SolaStretchMode::Hybrid,
-                });
-            }
-
-            if self.selected_resampler.contains("SOLA") || self.selected_resampler.contains("WSOLA")
-            {
-                let mode = if self.selected_resampler.contains("Loop") {
-                    crate::dsp::SolaStretchMode::Loop
-                } else if self.selected_resampler.contains("Spline") {
-                    crate::dsp::SolaStretchMode::Spline
-                } else {
-                    crate::dsp::SolaStretchMode::Stretch
-                };
-                return Box::new(NativeSolaResamplerDriver { mode });
-            }
-
             if self.selected_resampler.contains("Venus")
                 || self.selected_resampler.contains("venus")
+                || self.selected_resampler.contains("VENUS")
                 || self.selected_resampler.contains("WORLD")
                 || self.selected_resampler.contains("world")
-            {
-                return Box::new(NativeWorldResamplerDriver);
-            }
-
-            if self.selected_resampler.contains("TD-PSOLA")
-                || self.selected_resampler.contains("PSOLA")
-            {
-                return Box::new(NativeResamplerDriver);
-            }
-
-            if self.selected_resampler.contains("Native")
+                || self.selected_resampler.contains("Native")
                 || self.selected_resampler.contains("Nativo")
             {
-                return Box::new(NativeSolaResamplerDriver::default());
+                return Box::new(NativeVenusResamplerDriver);
             }
 
             if let Some(profile) = KnownResampler::from_label(&self.selected_resampler) {
@@ -120,7 +89,10 @@ impl KamafeuStudioApp {
 
         #[cfg(not(target_os = "android"))]
         {
-            if self.selected_wavtool.contains("Native") || self.selected_wavtool.contains("Nativo")
+            if self.selected_wavtool.contains("Native")
+                || self.selected_wavtool.contains("Nativo")
+                || self.selected_wavtool.contains("Andromeda")
+                || self.selected_wavtool.contains("andromeda")
             {
                 return Box::new(NativeWavtoolDriver);
             }
