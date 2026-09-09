@@ -29,6 +29,7 @@ O nome **Kamafeu** faz referência à tradicional joia em camafeu, esculpida man
   - [Piano roll e composição melódica](#piano-roll-e-composição-melódica)
   - [Bancos de voz e suporte fonético](#bancos-de-voz-e-suporte-fonético)
   - [Processamento e efeitos (DSP)](#processamento-e-efeitos-dsp)
+  - [Personalização e temas visuais](#personalização-e-temas-visuais)
 - [Arquitetura e fluxo de síntese](#arquitetura-e-fluxo-de-síntese)
 - [Formatos de arquivo suportados](#formatos-de-arquivo-suportados)
 - [Motores de áudio](#motores-de-áudio-resamplers-e-wavtools)
@@ -73,6 +74,25 @@ O nome **Kamafeu** faz referência à tradicional joia em camafeu, esculpida man
 - **Rack de efeitos integrado:** Equalizador paramétrico e gráfico de 31 bandas, compressor de dinâmica, chorus, delay de sincronismo e reverb estéreo aplicáveis por faixa.
 - **Alinhamento de fase e equal-power crossfade:** Junção suave entre notas adjacentes na mixagem de saída, eliminando estalos de fase e picos de distorção no somatório do buffer.
 - **Auto-Pitch:** Sistema de afinação orgânica para aplicação de portamentos de entrada, quedas de final de frase e vibratos proporcionais ao andamento musical.
+
+### Personalização e temas visuais
+
+O Kamafeu Studio conta com um motor completo de temas e customização de interface (`Ctrl + Alt + T` / `Cmd + Alt + T`), permitindo alternar instantaneamente paletas de cores, cantos arredondados, contraste de notas e densidade de elementos:
+
+#### Pomar Neon (Esmeralda)
+<img src="assets/themes/theme_pomar_neon.png" alt="Tema Pomar Neon (Esmeralda)" width="100%" />
+
+#### Melodyne Classic (Âmbar)
+<img src="assets/themes/theme_melodyne_gold.png" alt="Tema Melodyne Classic (Âmbar)" width="100%" />
+
+#### Cyberpunk (Synthwave)
+<img src="assets/themes/theme_cyberpunk.png" alt="Tema Cyberpunk (Synthwave)" width="100%" />
+
+#### Nordic Slate (Clean Dark)
+<img src="assets/themes/theme_nordic_slate.png" alt="Tema Nordic Slate (Clean Dark)" width="100%" />
+
+#### Voz-a-loide Teal (Mikan)
+<img src="assets/themes/theme_mikan_teal.png" alt="Tema Voz-a-loide Teal (Mikan)" width="100%" />
 
 ## Arquitetura e fluxo de síntese
 
