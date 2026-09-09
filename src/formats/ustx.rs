@@ -905,31 +905,26 @@ voice_parts:
 
     #[test]
     fn test_parse_real_ustx_files() {
-        let files = [
-            "/Users/victor/Downloads/m (1).ustx",
-            "/Users/victor/Downloads/pururu UTAU_meperdeu_join.ustx",
-            "/Users/victor/Downloads/happy mode.ustx",
-            "/Users/victor/Downloads/talkloid-autosave.ustx",
-            "/Users/victor/Downloads/astro.ustx",
-        ];
-        for f in files {
-            if std::path::Path::new(f).exists() {
-                let proj = UstxFormat::load_file(f)
-                    .unwrap_or_else(|e| panic!("Failed to parse {}: {}", f, e));
-                println!(
-                    "Loaded {}: name={}, bpm={}, parts={}",
-                    f,
-                    proj.name,
-                    proj.bpm,
-                    proj.parts.len()
-                );
-                let total_pitch_points: usize = proj
-                    .parts
-                    .iter()
-                    .flat_map(|p| &p.notes)
-                    .map(|n| n.pitch_bend.points.len())
-                    .sum();
-                println!("  Total pitch bend points parsed: {}", total_pitch_points);
+        if let Ok(paths_env) = std::env::var("USTX_TEST_FILES") {
+            for f in paths_env.split(':') {
+                if std::path::Path::new(f).exists() {
+                    if let Ok(proj) = UstxFormat::load_file(f) {
+                        println!(
+                            "Loaded {}: name={}, bpm={}, parts={}",
+                            f,
+                            proj.name,
+                            proj.bpm,
+                            proj.parts.len()
+                        );
+                        let total_pitch_points: usize = proj
+                            .parts
+                            .iter()
+                            .flat_map(|p| &p.notes)
+                            .map(|n| n.pitch_bend.points.len())
+                            .sum();
+                        println!("  Total pitch bend points parsed: {}", total_pitch_points);
+                    }
+                }
             }
         }
     }

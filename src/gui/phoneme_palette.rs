@@ -1,6 +1,6 @@
-use crate::gui::theme::MelodyneTheme;
+use crate::gui::theme::ThemeConfig;
 use crate::oto::Voicebank;
-use eframe::egui::{self, Color32, Rect, RichText, Rounding, Stroke, Vec2};
+use eframe::egui::{self, Rect, RichText, Rounding, Stroke, Vec2};
 
 pub struct PhonemePaletteState {
     pub search_query: String,
@@ -20,6 +20,8 @@ impl Default for PhonemePaletteState {
 
 pub fn draw_phoneme_palette(
     ui: &mut egui::Ui,
+    theme: &ThemeConfig,
+    lang: crate::config::AppLanguage,
     voicebank: Option<&Voicebank>,
     state: &mut PhonemePaletteState,
     on_preview_phoneme: &mut dyn FnMut(&str),
@@ -29,19 +31,26 @@ pub fn draw_phoneme_palette(
     ui.vertical(|ui| {
         ui.add_space(4.0);
         ui.heading(
-            RichText::new("🔤 Paleta de Fonemas (oto.ini)")
+            RichText::new(lang.tr("Paleta de Fonemas (oto.ini)", "Phoneme Palette (oto.ini)"))
                 .strong()
                 .size(14.0)
-                .color(MelodyneTheme::TEXT_GOLD_LABEL),
+                .color(theme.accent_c32()),
         );
         ui.add_space(6.0);
 
         if let Some(vb) = voicebank {
             ui.horizontal(|ui| {
-                ui.label(RichText::new("🔍").size(12.0));
+                ui.label(
+                    RichText::new(lang.tr("Buscar:", "Search:"))
+                        .size(11.0)
+                        .color(theme.text_muted_c32()),
+                );
                 ui.add(
                     egui::TextEdit::singleline(&mut state.search_query)
-                        .hint_text("Buscar fonema (ex: ka, a ka, CV)...")
+                        .hint_text(lang.tr(
+                            "Filtrar fonema (ex: ka, a ka, CV)...",
+                            "Filter phoneme (e.g. ka, a ka, CV)...",
+                        ))
                         .desired_width(ui.available_width() - 30.0),
                 );
             });
@@ -51,9 +60,9 @@ pub fn draw_phoneme_palette(
             let subfolders = vb.get_subfolders();
             ui.horizontal(|ui| {
                 ui.label(
-                    RichText::new("Pasta:")
+                    RichText::new(lang.tr("Pasta:", "Folder:"))
                         .size(11.0)
-                        .color(MelodyneTheme::TEXT_MUTED),
+                        .color(theme.text_muted_c32()),
                 );
                 egui::ComboBox::from_id_salt("phoneme_folder_combo")
                     .selected_text(&state.selected_folder)
@@ -72,9 +81,13 @@ pub fn draw_phoneme_palette(
             matches.sort_by(|a, b| a.0.cmp(b.0));
 
             ui.label(
-                RichText::new(format!("Fonemas Disponíveis ({})", matches.len()))
-                    .size(11.0)
-                    .color(MelodyneTheme::TEXT_MUTED),
+                RichText::new(format!(
+                    "{} ({})",
+                    lang.tr("Fonemas Disponíveis", "Available Phonemes"),
+                    matches.len()
+                ))
+                .size(11.0)
+                .color(theme.text_muted_c32()),
             );
             ui.add_space(4.0);
 
@@ -94,12 +107,10 @@ pub fn draw_phoneme_palette(
                             let is_being_dragged = response.dragged()
                                 || state.dragged_phoneme.as_deref() == Some(alias);
 
-                            let bg_color = if is_being_dragged {
-                                MelodyneTheme::NOTE_SELECTED_GOLD
-                            } else if is_hovered {
-                                MelodyneTheme::NOTE_GOLD_HOVER
+                            let bg_color = if is_being_dragged || is_hovered {
+                                theme.card_bg_c32()
                             } else {
-                                MelodyneTheme::BG_PANEL
+                                theme.bg_panel_c32()
                             };
 
                             ui.painter()
@@ -110,9 +121,9 @@ pub fn draw_phoneme_palette(
                                 Stroke::new(
                                     1.0_f32,
                                     if is_hovered || is_being_dragged {
-                                        MelodyneTheme::NOTE_SELECTED_GOLD
+                                        theme.accent_c32()
                                     } else {
-                                        MelodyneTheme::GRID_LINE_BAR
+                                        theme.grid_line_bar_c32()
                                     },
                                 ),
                             );
@@ -123,9 +134,9 @@ pub fn draw_phoneme_palette(
                                 alias,
                                 egui::FontId::proportional(12.0),
                                 if is_hovered || is_being_dragged {
-                                    MelodyneTheme::TEXT_NOTE_TAG
+                                    theme.accent_c32()
                                 } else {
-                                    MelodyneTheme::TEXT_GOLD_LABEL
+                                    theme.text_primary_c32()
                                 },
                             );
 
@@ -134,7 +145,7 @@ pub fn draw_phoneme_palette(
                                 egui::Align2::RIGHT_BOTTOM,
                                 format!("{:.0}ms", entry.preutterance),
                                 egui::FontId::proportional(9.0),
-                                MelodyneTheme::ACCENT_GOLD,
+                                theme.accent_c32(),
                             );
 
                             if response.drag_started()
@@ -150,7 +161,10 @@ pub fn draw_phoneme_palette(
                             }
 
                             response.context_menu(|ui| {
-                                if ui.button("Editar no Copaiba NEO").clicked() {
+                                if ui
+                                    .button(lang.tr("Editar no Copaiba NEO", "Edit in Copaiba NEO"))
+                                    .clicked()
+                                {
                                     on_edit_phoneme(alias);
                                     ui.close_menu();
                                 }
@@ -167,33 +181,30 @@ pub fn draw_phoneme_palette(
                             Vec2::new(90.0, 26.0),
                         );
                         let painter = ui.painter();
-                        painter.rect_filled(
-                            badge_rect,
-                            Rounding::same(4.0),
-                            Color32::from_rgb(0, 40, 30),
-                        );
+                        painter.rect_filled(badge_rect, Rounding::same(4.0), theme.card_bg_c32());
                         painter.rect_stroke(
                             badge_rect,
                             Rounding::same(4.0),
-                            Stroke::new(1.5_f32, Color32::from_rgb(0, 255, 157)),
+                            Stroke::new(1.5_f32, theme.accent_c32()),
                         );
                         painter.text(
                             badge_rect.center(),
                             egui::Align2::CENTER_CENTER,
-                            format!("🔤 {}", dragged_alias),
+                            format!("[{}] {}", lang.tr("Fonema", "Phoneme"), dragged_alias),
                             egui::FontId::proportional(12.0),
-                            Color32::from_rgb(0, 255, 157),
+                            theme.accent_c32(),
                         );
                     }
                 }
             }
         } else {
             ui.label(
-                RichText::new(
+                RichText::new(lang.tr(
                     "Nenhum voicebank carregado. Carregue um voicebank para visualizar os fonemas.",
-                )
+                    "No voicebank loaded. Load a voicebank to view phonemes.",
+                ))
                 .italics()
-                .color(MelodyneTheme::TEXT_MUTED),
+                .color(theme.text_muted_c32()),
             );
         }
     });

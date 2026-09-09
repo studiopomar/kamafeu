@@ -42,8 +42,8 @@ mod tests {
         let mut proj = UProject::default();
         proj.name = "Saturno Song".to_string();
         proj.bpm = 140.0;
-        proj.voicebank = Some("VIICTOR VCCV BRAPA".to_string());
-        proj.voicebank_path = Some("/Users/victor/Downloads/VIICTOR VCCV BRAPA".to_string());
+        proj.voicebank = Some("Standard Voicebank".to_string());
+        proj.voicebank_path = Some("/path/to/voicebank".to_string());
         proj.phonemizer = Some(crate::phonemizer::PhonemizerMode::PortugueseBrapaVCCV);
         proj.resampler = Some("straycat-rs (UtaUtaUtau)".to_string());
         proj.wavtool = Some("wavtool-yawu".to_string());
@@ -64,11 +64,8 @@ mod tests {
 
         assert_eq!(loaded.name, "Saturno Song");
         assert_eq!(loaded.bpm, 140.0);
-        assert_eq!(loaded.voicebank.as_deref(), Some("VIICTOR VCCV BRAPA"));
-        assert_eq!(
-            loaded.voicebank_path.as_deref(),
-            Some("/Users/victor/Downloads/VIICTOR VCCV BRAPA")
-        );
+        assert_eq!(loaded.voicebank.as_deref(), Some("Standard Voicebank"));
+        assert_eq!(loaded.voicebank_path.as_deref(), Some("/path/to/voicebank"));
         assert_eq!(
             loaded.phonemizer,
             Some(crate::phonemizer::PhonemizerMode::PortugueseBrapaVCCV)
@@ -89,5 +86,22 @@ mod tests {
         assert_eq!(loaded.parts[0].notes[0].envelope.p2, 25.0);
         assert_eq!(loaded.parts[0].notes[0].envelope.p5, 45.0);
         assert_eq!(loaded.parts[0].notes[0].envelope.crossfade_ms, 60.0);
+    }
+
+    #[test]
+    fn test_compute_next_incremental_path() {
+        use crate::gui::KamafeuStudioApp;
+
+        let temp = tempfile::tempdir().unwrap();
+        let base_path = temp.path().join("my_song.aps");
+
+        // Initial incremental from my_song.aps should be my_song_v2.aps
+        let v2 = KamafeuStudioApp::compute_next_incremental_path(&base_path);
+        assert_eq!(v2.file_name().unwrap(), "my_song_v2.aps");
+
+        // If my_song_v2.aps exists on disk, next is v3
+        std::fs::write(&v2, "{}").unwrap();
+        let v3 = KamafeuStudioApp::compute_next_incremental_path(&v2);
+        assert_eq!(v3.file_name().unwrap(), "my_song_v3.aps");
     }
 }

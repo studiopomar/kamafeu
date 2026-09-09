@@ -1,7 +1,7 @@
 use crate::phonemizer::PhonemizerMode;
 
 /// Rendering parameters that apply to a singer independently of the GUI.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct RenderOptions {
     pub loudness: f64,
     pub tension: f64,
@@ -22,7 +22,7 @@ impl Default for RenderOptions {
             breathiness: 0.0,
             gender: 0.0,
             tone_shift: 0.0,
-            crossfade_ms: 45.0,
+            crossfade_ms: 0.0,
             phonemizer_mode: PhonemizerMode::None,
         }
     }

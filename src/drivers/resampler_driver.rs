@@ -79,16 +79,18 @@ pub enum KnownResampler {
     MacRes,
     Organum,
     StraycatRs,
+    HifisamplerRs,
     World4Utau,
     Tips,
     Moresampler,
 }
 
 impl KnownResampler {
-    pub const ALL: [Self; 6] = [
+    pub const ALL: [Self; 7] = [
         Self::MacRes,
         Self::Organum,
         Self::StraycatRs,
+        Self::HifisamplerRs,
         Self::World4Utau,
         Self::Tips,
         Self::Moresampler,
@@ -99,6 +101,7 @@ impl KnownResampler {
             Self::MacRes => "macres (titinko/macres)",
             Self::Organum => "Organum (KakouLabs/Organum)",
             Self::StraycatRs => "straycat-rs (UtaUtaUtau)",
+            Self::HifisamplerRs => "Hifisampler (Slidingwall/hifisampler-rs)",
             Self::World4Utau => "World4UTAU (xrdavies/world4utau)",
             Self::Tips => "TIPS (TIPS.exe)",
             Self::Moresampler => "moresampler (moresampler.exe)",
@@ -110,6 +113,14 @@ impl KnownResampler {
             Self::MacRes => &["macres", "macres.exe"],
             Self::Organum => &["organum-resampler", "organum-resampler.exe"],
             Self::StraycatRs => &["straycat-rs", "straycat-rs.exe"],
+            Self::HifisamplerRs => &[
+                "hifisampler",
+                "hifisampler.exe",
+                "hifiserver-rust",
+                "hifiserver-rust.exe",
+                "hifisampler-rs",
+                "hifisampler-rs.exe",
+            ],
             Self::World4Utau => &["world4utau", "world4utau.exe"],
             Self::Tips => &["TIPS.exe", "tips.exe", "TIPS", "tips"],
             Self::Moresampler => &["moresampler.exe", "moresampler"],
@@ -318,7 +329,7 @@ impl ResamplerDriver for NativeSolaResamplerDriver {
     }
 
     fn cache_identity(&self) -> String {
-        format!("{}:pitch-v2", self.name())
+        format!("{}:pitch-v4-continuous-ola", self.name())
     }
 
     fn render_sample(
@@ -354,6 +365,10 @@ impl ResamplerDriver for NativeResamplerDriver {
         "Nativo (TD-PSOLA)"
     }
 
+    fn cache_identity(&self) -> String {
+        format!("{}:pitch-v4-continuous-ola", self.name())
+    }
+
     fn render_sample(
         &self,
         raw_samples: &[f32],
@@ -374,6 +389,63 @@ impl ResamplerDriver for NativeResamplerDriver {
         );
         Ok(rendered)
     }
+}
+
+pub struct NativeWorldResamplerDriver;
+
+impl ResamplerDriver for NativeWorldResamplerDriver {
+    fn name(&self) -> &str {
+        "Nativo (Venus)"
+    }
+
+    fn cache_identity(&self) -> String {
+        format!("{}:venus-v5", self.name())
+    }
+
+    fn render_sample(
+        &self,
+        raw_samples: &[f32],
+        sample_rate: u32,
+        args: &ResamplerArgs,
+        _cancel: Option<&AtomicBool>,
+    ) -> Result<Vec<f32>, String> {
+        let gender = parse_flag_numeric(&args.flags, 'g').unwrap_or(0.0) * 100.0;
+        let breathiness = parse_flag_numeric(&args.flags, 'B').unwrap_or(0.0);
+
+        let rendered = crate::dsp::WorldResampler::render_sample(
+            raw_samples,
+            sample_rate,
+            args.offset_ms,
+            args.source_consonant_ms,
+            args.consonant_ms,
+            args.cutoff_ms,
+            args.duration_ms,
+            args.pitch_freq,
+            &args.pitch_points,
+            gender,
+            breathiness,
+        );
+        Ok(rendered)
+    }
+}
+
+fn parse_flag_numeric(flags: &str, flag: char) -> Option<f64> {
+    let mut chars = flags.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == flag {
+            let mut num_str = String::new();
+            if matches!(chars.peek().copied(), Some('+' | '-')) {
+                num_str.push(chars.next().unwrap());
+            }
+            while chars.peek().is_some_and(|next| next.is_ascii_digit() || *next == '.') {
+                num_str.push(chars.next().unwrap());
+            }
+            if let Ok(val) = num_str.parse::<f64>() {
+                return Some(val);
+            }
+        }
+    }
+    None
 }
 
 pub struct MacResDriver {
@@ -418,13 +490,11 @@ impl ResamplerDriver for MacResDriver {
         args: &ResamplerArgs,
         cancel: Option<&AtomicBool>,
     ) -> Result<Vec<f32>, String> {
-        if !self.executable_path.exists() {
-            eprintln!(
-                "[macres] Binary not found at {:?}, falling back to Native TD-PSOLA",
-                self.executable_path
-            );
-            let native = NativeResamplerDriver;
-            return native.render_sample(raw_samples, sample_rate, args, cancel);
+        if !self.executable_path.is_file() {
+            return Err(format!(
+                "Resampler não encontrado: {}",
+                self.executable_path.display()
+            ));
         }
 
         let mut temp_input_dir = None;
@@ -433,13 +503,7 @@ impl ResamplerDriver for MacResDriver {
         if args.output_wav.is_file() {
             let _ = std::fs::remove_file(&args.output_wav);
         }
-        let mut cmd = match crate::drivers::process::prepare_command(&self.executable_path) {
-            Ok(c) => c,
-            Err(e) => {
-                eprintln!("[macres] Falha ao preparar comando: {e}; usando Native TD-PSOLA");
-                return NativeResamplerDriver.render_sample(raw_samples, sample_rate, args, cancel);
-            }
-        };
+        let mut cmd = crate::drivers::process::prepare_command(&self.executable_path)?;
         let is_exe = self
             .executable_path
             .extension()
@@ -455,35 +519,18 @@ impl ResamplerDriver for MacResDriver {
             is_exe,
         ));
 
-        let output = match crate::drivers::process::run_with_timeout(
-            &mut cmd,
-            Duration::from_secs(15),
-            cancel,
-        ) {
-            Ok(o) => o,
-            Err(e) => {
-                eprintln!("[macres] Falha ao executar: {e}; usando Native TD-PSOLA");
-                return NativeResamplerDriver.render_sample(raw_samples, sample_rate, args, cancel);
-            }
-        };
+        let output =
+            crate::drivers::process::run_with_timeout(&mut cmd, Duration::from_secs(15), cancel)?;
 
         if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            eprintln!(
-                "[macres] execution failed: {}, falling back to Native TD-PSOLA",
-                stderr
-            );
-            let native = NativeResamplerDriver;
-            return native.render_sample(raw_samples, sample_rate, args, cancel);
+            return Err(format!(
+                "Resampler {} falhou: {}",
+                self.name(),
+                String::from_utf8_lossy(&output.stderr).trim()
+            ));
         }
 
-        match load_resampler_output(args, sample_rate) {
-            Ok(samples) => Ok(samples),
-            Err(error) => {
-                eprintln!("[macres] {error}; usando Native TD-PSOLA");
-                NativeResamplerDriver.render_sample(raw_samples, sample_rate, args, cancel)
-            }
-        }
+        load_resampler_output(args, sample_rate)
     }
 }
 
@@ -581,6 +628,121 @@ fn prepare_straycat_flags(base_flags: &str, gender: f64, breathiness: f64) -> St
     flags
 }
 
+fn prepare_hifisampler_flags(base_flags: &str, gender: f64, breathiness: f64) -> String {
+    let mut flags = base_flags.to_string();
+    if gender != 0.0 {
+        flags.push_str(&format!("g{gender:.0}"));
+    }
+    if breathiness != 0.0 {
+        // Hifisampler uses Hb (100 is default/neutral 100%, 0..500)
+        let val = (100.0 + breathiness * 2.0).clamp(0.0, 500.0);
+        flags.push_str(&format!("Hb{val:.0}"));
+    }
+    flags
+}
+
+static HIFISERVER_PROCESS: std::sync::LazyLock<std::sync::Mutex<Option<std::process::Child>>> =
+    std::sync::LazyLock::new(|| std::sync::Mutex::new(None));
+
+pub fn ensure_hifisampler_server_running(exe_dir: &Path) {
+    let server_candidates = [
+        "hifiserver-rust",
+        "hifiserver-rust.exe",
+        "hifiserver",
+        "hifiserver.exe",
+        "hifisampler-server",
+        "hifisampler-server.exe",
+    ];
+    let mut server_exe = None;
+    for cand in server_candidates {
+        let p = exe_dir.join(cand);
+        if p.is_file() {
+            server_exe = Some(p);
+            break;
+        }
+    }
+
+    let Some(server_exe) = server_exe else {
+        return;
+    };
+
+    if let Ok(mut guard) = HIFISERVER_PROCESS.lock() {
+        if let Some(child) = guard.as_mut() {
+            if child.try_wait().ok().flatten().is_none() {
+                return; // Já está em execução
+            }
+        }
+
+        if let Ok(mut cmd) = crate::drivers::process::prepare_command(&server_exe) {
+            cmd.current_dir(exe_dir);
+            if let Ok(child) = cmd.spawn() {
+                *guard = Some(child);
+            }
+        }
+    }
+}
+
+pub fn ensure_hifisampler_environment(exe_path: &Path) {
+    let Some(dir) = exe_path.parent() else {
+        return;
+    };
+
+    let config_path = dir.join("hificonfig.ini");
+    if !config_path.is_file() {
+        let default_config = "\
+vocoder_path = ./model/pc_nsf_hifigan_44.1k_hop512_128bin_2025.02.onnx
+hnsep_path = ./model/hnsep_model.onnx
+
+wave_norm = true
+trim_silence = true
+silence_threshold = -52.0
+loop_mode = true
+peak_limit = 1.0
+fill = 6
+
+max_workers = 4
+";
+        let _ = std::fs::write(&config_path, default_config);
+    }
+
+    ensure_hifisampler_server_running(dir);
+}
+
+pub fn ensure_hifisampler_ready() -> Result<String, String> {
+    let profile = KnownResampler::HifisamplerRs;
+    let exe = profile.find_executable().or_else(|| {
+        let def = profile.default_path();
+        if def.is_file() {
+            Some(def)
+        } else {
+            None
+        }
+    });
+
+    let Some(exe_path) = exe else {
+        return Err("Executável do Hifisampler não encontrado em ./resamplers".to_string());
+    };
+
+    let dir = exe_path.parent().unwrap_or_else(|| Path::new("."));
+    ensure_hifisampler_environment(&exe_path);
+
+    let model_dir = dir.join("model");
+    let model_found = model_dir
+        .join("pc_nsf_hifigan_44.1k_hop512_128bin_2025.02.onnx")
+        .is_file()
+        || model_dir.join("pc-nsf-hifigan.onnx").is_file()
+        || model_dir.join("model.onnx").is_file();
+
+    if model_found {
+        Ok(format!(
+            "Hifisampler pronto (Modelos ONNX carregados em {})",
+            model_dir.display()
+        ))
+    } else {
+        Ok("Hifisampler configurado (Aguardando modelo ONNX em ./resamplers/model)".to_string())
+    }
+}
+
 impl ResamplerDriver for ExternalResamplerDriver {
     fn name(&self) -> &str {
         &self.display_name
@@ -589,6 +751,8 @@ impl ResamplerDriver for ExternalResamplerDriver {
     fn prepare_flags(&self, base_flags: &str, gender: f64, breathiness: f64) -> String {
         if self.profile == Some(KnownResampler::StraycatRs) {
             prepare_straycat_flags(base_flags, gender, breathiness)
+        } else if self.profile == Some(KnownResampler::HifisamplerRs) {
+            prepare_hifisampler_flags(base_flags, gender, breathiness)
         } else {
             prepare_classic_flags(base_flags, gender, breathiness)
         }
@@ -615,22 +779,25 @@ impl ResamplerDriver for ExternalResamplerDriver {
             KnownResampler::from_label(&self.display_name).and_then(|p| p.find_executable())
         };
 
-        let final_exe = match resolved_exe {
-            Some(p) => p,
-            None => {
-                eprintln!(
-                    "[{}] AVISO: Executável não encontrado em {:?}; usando fallback Native TD-PSOLA",
-                    self.display_name, self.executable_path
-                );
-                return NativeResamplerDriver.render_sample(raw_samples, sample_rate, args, cancel);
-            }
-        };
+        let final_exe = resolved_exe.ok_or_else(|| {
+            format!(
+                "Resampler {} não encontrado: {}",
+                self.display_name,
+                self.executable_path.display()
+            )
+        })?;
 
         let is_exe = final_exe
             .extension()
             .and_then(|ext| ext.to_str())
             .map(|ext| ext.eq_ignore_ascii_case("exe"))
             .unwrap_or(false);
+
+        if let Some(_parent) = final_exe.parent() {
+            if self.profile == Some(KnownResampler::HifisamplerRs) {
+                ensure_hifisampler_environment(&final_exe);
+            }
+        }
 
         if is_exe {
             let stem = final_exe.file_stem().and_then(|s| s.to_str()).unwrap_or("");
@@ -657,16 +824,10 @@ impl ResamplerDriver for ExternalResamplerDriver {
         if args.output_wav.is_file() {
             let _ = std::fs::remove_file(&args.output_wav);
         }
-        let mut cmd = match crate::drivers::process::prepare_command(&final_exe) {
-            Ok(c) => c,
-            Err(e) => {
-                eprintln!(
-                    "[{}] Falha ao preparar comando: {e}; usando Native TD-PSOLA",
-                    self.display_name
-                );
-                return NativeResamplerDriver.render_sample(raw_samples, sample_rate, args, cancel);
-            }
-        };
+        let mut cmd = crate::drivers::process::prepare_command(&final_exe)?;
+        if let Some(parent) = final_exe.parent() {
+            cmd.current_dir(parent);
+        }
         let requested_duration_ms = self.requested_duration_ms(args);
         cmd.args(classic_arguments(
             &actual_input_wav,
@@ -676,38 +837,18 @@ impl ResamplerDriver for ExternalResamplerDriver {
             is_exe,
         ));
 
-        let output = match crate::drivers::process::run_with_timeout(
-            &mut cmd,
-            Duration::from_secs(15),
-            cancel,
-        ) {
-            Ok(o) => o,
-            Err(e) => {
-                eprintln!(
-                    "[{}] Falha ao executar: {e}; usando Native TD-PSOLA",
-                    self.display_name
-                );
-                return NativeResamplerDriver.render_sample(raw_samples, sample_rate, args, cancel);
-            }
-        };
+        let output =
+            crate::drivers::process::run_with_timeout(&mut cmd, Duration::from_secs(15), cancel)?;
 
         if !output.status.success() {
-            let stderr = String::from_utf8_lossy(&output.stderr);
-            eprintln!(
-                "[{}] execução falhou: {}; usando Native TD-PSOLA",
-                self.display_name,
-                stderr.trim()
-            );
-            return NativeResamplerDriver.render_sample(raw_samples, sample_rate, args, cancel);
+            return Err(format!(
+                "Resampler {} falhou: {}",
+                self.name(),
+                String::from_utf8_lossy(&output.stderr).trim()
+            ));
         }
 
-        match load_resampler_output(args, sample_rate) {
-            Ok(samples) => Ok(samples),
-            Err(error) => {
-                eprintln!("[{}] {error}; usando Native TD-PSOLA", self.display_name);
-                NativeResamplerDriver.render_sample(raw_samples, sample_rate, args, cancel)
-            }
-        }
+        load_resampler_output(args, sample_rate)
     }
 }
 
@@ -796,6 +937,14 @@ mod tests {
         let driver = ExternalResamplerDriver::for_known(KnownResampler::Organum, None);
 
         assert_eq!(driver.prepare_flags("P86", -4.0, 15.0), "P86g-4B15");
+    }
+
+    #[test]
+    fn hifisampler_maps_breathiness_to_hb_flag() {
+        let driver = ExternalResamplerDriver::for_known(KnownResampler::HifisamplerRs, None);
+
+        assert_eq!(driver.prepare_flags("P86", 0.0, 0.0), "P86");
+        assert_eq!(driver.prepare_flags("P86", -2.0, 20.0), "P86g-2Hb140");
     }
 
     #[test]

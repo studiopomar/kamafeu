@@ -324,6 +324,91 @@ impl Voicebank {
         }
     }
 
+    /// Exact phonetic lookup with pitch and candidate mapping. Never changes case or drops a VC/VCV prefix.
+    pub fn find_mapped_entry(&self, lyric: &str, pitch_name: &str) -> Option<&OtoEntry> {
+        let lyric_trimmed = lyric.trim();
+        if lyric_trimmed.is_empty() {
+            return None;
+        }
+
+        let (prefix, suffix) = self
+            .prefix_map
+            .get_prefix_suffix(pitch_name)
+            .unwrap_or(("", ""));
+
+        let clean_p = prefix.trim_matches('"').trim_matches('\'');
+        let clean_s = suffix.trim_matches('"').trim_matches('\'');
+
+        let lyric_cands = crate::phonemizer::romaji::lyric_candidates(lyric_trimmed);
+
+        let mut candidates = Vec::new();
+
+        for cand_lyric in &lyric_cands {
+            let raw_alias = self.prefix_map.get_alias(cand_lyric, pitch_name);
+            candidates.push(raw_alias);
+
+            if !clean_p.is_empty() || !clean_s.is_empty() {
+                candidates.push(format!("{}{}{}", clean_p, cand_lyric, clean_s));
+
+                if !clean_p.is_empty() {
+                    let p_trimmed = clean_p.trim();
+                    candidates.push(format!("{} {}{}", p_trimmed, cand_lyric, clean_s));
+                    candidates.push(format!("{}_{}{}", p_trimmed, cand_lyric, clean_s));
+                    candidates.push(format!("{}{}{}", p_trimmed, cand_lyric, clean_s));
+                }
+
+                if !clean_s.is_empty() {
+                    let s_trimmed = clean_s.trim();
+                    candidates.push(format!("{}{}_{}", clean_p, cand_lyric, s_trimmed));
+                    candidates.push(format!("{}{}{}", clean_p, cand_lyric, s_trimmed));
+                }
+            }
+
+            candidates.push(cand_lyric.clone());
+
+            if !pitch_name.is_empty() {
+                candidates.push(format!("{}_{}", cand_lyric, pitch_name));
+                candidates.push(format!("{}_{}", pitch_name, cand_lyric));
+                candidates.push(format!("{} {}", pitch_name, cand_lyric));
+                candidates.push(format!("{} {}", cand_lyric, pitch_name));
+                candidates.push(format!("{}{}", pitch_name, cand_lyric));
+            }
+        }
+
+        for cand in &candidates {
+            if let Some(entry) = self.entries.get(cand) {
+                return Some(entry);
+            }
+        }
+
+        if let Some(target_midi) = crate::dsp::pitch::note_name_to_midi(pitch_name) {
+            let mut alt_pitches: Vec<(&str, i32)> = self
+                .prefix_map
+                .mapped_pitches()
+                .filter(|&p| p != pitch_name)
+                .filter_map(|p| {
+                    crate::dsp::pitch::note_name_to_midi(p)
+                        .map(|m| (p, (m as i32 - target_midi as i32).abs()))
+                })
+                .collect();
+
+            alt_pitches.sort_by_key(|&(_, dist)| dist);
+
+            for (alt_pitch, _) in alt_pitches {
+                if let Some((pfx, sfx)) = self.prefix_map.get_prefix_suffix(alt_pitch) {
+                    for cand_lyric in &lyric_cands {
+                        let cand = format!("{}{}{}", pfx.trim(), cand_lyric, sfx.trim());
+                        if let Some(entry) = self.entries.get(&cand) {
+                            return Some(entry);
+                        }
+                    }
+                }
+            }
+        }
+
+        None
+    }
+
     pub fn find_entry(&self, lyric: &str, pitch_name: &str) -> Option<&OtoEntry> {
         let lyric_trimmed = lyric.trim();
         if lyric_trimmed.is_empty() {

@@ -20,6 +20,14 @@ impl PrefixMap {
         self.map.insert(pitch_name, (prefix, suffix));
     }
 
+    pub fn is_empty(&self) -> bool {
+        self.map.is_empty()
+    }
+
+    pub fn len(&self) -> usize {
+        self.map.len()
+    }
+
     pub fn get_prefix_suffix(&self, pitch_name: &str) -> Option<(&str, &str)> {
         self.map
             .get(pitch_name)

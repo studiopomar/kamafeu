@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct UtauEnvelope {
     pub p1: f64, // ms delay before attack
     pub p2: f64, // ms attack duration
@@ -12,7 +12,7 @@ pub struct UtauEnvelope {
     pub v3: f64, // level at p3 (0-100)
     pub v4: f64, // level at p4 (0-100)
     pub v5: f64, // level at p5 (0-100)
-    /// Crossfade individual. Zero mantém o overlap automático do OTO/global.
+    /// Crossfade individual. Zero mantém o overlap automático do oto.ini/global.
     #[serde(default)]
     pub crossfade_ms: f64,
 }

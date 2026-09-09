@@ -252,19 +252,19 @@ impl VccvBrapaPhonemizer {
             main_cv = Some(alias);
         } else if is_starting && cc.len() == 1 {
             let mut text = format!("- {}{v}", cc[0]);
-            if vb.find_entry(&text, pitch).is_none() {
+            if vb.find_mapped_entry(&text, pitch).is_none() {
                 text = format!("-{} {v}", cc[0]);
-                if vb.find_entry(&text, pitch).is_none() {
+                if vb.find_mapped_entry(&text, pitch).is_none() {
                     text = format!("{} {v}", cc[0]);
-                    if vb.find_entry(&text, pitch).is_none() {
+                    if vb.find_mapped_entry(&text, pitch).is_none() {
                         if v == "w" {
                             let text2 = format!("{} u", cc[0]);
-                            if vb.find_entry(&text2, pitch).is_some() {
+                            if vb.find_mapped_entry(&text2, pitch).is_some() {
                                 text = text2;
                             }
                         } else if v == "y" {
                             let text3 = format!("{} i", cc[0]);
-                            if vb.find_entry(&text3, pitch).is_some() {
+                            if vb.find_mapped_entry(&text3, pitch).is_some() {
                                 text = text3;
                             }
                         }
@@ -277,24 +277,24 @@ impl VccvBrapaPhonemizer {
             while num < cc.len() - 1 {
                 if num + 2 < cc.len() {
                     let text4 = format!("{} {} {}", cc[num], cc[num + 1], cc[num + 2]);
-                    if vb.find_entry(&text4, pitch).is_some() {
+                    if vb.find_mapped_entry(&text4, pitch).is_some() {
                         list.push(text4);
                         num += 2;
                         continue;
                     }
                 }
                 let text5 = format!("{} {}", cc[num], cc[num + 1]);
-                if vb.find_entry(&text5, pitch).is_some() {
+                if vb.find_mapped_entry(&text5, pitch).is_some() {
                     list.push(text5);
                 } else if cc[num] == "y"
                     && vb
-                        .find_entry(&format!("i {}", cc[num + 1]), pitch)
+                        .find_mapped_entry(&format!("i {}", cc[num + 1]), pitch)
                         .is_some()
                 {
                     list.push(format!("i {}", cc[num + 1]));
                 } else if cc[num] == "y"
                     && vb
-                        .find_entry(&format!("i {}-", cc[num + 1]), pitch)
+                        .find_mapped_entry(&format!("i {}-", cc[num + 1]), pitch)
                         .is_some()
                 {
                     list.push(format!("i {}-", cc[num + 1]));
@@ -306,17 +306,17 @@ impl VccvBrapaPhonemizer {
 
             let last_c = cc.last().map(|s| s.as_str()).unwrap_or("");
             let mut text = format!("_{last_c} {v}");
-            if vb.find_entry(&text, pitch).is_none() {
+            if vb.find_mapped_entry(&text, pitch).is_none() {
                 text = format!("{last_c} {v}");
-                if vb.find_entry(&text, pitch).is_none() {
+                if vb.find_mapped_entry(&text, pitch).is_none() {
                     if v == "w" {
                         let text6 = format!("{last_c} u");
-                        if vb.find_entry(&text6, pitch).is_some() {
+                        if vb.find_mapped_entry(&text6, pitch).is_some() {
                             text = text6;
                         }
                     } else if v == "y" {
                         let text7 = format!("{last_c} i");
-                        if vb.find_entry(&text7, pitch).is_some() {
+                        if vb.find_mapped_entry(&text7, pitch).is_some() {
                             text = text7;
                         }
                     }
@@ -326,9 +326,9 @@ impl VccvBrapaPhonemizer {
         } else if !is_starting && cc.is_empty() {
             if let Some(pv) = prev_v {
                 let mut text = format!("{pv} {v}");
-                if vb.find_entry(&text, pitch).is_none() {
+                if vb.find_mapped_entry(&text, pitch).is_none() {
                     text = format!("_{v}");
-                    if vb.find_entry(&text, pitch).is_none() {
+                    if vb.find_mapped_entry(&text, pitch).is_none() {
                         text = v.to_string();
                     }
                 }
@@ -343,18 +343,18 @@ impl VccvBrapaPhonemizer {
                 format!("{pv} -")
             } else if first_c == "r" && cc.len() > 1 {
                 let rh_try = format!("{pv} rh-");
-                if vb.find_entry(&rh_try, pitch).is_some() {
+                if vb.find_mapped_entry(&rh_try, pitch).is_some() {
                     rh_try
                 } else {
                     format!("{pv} {first_c}")
                 }
             } else {
                 let try1 = format!("{pv} {first_c}");
-                if vb.find_entry(&try1, pitch).is_some() {
+                if vb.find_mapped_entry(&try1, pitch).is_some() {
                     try1
                 } else {
                     let try2 = format!("{pv}{first_c}");
-                    if vb.find_entry(&try2, pitch).is_some() {
+                    if vb.find_mapped_entry(&try2, pitch).is_some() {
                         try2
                     } else {
                         format!("{pv} {first_c}-")
@@ -368,26 +368,36 @@ impl VccvBrapaPhonemizer {
                 let text11 = cc[i + 1].as_str();
                 if text10 != "-" && text11 != "-" {
                     if text10 != "r"
-                        || vb.find_entry(&format!("{pv} {text10}"), pitch).is_some()
-                        || vb.find_entry(&format!("{pv} rh-"), pitch).is_none()
+                        || vb
+                            .find_mapped_entry(&format!("{pv} {text10}"), pitch)
+                            .is_some()
+                        || vb.find_mapped_entry(&format!("{pv} rh-"), pitch).is_none()
                     {
                         let text12 = format!("{text10} {text11}");
-                        if vb.find_entry(&text12, pitch).is_some() {
+                        if vb.find_mapped_entry(&text12, pitch).is_some() {
                             list.push(text12);
                         } else if text10 == "w"
-                            && vb.find_entry(&format!("u {text11}"), pitch).is_some()
+                            && vb
+                                .find_mapped_entry(&format!("u {text11}"), pitch)
+                                .is_some()
                         {
                             list.push(format!("u {text11}"));
                         } else if text10 == "w"
-                            && vb.find_entry(&format!("u {text11}-"), pitch).is_some()
+                            && vb
+                                .find_mapped_entry(&format!("u {text11}-"), pitch)
+                                .is_some()
                         {
                             list.push(format!("u {text11}-"));
                         } else if text10 == "y"
-                            && vb.find_entry(&format!("i {text11}"), pitch).is_some()
+                            && vb
+                                .find_mapped_entry(&format!("i {text11}"), pitch)
+                                .is_some()
                         {
                             list.push(format!("i {text11}"));
                         } else if text10 == "y"
-                            && vb.find_entry(&format!("i {text11}-"), pitch).is_some()
+                            && vb
+                                .find_mapped_entry(&format!("i {text11}-"), pitch)
+                                .is_some()
                         {
                             list.push(format!("i {text11}-"));
                         } else {
@@ -411,7 +421,7 @@ impl VccvBrapaPhonemizer {
                     main_cv = Some(format!("{last_c} {v}"));
                 } else {
                     let try_under = format!("_{last_c} {v}");
-                    if vb.find_entry(&try_under, pitch).is_some() {
+                    if vb.find_mapped_entry(&try_under, pitch).is_some() {
                         main_cv = Some(try_under);
                     } else {
                         main_cv = Some(format!("{last_c} {v}"));
@@ -437,28 +447,28 @@ impl VccvBrapaPhonemizer {
             format!("{prev_v} -")
         } else if text == "r" {
             let try_rh = format!("{prev_v} rh-");
-            if vb.find_entry(&try_rh, pitch).is_some() {
+            if vb.find_mapped_entry(&try_rh, pitch).is_some() {
                 try_rh
             } else {
                 format!("{prev_v} r-")
             }
         } else if prev_v == "w" {
             let try_u = format!("u {text}-");
-            if vb.find_entry(&try_u, pitch).is_some() {
+            if vb.find_mapped_entry(&try_u, pitch).is_some() {
                 try_u
             } else {
                 format!("u {text}")
             }
         } else if prev_v == "y" {
             let try_i = format!("i {text}-");
-            if vb.find_entry(&try_i, pitch).is_some() {
+            if vb.find_mapped_entry(&try_i, pitch).is_some() {
                 try_i
             } else {
                 format!("i {text}")
             }
         } else {
             let try_norm = format!("{prev_v} {text}-");
-            if vb.find_entry(&try_norm, pitch).is_some() {
+            if vb.find_mapped_entry(&try_norm, pitch).is_some() {
                 try_norm
             } else {
                 format!("{prev_v} {text}")
@@ -469,13 +479,23 @@ impl VccvBrapaPhonemizer {
         for i in 0..cc.len().saturating_sub(1) {
             let text3 = cc[i].as_str();
             let text4 = cc[i + 1].as_str();
-            if text3 != "r" || vb.find_entry(&format!("{prev_v} rh-"), pitch).is_none() {
+            if text3 != "r"
+                || vb
+                    .find_mapped_entry(&format!("{prev_v} rh-"), pitch)
+                    .is_none()
+            {
                 let text5 = format!("{text3} {text4}-");
-                if vb.find_entry(&text5, pitch).is_some() {
+                if vb.find_mapped_entry(&text5, pitch).is_some() {
                     list.push(text5);
-                } else if text3 == "y" && vb.find_entry(&format!("i {text4}-"), pitch).is_some() {
+                } else if text3 == "y"
+                    && vb
+                        .find_mapped_entry(&format!("i {text4}-"), pitch)
+                        .is_some()
+                {
                     list.push(format!("i {text4}-"));
-                } else if text3 == "y" && vb.find_entry(&format!("i {text4}"), pitch).is_some() {
+                } else if text3 == "y"
+                    && vb.find_mapped_entry(&format!("i {text4}"), pitch).is_some()
+                {
                     list.push(format!("i {text4}"));
                 } else {
                     list.push(format!("{text3} {text4}"));
@@ -489,7 +509,7 @@ impl VccvBrapaPhonemizer {
         {
             let last_c = cc.last().unwrap();
             let last_dash = format!("{last_c} -");
-            if vb.find_entry(&last_dash, pitch).is_some() {
+            if vb.find_mapped_entry(&last_dash, pitch).is_some() {
                 list.push(last_dash);
             }
         }
@@ -500,23 +520,26 @@ impl VccvBrapaPhonemizer {
     pub fn apply_phonemizer(notes: &[UNote], vb: &Voicebank) -> Vec<RenderPhone> {
         let mut phones: Vec<RenderPhone> = Vec::new();
         let mut prev_vowel: Option<String> = None;
+        let mut prev_pitch: Option<String> = None;
         let mut prev_note_end_ms: Option<f64> = None;
 
         for (note_index, note) in notes.iter().enumerate() {
             let lyric_trimmed = note.lyric.trim();
             if lyric_trimmed.is_empty() || lyric_trimmed == "R" || lyric_trimmed == "r" {
                 prev_vowel = None;
-                prev_note_end_ms = Some(note.position_ms + note.duration_ms);
+                prev_pitch = None;
+                prev_note_end_ms = None;
                 continue;
             }
 
             let is_phrase_start = match prev_note_end_ms {
-                Some(end_ms) => note.position_ms > end_ms + 60.0,
+                Some(end_ms) => note.position_ms > end_ms + 0.001,
                 None => true,
             };
 
             if is_phrase_start {
                 prev_vowel = None;
+                prev_pitch = None;
             }
 
             if (lyric_trimmed == "+" || lyric_trimmed.starts_with("+ ")) && !is_phrase_start {
@@ -575,7 +598,7 @@ impl VccvBrapaPhonemizer {
                 if num_aliases == 1 {
                     let alias = aliases[0].clone();
                     let final_alias = vb
-                        .find_entry(&alias, &note.pitch)
+                        .find_mapped_entry(&alias, &note.pitch)
                         .map(|e| e.alias.clone())
                         .unwrap_or(alias);
 
@@ -596,7 +619,13 @@ impl VccvBrapaPhonemizer {
                     let mut trans_durs = Vec::new();
 
                     for alias in &aliases[..aliases.len() - 1] {
-                        let base_len = Self::get_transition_basic_length_ms(alias);
+                        let base_len = vb
+                            .find_mapped_entry(alias, &note.pitch)
+                            .map(|oto| (oto.preutterance - oto.overlap.min(0.0)).max(5.0))
+                            .unwrap_or_else(|| Self::get_transition_basic_length_ms(alias))
+                            * crate::phonemizer::consonant_velocity_time_scale(
+                                note.expressions.consonant_velocity,
+                            );
                         let dur = base_len.clamp(25.0, (syl_dur * 0.45).max(30.0));
                         trans_durs.push(dur);
                         total_trans_dur += dur;
@@ -613,31 +642,40 @@ impl VccvBrapaPhonemizer {
 
                     if syl_idx == 0 {
                         if let Some(last_p) = phones.last_mut() {
-                            let borrow = total_trans_dur.min((last_p.duration_ms - 20.0).max(0.0));
-                            last_p.duration_ms -= borrow;
+                            let gap = syl_start_pos - (last_p.position_ms + last_p.duration_ms);
+                            let available = if gap <= 0.001 {
+                                (last_p.duration_ms - 5.0).max(0.0)
+                            } else {
+                                gap
+                            };
+                            let borrow = total_trans_dur.min(available);
+                            if total_trans_dur > 0.0 {
+                                for duration in &mut trans_durs {
+                                    *duration *= borrow / total_trans_dur;
+                                }
+                            }
+                            total_trans_dur = borrow;
+                            if gap <= 0.001 {
+                                last_p.duration_ms -= borrow;
+                            }
                         }
 
+                        let trans_pitch = prev_pitch.as_ref().unwrap_or(&note.pitch).clone();
                         let mut trans_pos = syl_start_pos - total_trans_dur;
                         for (alias_idx, alias) in aliases[..aliases.len() - 1].iter().enumerate() {
                             let dur = trans_durs[alias_idx];
                             let final_alias = vb
-                                .find_entry(alias, &note.pitch)
+                                .find_mapped_entry(alias, &trans_pitch)
                                 .map(|e| e.alias.clone())
                                 .unwrap_or_else(|| alias.clone());
-
-                            let mut trans_env = crate::dsp::envelope::UtauEnvelope::default();
-                            trans_env.p4 = 0.0;
-                            trans_env.p5 = 0.0;
-                            trans_env.v4 = 100.0;
-                            trans_env.v5 = 100.0;
 
                             note_phones.push(RenderPhone {
                                 note_index,
                                 lyric: final_alias,
-                                pitch: note.pitch.clone(),
+                                pitch: trans_pitch.clone(),
                                 position_ms: trans_pos,
                                 duration_ms: dur,
-                                envelope: trans_env,
+                                envelope: note.envelope.clone(),
                                 expressions: note.expressions.clone(),
                                 pitch_bend: crate::project::model::UPitchBend::default(),
                                 vibrato: crate::dsp::pitch::VibratoParam::default(),
@@ -648,7 +686,7 @@ impl VccvBrapaPhonemizer {
 
                         let main_alias = &aliases[aliases.len() - 1];
                         let final_main = vb
-                            .find_entry(main_alias, &note.pitch)
+                            .find_mapped_entry(main_alias, &note.pitch)
                             .map(|e| e.alias.clone())
                             .unwrap_or_else(|| main_alias.clone());
 
@@ -680,7 +718,7 @@ impl VccvBrapaPhonemizer {
                         for (alias_idx, alias) in aliases[..aliases.len() - 1].iter().enumerate() {
                             let dur = trans_durs[alias_idx];
                             let final_alias = vb
-                                .find_entry(alias, &note.pitch)
+                                .find_mapped_entry(alias, &note.pitch)
                                 .map(|e| e.alias.clone())
                                 .unwrap_or_else(|| alias.clone());
 
@@ -707,7 +745,7 @@ impl VccvBrapaPhonemizer {
 
                         let main_alias = &aliases[aliases.len() - 1];
                         let final_main = vb
-                            .find_entry(main_alias, &note.pitch)
+                            .find_mapped_entry(main_alias, &note.pitch)
                             .map(|e| e.alias.clone())
                             .unwrap_or_else(|| main_alias.clone());
 
@@ -740,7 +778,7 @@ impl VccvBrapaPhonemizer {
                     let end_aliases = Self::process_ending(pv, &trailing_coda, vb, &note.pitch);
                     for alias in end_aliases {
                         let final_alias = vb
-                            .find_entry(&alias, &note.pitch)
+                            .find_mapped_entry(&alias, &note.pitch)
                             .map(|e| e.alias.clone())
                             .unwrap_or(alias);
 
@@ -781,6 +819,7 @@ impl VccvBrapaPhonemizer {
             phones.extend(note_phones);
 
             prev_note_end_ms = Some(note.position_ms + note.duration_ms);
+            prev_pitch = Some(note.pitch.clone());
         }
 
         phones

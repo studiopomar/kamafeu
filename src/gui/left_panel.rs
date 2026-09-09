@@ -1,5 +1,5 @@
 use crate::gui::phoneme_palette::{draw_phoneme_palette, PhonemePaletteState};
-use crate::gui::theme::MelodyneTheme;
+use crate::gui::theme::ThemeConfig;
 use crate::oto::Voicebank;
 use eframe::egui::{self, Color32, Pos2, Rect, RichText, Rounding, Stroke, Vec2};
 
@@ -14,6 +14,7 @@ pub enum LeftSidebarTab {
 
 pub fn draw_left_panel(
     ui: &mut egui::Ui,
+    theme: &ThemeConfig,
     voicebank: Option<&Voicebank>,
     recent_voicebanks: &[std::path::PathBuf],
     active_tab: &mut LeftSidebarTab,
@@ -28,9 +29,9 @@ pub fn draw_left_panel(
             let voice_tab_text = if *active_tab == LeftSidebarTab::VoiceMode {
                 RichText::new("Voz")
                     .strong()
-                    .color(MelodyneTheme::ACCENT_GOLD)
+                    .color(theme.accent_c32())
             } else {
-                RichText::new("Voz").color(MelodyneTheme::TEXT_MUTED)
+                RichText::new("Voz").color(theme.text_muted_c32())
             };
             if ui.button(voice_tab_text).clicked() {
                 *active_tab = LeftSidebarTab::VoiceMode;
@@ -39,9 +40,9 @@ pub fn draw_left_panel(
             let phonemes_tab_text = if *active_tab == LeftSidebarTab::Phonemes {
                 RichText::new("Fonemas")
                     .strong()
-                    .color(MelodyneTheme::ACCENT_GOLD)
+                    .color(theme.accent_c32())
             } else {
-                RichText::new("Fonemas").color(MelodyneTheme::TEXT_MUTED)
+                RichText::new("Fonemas").color(theme.text_muted_c32())
             };
             if ui.button(phonemes_tab_text).clicked() {
                 *active_tab = LeftSidebarTab::Phonemes;
@@ -68,13 +69,13 @@ pub fn draw_left_panel(
                         let painter = ui.painter_at(card_rect);
                         painter.rect_filled(
                             card_rect,
-                            Rounding::same(6.0),
-                            MelodyneTheme::BG_PANEL,
+                            theme.ui_rounding(),
+                            theme.card_bg_c32(),
                         );
                         painter.rect_stroke(
                             card_rect,
-                            Rounding::same(6.0),
-                            Stroke::new(1.0, MelodyneTheme::GRID_LINE_BAR),
+                            theme.ui_rounding(),
+                            theme.card_stroke(),
                         );
 
                         let avatar_rect = egui::Rect::from_min_size(
@@ -103,12 +104,12 @@ pub fn draw_left_panel(
                             painter.rect_filled(
                                 avatar_rect,
                                 Rounding::same(4.0),
-                                Color32::from_rgb(45, 35, 60),
+                                theme.bg_header_c32(),
                             );
                             painter.rect_stroke(
                                 avatar_rect,
                                 Rounding::same(4.0),
-                                Stroke::new(1.0, MelodyneTheme::ACCENT_GOLD),
+                                Stroke::new(1.0, theme.accent_c32()),
                             );
                             let initial = singer_name
                                 .chars()
@@ -121,7 +122,7 @@ pub fn draw_left_panel(
                                 egui::Align2::CENTER_CENTER,
                                 initial,
                                 egui::FontId::proportional(22.0),
-                                MelodyneTheme::ACCENT_GOLD,
+                                theme.accent_c32(),
                             );
                         }
 
@@ -136,7 +137,7 @@ pub fn draw_left_panel(
                                     RichText::new(singer_name)
                                         .strong()
                                         .size(13.0)
-                                        .color(MelodyneTheme::TEXT_GOLD_LABEL),
+                                        .color(theme.text_primary_c32()),
                                 );
                                 let vb_status = if voicebank.is_some() {
                                     "Voicebank Ativo"
@@ -146,7 +147,7 @@ pub fn draw_left_panel(
                                 ui.label(
                                     RichText::new(vb_status)
                                         .size(10.0)
-                                        .color(Color32::from_rgb(0, 255, 157)),
+                                        .color(theme.note_fill_c32()),
                                 );
                             });
                         });
@@ -167,7 +168,7 @@ pub fn draw_left_panel(
                             ui.label(
                                 RichText::new("Recentes:")
                                     .size(10.0)
-                                    .color(MelodyneTheme::TEXT_MUTED),
+                                    .color(theme.text_muted_c32()),
                             );
                             ui.horizontal_wrapped(|ui| {
                                 for path in recent_voicebanks {
@@ -188,12 +189,12 @@ pub fn draw_left_panel(
                             RichText::new("Modo Vocal")
                                 .strong()
                                 .size(13.0)
-                                .color(MelodyneTheme::TEXT_GOLD_LABEL),
+                                .color(theme.text_primary_c32()),
                         );
                         ui.add_space(6.0);
 
                         ui.label(
-                            RichText::new("Modo do Fonemizador").color(MelodyneTheme::TEXT_MUTED),
+                            RichText::new("Modo do Fonemizador").color(theme.text_muted_c32()),
                         );
                         egui::ComboBox::from_id_salt("phonemizer_mode_cb")
                             .selected_text(match params.phonemizer_mode {
@@ -211,47 +212,47 @@ pub fn draw_left_panel(
                                 crate::phonemizer::PhonemizerMode::PortugueseG2P => "PT: Português G2P (Palavras -> Fonemas)",
                             })
                             .show_ui(ui, |ui| {
-                                ui.selectable_value(&mut params.phonemizer_mode, crate::phonemizer::PhonemizerMode::None, "🚫 Sem Fonemizador (Manual)");
+                                ui.selectable_value(&mut params.phonemizer_mode, crate::phonemizer::PhonemizerMode::None, "• Sem Fonemizador (Manual)");
                                 ui.separator();
-                                ui.label(RichText::new("[JA] Japonês").strong().color(Color32::from_rgb(255, 215, 0)));
+                                ui.label(RichText::new("[JA] Japonês").strong().color(theme.accent_c32()));
                                 ui.selectable_value(&mut params.phonemizer_mode, crate::phonemizer::PhonemizerMode::BasicCV, "  JA: Basic CV");
                                 ui.selectable_value(&mut params.phonemizer_mode, crate::phonemizer::PhonemizerMode::VCV, "  JA: Japanese VCV");
                                 ui.selectable_value(&mut params.phonemizer_mode, crate::phonemizer::PhonemizerMode::CVVC, "  JA: Japanese CVVC");
                                 ui.separator();
-                                ui.label(RichText::new("[EN] Inglês").strong().color(Color32::from_rgb(255, 215, 0)));
-                                ui.selectable_value(&mut params.phonemizer_mode, crate::phonemizer::PhonemizerMode::EnglishG2P, "  ✨ EN: English G2P (Palavras -> Fonemas)");
-                                ui.selectable_value(&mut params.phonemizer_mode, crate::phonemizer::PhonemizerMode::EnglishArpasing, "  🔤 EN: English Arpasing (Fonética Direta)");
-                                ui.selectable_value(&mut params.phonemizer_mode, crate::phonemizer::PhonemizerMode::EnglishVCCV, "  🔤 EN: English VCCV (Fonética Direta)");
+                                ui.label(RichText::new("[EN] Inglês").strong().color(theme.accent_c32()));
+                                ui.selectable_value(&mut params.phonemizer_mode, crate::phonemizer::PhonemizerMode::EnglishG2P, "  EN: English G2P (Palavras -> Fonemas)");
+                                ui.selectable_value(&mut params.phonemizer_mode, crate::phonemizer::PhonemizerMode::EnglishArpasing, "  EN: English Arpasing (Fonética Direta)");
+                                ui.selectable_value(&mut params.phonemizer_mode, crate::phonemizer::PhonemizerMode::EnglishVCCV, "  EN: English VCCV (Fonética Direta)");
                                 ui.separator();
-                                ui.label(RichText::new("[PT] Português").strong().color(Color32::from_rgb(255, 215, 0)));
-                                ui.selectable_value(&mut params.phonemizer_mode, crate::phonemizer::PhonemizerMode::PortugueseBrapaVCCV, "  🔥 PT: VCCV BRAPA (xiao / PT-BR 3.7)");
-                                ui.selectable_value(&mut params.phonemizer_mode, crate::phonemizer::PhonemizerMode::PortugueseG2P, "  ✨ PT: Português G2P (Palavras -> Fonemas)");
-                                ui.selectable_value(&mut params.phonemizer_mode, crate::phonemizer::PhonemizerMode::PortugueseBrapaCVC, "  🔤 PT: BRAPA CVC (Fonética Direta)");
-                                ui.selectable_value(&mut params.phonemizer_mode, crate::phonemizer::PhonemizerMode::PortugueseCVVC, "  🔤 PT: Portuguese CVVC (Fonética Direta)");
-                                ui.selectable_value(&mut params.phonemizer_mode, crate::phonemizer::PhonemizerMode::PortugueseVCV, "  🔤 PT: Portuguese VCV (Fonética Direta)");
+                                ui.label(RichText::new("[PT] Português").strong().color(theme.accent_c32()));
+                                ui.selectable_value(&mut params.phonemizer_mode, crate::phonemizer::PhonemizerMode::PortugueseBrapaVCCV, "  PT: VCCV BRAPA (xiao / PT-BR 3.7)");
+                                ui.selectable_value(&mut params.phonemizer_mode, crate::phonemizer::PhonemizerMode::PortugueseG2P, "  PT: Português G2P (Palavras -> Fonemas)");
+                                ui.selectable_value(&mut params.phonemizer_mode, crate::phonemizer::PhonemizerMode::PortugueseBrapaCVC, "  PT: BRAPA CVC (Fonética Direta)");
+                                ui.selectable_value(&mut params.phonemizer_mode, crate::phonemizer::PhonemizerMode::PortugueseCVVC, "  PT: Portuguese CVVC (Fonética Direta)");
+                                ui.selectable_value(&mut params.phonemizer_mode, crate::phonemizer::PhonemizerMode::PortugueseVCV, "  PT: Portuguese VCV (Fonética Direta)");
                             });
                         ui.add_space(4.0);
 
-                        ui.label(RichText::new("Volume / Ganho").color(MelodyneTheme::TEXT_MUTED));
+                        ui.label(RichText::new("Volume / Ganho").color(theme.text_muted_c32()));
                         ui.add(egui::Slider::new(&mut params.loudness, -12.0..=12.0).suffix(" dB"));
                         ui.add_space(4.0);
 
-                        ui.label(RichText::new("Tensão").color(MelodyneTheme::TEXT_MUTED));
+                        ui.label(RichText::new("Tensão").color(theme.text_muted_c32()));
                         ui.add(egui::Slider::new(&mut params.tension, 0.0..=100.0).suffix(" %"));
                         ui.add_space(4.0);
 
-                        ui.label(RichText::new("Soprosidade").color(MelodyneTheme::TEXT_MUTED));
+                        ui.label(RichText::new("Soprosidade").color(theme.text_muted_c32()));
                         ui.add(
                             egui::Slider::new(&mut params.breathiness, 0.0..=100.0).suffix(" %"),
                         );
                         ui.add_space(4.0);
 
-                        ui.label(RichText::new("Gênero").color(MelodyneTheme::TEXT_MUTED));
+                        ui.label(RichText::new("Gênero").color(theme.text_muted_c32()));
                         ui.add(egui::Slider::new(&mut params.gender, -100.0..=100.0).suffix(" %"));
                         ui.add_space(4.0);
 
                         ui.label(
-                            RichText::new("Deslocamento de Tom").color(MelodyneTheme::TEXT_MUTED),
+                            RichText::new("Deslocamento de Tom").color(theme.text_muted_c32()),
                         );
                         ui.add(
                             egui::Slider::new(&mut params.tone_shift, -12.0..=12.0).suffix(" smt"),
@@ -265,13 +266,13 @@ pub fn draw_left_panel(
                             RichText::new("Suavização de Transições")
                                 .strong()
                                 .size(13.0)
-                                .color(egui::Color32::from_rgb(0, 255, 157)),
+                                .color(theme.note_fill_c32()),
                         );
                         ui.add_space(4.0);
 
                         ui.label(
                             RichText::new("Sobreposição (Fonemas)")
-                                .color(MelodyneTheme::TEXT_MUTED),
+                                .color(theme.text_muted_c32()),
                         );
                         ui.add(
                             egui::Slider::new(&mut params.crossfade_ms, 0.0..=200.0).suffix(" ms"),
@@ -281,7 +282,7 @@ pub fn draw_left_panel(
                         ui.label(
                             RichText::new("Predefinições de Transição:")
                                 .size(11.0)
-                                .color(MelodyneTheme::TEXT_GOLD_LABEL),
+                                .color(theme.text_primary_c32()),
                         );
                         ui.horizontal(|ui| {
                             if ui.button(RichText::new("Orgânico").size(10.0)).clicked() {

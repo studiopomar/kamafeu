@@ -9,3 +9,11 @@ Os binários desta pasta são executados pelo Kamafeu por meio da interface de l
 | `straycat-rs` | https://github.com/UtaUtaUtau/straycat-rs | v1.1.0 macOS arm64 | MIT | `11a8ecec5d57e09636d7b6bc4bdfe082ae102ff7abaf07ce0e29f6a658c5b1d5` |
 
 O Organum também incorpora componentes WORLD sob licença BSD de 3 cláusulas; consulte `licenses/organum-WORLD-BSD-3-Clause.txt`. Os avisos de licença acompanham os binários em `licenses/`.
+
+## Instalação local do Hifisampler
+
+Os executáveis `hifisampler`, `hifisampler-rs`, `hifiserver-rust`, o arquivo
+`hificonfig.ini` e a pasta `model/` são instalações locais opcionais e estão
+ignorados pelo Git. Não são incluídos automaticamente na distribuição.
+Antes de distribuí-los, registre origem, versão, arquitetura, checksum e
+licenças dos executáveis e de cada modelo. Os arquivos locais são preservados.

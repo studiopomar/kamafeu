@@ -1,12 +1,15 @@
 use crate::gui::piano_roll::PianoRollState;
-use crate::gui::theme::MelodyneTheme;
+use crate::gui::theme::ThemeConfig;
+use crate::oto::Voicebank;
 use crate::project::model::UNote;
-use eframe::egui::{self, Color32, Pos2, Rect, Rounding, Sense, Stroke, Vec2};
+use eframe::egui::{self, Color32, Pos2, Rect, RichText, Rounding, Sense, Stroke, Vec2};
 
 pub fn draw_phoneme_ruler(
     ui: &mut egui::Ui,
+    theme: &ThemeConfig,
     state: &mut PianoRollState,
     notes: &mut [UNote],
+    voicebank: Option<&Voicebank>,
     ruler_rect: Rect,
     keyboard_width: f32,
     timeline_scroll_x: f32,
@@ -15,12 +18,16 @@ pub fn draw_phoneme_ruler(
     on_note_changed: &mut dyn FnMut(),
     on_edit_oto_alias: &mut dyn FnMut(&str, &str),
 ) {
-    let ruler_h = 76.0f32;
+    if !state.show_phoneme_ruler || state.is_maximized {
+        return;
+    }
+
+    let ruler_h = 68.0f32;
 
     egui::TopBottomPanel::bottom("bottom_phoneme_envelope_ruler")
         .resizable(false)
         .exact_height(ruler_h)
-        .frame(egui::Frame::none().fill(Color32::from_rgb(15, 12, 22)))
+        .frame(egui::Frame::none().fill(theme.bg_panel_c32()))
         .show_inside(ui, |ui| {
             ui.horizontal(|ui| {
                 ui.add_space(keyboard_width);
@@ -29,19 +36,19 @@ pub fn draw_phoneme_ruler(
                 let mut commit_phoneme_edit: Option<(usize, usize, String)> = None;
 
                 let available_w = (ui.available_width() - 4.0).max(100.0);
-                let (strip_rect, strip_response) = ui.allocate_exact_size(
+                let (strip_rect, _strip_response) = ui.allocate_exact_size(
                     Vec2::new(available_w, ruler_h - 2.0),
                     Sense::click_and_drag(),
                 );
 
                 let painter = ui.painter_at(strip_rect);
-                painter.rect_filled(strip_rect, Rounding::ZERO, Color32::from_rgb(20, 16, 30));
+                painter.rect_filled(strip_rect, Rounding::ZERO, theme.bg_canvas_c32());
                 painter.line_segment(
                     [
                         Pos2::new(strip_rect.min.x, strip_rect.min.y),
                         Pos2::new(strip_rect.max.x, strip_rect.min.y),
                     ],
-                    Stroke::new(1.0_f32, Color32::from_rgb(48, 38, 68)),
+                    Stroke::new(1.0_f32, theme.grid_line_bar_c32()),
                 );
 
                 let is_primary_down = ui.input(|i| i.pointer.primary_down());
@@ -280,25 +287,27 @@ pub fn draw_phoneme_ruler(
                     let has_previous_adjacent =
                         prior_end_ms.is_some_and(|prev_end| prev_end >= note.position_ms - 2.0);
                     let fill_color = if is_selected {
-                        Color32::from_rgba_unmultiplied(115, 95, 175, 120)
+                        theme.c32_alpha(theme.accent_color, 0.45)
                     } else {
-                        Color32::from_rgba_unmultiplied(80, 68, 125, 95)
+                        theme.c32_alpha(theme.accent_color, 0.25)
                     };
                     let stroke_color = if is_selected {
-                        Color32::from_rgb(255, 215, 80)
+                        theme.accent_c32()
                     } else {
-                        Color32::from_rgb(140, 125, 190)
+                        theme.c32_alpha(theme.accent_color, 0.7)
                     };
 
                     let attack_start_x = preutter_x;
                     let attack_end_x = overlap_x.max(preutter_x);
-                    let cutoff_start_x = x_end;
+                    let active_fadeout_ms = note.envelope.p5.max(0.0).min(note.duration_ms);
+                    let fadeout_x =
+                        (x_end - (active_fadeout_ms * px_per_ms) as f32).max(attack_end_x);
                     let cutoff_end_x = x_end;
 
                     let poly_points = vec![
                         Pos2::new(attack_start_x, y_bottom),
                         Pos2::new(attack_end_x, y_top),
-                        Pos2::new(cutoff_start_x, y_top),
+                        Pos2::new(fadeout_x, y_top),
                         Pos2::new(cutoff_end_x, y_bottom),
                     ];
 
@@ -360,90 +369,128 @@ pub fn draw_phoneme_ruler(
                         );
                     }
 
-                    let circle_radius = 3.4f32;
+                    let circle_radius = 4.0f32;
                     let mut draw_anchor_handle =
                         |pos: Pos2, kind: u8, color: Color32, tooltip: &str| {
-                            if pos.x >= strip_rect.min.x - 6.0 && pos.x <= strip_rect.max.x + 6.0 {
+                            if pos.x >= strip_rect.min.x - 10.0 && pos.x <= strip_rect.max.x + 10.0
+                            {
                                 let clamped_x = pos.x.clamp(strip_rect.min.x, strip_rect.max.x);
                                 let draw_pos = Pos2::new(clamped_x, pos.y);
+                                let is_dragging_this = state.dragging_phoneme_handle.is_some_and(
+                                    |(d_note, d_kind, _, _)| d_note == note_index && d_kind == kind,
+                                );
                                 let mut is_hover = false;
                                 if let Some(cursor_pos) = pointer_pos {
-                                    is_hover = (cursor_pos.x - clamped_x).abs() <= 8.0
-                                        && (cursor_pos.y - pos.y).abs() <= 8.0;
+                                    is_hover = (cursor_pos.x - clamped_x).abs() <= 10.0
+                                        && (cursor_pos.y - pos.y).abs() <= 10.0;
                                 }
-                                let node_stroke_color = if is_hover {
-                                    Color32::from_rgb(255, 235, 100)
-                                } else {
+                                let active = is_hover || is_dragging_this;
+                                let node_stroke_color = if active { Color32::WHITE } else { color };
+                                let node_fill = if active {
                                     color
-                                };
-                                let node_fill = if is_hover {
-                                    Color32::from_rgb(50, 40, 75)
                                 } else {
                                     Color32::from_rgb(20, 16, 32)
                                 };
                                 painter.circle(
                                     draw_pos,
-                                    if is_hover {
-                                        circle_radius + 1.2
+                                    if active {
+                                        circle_radius + 1.8
                                     } else {
                                         circle_radius
                                     },
                                     node_fill,
                                     Stroke::new(
-                                        if is_hover { 1.8_f32 } else { 1.3_f32 },
+                                        if active { 2.0_f32 } else { 1.3_f32 },
                                         node_stroke_color,
                                     ),
                                 );
-                                if is_hover {
+                                if active {
                                     ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
-                                    painter.text(
-                                        Pos2::new(clamped_x, strip_rect.min.y + 4.0),
-                                        egui::Align2::CENTER_TOP,
-                                        tooltip,
+                                    let text_shape = painter.layout_no_wrap(
+                                        tooltip.to_string(),
                                         egui::FontId::proportional(10.0),
-                                        Color32::from_rgb(255, 240, 160),
+                                        Color32::WHITE,
                                     );
-                                    if strip_response.drag_started() && is_primary_down {
+                                    let pill_rect = Rect::from_center_size(
+                                        Pos2::new(clamped_x, strip_rect.min.y + 10.0),
+                                        Vec2::new(text_shape.size().x + 12.0, 16.0),
+                                    );
+                                    painter.rect_filled(
+                                        pill_rect,
+                                        Rounding::same(4.0),
+                                        Color32::from_rgba_unmultiplied(15, 20, 35, 230),
+                                    );
+                                    painter.rect_stroke(
+                                        pill_rect,
+                                        Rounding::same(4.0),
+                                        Stroke::new(1.0_f32, color),
+                                    );
+                                    painter.galley(
+                                        Pos2::new(
+                                            pill_rect.center().x - text_shape.size().x * 0.5,
+                                            pill_rect.center().y - text_shape.size().y * 0.5,
+                                        ),
+                                        text_shape,
+                                        Color32::WHITE,
+                                    );
+                                    if is_primary_down
+                                        && state.dragging_phoneme_handle.is_none()
+                                        && state.dragging_subphoneme_boundary.is_none()
+                                    {
                                         on_before_change();
                                         let init_val = match kind {
                                             0 => note.expressions.preutter_offset_ms,
                                             1 => note.expressions.overlap_offset_ms,
-                                            _ => note.expressions.consonant_timing_offset_ms,
+                                            2 => note.expressions.consonant_timing_offset_ms,
+                                            3 => note.position_ms,
+                                            4 => note.envelope.p5,
+                                            5 => note.duration_ms,
+                                            _ => 0.0,
                                         };
-                                        state.dragging_phoneme_handle =
-                                            Some((note_index, kind, draw_pos.x, init_val));
+                                        if let Some(cursor_pos) = pointer_pos {
+                                            state.dragging_phoneme_handle =
+                                                Some((note_index, kind, cursor_pos.x, init_val));
+                                        } else {
+                                            state.dragging_phoneme_handle =
+                                                Some((note_index, kind, draw_pos.x, init_val));
+                                        }
                                         state.selected_note_index = Some(note_index);
                                     }
                                 }
                             }
                         };
 
-                    if !is_plus && subphonemes.len() <= 1 {
-                        draw_anchor_handle(
-                            Pos2::new(preutter_x, y_bottom),
-                            0,
-                            Color32::from_rgb(0, 220, 255),
-                            &format!(
-                                "Preutter: {:.1}ms ({:+.0}ms)",
-                                active_preutter_ms, note.expressions.preutter_offset_ms
-                            ),
-                        );
-                        draw_anchor_handle(
-                            Pos2::new(overlap_x, y_top),
-                            1,
-                            Color32::from_rgb(255, 120, 200),
-                            &format!(
-                                "Overlap: {:.1}ms ({:+.0}ms)",
-                                active_overlap_ms, note.expressions.overlap_offset_ms
-                            ),
-                        );
+                    // 1. Ponto de Preutter (Início de Emissão / Ataque)
+                    draw_anchor_handle(
+                        Pos2::new(preutter_x, y_bottom),
+                        0,
+                        Color32::from_rgb(0, 220, 255),
+                        &format!(
+                            "Preutter: {:.1}ms ({:+.0}ms)",
+                            active_preutter_ms, note.expressions.preutter_offset_ms
+                        ),
+                    );
+
+                    // 2. Ponto de Overlap (Início da Vogal / Crossfade)
+                    draw_anchor_handle(
+                        Pos2::new(overlap_x, y_top),
+                        1,
+                        Color32::from_rgb(255, 120, 200),
+                        &format!(
+                            "Overlap: {:.1}ms ({:+.0}ms)",
+                            active_overlap_ms, note.expressions.overlap_offset_ms
+                        ),
+                    );
+
+                    // 3. Ponto de Limite de Consoante (Transição de Consoante/Vogal)
+                    if consonant_x > attack_start_x + 1.0 {
                         draw_anchor_handle(
                             Pos2::new(consonant_x, y_top),
                             2,
                             if is_selected {
-                                MelodyneTheme::ACCENT_GOLD
+                                theme.accent_c32()
                             } else {
-                                Color32::from_rgb(0, 255, 157)
+                                theme.note_stroke_c32()
                             },
                             &format!(
                                 "Consoante: {:.1}ms ({:+.0}ms)",
@@ -452,17 +499,30 @@ pub fn draw_phoneme_ruler(
                         );
                     }
 
-                    painter.circle(
-                        Pos2::new(x_end, y_top),
-                        circle_radius,
-                        Color32::from_rgb(20, 16, 32),
-                        Stroke::new(1.2_f32, stroke_color),
+                    // 4. Ponto de Início da Nota (Onset)
+                    if (preutter_x - x_start).abs() > 4.0 {
+                        draw_anchor_handle(
+                            Pos2::new(x_start, y_top),
+                            3,
+                            Color32::from_rgb(180, 220, 255),
+                            &format!("Início da Nota: {:.0}ms", note.position_ms),
+                        );
+                    }
+
+                    // 5. Ponto de Fade-Out (Release / Início da Queda Final)
+                    draw_anchor_handle(
+                        Pos2::new(fadeout_x, y_top),
+                        4,
+                        Color32::from_rgb(255, 175, 50),
+                        &format!("Fade-Out: {:.1}ms", active_fadeout_ms),
                     );
-                    painter.circle(
+
+                    // 6. Ponto de Fim da Nota / Cutoff
+                    draw_anchor_handle(
                         Pos2::new(x_end, y_bottom),
-                        circle_radius,
-                        Color32::from_rgb(20, 16, 32),
-                        Stroke::new(1.2_f32, stroke_color),
+                        5,
+                        Color32::from_rgb(255, 215, 80),
+                        &format!("Fim / Cutoff: {:.0}ms", note.duration_ms),
                     );
 
                     if subphonemes.len() > 1 {
@@ -533,6 +593,112 @@ pub fn draw_phoneme_ruler(
                                 }
                                 if pill_resp.hovered() && !is_editing_this {
                                     ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                                    pill_resp.on_hover_ui(|ui| {
+                                        ui.set_max_width(280.0);
+                                        ui.vertical(|ui| {
+                                            ui.label(
+                                                RichText::new("Diagnóstico do Subfonema")
+                                                    .strong()
+                                                    .size(11.0)
+                                                    .color(theme.accent_c32()),
+                                            );
+                                            ui.separator();
+                                            ui.horizontal(|ui| {
+                                                ui.label(
+                                                    RichText::new("Alias:").strong().size(10.0),
+                                                );
+                                                ui.label(
+                                                    RichText::new(label)
+                                                        .color(Color32::WHITE)
+                                                        .size(10.0),
+                                                );
+                                            });
+                                            if let Some(vb) = voicebank {
+                                                if let Some(entry) =
+                                                    vb.find_mapped_entry(label, &note.pitch)
+                                                {
+                                                    ui.horizontal(|ui| {
+                                                        ui.label(
+                                                            RichText::new("OTO:")
+                                                                .strong()
+                                                                .size(10.0),
+                                                        );
+                                                        ui.label(
+                                                            RichText::new(&entry.alias)
+                                                                .color(Color32::from_rgb(
+                                                                    180, 220, 255,
+                                                                ))
+                                                                .size(10.0),
+                                                        );
+                                                    });
+                                                    ui.horizontal(|ui| {
+                                                        ui.label(
+                                                            RichText::new("Amostra:")
+                                                                .strong()
+                                                                .size(10.0),
+                                                        );
+                                                        let exists = vb
+                                                            .root_path
+                                                            .join(&entry.wav_filename)
+                                                            .exists();
+                                                        let color = if exists {
+                                                            Color32::from_rgb(140, 230, 160)
+                                                        } else {
+                                                            Color32::from_rgb(255, 120, 120)
+                                                        };
+                                                        ui.label(
+                                                            RichText::new(&entry.wav_filename)
+                                                                .color(color)
+                                                                .size(10.0),
+                                                        );
+                                                    });
+                                                    ui.horizontal(|ui| {
+                                                        ui.label(
+                                                            RichText::new("Preutter:")
+                                                                .size(9.5)
+                                                                .color(theme.text_muted_c32()),
+                                                        );
+                                                        ui.label(
+                                                            RichText::new(format!(
+                                                                "{:.1}ms",
+                                                                entry.preutterance
+                                                            ))
+                                                            .size(9.5),
+                                                        );
+                                                        ui.label(
+                                                            RichText::new("Overlap:")
+                                                                .size(9.5)
+                                                                .color(theme.text_muted_c32()),
+                                                        );
+                                                        ui.label(
+                                                            RichText::new(format!(
+                                                                "{:.1}ms",
+                                                                entry.overlap
+                                                            ))
+                                                            .size(9.5),
+                                                        );
+                                                    });
+                                                } else {
+                                                    ui.label(
+                                                        RichText::new("Não encontrado no OTO.ini")
+                                                            .color(Color32::from_rgb(255, 170, 80))
+                                                            .size(10.0),
+                                                    );
+                                                }
+                                            }
+                                            ui.horizontal(|ui| {
+                                                ui.label(
+                                                    RichText::new("Duração:")
+                                                        .size(9.5)
+                                                        .color(theme.text_muted_c32()),
+                                                );
+                                                ui.label(
+                                                    RichText::new(format!("{:.1}ms", duration))
+                                                        .size(9.5),
+                                                );
+                                            });
+                                        });
+                                    });
                                 }
 
                                 if is_editing_this {
@@ -836,6 +1002,104 @@ pub fn draw_phoneme_ruler(
                         }
                         if pill_resp.hovered() && !is_editing_this {
                             ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+                            pill_resp.on_hover_ui(|ui| {
+                                ui.set_max_width(280.0);
+                                ui.vertical(|ui| {
+                                    ui.label(
+                                        RichText::new("Diagnóstico do Fonema")
+                                            .strong()
+                                            .size(11.0)
+                                            .color(theme.accent_c32()),
+                                    );
+                                    ui.separator();
+                                    ui.horizontal(|ui| {
+                                        ui.label(
+                                            RichText::new("Letra / Alias:").strong().size(10.0),
+                                        );
+                                        ui.label(
+                                            RichText::new(&lyric_trimmed)
+                                                .color(Color32::WHITE)
+                                                .size(10.0),
+                                        );
+                                    });
+                                    if let Some(vb) = voicebank {
+                                        if let Some(entry) =
+                                            vb.find_mapped_entry(&lyric_trimmed, &note.pitch)
+                                        {
+                                            ui.horizontal(|ui| {
+                                                ui.label(RichText::new("OTO:").strong().size(10.0));
+                                                ui.label(
+                                                    RichText::new(&entry.alias)
+                                                        .color(Color32::from_rgb(180, 220, 255))
+                                                        .size(10.0),
+                                                );
+                                            });
+                                            ui.horizontal(|ui| {
+                                                ui.label(
+                                                    RichText::new("Amostra:").strong().size(10.0),
+                                                );
+                                                let exists =
+                                                    vb.root_path.join(&entry.wav_filename).exists();
+                                                let color = if exists {
+                                                    Color32::from_rgb(140, 230, 160)
+                                                } else {
+                                                    Color32::from_rgb(255, 120, 120)
+                                                };
+                                                ui.label(
+                                                    RichText::new(&entry.wav_filename)
+                                                        .color(color)
+                                                        .size(10.0),
+                                                );
+                                            });
+                                            ui.horizontal(|ui| {
+                                                ui.label(
+                                                    RichText::new("Preutter:")
+                                                        .size(9.5)
+                                                        .color(theme.text_muted_c32()),
+                                                );
+                                                ui.label(
+                                                    RichText::new(format!(
+                                                        "{:.1}ms (ativo: {:.1}ms)",
+                                                        entry.preutterance, active_preutter_ms
+                                                    ))
+                                                    .size(9.5),
+                                                );
+                                            });
+                                            ui.horizontal(|ui| {
+                                                ui.label(
+                                                    RichText::new("Overlap:")
+                                                        .size(9.5)
+                                                        .color(theme.text_muted_c32()),
+                                                );
+                                                ui.label(
+                                                    RichText::new(format!(
+                                                        "{:.1}ms (ativo: {:.1}ms)",
+                                                        entry.overlap, active_overlap_ms
+                                                    ))
+                                                    .size(9.5),
+                                                );
+                                            });
+                                        } else {
+                                            ui.label(
+                                                RichText::new("Não encontrado no OTO.ini")
+                                                    .color(Color32::from_rgb(255, 170, 80))
+                                                    .size(10.0),
+                                            );
+                                        }
+                                    }
+                                    ui.horizontal(|ui| {
+                                        ui.label(
+                                            RichText::new("Duração da Nota:")
+                                                .size(9.5)
+                                                .color(theme.text_muted_c32()),
+                                        );
+                                        ui.label(
+                                            RichText::new(format!("{:.0}ms", note.duration_ms))
+                                                .size(9.5),
+                                        );
+                                    });
+                                });
+                            });
                         }
 
                         if is_editing_this {
@@ -945,7 +1209,7 @@ pub fn draw_phoneme_ruler(
                                 match drag_kind {
                                     0 => {
                                         let preutter = (base_preutter_ms + init_val - delta_ms)
-                                            .clamp(0.0, 500.0);
+                                            .clamp(0.0, 600.0);
                                         note.expressions.preutter_offset_ms =
                                             preutter - base_preutter_ms;
                                         let overlap = (base_overlap_ms
@@ -960,10 +1224,28 @@ pub fn draw_phoneme_ruler(
                                         note.expressions.overlap_offset_ms =
                                             overlap - base_overlap_ms;
                                     }
-                                    _ => {
+                                    2 => {
                                         note.expressions.consonant_timing_offset_ms =
                                             (init_val + delta_ms).clamp(-500.0, 500.0);
                                     }
+                                    3 => {
+                                        let new_pos = (init_val + delta_ms).max(0.0);
+                                        let end_time = note.position_ms + note.duration_ms;
+                                        if new_pos < end_time - 15.0 {
+                                            note.duration_ms = end_time - new_pos;
+                                            note.position_ms = new_pos;
+                                        }
+                                    }
+                                    4 => {
+                                        let new_fadeout =
+                                            (init_val - delta_ms).clamp(0.0, note.duration_ms);
+                                        note.envelope.p5 = new_fadeout;
+                                    }
+                                    5 => {
+                                        let new_dur = (init_val + delta_ms).max(20.0);
+                                        note.duration_ms = new_dur;
+                                    }
+                                    _ => {}
                                 }
                                 state.continuous_edit_dirty = true;
                             }

@@ -524,16 +524,16 @@ pub fn draw_copaiba_toolkit_ui(app: &mut CopaibaToolkitApp, ui: &mut egui::Ui) {
                     } else {
                         let center = avatar_rect.center();
                         painter.text(
-                            Pos2::new(center.x, center.y - 8.0),
+                            Pos2::new(center.x, center.y - 6.0),
                             egui::Align2::CENTER_CENTER,
-                            "🖼️",
-                            egui::FontId::proportional(22.0),
+                            "[Foto]",
+                            egui::FontId::proportional(12.0),
                             Color32::from_rgb(165, 148, 201),
                         );
                         painter.text(
-                            Pos2::new(center.x, center.y + 16.0),
+                            Pos2::new(center.x, center.y + 12.0),
                             egui::Align2::CENTER_CENTER,
-                            "Sem Foto",
+                            "Sem Imagem",
                             egui::FontId::proportional(10.0),
                             Color32::from_rgb(165, 148, 201),
                         );
@@ -563,7 +563,7 @@ pub fn draw_copaiba_toolkit_ui(app: &mut CopaibaToolkitApp, ui: &mut egui::Ui) {
 
                         ui.horizontal(|ui| {
                             let import_btn = egui::Button::new(
-                                RichText::new("🖼️ Importar Foto / Avatar (100x100)...")
+                                RichText::new("Importar Foto / Avatar (100x100)...")
                                     .size(11.0)
                                     .strong()
                                     .color(Color32::from_rgb(0, 255, 157)),
@@ -584,7 +584,7 @@ pub fn draw_copaiba_toolkit_ui(app: &mut CopaibaToolkitApp, ui: &mut egui::Ui) {
                             }
 
                             if (app.config.image_filename.is_some() || app.avatar_texture.is_some())
-                                && ui.button(RichText::new("🗑️ Remover").size(11.0).color(Color32::from_rgb(255, 100, 100))).clicked() {
+                                && ui.button(RichText::new("Remover").size(11.0).color(Color32::from_rgb(255, 100, 100))).clicked() {
                                     app.status_message = match app.remove_avatar_image(ui.ctx()) {
                                         Ok(()) => "Avatar removido".to_string(),
                                         Err(err) => err,
@@ -625,7 +625,7 @@ pub fn draw_copaiba_toolkit_ui(app: &mut CopaibaToolkitApp, ui: &mut egui::Ui) {
                     if ui.button(RichText::new("+ Duplicar").size(10.5).color(Color32::from_rgb(0, 255, 157))).clicked() {
                         app.duplicate_selected_entry();
                     }
-                    if ui.button(RichText::new("🗑 Excluir").size(10.5).color(Color32::from_rgb(255, 100, 100))).clicked() {
+                    if ui.button(RichText::new("Excluir").size(10.5).color(Color32::from_rgb(255, 100, 100))).clicked() {
                         app.delete_selected_entry();
                     }
                 });
@@ -700,7 +700,7 @@ pub fn draw_copaiba_toolkit_ui(app: &mut CopaibaToolkitApp, ui: &mut egui::Ui) {
                                     ui.label("Sufixo:");
                                     ui.add(egui::TextEdit::singleline(&mut app.new_mapping_suffix).desired_width(80.0));
 
-                                    let add_btn = egui::Button::new(RichText::new("➕ Adicionar").strong().color(Color32::BLACK))
+                                    let add_btn = egui::Button::new(RichText::new("+ Adicionar").strong().color(Color32::BLACK))
                                         .fill(Color32::from_rgb(180, 255, 0))
                                         .stroke(Stroke::new(2.0_f32, Color32::BLACK));
 
@@ -769,7 +769,7 @@ pub fn draw_copaiba_toolkit_ui(app: &mut CopaibaToolkitApp, ui: &mut egui::Ui) {
                                                     changed = true;
                                                 }
 
-                                                if ui.button(RichText::new("🗑 Excluir").color(Color32::from_rgb(255, 100, 100))).clicked() {
+                                                if ui.button(RichText::new("Excluir").color(Color32::from_rgb(255, 100, 100))).clicked() {
                                                     to_remove = Some(key.clone());
                                                     entry_removed = true;
                                                 }

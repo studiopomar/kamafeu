@@ -2,12 +2,13 @@ use std::path::PathBuf;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize, Default)]
 pub enum GridSnapOption {
+    #[default]
+    Auto,
     Freeform,
     Snap1_1,
     Snap1_2,
     Snap1_4,
     Snap1_8,
-    #[default]
     Snap1_16,
     Snap1_32,
     Snap1_64,
@@ -22,8 +23,33 @@ pub enum GridSnapOption {
 
 impl GridSnapOption {
     pub fn step_ms(&self, bpm: f64) -> Option<f64> {
+        self.step_ms_with_zoom(bpm, 0.25)
+    }
+
+    pub fn step_ms_with_zoom(&self, bpm: f64, px_per_ms: f32) -> Option<f64> {
         let beat_ms = 60000.0 / bpm;
         match self {
+            GridSnapOption::Auto => {
+                let candidates = [
+                    beat_ms * 4.0,  // 1/1 (Bar)
+                    beat_ms * 2.0,  // 1/2
+                    beat_ms,        // 1/4 (Beat)
+                    beat_ms / 2.0,  // 1/8
+                    beat_ms / 4.0,  // 1/16
+                    beat_ms / 8.0,  // 1/32
+                    beat_ms / 16.0, // 1/64
+                    beat_ms / 32.0, // 1/128
+                ];
+                let px_zoom = (px_per_ms as f64).max(0.001);
+                let min_px = 18.0;
+                let mut chosen = candidates[0];
+                for &cand in &candidates {
+                    if cand * px_zoom >= min_px {
+                        chosen = cand;
+                    }
+                }
+                Some(chosen)
+            }
             GridSnapOption::Freeform => None,
             GridSnapOption::Snap1_1 => Some(beat_ms * 4.0),
             GridSnapOption::Snap1_2 => Some(beat_ms * 2.0),
@@ -42,8 +68,19 @@ impl GridSnapOption {
     }
 
     pub fn label(&self) -> &'static str {
+        self.label_for(crate::config::AppLanguage::PtBr)
+    }
+
+    pub fn label_for(&self, lang: crate::config::AppLanguage) -> &'static str {
         match self {
-            GridSnapOption::Freeform => "Livre",
+            GridSnapOption::Auto => "Auto",
+            GridSnapOption::Freeform => {
+                if lang.is_en() {
+                    "Off"
+                } else {
+                    "Livre"
+                }
+            }
             GridSnapOption::Snap1_1 => "1/1",
             GridSnapOption::Snap1_2 => "1/2",
             GridSnapOption::Snap1_4 => "1/4",
@@ -57,6 +94,44 @@ impl GridSnapOption {
             GridSnapOption::Snap1_16T => "1/16T",
             GridSnapOption::Snap1_32T => "1/32T",
             GridSnapOption::Snap1_64T => "1/64T",
+        }
+    }
+
+    pub fn resolved_label(&self, bpm: f64, px_per_ms: f32) -> String {
+        self.resolved_label_for(bpm, px_per_ms, crate::config::AppLanguage::PtBr)
+    }
+
+    pub fn resolved_label_for(&self, bpm: f64, px_per_ms: f32, lang: crate::config::AppLanguage) -> String {
+        if *self == GridSnapOption::Auto {
+            if let Some(step) = self.step_ms_with_zoom(bpm, px_per_ms) {
+                let beat_ms = 60000.0 / bpm;
+                let ratio = beat_ms / step;
+                let fraction_name = if (ratio - 0.25).abs() < 1e-3 {
+                    "1/1"
+                } else if (ratio - 0.5).abs() < 1e-3 {
+                    "1/2"
+                } else if (ratio - 1.0).abs() < 1e-3 {
+                    "1/4"
+                } else if (ratio - 2.0).abs() < 1e-3 {
+                    "1/8"
+                } else if (ratio - 4.0).abs() < 1e-3 {
+                    "1/16"
+                } else if (ratio - 8.0).abs() < 1e-3 {
+                    "1/32"
+                } else if (ratio - 16.0).abs() < 1e-3 {
+                    "1/64"
+                } else if (ratio - 32.0).abs() < 1e-3 {
+                    "1/128"
+                } else {
+                    ""
+                };
+                if !fraction_name.is_empty() {
+                    return format!("Auto ({})", fraction_name);
+                }
+            }
+            "Auto".to_string()
+        } else {
+            self.label_for(lang).to_string()
         }
     }
 }
@@ -76,25 +151,33 @@ pub struct TransportState {
     pub count_in_bars: u8,
     pub preview_selection_only: bool,
     pub master_volume: f32,
+    pub vu_level_l: f32,
+    pub vu_level_r: f32,
+    pub vu_peak_l: f32,
+    pub vu_peak_r: f32,
 }
 
 impl Default for TransportState {
     fn default() -> Self {
         Self {
             bpm: 120.0,
-            voicebank_name: "Nenhum Voicebank Carregado".to_string(),
+            voicebank_name: String::new(),
             voicebank_path: None,
             status_message: "Pronto".to_string(),
-            grid_snap: GridSnapOption::Snap1_16,
+            grid_snap: GridSnapOption::default(),
             playhead_time_str: "00:00.000".to_string(),
             render_progress: 1.0,
             loop_enabled: false,
             loop_start_ms: 0.0,
-            loop_end_ms: 4_000.0,
+            loop_end_ms: 8000.0,
             metronome_enabled: false,
             count_in_bars: 0,
             preview_selection_only: false,
             master_volume: 1.0,
+            vu_level_l: 0.0,
+            vu_level_r: 0.0,
+            vu_peak_l: 0.0,
+            vu_peak_r: 0.0,
         }
     }
 }
@@ -140,4 +223,5 @@ pub enum ExportAudioScope {
     #[default]
     VocalsAndAudio,
     VocalsOnly,
+    SeparateTrackStems,
 }

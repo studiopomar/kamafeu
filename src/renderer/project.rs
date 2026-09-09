@@ -13,20 +13,42 @@ pub struct RenderedAudio {
     pub samples: Vec<f32>,
     pub sample_rate: u32,
     pub channels: u16,
+    pub error: Option<String>,
 }
 
 impl RenderedAudio {
     pub fn empty(sample_rate: u32, channels: u16) -> Self {
         Self {
+            error: None,
             samples: Vec::new(),
             sample_rate,
             channels,
         }
     }
 
+    pub fn failed(sample_rate: u32, error: String) -> Self {
+        Self {
+            samples: Vec::new(),
+            sample_rate,
+            channels: 2,
+            error: Some(error),
+        }
+    }
+
     pub fn frame_count(&self) -> usize {
         self.samples.len() / usize::from(self.channels.max(1))
     }
+}
+
+/// A single chunk of audio produced by progressive rendering.
+#[derive(Debug, Clone)]
+pub struct ProgressiveChunk {
+    /// The rendered audio for this chunk.
+    pub audio: RenderedAudio,
+    /// The absolute project time (ms) where this chunk begins.
+    pub chunk_start_ms: f64,
+    /// `true` when this is the last chunk in the progressive sequence.
+    pub is_final: bool,
 }
 
 pub struct ProjectRenderer;
@@ -149,7 +171,8 @@ impl ProjectRenderer {
             track_name: String,
             volume_db: f64,
             pan: f64,
-            mono: Vec<f32>,
+            fx_rack: Option<crate::audio::FxRackConfig>,
+            mono: Result<Vec<f32>, String>,
         }
 
         let mut track_results: Vec<TrackResult> = audible_tracks
@@ -172,7 +195,7 @@ impl ProjectRenderer {
                     }
                 };
 
-                let mono = TrackRenderer::render_track_with_progress_cancellable(
+                let mono = TrackRenderer::try_render_track_with_progress_cancellable(
                     &notes,
                     voicebank,
                     sample_rate,
@@ -190,6 +213,7 @@ impl ProjectRenderer {
                     track_name: track.name.clone(),
                     volume_db: track.volume_db,
                     pan: track.pan,
+                    fx_rack: track.fx_rack.clone(),
                     mono,
                 })
             })
@@ -199,12 +223,19 @@ impl ProjectRenderer {
             return RenderedAudio::empty(sample_rate, 2);
         }
 
+        if let Some(error) = track_results.iter().find_map(|r| r.mono.as_ref().err()) {
+            if let Some(cb) = on_progress {
+                cb(1.0, error);
+            }
+            return RenderedAudio::failed(sample_rate, error.clone());
+        }
+
         // Sort by audible_index so mixing order is deterministic.
         track_results.sort_unstable_by_key(|r| r.audible_index);
 
         let mut stereo = Vec::<f32>::new();
 
-        for result in track_results {
+        for mut result in track_results {
             if let Some(callback) = on_progress {
                 let progress = result.audible_index as f32 / track_count as f32;
                 callback(
@@ -212,7 +243,14 @@ impl ProjectRenderer {
                     &format!("[{}] Renderização concluída", result.track_name),
                 );
             }
-            Self::mix_track_into(&mut stereo, &result.mono, result.volume_db, result.pan);
+            Self::mix_track_into(
+                &mut stereo,
+                result.mono.as_mut().expect("validated track result"),
+                result.volume_db,
+                result.pan,
+                result.fx_rack.as_ref(),
+                sample_rate,
+            );
         }
 
         // Mix all audible wave parts (backing tracks / instrumentals)
@@ -241,8 +279,15 @@ impl ProjectRenderer {
             }
         }
 
-        for sample in &mut stereo {
-            *sample = sample.clamp(-1.0, 1.0);
+        let peak = stereo
+            .iter()
+            .map(|sample| sample.abs())
+            .fold(0.0f32, f32::max);
+        if peak > 0.98 {
+            let gain = 0.98 / peak;
+            for sample in &mut stereo {
+                *sample *= gain;
+            }
         }
 
         if let Some(callback) = on_progress {
@@ -257,9 +302,88 @@ impl ProjectRenderer {
         }
 
         RenderedAudio {
+            error: None,
             samples: stereo,
             sample_rate,
             channels: 2,
+        }
+    }
+
+    /// Render the project in progressive chunks and send each through `chunk_tx`.
+    ///
+    /// Audio quality is identical to the monolithic render — each chunk goes
+    /// through the same Resampler → Wavtool → Phase-aligned-mix pipeline.
+    /// The first chunk covers `[playhead_ms .. playhead_ms + chunk_ms]` so the
+    /// caller can start playback almost immediately.
+    #[allow(clippy::too_many_arguments)]
+    pub fn render_project_progressive(
+        project: &UProject,
+        voicebank: &Voicebank,
+        sample_rate: u32,
+        playhead_ms: f64,
+        max_end_ms: f64,
+        chunk_ms: f64,
+        resampler_driver: &dyn ResamplerDriver,
+        wavtool_driver: &dyn WavtoolDriver,
+        options: &RenderOptions,
+        on_progress: Option<&(dyn Fn(f32, &str) + Send + Sync)>,
+        cancel: Option<&AtomicBool>,
+        chunk_tx: &std::sync::mpsc::SyncSender<ProgressiveChunk>,
+    ) {
+        // Render with the same complete phrase context as export. Chunking is
+        // only a transport operation: never re-phonemize or crossfade chunks.
+        let audio = Self::render_project_with_drivers_cancellable(
+            project,
+            voicebank,
+            sample_rate,
+            0.0,
+            resampler_driver,
+            wavtool_driver,
+            options,
+            on_progress,
+            cancel,
+        );
+        if cancel.is_some_and(|c| c.load(Ordering::Relaxed)) {
+            return;
+        }
+        if audio.error.is_some() {
+            let _ = chunk_tx.send(ProgressiveChunk {
+                audio,
+                chunk_start_ms: playhead_ms,
+                is_final: true,
+            });
+            return;
+        }
+        let channels = usize::from(audio.channels.max(1));
+        let mut cursor = playhead_ms.max(0.0);
+        while cursor < max_end_ms {
+            if cancel.is_some_and(|c| c.load(Ordering::Relaxed)) {
+                return;
+            }
+            let end = (cursor + chunk_ms.max(500.0)).min(max_end_ms);
+            let first = (cursor * sample_rate as f64 / 1000.0).round() as usize * channels;
+            let last = (end * sample_rate as f64 / 1000.0).round() as usize * channels;
+            let mut samples = vec![0.0; last.saturating_sub(first)];
+            if first < audio.samples.len() {
+                let available = samples.len().min(audio.samples.len() - first);
+                samples[..available].copy_from_slice(&audio.samples[first..first + available]);
+            }
+            if chunk_tx
+                .send(ProgressiveChunk {
+                    audio: RenderedAudio {
+                        samples,
+                        sample_rate,
+                        channels: audio.channels,
+                        error: None,
+                    },
+                    chunk_start_ms: cursor,
+                    is_final: end >= max_end_ms,
+                })
+                .is_err()
+            {
+                return;
+            }
+            cursor = end;
         }
     }
 
@@ -305,7 +429,14 @@ impl ProjectRenderer {
         notes
     }
 
-    fn mix_track_into(stereo: &mut Vec<f32>, mono: &[f32], volume_db: f64, pan: f64) {
+    fn mix_track_into(
+        stereo: &mut Vec<f32>,
+        mono: &mut [f32],
+        volume_db: f64,
+        pan: f64,
+        fx_rack: Option<&crate::audio::FxRackConfig>,
+        sample_rate: u32,
+    ) {
         let required_len = mono.len().saturating_mul(2);
         if stereo.len() < required_len {
             stereo.resize(required_len, 0.0);
@@ -315,6 +446,22 @@ impl ProjectRenderer {
         let pan = pan.clamp(-1.0, 1.0) as f32;
         let left_gain = gain * (1.0 - pan.max(0.0));
         let right_gain = gain * (1.0 + pan.min(0.0));
+
+        if let Some(fx) = fx_rack {
+            if fx.master_enabled {
+                let mut track_stereo = Vec::with_capacity(required_len);
+                for &sample in mono.iter() {
+                    track_stereo.push(sample * left_gain);
+                    track_stereo.push(sample * right_gain);
+                }
+                let mut processor = crate::audio::FxRackProcessor::new(fx.clone(), sample_rate);
+                processor.process_interleaved(&mut track_stereo, sample_rate);
+                for (i, &sample) in track_stereo.iter().enumerate() {
+                    stereo[i] += sample;
+                }
+                return;
+            }
+        }
 
         for (frame, sample) in mono.iter().enumerate() {
             stereo[frame * 2] += sample * left_gain;
@@ -393,7 +540,8 @@ mod tests {
     #[test]
     fn mixer_applies_volume_and_pan() {
         let mut stereo = Vec::new();
-        ProjectRenderer::mix_track_into(&mut stereo, &[1.0, 0.5], -6.0206, 1.0);
+        let mut mono = vec![1.0, 0.5];
+        ProjectRenderer::mix_track_into(&mut stereo, &mut mono, -6.0206, 1.0, None, 44100);
 
         assert_eq!(stereo.len(), 4);
         assert!(stereo[0].abs() < f32::EPSILON);
@@ -474,5 +622,79 @@ mod tests {
         assert!((stereo[1] - 1.0).abs() < 1e-4);
         assert!((stereo[2] - 0.5).abs() < 1e-4);
         assert!((stereo[3] - 0.5).abs() < 1e-4);
+    }
+
+    #[test]
+    fn test_render_project_progressive_delivers_ordered_chunks() {
+        let mut project = UProject::default();
+        project.parts[0].notes = vec![
+            UNote::new("a", "C4", 0.0, 500.0),
+            UNote::new("b", "E4", 1000.0, 500.0),
+            UNote::new("c", "G4", 2500.0, 500.0),
+        ];
+
+        let directory = tempfile::tempdir().unwrap();
+        let source: Vec<f32> = (0..44100)
+            .map(|i| (i as f32 * std::f32::consts::TAU * 220.0 / 44100.0).sin() * 0.2)
+            .collect();
+        TrackRenderer::save_wav_samples(directory.path().join("source.wav"), &source, 44100)
+            .unwrap();
+        std::fs::write(directory.path().join("oto.ini"), "source.wav=a,0,50,-900,40,10\nsource.wav=b,0,50,-900,40,10\nsource.wav=c,0,50,-900,40,10\n").unwrap();
+        let vb = Voicebank::new(directory.path()).unwrap();
+        let (tx, rx) = std::sync::mpsc::sync_channel(4);
+        let cancel = AtomicBool::new(false);
+        let options = RenderOptions::default();
+
+        ProjectRenderer::render_project_progressive(
+            &project,
+            &vb,
+            44100,
+            0.0,
+            3000.0,
+            1000.0,
+            &crate::drivers::NativeResamplerDriver,
+            &crate::drivers::NativeWavtoolDriver,
+            &options,
+            None,
+            Some(&cancel),
+            &tx,
+        );
+
+        let mut chunks = Vec::new();
+        while let Ok(chunk) = rx.try_recv() {
+            chunks.push(chunk);
+        }
+
+        assert!(
+            !chunks.is_empty(),
+            "Should have received progressive chunks"
+        );
+        assert_eq!(chunks[0].chunk_start_ms, 0.0);
+        assert!(chunks.last().unwrap().is_final);
+        assert_eq!(chunks.len(), 3);
+        let full = ProjectRenderer::render_project_with_drivers(
+            &project,
+            &vb,
+            44100,
+            0.0,
+            &crate::drivers::NativeResamplerDriver,
+            &crate::drivers::NativeWavtoolDriver,
+            &options,
+            None,
+        );
+        assert!(full.error.is_none());
+        let joined: Vec<f32> = chunks
+            .iter()
+            .flat_map(|c| c.audio.samples.iter().copied())
+            .collect();
+        let mut expected = full.samples;
+        expected.resize(joined.len(), 0.0);
+        assert_eq!(joined, expected);
+        assert!(chunks
+            .iter()
+            .all(|chunk| chunk.audio.frame_count() == 44_100));
+        for i in 1..chunks.len() {
+            assert!(chunks[i].chunk_start_ms > chunks[i - 1].chunk_start_ms);
+        }
     }
 }

@@ -1,535 +1,857 @@
+use crate::gui::piano_roll::state::{MusicalScale, ROOT_NOTE_NAMES};
+use crate::gui::theme::ThemeConfig;
 use crate::gui::types::{AutoScrollMode, EditTool, GridSnapOption, PitchSubTool, TransportState};
-use eframe::egui::{self, Color32, Frame, Margin, RichText, Rounding, Stroke, Vec2};
+use eframe::egui::{self, Color32, Frame, Margin, Pos2, Rect, RichText, Rounding, Stroke, Vec2};
 
-fn toolbar_card<R>(ui: &mut egui::Ui, add_contents: impl FnOnce(&mut egui::Ui) -> R) -> R {
+fn toolbar_card<R>(
+    ui: &mut egui::Ui,
+    theme: &ThemeConfig,
+    add_contents: impl FnOnce(&mut egui::Ui) -> R,
+) -> R {
     Frame::none()
-        .fill(Color32::from_rgb(20, 15, 29))
-        .rounding(Rounding::same(4.0))
-        .stroke(Stroke::new(1.0_f32, Color32::from_rgb(46, 36, 66)))
-        .inner_margin(Margin::symmetric(6.0, 3.0))
+        .fill(theme.card_bg_c32())
+        .rounding(theme.ui_rounding())
+        .stroke(theme.card_stroke())
+        .inner_margin(Margin::symmetric(5.0, 2.0))
         .show(ui, add_contents)
         .inner
 }
 
+fn draw_vu_meter(
+    ui: &mut egui::Ui,
+    theme: &ThemeConfig,
+    state: &mut TransportState,
+    _is_playing: bool,
+) {
+    let (vu_rect, _) = ui.allocate_exact_size(Vec2::new(72.0, 22.0), egui::Sense::hover());
+    let painter = ui.painter_at(vu_rect);
+
+    // Frame
+    painter.rect_filled(vu_rect, Rounding::same(3.0), theme.bg_canvas_c32());
+    painter.rect_stroke(
+        vu_rect,
+        Rounding::same(3.0),
+        Stroke::new(1.0, theme.grid_line_sub_c32()),
+    );
+
+    let bar_h = 5.0;
+    let bar_max_w = vu_rect.width() - 18.0;
+
+    for (ch_idx, (level, peak, label)) in [
+        (state.vu_level_l, state.vu_peak_l, "L"),
+        (state.vu_level_r, state.vu_peak_r, "R"),
+    ]
+    .iter()
+    .enumerate()
+    {
+        let bar_y = vu_rect.min.y + 4.0 + ch_idx as f32 * (bar_h + 3.0);
+        let bar_x_start = vu_rect.min.x + 12.0;
+
+        // Label
+        painter.text(
+            Pos2::new(vu_rect.min.x + 3.0, bar_y + bar_h * 0.5),
+            egui::Align2::LEFT_CENTER,
+            *label,
+            egui::FontId::monospace(8.0),
+            theme.text_muted_c32(),
+        );
+
+        // Track
+        painter.rect_filled(
+            Rect::from_min_max(
+                Pos2::new(bar_x_start, bar_y),
+                Pos2::new(bar_x_start + bar_max_w, bar_y + bar_h),
+            ),
+            Rounding::same(1.5),
+            theme.c32_alpha(theme.bg_header, 0.7),
+        );
+
+        // Active meter
+        let fill_w = bar_max_w * level.clamp(0.0, 1.0);
+        if fill_w > 0.5 {
+            let fill_rect = Rect::from_min_max(
+                Pos2::new(bar_x_start, bar_y),
+                Pos2::new(bar_x_start + fill_w, bar_y + bar_h),
+            );
+            let fill_color = if *level > 0.85 {
+                Color32::from_rgb(255, 65, 85)
+            } else if *level > 0.65 {
+                Color32::from_rgb(255, 205, 45)
+            } else {
+                theme.note_fill_c32()
+            };
+            painter.rect_filled(fill_rect, Rounding::same(1.5), fill_color);
+        }
+
+        // Peak Hold
+        let peak_x = bar_x_start + bar_max_w * peak.clamp(0.0, 1.0);
+        if peak_x > bar_x_start + 1.0 {
+            let peak_color = if *peak > 0.85 {
+                Color32::from_rgb(255, 80, 100)
+            } else {
+                theme.playhead_c32()
+            };
+            painter.line_segment(
+                [Pos2::new(peak_x, bar_y), Pos2::new(peak_x, bar_y + bar_h)],
+                Stroke::new(1.5, peak_color),
+            );
+        }
+    }
+}
+
 pub fn draw_unified_toolbar(
     ui: &mut egui::Ui,
+    theme: &ThemeConfig,
+    lang: crate::config::AppLanguage,
     state: &mut TransportState,
     is_playing: bool,
     log_open: &mut bool,
     current_tool: &mut EditTool,
     pitch_sub_tool: &mut PitchSubTool,
     auto_scroll_mode: &mut AutoScrollMode,
+    active_scale: &mut MusicalScale,
+    scale_root_key: &mut u8,
     px_per_ms: &mut f32,
-    row_height: &mut f32,
+    _row_height: &mut f32,
+    show_arrangement: &mut bool,
+    show_drawer: &mut bool,
+    show_phonemes: &mut bool,
+    show_inspector: &mut bool,
+    is_maximized: &mut bool,
     on_play: &mut dyn FnMut(),
     on_stop: &mut dyn FnMut(),
     on_export_wav: &mut dyn FnMut(),
-    on_open_copaiba: &mut dyn FnMut(),
     on_open_autopitch: &mut dyn FnMut(),
+    on_quantize_snap: &mut dyn FnMut(),
+    on_fix_overlaps: &mut dyn FnMut(),
 ) {
-    ui.spacing_mut().item_spacing = Vec2::new(6.0, 4.0);
+    ui.spacing_mut().item_spacing = Vec2::new(4.0, 2.0);
 
-    ui.horizontal(|ui| {
-        ui.add_space(2.0);
+    // ==========================================
+    // LINHA 1: Transporte, Ferramentas, AutoPitch, Exportar, Console
+    // ==========================================
+    egui::ScrollArea::horizontal()
+        .id_salt("toolbar_row1_scroll")
+        .auto_shrink([false, true])
+        .show(ui, |ui| {
+            ui.horizontal(|ui| {
+                ui.add_space(2.0);
 
-        toolbar_card(ui, |ui| {
-            ui.spacing_mut().item_spacing = Vec2::new(4.0, 0.0);
+                toolbar_card(ui, theme, |ui| {
+                    ui.spacing_mut().item_spacing = Vec2::new(4.0, 0.0);
 
-            let (play_bg, play_text, play_color, play_stroke) = if is_playing {
-                (
-                    Color32::from_rgb(36, 27, 53),
-                    "⏸",
-                    Color32::from_rgb(216, 180, 254),
-                    Color32::from_rgb(192, 132, 252),
-                )
-            } else {
-                (
-                    Color32::from_rgb(12, 44, 28),
-                    "▶",
-                    Color32::from_rgb(0, 255, 157),
-                    Color32::from_rgb(0, 255, 157),
-                )
-            };
+                    let (play_bg, play_text, play_color, play_stroke) = if is_playing {
+                        (
+                            theme.c32_alpha(theme.accent_color, 0.2),
+                            "⏸",
+                            theme.accent_c32(),
+                            theme.accent_c32(),
+                        )
+                    } else {
+                        (
+                            theme.c32_alpha(theme.note_fill, 0.2),
+                            "▶",
+                            theme.note_fill_c32(),
+                            theme.note_stroke_c32(),
+                        )
+                    };
 
-            let play_btn = egui::Button::new(
-                RichText::new(play_text)
-                    .strong()
-                    .size(13.0)
-                    .color(play_color),
-            )
-            .min_size(Vec2::new(26.0, 22.0))
-            .fill(play_bg)
-            .stroke(Stroke::new(1.2_f32, play_stroke))
-            .rounding(Rounding::same(4.0));
-
-            if ui
-                .add(play_btn)
-                .on_hover_text("Tocar / Pausar (Space)")
-                .clicked()
-            {
-                on_play();
-            }
-
-            let stop_btn = egui::Button::new(
-                RichText::new("⏹")
-                    .strong()
-                    .size(13.0)
-                    .color(Color32::from_rgb(255, 110, 110)),
-            )
-            .min_size(Vec2::new(26.0, 22.0))
-            .fill(Color32::from_rgb(38, 18, 22))
-            .stroke(Stroke::new(1.0_f32, Color32::from_rgb(85, 30, 40)))
-            .rounding(Rounding::same(4.0));
-
-            if ui
-                .add(stop_btn)
-                .on_hover_text("Parar e retornar ao início (Esc)")
-                .clicked()
-            {
-                on_stop();
-            }
-
-            ui.add_space(4.0);
-            ui.separator();
-            ui.add_space(4.0);
-
-            ui.label(
-                RichText::new(&state.playhead_time_str)
-                    .monospace()
-                    .strong()
-                    .size(12.0)
-                    .color(Color32::from_rgb(0, 255, 200)),
-            );
-
-            ui.add_space(4.0);
-            ui.separator();
-            ui.add_space(4.0);
-
-            let (loop_bg, loop_color, loop_stroke) = if state.loop_enabled {
-                (
-                    Color32::from_rgb(36, 28, 55),
-                    Color32::from_rgb(200, 150, 255),
-                    Stroke::new(1.2_f32, Color32::from_rgb(180, 120, 255)),
-                )
-            } else {
-                (
-                    Color32::from_rgb(26, 21, 36),
-                    Color32::from_rgb(160, 155, 175),
-                    Stroke::new(1.0_f32, Color32::from_rgb(45, 36, 60)),
-                )
-            };
-            let loop_btn = egui::Button::new(
-                RichText::new("🔁")
-                    .size(11.0)
-                    .color(loop_color),
-            )
-            .min_size(Vec2::new(24.0, 22.0))
-            .fill(loop_bg)
-            .stroke(loop_stroke)
-            .rounding(Rounding::same(3.0));
-
-            if ui
-                .add(loop_btn)
-                .on_hover_text(if state.loop_enabled {
-                    "Loop Ativo (clique para desativar)"
-                } else {
-                    "Loop Desativado (clique para ativar)"
-                })
-                .clicked()
-            {
-                state.loop_enabled = !state.loop_enabled;
-            }
-
-            let (sel_bg, sel_color, sel_stroke) = if state.preview_selection_only {
-                (
-                    Color32::from_rgb(18, 42, 36),
-                    Color32::from_rgb(0, 255, 200),
-                    Stroke::new(1.2_f32, Color32::from_rgb(0, 255, 180)),
-                )
-            } else {
-                (
-                    Color32::from_rgb(26, 21, 36),
-                    Color32::from_rgb(160, 155, 175),
-                    Stroke::new(1.0_f32, Color32::from_rgb(45, 36, 60)),
-                )
-            };
-            let sel_btn = egui::Button::new(
-                RichText::new("🎯")
-                    .size(11.0)
-                    .color(sel_color),
-            )
-            .min_size(Vec2::new(24.0, 22.0))
-            .fill(sel_bg)
-            .stroke(sel_stroke)
-            .rounding(Rounding::same(3.0));
-
-            if ui
-                .add(sel_btn)
-                .on_hover_text(if state.preview_selection_only {
-                    "Tocar Apenas Seleção (Ativo)"
-                } else {
-                    "Tocar Projeto Todo (Clique para tocar apenas notas selecionadas)"
-                })
-                .clicked()
-            {
-                state.preview_selection_only = !state.preview_selection_only;
-            }
-        });
-
-        toolbar_card(ui, |ui| {
-            ui.spacing_mut().item_spacing = Vec2::new(2.0, 0.0);
-
-            let tools = [
-                (EditTool::Pointer, "↖", "Selecionar / Mover (V)"),
-                (EditTool::Pencil, "✎", "Inserir / Desenhar Nota (N)"),
-                (EditTool::PitchDraw, "⌁", "Desenhar Pitch / Curva (P)"),
-                (EditTool::Slice, "✂", "Cortar / Dividir Nota (C)"),
-                (EditTool::Eraser, "⌫", "Apagar Notas (E)"),
-            ];
-
-            for (tool, label, tooltip) in tools {
-                let is_selected = *current_tool == tool;
-                let (bg_color, stroke_color, text_color) = if is_selected {
-                    (
-                        Color32::from_rgb(48, 38, 62),
-                        Stroke::new(1.2_f32, Color32::from_rgb(255, 215, 0)),
-                        Color32::from_rgb(255, 215, 0),
+                    let play_btn = egui::Button::new(
+                        RichText::new(play_text)
+                            .strong()
+                            .size(13.0)
+                            .color(play_color),
                     )
-                } else {
-                    (
-                        Color32::from_rgb(26, 21, 36),
-                        Stroke::new(1.0_f32, Color32::from_rgb(45, 36, 60)),
-                        Color32::from_rgb(180, 175, 195),
-                    )
-                };
+                    .min_size(Vec2::new(26.0, 22.0))
+                    .fill(play_bg)
+                    .stroke(Stroke::new(1.2_f32, play_stroke))
+                    .rounding(Rounding::same(4.0));
 
-                let btn =
-                    egui::Button::new(RichText::new(label).strong().size(12.0).color(text_color))
-                        .min_size(Vec2::new(24.0, 22.0))
+                    if ui
+                        .add(play_btn)
+                        .on_hover_text(lang.tr("Tocar / Pausar (Space)", "Play / Pause (Space)"))
+                        .clicked()
+                    {
+                        on_play();
+                    }
+
+                    let stop_btn = egui::Button::new(
+                        RichText::new("⏹")
+                            .strong()
+                            .size(13.0)
+                            .color(Color32::from_rgb(255, 110, 110)),
+                    )
+                    .min_size(Vec2::new(26.0, 22.0))
+                    .fill(Color32::from_rgba_unmultiplied(255, 70, 70, 45))
+                    .stroke(Stroke::new(1.0_f32, Color32::from_rgb(180, 50, 50)))
+                    .rounding(Rounding::same(4.0));
+
+                    if ui
+                        .add(stop_btn)
+                        .on_hover_text(lang.tr(
+                            "Parar e retornar ao início (Esc)",
+                            "Stop and return to start (Esc)",
+                        ))
+                        .clicked()
+                    {
+                        on_stop();
+                    }
+
+                    ui.add_space(4.0);
+                    ui.separator();
+                    ui.add_space(4.0);
+
+                    ui.label(
+                        RichText::new(&state.playhead_time_str)
+                            .monospace()
+                            .strong()
+                            .size(12.0)
+                            .color(theme.accent_c32()),
+                    );
+
+                    ui.add_space(4.0);
+                    ui.separator();
+                    ui.add_space(4.0);
+
+                    let (loop_bg, loop_color, loop_stroke) = if state.loop_enabled {
+                        (
+                            theme.c32_alpha(theme.accent_color, 0.25),
+                            theme.accent_c32(),
+                            Stroke::new(1.2_f32, theme.accent_c32()),
+                        )
+                    } else {
+                        (
+                            theme.bg_header_c32(),
+                            theme.text_muted_c32(),
+                            Stroke::new(1.0_f32, theme.grid_line_sub_c32()),
+                        )
+                    };
+                    let loop_btn = egui::Button::new(RichText::new("Loop").size(10.5).color(loop_color))
+                        .min_size(Vec2::new(34.0, 22.0))
+                        .fill(loop_bg)
+                        .stroke(loop_stroke)
+                        .rounding(Rounding::same(3.0));
+
+                    if ui
+                        .add(loop_btn)
+                        .on_hover_text(if state.loop_enabled {
+                            lang.tr(
+                                "Loop Ativo (clique para desativar)",
+                                "Loop Active (click to disable)",
+                            )
+                        } else {
+                            lang.tr(
+                                "Loop Desativado (clique para ativar)",
+                                "Loop Disabled (click to enable)",
+                            )
+                        })
+                        .clicked()
+                    {
+                        state.loop_enabled = !state.loop_enabled;
+                    }
+
+                    let (sel_bg, sel_color, sel_stroke) = if state.preview_selection_only {
+                        (
+                            theme.c32_alpha(theme.note_fill, 0.25),
+                            theme.note_fill_c32(),
+                            Stroke::new(1.2_f32, theme.note_stroke_c32()),
+                        )
+                    } else {
+                        (
+                            theme.bg_header_c32(),
+                            theme.text_muted_c32(),
+                            Stroke::new(1.0_f32, theme.grid_line_sub_c32()),
+                        )
+                    };
+                    let sel_btn = egui::Button::new(RichText::new("Sel").size(10.5).color(sel_color))
+                        .min_size(Vec2::new(28.0, 22.0))
+                        .fill(sel_bg)
+                        .stroke(sel_stroke)
+                        .rounding(Rounding::same(3.0));
+
+                    if ui
+                        .add(sel_btn)
+                        .on_hover_text(if state.preview_selection_only {
+                            lang.tr(
+                                "Tocar Apenas Seleção (Ativo)",
+                                "Play Selection Only (Active)",
+                            )
+                        } else {
+                            lang.tr(
+                                "Tocar Projeto Todo (Clique para tocar apenas notas selecionadas)",
+                                "Play Entire Project (Click to play selected notes only)",
+                            )
+                        })
+                        .clicked()
+                    {
+                        state.preview_selection_only = !state.preview_selection_only;
+                    }
+                });
+
+                toolbar_card(ui, theme, |ui| {
+                    ui.spacing_mut().item_spacing = Vec2::new(2.0, 0.0);
+
+                    let tools = [
+                        (
+                            EditTool::Pointer,
+                            "Pnt",
+                            lang.tr("Selecionar / Mover (V)", "Select / Move (V)"),
+                        ),
+                        (
+                            EditTool::Pencil,
+                            "Pen",
+                            lang.tr("Inserir / Desenhar Nota (N)", "Insert / Draw Note (N)"),
+                        ),
+                        (
+                            EditTool::PitchDraw,
+                            "Pit",
+                            lang.tr("Desenhar Pitch / Curva (P)", "Draw Pitch / Curve (P)"),
+                        ),
+                        (
+                            EditTool::Slice,
+                            "Cut",
+                            lang.tr("Cortar / Dividir Nota (C)", "Cut / Split Note (C)"),
+                        ),
+                        (
+                            EditTool::Eraser,
+                            "Del",
+                            lang.tr("Apagar Notas (E)", "Delete Notes (E)"),
+                        ),
+                    ];
+
+                    for (tool, label, tooltip) in tools {
+                        let is_selected = *current_tool == tool;
+                        let (bg_color, stroke_color, text_color) = if is_selected {
+                            (
+                                theme.c32_alpha(theme.accent_color, 0.25),
+                                Stroke::new(1.2_f32, theme.accent_c32()),
+                                theme.accent_c32(),
+                            )
+                        } else {
+                            (
+                                theme.bg_header_c32(),
+                                Stroke::new(1.0_f32, theme.grid_line_sub_c32()),
+                                theme.text_muted_c32(),
+                            )
+                        };
+
+                        let btn = egui::Button::new(
+                            RichText::new(label).strong().size(11.0).color(text_color),
+                        )
+                        .min_size(Vec2::new(28.0, 22.0))
                         .fill(bg_color)
                         .stroke(stroke_color)
                         .rounding(Rounding::same(3.0));
 
-                if ui.add(btn).on_hover_text(tooltip).clicked() {
-                    *current_tool = tool;
-                }
-            }
+                        if ui.add(btn).on_hover_text(tooltip).clicked() {
+                            *current_tool = tool;
+                        }
+                    }
 
-            if *current_tool == EditTool::PitchDraw {
-                ui.add_space(3.0);
-                ui.separator();
-                ui.add_space(2.0);
+                    if *current_tool == EditTool::PitchDraw {
+                        ui.add_space(3.0);
+                        ui.separator();
+                        ui.add_space(2.0);
 
-                for (subtool, label, tip) in [
-                    (PitchSubTool::Freehand, "🖌", "Desenho livre"),
-                    (PitchSubTool::Smooth, "🪄", "Suavizador"),
-                    (PitchSubTool::Line, "📏", "Linha reta"),
-                    (PitchSubTool::Vibrato, "〰", "Vibrato"),
-                ] {
-                    ui.selectable_value(pitch_sub_tool, subtool, label)
-                        .on_hover_text(tip);
-                }
-            }
+                        for (subtool, label, tip) in [
+                            (
+                                PitchSubTool::Freehand,
+                                lang.tr("Livre", "Free"),
+                                lang.tr("Desenho livre", "Freehand drawing"),
+                            ),
+                            (
+                                PitchSubTool::Smooth,
+                                lang.tr("Suave", "Smooth"),
+                                lang.tr("Suavizador", "Smoother"),
+                            ),
+                            (
+                                PitchSubTool::Line,
+                                lang.tr("Reta", "Line"),
+                                lang.tr("Linha reta", "Straight line"),
+                            ),
+                            (
+                                PitchSubTool::Vibrato,
+                                "Vibrato",
+                                "Vibrato",
+                            ),
+                        ] {
+                            ui.selectable_value(pitch_sub_tool, subtool, label)
+                                .on_hover_text(tip);
+                        }
+                    }
 
-            ui.add_space(3.0);
-            ui.separator();
-            ui.add_space(2.0);
+                    ui.add_space(3.0);
+                    ui.separator();
+                    ui.add_space(2.0);
 
-            let autopitch_btn = egui::Button::new(
-                RichText::new("✨ AutoPitch")
-                    .strong()
-                    .size(11.0)
-                    .color(Color32::from_rgb(0, 255, 180)),
-            )
-            .min_size(Vec2::new(72.0, 22.0))
-            .fill(Color32::from_rgb(22, 34, 38))
-            .stroke(Stroke::new(1.0_f32, Color32::from_rgb(0, 200, 150)))
-            .rounding(Rounding::same(3.0));
+                    let autopitch_btn = egui::Button::new(
+                        RichText::new("Pre-tunning")
+                            .strong()
+                            .size(11.0)
+                            .color(theme.accent_c32()),
+                    )
+                    .min_size(Vec2::new(75.0, 22.0))
+                    .fill(theme.c32_alpha(theme.accent_color, 0.15))
+                    .stroke(Stroke::new(1.0_f32, theme.accent_c32()))
+                    .rounding(Rounding::same(3.0));
 
-            if ui
-                .add(autopitch_btn)
-                .on_hover_text("✨ AutoPitch: Gerar curvas de afinação orgânicas, overshoots e vibrato natural")
-                .clicked()
-            {
-                on_open_autopitch();
-            }
-        });
-
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            ui.add_space(2.0);
-
-            let log_bg = if *log_open {
-                Color32::from_rgb(12, 44, 28)
-            } else {
-                Color32::from_rgb(26, 21, 36)
-            };
-            let log_stroke = if *log_open {
-                Stroke::new(1.2_f32, Color32::from_rgb(0, 255, 157))
-            } else {
-                Stroke::new(1.0_f32, Color32::from_rgb(55, 44, 75))
-            };
-            let log_text_color = if *log_open {
-                Color32::from_rgb(0, 255, 157)
-            } else {
-                Color32::from_rgb(180, 170, 200)
-            };
-
-            let log_btn = egui::Button::new(
-                RichText::new(format!("Logs ({:.0}%)", state.render_progress * 100.0))
-                    .size(11.0)
-                    .color(log_text_color),
-            )
-            .fill(log_bg)
-            .stroke(log_stroke)
-            .rounding(Rounding::same(4.0));
-
-            if ui
-                .add(log_btn)
-                .on_hover_text("Abrir/Fechar painel de logs de síntese")
-                .clicked()
-            {
-                *log_open = !*log_open;
-            }
-
-            let is_exporting = state.render_progress < 0.99;
-            let (export_label, export_bg, export_stroke, export_text_color) = if is_exporting {
-                (
-                    format!("⏳ Exportando ({:.0}%)", state.render_progress * 100.0),
-                    Color32::from_rgb(20, 50, 60),
-                    Stroke::new(1.2_f32, Color32::from_rgb(0, 220, 255)),
-                    Color32::from_rgb(0, 255, 230),
-                )
-            } else {
-                (
-                    "⤓ Exportar WAV".to_string(),
-                    Color32::from_rgb(38, 28, 56),
-                    Stroke::new(1.0_f32, Color32::from_rgb(70, 52, 98)),
-                    Color32::from_rgb(235, 230, 250),
-                )
-            };
-
-            let export_btn = egui::Button::new(
-                RichText::new(export_label)
-                    .size(11.0)
-                    .color(export_text_color),
-            )
-            .fill(export_bg)
-            .stroke(export_stroke)
-            .rounding(Rounding::same(4.0));
-
-            if ui
-                .add(export_btn)
-                .on_hover_text("Exportar áudio renderizado para arquivo WAV")
-                .clicked()
-            {
-                on_export_wav();
-            }
-
-            let copaiba_btn = egui::Button::new(
-                RichText::new("🌿 Copaiba")
-                    .size(11.0)
-                    .color(Color32::from_rgb(200, 245, 210)),
-            )
-            .fill(Color32::from_rgb(18, 38, 28))
-            .stroke(Stroke::new(1.0_f32, Color32::from_rgb(38, 85, 58)))
-            .rounding(Rounding::same(4.0));
-
-            if ui
-                .add(copaiba_btn)
-                .on_hover_text("Assistente IA Vocal Copaiba")
-                .clicked()
-            {
-                on_open_copaiba();
-            }
-        });
-    });
-
-    ui.horizontal(|ui| {
-        ui.add_space(2.0);
-
-        toolbar_card(ui, |ui| {
-            ui.spacing_mut().item_spacing = Vec2::new(4.0, 0.0);
-
-            ui.add(
-                egui::DragValue::new(&mut state.bpm)
-                    .range(40.0..=300.0)
-                    .speed(0.5)
-                    .prefix("♩ ")
-                    .suffix(" BPM"),
-            )
-            .on_hover_text("Andamento (Batidas por Minuto)");
-
-            ui.separator();
-
-            let snap_options = [
-                (GridSnapOption::Freeform, "Livre"),
-                (GridSnapOption::Snap1_1, "1/1"),
-                (GridSnapOption::Snap1_2, "1/2"),
-                (GridSnapOption::Snap1_4, "1/4"),
-                (GridSnapOption::Snap1_8, "1/8"),
-                (GridSnapOption::Snap1_16, "1/16"),
-                (GridSnapOption::Snap1_32, "1/32"),
-                (GridSnapOption::Snap1_64, "1/64"),
-                (GridSnapOption::Snap1_128, "1/128"),
-                (GridSnapOption::Snap1_4T, "1/4T (1/6)"),
-                (GridSnapOption::Snap1_8T, "1/8T (1/12)"),
-                (GridSnapOption::Snap1_16T, "1/16T (1/24)"),
-                (GridSnapOption::Snap1_32T, "1/32T (1/48)"),
-                (GridSnapOption::Snap1_64T, "1/64T (1/96)"),
-            ];
-
-            egui::ComboBox::from_id_salt("grid_snap_combo_unified")
-                .selected_text(format!("Grade: {}", state.grid_snap.label()))
-                .show_ui(ui, |ui| {
-                    for (opt, label) in snap_options {
-                        ui.selectable_value(&mut state.grid_snap, opt, label);
+                    if ui
+                        .add(autopitch_btn)
+                        .on_hover_text(lang.tr(
+                            "Pre-tunning: Gerar curvas de afinação orgânicas, overshoots e vibrato natural",
+                            "Pre-tunning: Generate organic pitch curves, overshoots and natural vibrato",
+                        ))
+                        .clicked()
+                    {
+                        on_open_autopitch();
                     }
                 });
 
-            ui.separator();
-
-            ui.toggle_value(&mut state.metronome_enabled, "🔔 Metrônomo")
-                .on_hover_text("Ativar metrônomo durante a reprodução");
-
-            ui.label(
-                RichText::new("Contagem:")
-                    .size(10.5)
-                    .color(Color32::from_rgb(160, 150, 180)),
-            );
-            ui.add_sized(
-                [42.0, 18.0],
-                egui::DragValue::new(&mut state.count_in_bars)
-                    .range(0..=4)
-                    .suffix(" comp."),
-            )
-            .on_hover_text("Compassos de contagem prévia");
-        });
-
-        toolbar_card(ui, |ui| {
-            ui.spacing_mut().item_spacing = Vec2::new(4.0, 0.0);
-
-            ui.label(
-                RichText::new("Loop A:")
-                    .size(10.5)
-                    .color(Color32::from_rgb(160, 150, 180)),
-            );
-            ui.add_sized(
-                [64.0, 18.0],
-                egui::DragValue::new(&mut state.loop_start_ms)
-                    .range(0.0..=3_600_000.0)
-                    .speed(10.0)
-                    .suffix("ms"),
-            )
-            .on_hover_text("Início do Loop (milissegundos)");
-
-            ui.label(
-                RichText::new("B:")
-                    .size(10.5)
-                    .color(Color32::from_rgb(160, 150, 180)),
-            );
-            ui.add_sized(
-                [64.0, 18.0],
-                egui::DragValue::new(&mut state.loop_end_ms)
-                    .range(1.0..=3_600_000.0)
-                    .speed(10.0)
-                    .suffix("ms"),
-            )
-            .on_hover_text("Fim do Loop (milissegundos)");
-
-            if state.loop_end_ms <= state.loop_start_ms {
-                state.loop_end_ms = state.loop_start_ms + 1.0;
-            }
-        });
-
-        toolbar_card(ui, |ui| {
-            ui.spacing_mut().item_spacing = Vec2::new(3.0, 0.0);
-
-            ui.label(
-                RichText::new("Zoom X:")
-                    .size(10.5)
-                    .color(Color32::from_rgb(160, 150, 180)),
-            );
-            if ui
-                .small_button("−")
-                .on_hover_text("Diminuir Zoom Horizontal")
-                .clicked()
-            {
-                *px_per_ms = (*px_per_ms * 0.8).max(0.05);
-            }
-            ui.add_sized(
-                [50.0, 16.0],
-                egui::Slider::new(px_per_ms, 0.05..=1.0).show_value(false),
-            );
-            if ui
-                .small_button("+")
-                .on_hover_text("Aumentar Zoom Horizontal")
-                .clicked()
-            {
-                *px_per_ms = (*px_per_ms * 1.25).min(1.0);
-            }
-
-            ui.separator();
-
-            ui.label(
-                RichText::new("Zoom Y:")
-                    .size(10.5)
-                    .color(Color32::from_rgb(160, 150, 180)),
-            );
-            if ui
-                .small_button("−")
-                .on_hover_text("Diminuir Altura das Notas")
-                .clicked()
-            {
-                *row_height = (*row_height * 0.85).max(12.0);
-            }
-            ui.add_sized(
-                [50.0, 16.0],
-                egui::Slider::new(row_height, 12.0..=48.0).show_value(false),
-            );
-            if ui
-                .small_button("+")
-                .on_hover_text("Aumentar Altura das Notas")
-                .clicked()
-            {
-                *row_height = (*row_height * 1.15).min(48.0);
-            }
-
-            ui.separator();
-
-            egui::ComboBox::from_id_salt("autoscroll_combo_unified")
-                .selected_text(match auto_scroll_mode {
-                    AutoScrollMode::Off => "Rolagem: Off",
-                    AutoScrollMode::StationaryCursor => "Rolagem: Cursor",
-                    AutoScrollMode::PageScroll => "Rolagem: Página",
-                })
-                .show_ui(ui, |ui| {
-                    ui.selectable_value(auto_scroll_mode, AutoScrollMode::Off, "Desligada");
-                    ui.selectable_value(
-                        auto_scroll_mode,
-                        AutoScrollMode::StationaryCursor,
-                        "Cursor estacionário",
-                    );
-                    ui.selectable_value(auto_scroll_mode, AutoScrollMode::PageScroll, "Por página");
-                });
-        });
-
-        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-            ui.add_space(2.0);
-            toolbar_card(ui, |ui| {
-                ui.spacing_mut().item_spacing = Vec2::new(4.0, 0.0);
-                ui.label(
-                    RichText::new("🔊 Master:")
-                        .size(10.5)
-                        .color(Color32::from_rgb(180, 175, 195)),
-                );
-                ui.add_sized(
-                    [80.0, 18.0],
-                    egui::Slider::new(&mut state.master_volume, 0.0..=2.0)
-                        .show_value(true)
-                        .suffix("×"),
+                let export_btn = egui::Button::new(
+                    RichText::new(lang.tr("Exportar Áudio", "Export Audio"))
+                        .size(11.0)
+                        .color(theme.text_primary_c32()),
                 )
-                .on_hover_text("Volume Geral de Saída");
+                .min_size(Vec2::new(0.0, 22.0))
+                .fill(theme.bg_header_c32())
+                .stroke(Stroke::new(1.0_f32, theme.grid_line_bar_c32()))
+                .rounding(Rounding::same(4.0));
+
+                if ui
+                    .add(export_btn)
+                    .on_hover_text(lang.tr(
+                        "Exportar áudio do projeto (WAV, FLAC, RAW PCM)",
+                        "Export project audio (WAV, FLAC, RAW PCM)",
+                    ))
+                    .clicked()
+                {
+                    on_export_wav();
+                }
+
+                let log_bg = if *log_open {
+                    theme.c32_alpha(theme.accent_color, 0.25)
+                } else {
+                    theme.bg_header_c32()
+                };
+                let log_stroke = if *log_open {
+                    Stroke::new(1.2_f32, theme.accent_c32())
+                } else {
+                    Stroke::new(1.0_f32, theme.grid_line_sub_c32())
+                };
+                let log_text_color = if *log_open {
+                    theme.accent_c32()
+                } else {
+                    theme.text_muted_c32()
+                };
+
+                let log_btn = egui::Button::new(
+                    RichText::new(if *log_open { "Console ●" } else { "Console" })
+                        .size(11.0)
+                        .color(log_text_color),
+                )
+                .min_size(Vec2::new(0.0, 22.0))
+                .fill(log_bg)
+                .stroke(log_stroke)
+                .rounding(Rounding::same(4.0));
+
+                if ui
+                    .add(log_btn)
+                    .on_hover_text(lang.tr(
+                        "Abrir/Fechar terminal e console de renderização",
+                        "Open/Close terminal and render console",
+                    ))
+                    .clicked()
+                {
+                    *log_open = !*log_open;
+                }
+
+                ui.add_space(4.0);
+                ui.separator();
+                ui.add_space(4.0);
+
+                // Cartão de Alternância de Visualização e Painéis
+                toolbar_card(ui, theme, |ui| {
+                    ui.spacing_mut().item_spacing = Vec2::new(3.0, 0.0);
+
+                    // 1. Faixas (Arrangement)
+                    let arr_bg = if *show_arrangement {
+                        theme.c32_alpha(theme.accent_color, 0.25)
+                    } else {
+                        theme.bg_header_c32()
+                    };
+                    let arr_stroke = if *show_arrangement {
+                        Stroke::new(1.2_f32, theme.accent_c32())
+                    } else {
+                        Stroke::new(1.0_f32, theme.grid_line_sub_c32())
+                    };
+                    let arr_color = if *show_arrangement {
+                        theme.accent_c32()
+                    } else {
+                        theme.text_muted_c32()
+                    };
+                    let arr_btn = egui::Button::new(RichText::new(lang.tr("Faixas", "Tracks")).size(10.5).color(arr_color))
+                        .min_size(Vec2::new(0.0, 22.0))
+                        .fill(arr_bg)
+                        .stroke(arr_stroke)
+                        .rounding(Rounding::same(3.0));
+                    if ui.add(arr_btn).on_hover_text(lang.tr("Exibir/Ocultar painel de multifaixas / arrangement (A)", "Show/Hide multitrack arrangement panel (A)")).clicked() {
+                        *show_arrangement = !*show_arrangement;
+                    }
+
+                    // 2. Parâmetros / Expressões (Drawer)
+                    let draw_bg = if *show_drawer {
+                        theme.c32_alpha(theme.note_fill, 0.25)
+                    } else {
+                        theme.bg_header_c32()
+                    };
+                    let draw_stroke = if *show_drawer {
+                        Stroke::new(1.2_f32, theme.note_stroke_c32())
+                    } else {
+                        Stroke::new(1.0_f32, theme.grid_line_sub_c32())
+                    };
+                    let draw_color = if *show_drawer {
+                        theme.note_fill_c32()
+                    } else {
+                        theme.text_muted_c32()
+                    };
+                    let draw_btn = egui::Button::new(RichText::new(lang.tr("Expressões", "Expressions")).size(10.5).color(draw_color))
+                        .min_size(Vec2::new(0.0, 22.0))
+                        .fill(draw_bg)
+                        .stroke(draw_stroke)
+                        .rounding(Rounding::same(3.0));
+                    if ui.add(draw_btn).on_hover_text(lang.tr("Exibir/Ocultar gaveta de parâmetros e curvas de dinâmica/pitch (Tab)", "Show/Hide parameter curves drawer (Tab)")).clicked() {
+                        *show_drawer = !*show_drawer;
+                    }
+
+                    // 3. Fonemas / OTO Ruler
+                    let ph_bg = if *show_phonemes {
+                        theme.c32_alpha(theme.accent_color, 0.25)
+                    } else {
+                        theme.bg_header_c32()
+                    };
+                    let ph_stroke = if *show_phonemes {
+                        Stroke::new(1.2_f32, theme.accent_c32())
+                    } else {
+                        Stroke::new(1.0_f32, theme.grid_line_sub_c32())
+                    };
+                    let ph_color = if *show_phonemes {
+                        theme.accent_c32()
+                    } else {
+                        theme.text_muted_c32()
+                    };
+                    let ph_btn = egui::Button::new(RichText::new(lang.tr("Fonemas", "Phonemes")).size(10.5).color(ph_color))
+                        .min_size(Vec2::new(0.0, 22.0))
+                        .fill(ph_bg)
+                        .stroke(ph_stroke)
+                        .rounding(Rounding::same(3.0));
+                    if ui.add(ph_btn).on_hover_text(lang.tr("Exibir/Ocultar régua de fonemas e envelopes OTO (Alt+O)", "Show/Hide phoneme envelope ruler (Alt+O)")).clicked() {
+                        *show_phonemes = !*show_phonemes;
+                    }
+
+                    // 4. Inspetor / Sidebar
+                    let side_bg = if *show_inspector {
+                        theme.c32_alpha(theme.note_fill, 0.25)
+                    } else {
+                        theme.bg_header_c32()
+                    };
+                    let side_stroke = if *show_inspector {
+                        Stroke::new(1.2_f32, theme.note_stroke_c32())
+                    } else {
+                        Stroke::new(1.0_f32, theme.grid_line_sub_c32())
+                    };
+                    let side_color = if *show_inspector {
+                        theme.note_fill_c32()
+                    } else {
+                        theme.text_muted_c32()
+                    };
+                    let side_btn = egui::Button::new(RichText::new(lang.tr("Inspetor", "Inspector")).size(10.5).color(side_color))
+                        .min_size(Vec2::new(0.0, 22.0))
+                        .fill(side_bg)
+                        .stroke(side_stroke)
+                        .rounding(Rounding::same(3.0));
+                    if ui.add(side_btn).on_hover_text(lang.tr("Exibir/Ocultar painel lateral direito / Inspetor (Cmd+B / Ctrl+B)", "Show/Hide right sidebar inspector (Cmd+B / Ctrl+B)")).clicked() {
+                        *show_inspector = !*show_inspector;
+                    }
+
+                    // 5. Maximizar
+                    let max_bg = if *is_maximized {
+                        theme.c32_alpha(theme.accent_color, 0.35)
+                    } else {
+                        theme.bg_header_c32()
+                    };
+                    let max_stroke = if *is_maximized {
+                        Stroke::new(1.2_f32, theme.accent_c32())
+                    } else {
+                        Stroke::new(1.0_f32, theme.grid_line_sub_c32())
+                    };
+                    let max_color = if *is_maximized {
+                        theme.accent_c32()
+                    } else {
+                        theme.text_muted_c32()
+                    };
+                    let max_btn = egui::Button::new(RichText::new(if *is_maximized { "⛶ Max" } else { "⛶" }).size(10.5).color(max_color))
+                        .min_size(Vec2::new(22.0, 22.0))
+                        .fill(max_bg)
+                        .stroke(max_stroke)
+                        .rounding(Rounding::same(3.0));
+                    if ui.add(max_btn).on_hover_text(lang.tr("Maximizar Piano Roll / Ocultar todas as barras secundárias (F11 / Shift+F)", "Maximize Piano Roll / Hide surrounding panels (F11 / Shift+F)")).clicked() {
+                        *is_maximized = !*is_maximized;
+                    }
+                });
             });
         });
-    });
+
+    // ==========================================
+    // LINHA 2: BPM, Snap, Metrônomo, Loop, Rolagem, Guia de Escalas, Master
+    // ==========================================
+    egui::ScrollArea::horizontal()
+        .id_salt("toolbar_row2_scroll")
+        .auto_shrink([false, true])
+        .show(ui, |ui| {
+            ui.horizontal(|ui| {
+                ui.add_space(2.0);
+
+                // Cartão 1: BPM, Snap, Alinhar, Sobreposição
+                toolbar_card(ui, theme, |ui| {
+                    ui.spacing_mut().item_spacing = Vec2::new(3.0, 0.0);
+
+                    ui.add(
+                        egui::DragValue::new(&mut state.bpm)
+                            .range(40.0..=300.0)
+                            .speed(0.5)
+                            .suffix(" BPM"),
+                    )
+                    .on_hover_text(lang.tr(
+                        "Andamento (Batidas por Minuto)",
+                        "Tempo (Beats Per Minute)",
+                    ));
+
+                    ui.separator();
+
+                    let snap_options = [
+                        (
+                            GridSnapOption::Auto,
+                            lang.tr("Auto (Adaptativo ao Zoom)", "Auto (Adaptive to Zoom)"),
+                        ),
+                        (GridSnapOption::Freeform, lang.tr("Livre", "Off")),
+                        (GridSnapOption::Snap1_1, "1/1"),
+                        (GridSnapOption::Snap1_2, "1/2"),
+                        (GridSnapOption::Snap1_4, "1/4"),
+                        (GridSnapOption::Snap1_8, "1/8"),
+                        (GridSnapOption::Snap1_16, "1/16"),
+                        (GridSnapOption::Snap1_32, "1/32"),
+                        (GridSnapOption::Snap1_64, "1/64"),
+                        (GridSnapOption::Snap1_128, "1/128"),
+                        (GridSnapOption::Snap1_4T, "1/4T (1/6)"),
+                        (GridSnapOption::Snap1_8T, "1/8T (1/12)"),
+                        (GridSnapOption::Snap1_16T, "1/16T (1/24)"),
+                        (GridSnapOption::Snap1_32T, "1/32T (1/48)"),
+                        (GridSnapOption::Snap1_64T, "1/64T (1/96)"),
+                    ];
+
+                    egui::ComboBox::from_id_salt("grid_snap_combo_unified")
+                        .selected_text(format!(
+                            "{}: {}",
+                            lang.tr("Grade", "Grid"),
+                            state.grid_snap.resolved_label_for(state.bpm, *px_per_ms, lang)
+                        ))
+                        .show_ui(ui, |ui| {
+                            for (opt, label) in snap_options {
+                                ui.selectable_value(&mut state.grid_snap, opt, label);
+                            }
+                        });
+
+                    let quant_btn = egui::Button::new(
+                        RichText::new("Snap").size(10.5).color(theme.accent_c32()),
+                    )
+                    .min_size(Vec2::new(20.0, 19.0))
+                    .fill(theme.c32_alpha(theme.accent_color, 0.15))
+                    .stroke(Stroke::new(1.0_f32, theme.accent_c32()))
+                    .rounding(Rounding::same(3.0));
+
+                    if ui
+                        .add(quant_btn)
+                        .on_hover_text(lang.tr(
+                            "Alinhar e quantizar notas para a grade selecionada",
+                            "Align and quantize notes to selected grid",
+                        ))
+                        .clicked()
+                    {
+                        on_quantize_snap();
+                    }
+
+                    let overlap_btn = egui::Button::new(
+                        RichText::new(lang.tr("Sobreposição", "Overlap"))
+                            .size(10.5)
+                            .color(theme.note_fill_c32()),
+                    )
+                    .min_size(Vec2::new(20.0, 19.0))
+                    .fill(theme.c32_alpha(theme.note_fill, 0.15))
+                    .stroke(Stroke::new(1.0_f32, theme.note_stroke_c32()))
+                    .rounding(Rounding::same(3.0));
+
+                    if ui
+                        .add(overlap_btn)
+                        .on_hover_text(lang.tr(
+                            "Corrigir e cortar notas sobrepostas",
+                            "Fix and trim overlapping notes",
+                        ))
+                        .clicked()
+                    {
+                        on_fix_overlaps();
+                    }
+                });
+
+                // Cartão 2: Metrônomo
+                toolbar_card(ui, theme, |ui| {
+                    ui.spacing_mut().item_spacing = Vec2::new(3.0, 0.0);
+                    ui.toggle_value(&mut state.metronome_enabled, lang.tr("Metrônomo", "Metronome"))
+                        .on_hover_text(lang.tr(
+                            "Ativar metrônomo durante a reprodução",
+                            "Enable metronome during playback",
+                        ));
+
+                    ui.label(
+                        RichText::new(lang.tr("Contagem:", "Count-in:"))
+                            .size(10.0)
+                            .color(theme.text_muted_c32()),
+                    );
+                    ui.add_sized(
+                        [38.0, 18.0],
+                        egui::DragValue::new(&mut state.count_in_bars)
+                            .range(0..=4)
+                            .suffix(" c."),
+                    )
+                    .on_hover_text(lang.tr(
+                        "Compassos de contagem prévia",
+                        "Count-in bars",
+                    ));
+                });
+
+                // Cartão 3: Loop A / B
+                toolbar_card(ui, theme, |ui| {
+                    ui.spacing_mut().item_spacing = Vec2::new(3.0, 0.0);
+
+                    ui.label(
+                        RichText::new("Loop A:")
+                            .size(10.0)
+                            .color(theme.text_muted_c32()),
+                    );
+                    ui.add_sized(
+                        [52.0, 18.0],
+                        egui::DragValue::new(&mut state.loop_start_ms)
+                            .range(0.0..=3_600_000.0)
+                            .speed(10.0)
+                            .suffix("ms"),
+                    )
+                    .on_hover_text(lang.tr(
+                        "Início do Loop (milissegundos)",
+                        "Loop Start (milliseconds)",
+                    ));
+
+                    ui.label(RichText::new("B:").size(10.0).color(theme.text_muted_c32()));
+                    ui.add_sized(
+                        [52.0, 18.0],
+                        egui::DragValue::new(&mut state.loop_end_ms)
+                            .range(1.0..=3_600_000.0)
+                            .speed(10.0)
+                            .suffix("ms"),
+                    )
+                    .on_hover_text(lang.tr(
+                        "Fim do Loop (milissegundos)",
+                        "Loop End (milliseconds)",
+                    ));
+
+                    if state.loop_end_ms <= state.loop_start_ms {
+                        state.loop_end_ms = state.loop_start_ms + 1.0;
+                    }
+                });
+
+                // Cartão 4: Rolagem da Tela
+                toolbar_card(ui, theme, |ui| {
+                    ui.spacing_mut().item_spacing = Vec2::new(3.0, 0.0);
+
+                    egui::ComboBox::from_id_salt("autoscroll_combo_unified")
+                        .selected_text(match auto_scroll_mode {
+                            AutoScrollMode::Off => lang.tr("Rolagem: Off", "Scroll: Off"),
+                            AutoScrollMode::StationaryCursor => {
+                                lang.tr("Rolagem: Cursor", "Scroll: Cursor")
+                            }
+                            AutoScrollMode::PageScroll => {
+                                lang.tr("Rolagem: Página", "Scroll: Page")
+                            }
+                        })
+                        .show_ui(ui, |ui| {
+                            ui.selectable_value(
+                                auto_scroll_mode,
+                                AutoScrollMode::Off,
+                                lang.tr("Desligada", "Off"),
+                            );
+                            ui.selectable_value(
+                                auto_scroll_mode,
+                                AutoScrollMode::StationaryCursor,
+                                lang.tr("Cursor estacionário", "Stationary cursor"),
+                            );
+                            ui.selectable_value(
+                                auto_scroll_mode,
+                                AutoScrollMode::PageScroll,
+                                lang.tr("Por página", "Page scroll"),
+                            );
+                        });
+                });
+
+                // Cartão 5: Guia de Escalas Musicais (sempre acessível e visível)
+                toolbar_card(ui, theme, |ui| {
+                    ui.spacing_mut().item_spacing = Vec2::new(3.0, 0.0);
+                    ui.label(
+                        RichText::new(lang.tr("Guia:", "Guide:"))
+                            .size(10.5)
+                            .strong()
+                            .color(theme.accent_c32()),
+                    );
+
+                    egui::ComboBox::from_id_salt("toolbar_scale_root_combo")
+                        .selected_text(
+                            ROOT_NOTE_NAMES
+                                .get(*scale_root_key as usize)
+                                .copied()
+                                .unwrap_or("C"),
+                        )
+                        .width(36.0)
+                        .show_ui(ui, |ui| {
+                            for (k_idx, k_name) in ROOT_NOTE_NAMES.iter().enumerate() {
+                                ui.selectable_value(scale_root_key, k_idx as u8, *k_name);
+                            }
+                        });
+
+                    egui::ComboBox::from_id_salt("toolbar_scale_type_combo")
+                        .selected_text(active_scale.display_name())
+                        .width(120.0)
+                        .show_ui(ui, |ui| {
+                            for scale in MusicalScale::ALL {
+                                ui.selectable_value(active_scale, scale, scale.display_name());
+                            }
+                        });
+                });
+
+                // Cartão 6: Master Volume & VU Meter
+                toolbar_card(ui, theme, |ui| {
+                    ui.spacing_mut().item_spacing = Vec2::new(4.0, 0.0);
+                    draw_vu_meter(ui, theme, state, is_playing);
+                    ui.separator();
+                    ui.label(
+                        RichText::new("Master:")
+                            .size(10.0)
+                            .color(theme.text_muted_c32()),
+                    );
+                    ui.add_sized(
+                        [56.0, 18.0],
+                        egui::Slider::new(&mut state.master_volume, 0.0..=2.0)
+                            .show_value(true)
+                            .suffix("×"),
+                    )
+                    .on_hover_text(lang.tr("Volume Geral de Saída", "Master Output Volume"));
+                });
+            });
+        });
 }

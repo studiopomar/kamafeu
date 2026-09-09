@@ -5,6 +5,7 @@ pub struct AudioPlayer {
     stream_handle: Option<OutputStreamHandle>,
     active_sink: Option<Sink>,
     volume: f32,
+    speed: f32,
 }
 
 impl AudioPlayer {
@@ -26,7 +27,25 @@ impl AudioPlayer {
             stream_handle,
             active_sink: None,
             volume: 1.0,
+            speed: 1.0,
         }
+    }
+
+    pub fn list_output_devices() -> Vec<String> {
+        #[allow(unused_imports)]
+        use rodio::cpal::traits::{DeviceTrait, HostTrait};
+        let host = rodio::cpal::default_host();
+        match host.output_devices() {
+            Ok(devices) => devices.filter_map(|d| d.name().ok()).collect(),
+            Err(_) => Vec::new(),
+        }
+    }
+
+    pub fn default_host_name() -> String {
+        #[allow(unused_imports)]
+        use rodio::cpal::traits::HostTrait;
+        let host = rodio::cpal::default_host();
+        format!("{:?}", host.id())
     }
 
     pub fn play_samples(&mut self, samples: Vec<f32>, sample_rate: u32) {
@@ -54,6 +73,7 @@ impl AudioPlayer {
                     let buffer = SamplesBuffer::new(channels.max(1), sample_rate, samples);
                     sink.append(buffer);
                     sink.set_volume(self.volume);
+                    sink.set_speed(self.speed);
                     sink.play();
                     self.active_sink = Some(sink);
                 }
@@ -91,6 +111,17 @@ impl AudioPlayer {
         if let Some(sink) = &self.active_sink {
             sink.set_volume(self.volume);
         }
+    }
+
+    pub fn set_speed(&mut self, speed: f32) {
+        self.speed = speed.clamp(0.25, 4.0);
+        if let Some(sink) = &self.active_sink {
+            sink.set_speed(self.speed);
+        }
+    }
+
+    pub fn speed(&self) -> f32 {
+        self.speed
     }
 
     pub fn is_playing(&self) -> bool {

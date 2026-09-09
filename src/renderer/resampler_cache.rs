@@ -4,9 +4,9 @@ use std::hash::{DefaultHasher, Hash, Hasher};
 use std::sync::{Arc, Condvar, Mutex, OnceLock};
 use std::time::Duration;
 
-const CACHE_SCHEMA: u32 = 1;
-const MAX_CACHE_ENTRIES: usize = 512;
-const MAX_CACHE_SAMPLES: usize = 32 * 1024 * 1024;
+const CACHE_SCHEMA: u32 = 2;
+const MAX_CACHE_ENTRIES: usize = 2048;
+const MAX_CACHE_SAMPLES: usize = 128 * 1024 * 1024;
 
 enum CacheEntry {
     Rendering,
@@ -25,7 +25,7 @@ fn cache() -> &'static (Mutex<CacheState>, Condvar) {
     CACHE.get_or_init(|| (Mutex::new(CacheState::default()), Condvar::new()))
 }
 
-fn persistent_cache_dir() -> std::path::PathBuf {
+pub fn persistent_cache_dir() -> std::path::PathBuf {
     let base = std::env::var_os("HOME")
         .map(std::path::PathBuf::from)
         .unwrap_or_else(std::env::temp_dir);
@@ -35,6 +35,60 @@ fn persistent_cache_dir() -> std::path::PathBuf {
     let base = base.join(".cache");
     base.join("kamafeu")
         .join(format!("resampler-v{CACHE_SCHEMA}"))
+}
+
+pub fn get_disk_cache_stats() -> (usize, u64) {
+    let dir = persistent_cache_dir();
+    if !dir.is_dir() {
+        return (0, 0);
+    }
+    let mut count = 0;
+    let mut total_bytes = 0;
+    if let Ok(entries) = std::fs::read_dir(&dir) {
+        for entry in entries.flatten() {
+            if let Ok(meta) = entry.metadata() {
+                if meta.is_file() {
+                    count += 1;
+                    total_bytes += meta.len();
+                }
+            }
+        }
+    }
+    (count, total_bytes)
+}
+
+pub fn clear_disk_cache() -> Result<usize, std::io::Error> {
+    clear_memory_cache();
+    let dir = persistent_cache_dir();
+    if !dir.is_dir() {
+        return Ok(0);
+    }
+    let mut deleted = 0;
+    for entry in std::fs::read_dir(&dir)? {
+        let entry = entry?;
+        let path = entry.path();
+        if path.is_file() {
+            if std::fs::remove_file(path).is_ok() {
+                deleted += 1;
+            }
+        }
+    }
+    Ok(deleted)
+}
+
+pub fn clear_memory_cache() {
+    let (lock, cvar) = cache();
+    let mut state = lock.lock().unwrap();
+    state.entries.clear();
+    state.insertion_order.clear();
+    state.total_samples = 0;
+    cvar.notify_all();
+}
+
+pub fn get_memory_cache_stats() -> (usize, usize) {
+    let (lock, _) = cache();
+    let state = lock.lock().unwrap();
+    (state.entries.len(), state.total_samples)
 }
 
 fn persistent_cache_path(key: u64) -> std::path::PathBuf {
@@ -252,7 +306,15 @@ pub(crate) fn render_with_cache(
         }
     }
 
-    let rendered = driver.render_sample(raw_samples, sample_rate, args, cancel);
+    let rendered = driver
+        .render_sample(raw_samples, sample_rate, args, cancel)
+        .and_then(|samples| {
+            if samples.is_empty() || samples.iter().any(|s| !s.is_finite()) {
+                Err("Resampler produziu áudio vazio ou amostras inválidas".to_string())
+            } else {
+                Ok(samples)
+            }
+        });
     match rendered {
         Ok(samples) => {
             // External drivers create this file only when the external engine

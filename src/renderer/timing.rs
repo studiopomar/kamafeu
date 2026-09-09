@@ -5,9 +5,10 @@ use crate::phonemizer::consonant_velocity_time_scale;
 /// Kamafeu's project model is time based.
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub struct PhonemeTiming {
-    /// OTO preutterance after velocity scaling, before overlap validation.
+    /// oto.ini preutterance after velocity scaling, before overlap validation.
     /// Resampler pitch data starts here even when the audible lead is clamped.
     pub pitch_leading_ms: f64,
+    pub adjacent: bool,
     pub preutter_ms: f64,
     pub overlap_ms: f64,
     pub leading_ms: f64,
@@ -25,9 +26,47 @@ pub struct PhonemeTimingInput {
     pub oto_preutter_ms: f64,
     pub oto_overlap_ms: f64,
     pub velocity: f64,
-    /// User-authored deltas are applied after automatic OTO validation, as in OpenUtau.
+    /// User-authored deltas are applied after automatic oto.ini validation, as in OpenUtau.
     pub preutter_delta_ms: f64,
     pub overlap_delta_ms: f64,
+}
+
+pub fn plan_inputs(
+    phones: &[crate::phonemizer::RenderPhone],
+    voicebank: &crate::oto::Voicebank,
+    crossfade_ms: f64,
+) -> Vec<PhonemeTimingInput> {
+    phones
+        .iter()
+        .map(|phone| {
+            let oto = voicebank.find_mapped_entry(&phone.lyric, &phone.pitch);
+            let raw_preutter = oto.map(|entry| entry.preutterance).unwrap_or(0.0);
+            let raw_overlap = oto.map(|entry| entry.overlap).unwrap_or(0.0);
+            let oto_preutter_ms = raw_preutter.max(0.0);
+            let manual_overlap = if phone.envelope.crossfade_ms > 0.0 {
+                Some(phone.envelope.crossfade_ms)
+            } else if crossfade_ms > 0.0 {
+                Some(crossfade_ms)
+            } else {
+                None
+            };
+            let scaled_overlap = raw_overlap
+                * crate::phonemizer::consonant_velocity_time_scale(
+                    phone.expressions.consonant_velocity,
+                );
+            let oto_overlap_ms = raw_overlap;
+            PhonemeTimingInput {
+                position_ms: phone.position_ms,
+                duration_ms: phone.duration_ms,
+                oto_preutter_ms,
+                oto_overlap_ms,
+                velocity: phone.expressions.consonant_velocity,
+                preutter_delta_ms: phone.expressions.preutter_offset_ms,
+                overlap_delta_ms: phone.expressions.overlap_offset_ms
+                    + manual_overlap.map_or(0.0, |value| value - scaled_overlap),
+            }
+        })
+        .collect::<Vec<_>>()
 }
 
 pub fn resolve_phoneme_timings(inputs: &[PhonemeTimingInput]) -> Vec<PhonemeTiming> {
@@ -45,7 +84,7 @@ pub fn resolve_phoneme_timings(inputs: &[PhonemeTimingInput]) -> Vec<PhonemeTimi
             let previous = inputs[index - 1];
             let previous_end = previous.position_ms + previous.duration_ms.max(0.0);
             let gap = input.position_ms - previous_end;
-            let adjacent = gap <= 1.0;
+            let adjacent = gap <= 0.001;
 
             if adjacent {
                 let previous_duration = previous.duration_ms.max(0.0);
@@ -55,8 +94,6 @@ pub fn resolve_phoneme_timings(inputs: &[PhonemeTimingInput]) -> Vec<PhonemeTimi
                         max_preutter =
                             max_preutter.min(auto_preutter * previous_duration * 0.5 / non_overlap);
                     }
-                } else {
-                    max_preutter = max_preutter.min(previous_duration * 0.9);
                 }
                 max_preutter = max_preutter.min(previous_duration);
                 if result[index - 1].preutter_ms < 5.0 {
@@ -80,16 +117,17 @@ pub fn resolve_phoneme_timings(inputs: &[PhonemeTimingInput]) -> Vec<PhonemeTimi
 
         if index > 0 {
             let previous = inputs[index - 1];
-            let previous_end = previous.position_ms + previous.duration_ms.max(0.0);
-            let adjacent = input.position_ms - previous_end <= 1.0;
-            if adjacent && auto_overlap < 0.0 {
+            if auto_overlap < 0.0 {
                 auto_overlap = auto_overlap
                     .max((35.0 - previous.duration_ms.max(0.0) + auto_preutter).min(0.0));
             }
         }
 
         let preutter = (auto_preutter + input.preutter_delta_ms).max(0.0);
-        let overlap = auto_overlap + input.overlap_delta_ms;
+        let mut overlap = auto_overlap + input.overlap_delta_ms;
+        if index > 0 && inputs[index - 1].duration_ms - preutter < 5.0 {
+            overlap = overlap.max(5.0 - (inputs[index - 1].duration_ms - preutter));
+        }
         result[index].preutter_ms = preutter;
         result[index].overlap_ms = overlap;
         result[index].pitch_leading_ms = max_oto_preutter;
@@ -97,12 +135,13 @@ pub fn resolve_phoneme_timings(inputs: &[PhonemeTimingInput]) -> Vec<PhonemeTimi
         // preutterance. The overlap is the fade duration inside that lead, not
         // an amount to subtract from it.
         result[index].leading_ms = preutter;
-        result[index].skip_over_ms = (max_oto_preutter - preutter).max(0.0);
+        result[index].skip_over_ms = max_oto_preutter - preutter;
 
         if index > 0 {
             let previous = inputs[index - 1];
             let previous_end = previous.position_ms + previous.duration_ms.max(0.0);
-            let adjacent = input.position_ms - previous_end <= 1.0;
+            let adjacent = input.position_ms - previous_end <= 0.001;
+            result[index].adjacent = adjacent;
             if adjacent {
                 result[index - 1].tail_intrude_ms = preutter.max(preutter - overlap);
                 result[index - 1].tail_overlap_ms = overlap.max(0.0);

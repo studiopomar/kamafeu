@@ -3,6 +3,7 @@ use std::path::PathBuf;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GridSnapOption {
+    Auto,
     Freeform,
     Snap1_1,
     Snap1_2,
@@ -23,6 +24,7 @@ impl GridSnapOption {
     pub fn step_ms(&self, bpm: f64) -> Option<f64> {
         let beat_ms = 60000.0 / bpm;
         match self {
+            GridSnapOption::Auto => Some(beat_ms / 4.0),
             GridSnapOption::Freeform => None,
             GridSnapOption::Snap1_1 => Some(beat_ms * 4.0),
             GridSnapOption::Snap1_2 => Some(beat_ms * 2.0),
@@ -42,6 +44,7 @@ impl GridSnapOption {
 
     pub fn label(&self) -> &'static str {
         match self {
+            GridSnapOption::Auto => "Auto",
             GridSnapOption::Freeform => "Livre",
             GridSnapOption::Snap1_1 => "1/1",
             GridSnapOption::Snap1_2 => "1/2",
@@ -221,7 +224,7 @@ pub fn draw_transport_bar(
 
                 if state.render_progress < 0.99 {
                     ui.label(
-                        RichText::new("⚡ Resampler:")
+                        RichText::new("Resampler:")
                             .size(10.5)
                             .strong()
                             .color(Color32::from_rgb(0, 229, 255)),
@@ -263,10 +266,10 @@ pub fn draw_transport_bar(
                 ui.add_space(8.0);
                 ui.separator();
 
-                if ui.button(RichText::new("➡ WAV").size(11.0)).clicked() {
+                if ui.button(RichText::new("WAV").size(11.0)).clicked() {
                     on_export_wav();
                 }
-                if ui.button(RichText::new("➡ MP3").size(11.0)).clicked() {
+                if ui.button(RichText::new("MP3").size(11.0)).clicked() {
                     on_export_wav();
                 }
 
@@ -290,7 +293,7 @@ pub fn draw_transport_bar(
                 };
 
                 let log_btn = egui::Button::new(
-                    RichText::new("⚡ Engine Log")
+                    RichText::new("Engine Log")
                         .size(11.0)
                         .color(log_text_color),
                 )

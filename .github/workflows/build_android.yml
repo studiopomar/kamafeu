@@ -44,25 +44,26 @@ jobs:
         run: |
           cargo install cargo-apk --locked
 
-      - name: Generate Release Keystore
+      - name: Prepare Release Keystore
         env:
           ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
-          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
-          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
-          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
         run: |
           test -n "$ANDROID_KEYSTORE_BASE64"
-          test -n "$ANDROID_KEYSTORE_PASSWORD"
-          test -n "$ANDROID_KEY_ALIAS"
-          test -n "$ANDROID_KEY_PASSWORD"
-          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > release.keystore
-          printf '\n[package.metadata.android.signing.release]\npath = "release.keystore"\nkeystore_password = "%s"\nkey_alias = "%s"\nkey_password = "%s"\n' \
-            "$ANDROID_KEYSTORE_PASSWORD" "$ANDROID_KEY_ALIAS" "$ANDROID_KEY_PASSWORD" >> Cargo.toml
+          umask 077
+          printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/kamafeu-release.keystore"
 
       - name: Build Android APK (Release ARM64)
+        env:
+          CARGO_APK_RELEASE_KEYSTORE: ${{ runner.temp }}/kamafeu-release.keystore
+          CARGO_APK_RELEASE_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
         run: |
+          test -n "$CARGO_APK_RELEASE_KEYSTORE_PASSWORD"
           unset ANDROID_SDK_ROOT
           cargo apk build --lib --release --target aarch64-linux-android
+
+      - name: Remove Release Keystore
+        if: always()
+        run: rm -f "$RUNNER_TEMP/kamafeu-release.keystore"
 
       - name: Prepare APK Artifacts
         run: |

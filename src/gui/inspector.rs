@@ -19,10 +19,10 @@ pub fn draw_inspector_panel(
 ) {
     ui.horizontal(|ui| {
         ui.heading(
-            RichText::new("🎛 Inspector")
+            RichText::new("Inspector")
                 .strong()
                 .size(14.0)
-                .color(Color32::from_rgb(200, 215, 235)),
+                .color(ui.visuals().widgets.inactive.fg_stroke.color),
         );
         ui.add_space(12.0);
 
@@ -40,9 +40,9 @@ pub fn draw_inspector_panel(
             let text = if is_sel {
                 RichText::new(label)
                     .strong()
-                    .color(Color32::from_rgb(0, 210, 255))
+                    .color(ui.visuals().hyperlink_color)
             } else {
-                RichText::new(label).color(Color32::from_rgb(160, 175, 195))
+                RichText::new(label).color(ui.visuals().widgets.noninteractive.fg_stroke.color)
             };
             if ui.button(text).clicked() {
                 *active_tab = tab;

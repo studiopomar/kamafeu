@@ -17,6 +17,9 @@ pub struct WavtoolArgs {
 
 pub trait WavtoolDriver: Send + Sync {
     fn name(&self) -> &str;
+    fn phrase_executable(&self) -> Option<PathBuf> {
+        None
+    }
     fn consumes_skip_over(&self) -> bool {
         false
     }
@@ -234,6 +237,90 @@ impl KnownWavtool {
 
 pub struct NativeWavtoolDriver;
 
+/// Classic wavtools own concatenation: every call appends to the same phrase.
+pub fn concatenate_external(
+    executable: &Path,
+    items: &[WavtoolArgs],
+    output: &Path,
+    sample_rate: u32,
+    cancel: Option<&AtomicBool>,
+) -> Result<Vec<f32>, String> {
+    let is_exe = executable
+        .extension()
+        .is_some_and(|e| e.eq_ignore_ascii_case("exe"));
+    let path_arg = |path: &Path| {
+        if is_exe {
+            crate::drivers::process::to_wine_windows_path(path)
+        } else {
+            path.as_os_str().to_owned()
+        }
+    };
+    for (index, item) in items.iter().enumerate() {
+        if cancel.is_some_and(|c| c.load(std::sync::atomic::Ordering::Relaxed)) {
+            return Err("Renderização cancelada".into());
+        }
+        let mut input = item.input_rendered_wav.clone();
+        if item.skip_over_ms < 0.0 {
+            let (samples, rate) = crate::renderer::TrackRenderer::load_wav_samples(&input)?;
+            let padding = (-item.skip_over_ms * rate as f64 / 1000.0).round() as usize;
+            let mut padded = vec![0.0; padding];
+            padded.extend(samples);
+            input = output.with_file_name(format!("padded-{index}.wav"));
+            crate::renderer::TrackRenderer::save_wav_samples(&input, &padded, rate)?;
+        }
+        let env = &item.envelope;
+        let mut cmd = crate::drivers::process::prepare_command(executable)?;
+        cmd.arg(path_arg(output)).arg(path_arg(&input));
+        for value in [
+            item.skip_over_ms.max(0.0),
+            item.duration_ms,
+            env.p1,
+            env.p2,
+            env.p3,
+            env.v1,
+            env.v2,
+            env.v3,
+            env.v4,
+            if index == 0 {
+                0.0
+            } else {
+                item.overlap_ms.max(0.0)
+            },
+            env.p4,
+            env.p5,
+            env.v5,
+        ] {
+            cmd.arg(format!("{value:.6}"));
+        }
+        let result =
+            crate::drivers::process::run_with_timeout(&mut cmd, Duration::from_secs(120), cancel)?;
+        if !result.status.success() {
+            return Err(format!(
+                "Wavtool {}, segmento {}: {}",
+                executable.display(),
+                index + 1,
+                String::from_utf8_lossy(&result.stderr).trim()
+            ));
+        }
+    }
+    let header = PathBuf::from(format!("{}.whd", output.display()));
+    let data = PathBuf::from(format!("{}.dat", output.display()));
+    if header.exists() || data.exists() {
+        let mut bytes = std::fs::read(&header).map_err(|e| format!("Cabeçalho wavtool: {e}"))?;
+        bytes.extend(std::fs::read(&data).map_err(|e| format!("Dados wavtool: {e}"))?);
+        std::fs::write(output, bytes).map_err(|e| e.to_string())?;
+    }
+    let (samples, rate) = crate::renderer::TrackRenderer::load_wav_samples(output)?;
+    if samples.is_empty() {
+        return Err("Wavtool produziu uma frase vazia".into());
+    }
+    Ok(crate::renderer::TrackRenderer::convert_sample_rate(
+        &samples,
+        rate,
+        sample_rate,
+    ))
+}
+
 impl WavtoolDriver for NativeWavtoolDriver {
     fn name(&self) -> &str {
         "Native Rust (Crossfader)"
@@ -285,43 +372,40 @@ impl WavtoolYawuDriver {
 
     fn uses_integrated_backend(&self) -> bool {
         if !self.executable_path.is_file() {
-            return true;
+            return false;
         }
         std::fs::read_to_string(&self.executable_path)
             .is_ok_and(|contents| contents.contains("Kamafeu Internal Wavtool-Yawu Driver Wrapper"))
     }
 
     fn process_integrated(note_samples: &mut [f32], sample_rate: u32, args: &WavtoolArgs) {
-        if note_samples.is_empty() || sample_rate == 0 {
-            return;
-        }
-
-        let source = note_samples.to_vec();
-        note_samples.fill(0.0);
-        let source_offset =
-            (args.skip_over_ms.max(0.0) * sample_rate as f64 / 1_000.0).round() as usize;
-        let available = note_samples
-            .len()
-            .min(source.len().saturating_sub(source_offset));
-        note_samples[..available]
-            .copy_from_slice(&source[source_offset..source_offset + available]);
-
         UtauEnvelope::apply_points(
             note_samples,
             sample_rate,
-            args.sample_time_zero_ms + args.skip_over_ms.max(0.0),
+            args.sample_time_zero_ms,
             &args.phoneme_envelope,
         );
     }
 }
 
 impl WavtoolDriver for WavtoolYawuDriver {
+    fn phrase_executable(&self) -> Option<PathBuf> {
+        if self.uses_integrated_backend() {
+            None
+        } else {
+            Some(self.executable_path.clone())
+        }
+    }
     fn name(&self) -> &str {
-        "wavtool-yawu (m13253/wavtool-yawu)"
+        if self.uses_integrated_backend() {
+            "Kamafeu Native (wrapper yawu)"
+        } else {
+            "wavtool-yawu (externo)"
+        }
     }
 
     fn consumes_skip_over(&self) -> bool {
-        true
+        !self.uses_integrated_backend()
     }
 
     fn process_note(
@@ -443,6 +527,9 @@ impl ExternalWavtoolDriver {
 }
 
 impl WavtoolDriver for ExternalWavtoolDriver {
+    fn phrase_executable(&self) -> Option<PathBuf> {
+        Some(self.executable_path.clone())
+    }
     fn name(&self) -> &str {
         &self.display_name
     }
@@ -591,7 +678,7 @@ mod tests {
     }
 
     #[test]
-    fn integrated_yawu_consumes_stp_once_and_keeps_timeline_alignment() {
+    fn integrated_yawu_leaves_skip_to_the_shared_mixer() {
         let mut phone = (0..2_000)
             .map(|index| index as f32 / 2_000.0)
             .collect::<Vec<_>>();
@@ -599,8 +686,21 @@ mod tests {
 
         WavtoolYawuDriver::process_integrated(&mut phone, 1_000, &args);
 
-        assert!((phone[500] - 0.3).abs() < 1e-3);
-        assert!(phone[1_000..].iter().all(|sample| sample.abs() < 1e-6));
+        assert!((phone[600] - 0.3).abs() < 1e-3);
+        assert!(phone[1_050..].iter().all(|sample| sample.abs() < 1e-6));
+    }
+
+    #[test]
+    fn integrated_yawu_handles_skip_beyond_source() {
+        let mut phone = vec![0.75; 100];
+        let args = yawu_test_args(100.0, 200.0);
+
+        WavtoolYawuDriver::process_integrated(&mut phone, 1_000, &args);
+
+        assert!(phone
+            .get(args.skip_over_ms as usize..)
+            .unwrap_or(&[])
+            .is_empty());
     }
 
     #[test]

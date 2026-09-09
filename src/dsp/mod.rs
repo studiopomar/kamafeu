@@ -7,10 +7,12 @@ pub mod pitch_encoder;
 pub mod pyin;
 pub mod resampler;
 pub mod sola;
+pub mod windowed_sinc;
+pub mod world;
 
 /// Change the duration of a segment without changing its playback rate.
 ///
-/// OTO consonant regions often contain part of the voiced transition. A plain
+/// oto.ini consonant regions often contain part of the voiced transition. A plain
 /// linear resize plays that transition faster or slower and therefore changes
 /// its pitch. This compact WSOLA implementation instead skips or repeats
 /// overlapping waveform grains while keeping every grain at its original
@@ -114,9 +116,6 @@ pub(crate) fn resize_preserving_pitch(
     output
 }
 
-/// Resolve UTAU oto.ini offset/cutoff semantics to a half-open sample range.
-/// Positive cutoff trims from the end; negative cutoff is the absolute length
-/// measured from the offset; zero keeps the rest of the WAV.
 pub(crate) fn oto_source_bounds(
     sample_count: usize,
     sample_rate: u32,
@@ -168,7 +167,7 @@ mod oto_bounds_tests {
             })
             .collect::<Vec<_>>();
 
-        // Mirrors KYE Bb3/18.wav: a 204 ms OTO consonant region has to fit in
+        // Mirrors KYE Bb3/18.wav: a 204 ms oto.ini consonant region has to fit in
         // roughly 96 ms. Linear resampling used to raise it above 480 Hz.
         let resized =
             resize_preserving_pitch(&source, (sample_rate as f64 * 0.096) as usize, sample_rate);
@@ -195,3 +194,5 @@ pub use pitch_encoder::encode_pitch_bend_string;
 pub use pyin::{PitchExtractor, PitchResult};
 pub use resampler::Resampler;
 pub use sola::{SolaResampler, SolaStretchMode};
+pub use windowed_sinc::WindowedSincResampler;
+pub use world::WorldResampler;

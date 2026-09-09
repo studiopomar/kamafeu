@@ -52,7 +52,7 @@ fn android_main(app: AndroidApp) {
     }));
 
     if let Err(error) = eframe::run_native(
-        "Kamafeu Studio - sintetizador de voz",
+        "Kamafeu Studio v1.0.0-A (Âmbar)",
         options,
         Box::new(|cc| Ok(Box::new(gui::KamafeuStudioApp::new(cc)))),
     ) {

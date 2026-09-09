@@ -1,3 +1,11 @@
+mod context_menu;
+#[cfg(test)]
+mod interaction_tests;
+mod minimap;
+mod note_properties;
+mod parameter_drawer;
+mod phoneme_cache;
+mod vibrato_button;
 use crate::dsp::pitch::{midi_to_freq, midi_to_note_name};
 use crate::dsp::pitch_bend::PitchBendSolver;
 use crate::gui::phoneme_palette::PhonemePaletteState;
@@ -12,15 +20,19 @@ pub mod state;
 pub use grid::*;
 pub use state::*;
 
+use crate::gui::theme::ThemeConfig;
+
 pub fn draw_piano_roll(
     ui: &mut egui::Ui,
     notes: &mut Vec<UNote>,
     state: &mut PianoRollState,
+    theme: &ThemeConfig,
     voicebank: Option<&Voicebank>,
     phoneme_state: &mut PhonemePaletteState,
     snap_option: GridSnapOption,
     bpm: f64,
     phonemizer_mode: crate::phonemizer::PhonemizerMode,
+    lang: crate::config::AppLanguage,
     on_preview_freq: &mut dyn FnMut(f64),
     on_before_change: &mut dyn FnMut(),
     on_note_changed: &mut dyn FnMut(),
@@ -152,75 +164,29 @@ pub fn draw_piano_roll(
         .fold(0.0f64, f64::max);
     let total_canvas_ms = (max_note_end_ms + 30_000.0).max(60_000.0);
 
-    {
-        use std::collections::hash_map::DefaultHasher;
-        use std::hash::{Hash, Hasher};
-        let mut hasher = DefaultHasher::new();
-        notes.len().hash(&mut hasher);
+    phoneme_cache::draw(notes, state, voicebank, phonemizer_mode);
+
+    // Update active playback sounding keys
+    state.active_sounding_keys.clear();
+    if state.is_playing {
         for n in notes.iter() {
-            n.lyric.hash(&mut hasher);
-            n.pitch.hash(&mut hasher);
-            n.position_ms.to_bits().hash(&mut hasher);
-            n.duration_ms.to_bits().hash(&mut hasher);
-            n.phoneme_durations_ms.len().hash(&mut hasher);
-            for d in &n.phoneme_durations_ms {
-                d.to_bits().hash(&mut hasher);
-            }
-            n.expressions
-                .consonant_timing_offset_ms
-                .to_bits()
-                .hash(&mut hasher);
-            n.expressions.preutter_offset_ms.to_bits().hash(&mut hasher);
-            n.expressions.overlap_offset_ms.to_bits().hash(&mut hasher);
-            n.expressions.consonant_velocity.to_bits().hash(&mut hasher);
-        }
-        if let Some(vb) = voicebank {
-            vb.name.hash(&mut hasher);
-        }
-        phonemizer_mode.hash(&mut hasher);
-        let new_hash = hasher.finish();
-        if new_hash != state.phoneme_cache_hash {
-            state.phoneme_cache_hash = new_hash;
-            state.phoneme_cache = vec![String::new(); notes.len()];
-            state.note_phonemes_cache = vec![Vec::new(); notes.len()];
-            state.oto_consonant_cache = vec![0.0; notes.len()];
-            state.oto_preutter_cache = vec![0.0; notes.len()];
-            state.oto_overlap_cache = vec![0.0; notes.len()];
-            if let Some(vb) = voicebank {
-                let phones = crate::phonemizer::JapanesePhonemizer::apply_phonemizer(
-                    notes,
-                    vb,
-                    phonemizer_mode,
-                );
-                for p in phones {
-                    if p.note_index < state.phoneme_cache.len() {
-                        let is_first_phone = state.note_phonemes_cache[p.note_index].is_empty();
-                        if is_first_phone {
-                            if let Some(entry) = vb.find_entry(&p.lyric, &p.pitch) {
-                                state.oto_consonant_cache[p.note_index] = entry.consonant.max(0.0);
-                                state.oto_preutter_cache[p.note_index] =
-                                    entry.preutterance.max(0.0);
-                                state.oto_overlap_cache[p.note_index] = entry.overlap;
-                            }
-                        }
-                        if state.phoneme_cache[p.note_index].is_empty() {
-                            state.phoneme_cache[p.note_index] = p.lyric.clone();
-                        } else {
-                            state.phoneme_cache[p.note_index] =
-                                format!("{} [{}]", state.phoneme_cache[p.note_index], p.lyric);
-                        }
-                        let note_pos = notes[p.note_index].position_ms;
-                        let rel_pos = p.position_ms - note_pos;
-                        state.note_phonemes_cache[p.note_index].push((
-                            p.lyric,
-                            rel_pos,
-                            p.duration_ms,
-                        ));
-                    }
-                }
+            if state.playhead_ms >= n.position_ms
+                && state.playhead_ms <= n.position_ms + n.duration_ms
+            {
+                state.active_sounding_keys.insert(n.midi_key());
             }
         }
     }
+
+    minimap::draw(
+        ui,
+        notes,
+        state,
+        theme,
+        keyboard_width,
+        timeline_scroll_x,
+        total_canvas_ms,
+    );
 
     let (ruler_rect, _ruler_resp) = ui.allocate_exact_size(
         Vec2::new(ui.available_width(), ruler_height),
@@ -287,6 +253,81 @@ pub fn draw_piano_roll(
         m_ms += bar_ms;
     }
 
+    // Draw Loop Region on Ruler
+    if state.loop_end_ms > state.loop_start_ms {
+        let loop_start_x = ruler_rect.min.x + keyboard_width
+            + (state.loop_start_ms * state.px_per_ms as f64) as f32
+            - timeline_scroll_x;
+        let loop_end_x = ruler_rect.min.x + keyboard_width
+            + (state.loop_end_ms * state.px_per_ms as f64) as f32
+            - timeline_scroll_x;
+
+        let left_bound = ruler_rect.min.x + keyboard_width;
+        let right_bound = ruler_rect.max.x;
+
+        let visible_loop_left = loop_start_x.clamp(left_bound, right_bound);
+        let visible_loop_right = loop_end_x.clamp(left_bound, right_bound);
+
+        if visible_loop_right > visible_loop_left {
+            let loop_banner_rect = Rect::from_min_max(
+                Pos2::new(visible_loop_left, ruler_rect.min.y + 1.0),
+                Pos2::new(visible_loop_right, ruler_rect.max.y - 1.0),
+            );
+            let banner_bg = if state.loop_enabled {
+                Color32::from_rgba_unmultiplied(0, 255, 157, 45)
+            } else {
+                Color32::from_rgba_unmultiplied(120, 140, 160, 25)
+            };
+            ruler_painter.rect_filled(loop_banner_rect, Rounding::same(2.0), banner_bg);
+        }
+
+        // Loop Start Marker [A
+        if loop_start_x >= left_bound && loop_start_x <= right_bound {
+            let marker_color = if state.loop_enabled {
+                Color32::from_rgb(0, 255, 157)
+            } else {
+                Color32::from_rgb(160, 175, 190)
+            };
+            ruler_painter.line_segment(
+                [
+                    Pos2::new(loop_start_x, ruler_rect.min.y + 2.0),
+                    Pos2::new(loop_start_x, ruler_rect.max.y - 1.0),
+                ],
+                Stroke::new(2.0_f32, marker_color),
+            );
+            ruler_painter.text(
+                Pos2::new(loop_start_x + 3.0, ruler_rect.min.y + 2.0),
+                egui::Align2::LEFT_TOP,
+                "A",
+                egui::FontId::monospace(9.0),
+                marker_color,
+            );
+        }
+
+        // Loop End Marker B]
+        if loop_end_x >= left_bound && loop_end_x <= right_bound {
+            let marker_color = if state.loop_enabled {
+                Color32::from_rgb(0, 255, 157)
+            } else {
+                Color32::from_rgb(160, 175, 190)
+            };
+            ruler_painter.line_segment(
+                [
+                    Pos2::new(loop_end_x, ruler_rect.min.y + 2.0),
+                    Pos2::new(loop_end_x, ruler_rect.max.y - 1.0),
+                ],
+                Stroke::new(2.0_f32, marker_color),
+            );
+            ruler_painter.text(
+                Pos2::new(loop_end_x - 3.0, ruler_rect.min.y + 2.0),
+                egui::Align2::RIGHT_TOP,
+                "B",
+                egui::FontId::monospace(9.0),
+                marker_color,
+            );
+        }
+    }
+
     let ruler_playhead_x =
         ruler_rect.min.x + keyboard_width + (state.playhead_ms * state.px_per_ms as f64) as f32
             - timeline_scroll_x;
@@ -317,21 +358,110 @@ pub fn draw_piano_roll(
         Sense::click_and_drag(),
     );
 
+    // Botão ícone compacto de Maximizar / Restaurar no canto da régua
+    let max_btn_size = 22.0_f32;
+    let max_btn_rect = Rect::from_center_size(
+        Pos2::new(ruler_rect.max.x - 16.0, ruler_rect.center().y),
+        Vec2::splat(max_btn_size),
+    );
+
+    let max_btn_resp = ui.interact(
+        max_btn_rect,
+        ui.make_persistent_id("piano_roll_maximize_toggle_btn"),
+        Sense::click(),
+    );
+    if max_btn_resp.clicked() {
+        state.is_maximized = !state.is_maximized;
+    }
+
+    let is_hovered = max_btn_resp.hovered();
+    let (btn_bg, btn_stroke, text_color, icon_symbol) = if state.is_maximized {
+        (
+            if is_hovered {
+                Color32::from_rgb(52, 42, 20)
+            } else {
+                Color32::from_rgb(32, 25, 12)
+            },
+            Stroke::new(1.0_f32, MelodyneTheme::ACCENT_GOLD),
+            MelodyneTheme::ACCENT_GOLD,
+            "[v]",
+        )
+    } else {
+        (
+            if is_hovered {
+                Color32::from_rgb(25, 45, 38)
+            } else {
+                Color32::from_rgb(18, 28, 24)
+            },
+            Stroke::new(
+                1.0_f32,
+                if is_hovered {
+                    Color32::from_rgb(0, 255, 157)
+                } else {
+                    Color32::from_rgba_unmultiplied(0, 255, 157, 100)
+                },
+            ),
+            if is_hovered {
+                Color32::from_rgb(0, 255, 157)
+            } else {
+                Color32::from_rgba_unmultiplied(0, 255, 157, 200)
+            },
+            "[^]",
+        )
+    };
+
+    ruler_painter.rect_filled(max_btn_rect, Rounding::same(4.0), btn_bg);
+    ruler_painter.rect_stroke(max_btn_rect, Rounding::same(4.0), btn_stroke);
+    ruler_painter.text(
+        max_btn_rect.center(),
+        egui::Align2::CENTER_CENTER,
+        icon_symbol,
+        egui::FontId::proportional(12.0),
+        text_color,
+    );
+
+    if is_hovered {
+        max_btn_resp.clone().on_hover_text(if state.is_maximized {
+            lang.tr("Restaurar layout padrão (F11 / Shift+F)", "Restore default layout (F11 / Shift+F)")
+        } else {
+            lang.tr("Maximizar Piano Roll / Otimizar espaço (F11 / Shift+F)", "Maximize Piano Roll / Optimize space (F11 / Shift+F)")
+        });
+    }
+
     if ruler_response.clicked() || ruler_response.dragged() {
         if let Some(mpos) = ruler_response.interact_pointer_pos() {
-            state.is_scrubbing_ruler = true;
+            let shift_held = ui.input(|i| i.modifiers.shift);
             let raw_t = (mpos.x - (ruler_rect.min.x + keyboard_width) + timeline_scroll_x) as f64
                 / state.px_per_ms as f64;
-            let scrubbed_t = apply_snap(raw_t.max(0.0), snap_option, bpm);
-            state.playhead_ms = scrubbed_t;
-            on_playhead_scrubbed(scrubbed_t);
+            let scrubbed_t =
+                apply_snap_with_zoom(raw_t.max(0.0), snap_option, bpm, state.px_per_ms);
 
-            let playhead_canvas_x = (scrubbed_t * state.px_per_ms as f64) as f32;
-            let visible_w = (ui.available_width() - keyboard_width).max(100.0);
-            if playhead_canvas_x < state.horizontal_scroll_offset + 50.0 {
-                state.horizontal_scroll_offset = (playhead_canvas_x - 50.0).max(0.0);
-            } else if playhead_canvas_x > state.horizontal_scroll_offset + visible_w - 70.0 {
-                state.horizontal_scroll_offset = (playhead_canvas_x - visible_w + 70.0).max(0.0);
+            if shift_held {
+                // Shift+Click/Drag sets loop boundary
+                if ruler_response.clicked() {
+                    state.loop_start_ms = scrubbed_t;
+                    state.loop_end_ms = scrubbed_t + (60000.0 / bpm) * 4.0;
+                    state.loop_enabled = true;
+                } else if ruler_response.dragged() {
+                    if scrubbed_t > state.loop_start_ms {
+                        state.loop_end_ms = scrubbed_t;
+                    } else {
+                        state.loop_start_ms = scrubbed_t;
+                    }
+                    state.loop_enabled = true;
+                }
+            } else {
+                state.is_scrubbing_ruler = true;
+                state.playhead_ms = scrubbed_t;
+                on_playhead_scrubbed(scrubbed_t);
+
+                let playhead_canvas_x = (scrubbed_t * state.px_per_ms as f64) as f32;
+                let visible_w = (ui.available_width() - keyboard_width).max(100.0);
+                if playhead_canvas_x < state.horizontal_scroll_offset + 50.0 {
+                    state.horizontal_scroll_offset = (playhead_canvas_x - 50.0).max(0.0);
+                } else if playhead_canvas_x > state.horizontal_scroll_offset + visible_w - 70.0 {
+                    state.horizontal_scroll_offset = (playhead_canvas_x - visible_w + 70.0).max(0.0);
+                }
             }
         }
     }
@@ -342,8 +472,10 @@ pub fn draw_piano_roll(
 
     crate::gui::phoneme_ruler::draw_phoneme_ruler(
         ui,
+        theme,
         state,
         notes,
+        voicebank,
         ruler_rect,
         keyboard_width,
         timeline_scroll_x,
@@ -353,697 +485,18 @@ pub fn draw_piano_roll(
         on_edit_oto_alias,
     );
 
-    if state.show_envelope_handles {
-        let panel_response = egui::TopBottomPanel::bottom("bottom_expanded_envelope_editor")
-            .resizable(true)
-            .height_range(130.0..=500.0)
-            .default_height(state.drawer_height.max(180.0))
-            .frame(
-                egui::Frame::none()
-                    .fill(MelodyneTheme::BG_PANEL)
-                    .stroke(Stroke::new(1.5_f32, Color32::from_rgb(255, 90, 195))),
-            )
-            .show_inside(ui, |ui| {
-                ui.horizontal(|ui| {
-                    ui.label(
-                        egui::RichText::new("🎚 ENVELOPES DA FRASE — linha do tempo")
-                            .strong()
-                            .color(Color32::from_rgb(255, 120, 205)),
-                    );
-                    ui.label(
-                        egui::RichText::new(
-                            "Arraste horizontalmente para o tempo e verticalmente para o volume",
-                        )
-                        .size(9.5)
-                        .color(MelodyneTheme::TEXT_MUTED),
-                    );
-                    if ui.button("Fechar").clicked() {
-                        state.show_envelope_handles = false;
-                        state.dragging_envelope_pt = None;
-                    }
-                });
-
-                let graph_size = Vec2::new(
-                    ui.available_width(),
-                    (ui.available_height() - 4.0).max(90.0),
-                );
-                let (graph_rect, response) =
-                    ui.allocate_exact_size(graph_size, Sense::click_and_drag());
-                let painter = ui.painter_at(graph_rect);
-                painter.rect_filled(graph_rect, Rounding::same(4.0), MelodyneTheme::BG_CANVAS);
-                painter.rect_stroke(
-                    graph_rect,
-                    Rounding::same(4.0),
-                    Stroke::new(1.0_f32, MelodyneTheme::GRID_LINE_BAR),
-                );
-                let inner = graph_rect.shrink2(Vec2::new(6.0, 16.0));
-                for level in [0.0f32, 0.25, 0.5, 0.75, 1.0] {
-                    let y = inner.max.y - level * inner.height();
-                    painter.line_segment(
-                        [Pos2::new(inner.min.x, y), Pos2::new(inner.max.x, y)],
-                        Stroke::new(0.7_f32, MelodyneTheme::GRID_LINE_SUB),
-                    );
-                    painter.text(
-                        Pos2::new(inner.min.x + 3.0, y),
-                        egui::Align2::LEFT_CENTER,
-                        format!("{:.0}%", level * 100.0),
-                        egui::FontId::proportional(8.5),
-                        MelodyneTheme::TEXT_MUTED,
-                    );
-                }
-
-                let timeline_origin_x = ruler_rect.min.x + keyboard_width - timeline_scroll_x;
-                let pointer = response.interact_pointer_pos();
-                let mut hovered_handle = None;
-
-                for (note_index, note) in notes.iter().enumerate() {
-                    let duration = note.duration_ms.max(1.0);
-                    let note_start_x =
-                        timeline_origin_x + (note.position_ms * state.px_per_ms as f64) as f32;
-                    let note_end_x = note_start_x + (duration * state.px_per_ms as f64) as f32;
-                    if note_end_x < graph_rect.min.x || note_start_x > graph_rect.max.x {
-                        continue;
-                    }
-                    let selected = state.selected_note_index == Some(note_index)
-                        || state.selected_note_indices.contains(&note_index);
-                    let env = &note.envelope;
-                    let points = [
-                        (env.p1, env.v1),
-                        (env.p1 + env.p2, env.v2),
-                        (env.p1 + env.p2 + env.p3, env.v3),
-                        ((duration - env.p4).max(0.0), env.v4),
-                        ((duration - env.p4 + env.p5).max(0.0), env.v5),
-                    ];
-                    let screen_points = points.map(|(time, volume)| {
-                        Pos2::new(
-                            note_start_x + (time * state.px_per_ms as f64) as f32,
-                            inner.max.y - (volume / 100.0).clamp(0.0, 1.0) as f32 * inner.height(),
-                        )
-                    });
-
-                    let note_band = Rect::from_min_max(
-                        Pos2::new(note_start_x.max(graph_rect.min.x), inner.min.y),
-                        Pos2::new(note_end_x.min(graph_rect.max.x), inner.max.y),
-                    );
-                    painter.rect_filled(
-                        note_band,
-                        Rounding::ZERO,
-                        if selected {
-                            Color32::from_rgba_unmultiplied(0, 180, 220, 24)
-                        } else {
-                            Color32::from_rgba_unmultiplied(40, 80, 130, 14)
-                        },
-                    );
-                    painter.text(
-                        Pos2::new(note_start_x + 4.0, inner.min.y + 2.0),
-                        egui::Align2::LEFT_TOP,
-                        &note.lyric,
-                        egui::FontId::proportional(9.0),
-                        if selected {
-                            Color32::from_rgb(0, 235, 255)
-                        } else {
-                            MelodyneTheme::TEXT_MUTED
-                        },
-                    );
-
-                    let adjacent_previous = note_index.checked_sub(1).and_then(|previous_index| {
-                        notes.get(previous_index).filter(|previous| {
-                            let gap =
-                                note.position_ms - (previous.position_ms + previous.duration_ms);
-                            gap.abs() <= 200.0
-                        })
-                    });
-                    let automatic_crossfade = state
-                        .oto_overlap_cache
-                        .get(note_index)
-                        .copied()
-                        .unwrap_or(0.0)
-                        .abs()
-                        .max(env.p2.min(45.0));
-                    let visual_crossfade_ms = if env.crossfade_ms > 0.0 {
-                        env.crossfade_ms
-                    } else if adjacent_previous.is_some() {
-                        automatic_crossfade
-                    } else {
-                        0.0
-                    };
-                    if visual_crossfade_ms > 0.0 {
-                        let cross_start =
-                            note_start_x - (visual_crossfade_ms * state.px_per_ms as f64) as f32;
-                        let left = cross_start.max(graph_rect.min.x);
-                        let right = note_start_x.min(graph_rect.max.x);
-                        if right > left {
-                            painter.rect_filled(
-                                Rect::from_min_max(
-                                    Pos2::new(left, inner.min.y),
-                                    Pos2::new(right, inner.max.y),
-                                ),
-                                Rounding::ZERO,
-                                Color32::from_rgba_unmultiplied(0, 200, 180, 26),
-                            );
-                            let color = Color32::from_rgb(0, 225, 200);
-                            painter.line_segment(
-                                [Pos2::new(left, inner.max.y), Pos2::new(right, inner.min.y)],
-                                Stroke::new(1.8_f32, color),
-                            );
-                            painter.line_segment(
-                                [Pos2::new(left, inner.min.y), Pos2::new(right, inner.max.y)],
-                                Stroke::new(1.8_f32, color),
-                            );
-                            let handle = Pos2::new(cross_start, inner.center().y);
-                            if graph_rect.expand(15.0).contains(handle) {
-                                let hovered = pointer
-                                    .is_some_and(|position| position.distance(handle) <= 13.0);
-                                let dragging = state.dragging_envelope_pt == Some((note_index, 5));
-                                painter.circle_filled(
-                                    handle,
-                                    if hovered || dragging { 8.5 } else { 6.0 },
-                                    if dragging {
-                                        Color32::WHITE
-                                    } else {
-                                        Color32::from_rgb(0, 235, 210)
-                                    },
-                                );
-                                painter.circle_stroke(
-                                    handle,
-                                    if hovered || dragging { 8.5 } else { 6.0 },
-                                    Stroke::new(1.2_f32, Color32::WHITE),
-                                );
-                                if hovered || dragging {
-                                    hovered_handle = Some((note_index, 5));
-                                    painter.text(
-                                        Pos2::new(handle.x, handle.y - 14.0),
-                                        egui::Align2::CENTER_BOTTOM,
-                                        format!("Crossfade · {:.0}ms", visual_crossfade_ms),
-                                        egui::FontId::proportional(9.5),
-                                        Color32::WHITE,
-                                    );
-                                }
-                            }
-                        }
-                    }
-
-                    painter.add(egui::Shape::line(
-                        screen_points.to_vec(),
-                        Stroke::new(
-                            if selected { 2.6_f32 } else { 1.5_f32 },
-                            if selected {
-                                Color32::from_rgb(0, 220, 250)
-                            } else {
-                                Color32::from_rgb(65, 145, 185)
-                            },
-                        ),
-                    ));
-                    for (point_index, point) in screen_points.iter().enumerate() {
-                        if !graph_rect.expand(15.0).contains(*point) {
-                            continue;
-                        }
-                        let hovered =
-                            pointer.is_some_and(|position| position.distance(*point) <= 13.0);
-                        if hovered {
-                            hovered_handle = Some((note_index, point_index));
-                        }
-                        let dragging =
-                            state.dragging_envelope_pt == Some((note_index, point_index));
-                        painter.circle_filled(
-                            *point,
-                            if hovered || dragging { 8.0 } else { 5.5 },
-                            if dragging {
-                                Color32::WHITE
-                            } else if selected {
-                                Color32::from_rgb(0, 235, 255)
-                            } else {
-                                Color32::from_rgb(70, 160, 200)
-                            },
-                        );
-                        painter.circle_stroke(
-                            *point,
-                            if hovered || dragging { 8.0 } else { 5.5 },
-                            Stroke::new(
-                                1.0_f32,
-                                if dragging {
-                                    Color32::from_rgb(0, 220, 255)
-                                } else {
-                                    Color32::from_rgb(20, 30, 45)
-                                },
-                            ),
-                        );
-                        if hovered || dragging {
-                            let label_text = format!(
-                                "{} · P{} · {:.0}ms · {:.0}%",
-                                note.lyric,
-                                point_index + 1,
-                                points[point_index].0,
-                                points[point_index].1
-                            );
-                            let text_shape = painter.layout_no_wrap(
-                                label_text,
-                                egui::FontId::proportional(9.5),
-                                Color32::WHITE,
-                            );
-                            let pill_rect = Rect::from_center_size(
-                                Pos2::new(point.x, point.y - 14.0),
-                                Vec2::new(text_shape.size().x + 10.0, 16.0),
-                            );
-                            painter.rect_filled(
-                                pill_rect,
-                                Rounding::same(4.0),
-                                Color32::from_rgba_unmultiplied(15, 22, 36, 230),
-                            );
-                            painter.rect_stroke(
-                                pill_rect,
-                                Rounding::same(4.0),
-                                Stroke::new(1.0_f32, Color32::from_rgb(0, 210, 240)),
-                            );
-                            painter.galley(
-                                Pos2::new(
-                                    pill_rect.center().x - text_shape.size().x * 0.5,
-                                    pill_rect.center().y - text_shape.size().y * 0.5,
-                                ),
-                                text_shape,
-                                Color32::WHITE,
-                            );
-                        }
-                    }
-                }
-
-                if response.drag_started() {
-                    if let Some(handle) = hovered_handle {
-                        on_before_change();
-                        state.dragging_envelope_pt = Some(handle);
-                        state.selected_note_index = Some(handle.0);
-                        state.selected_note_indices.clear();
-                        state.selected_note_indices.insert(handle.0);
-                    }
-                }
-                if let (Some((note_index, point_index)), Some(position)) =
-                    (state.dragging_envelope_pt, pointer)
-                {
-                    if let Some(note) = notes.get_mut(note_index) {
-                        let duration = note.duration_ms.max(1.0);
-                        let note_start_x =
-                            timeline_origin_x + (note.position_ms * state.px_per_ms as f64) as f32;
-                        let time = (f64::from(position.x - note_start_x)
-                            / f64::from(state.px_per_ms))
-                        .max(0.0);
-                        let volume = ((inner.max.y - position.y) / inner.height()).clamp(0.0, 1.0)
-                            as f64
-                            * 100.0;
-                        match point_index {
-                            0 => {
-                                note.envelope.p1 = time.clamp(0.0, duration);
-                                note.envelope.v1 = volume.clamp(0.0, 100.0);
-                            }
-                            1 => {
-                                let p2_time = time.max(note.envelope.p1);
-                                note.envelope.p2 = (p2_time - note.envelope.p1).max(0.0);
-                                note.envelope.v2 = volume.clamp(0.0, 100.0);
-                            }
-                            2 => {
-                                let p3_time = time.max(note.envelope.p1 + note.envelope.p2);
-                                note.envelope.p3 =
-                                    (p3_time - note.envelope.p1 - note.envelope.p2).max(0.0);
-                                note.envelope.v3 = volume.clamp(0.0, 100.0);
-                            }
-                            3 => {
-                                let p4_pos = time.clamp(0.0, duration + 200.0);
-                                note.envelope.p4 = (duration - p4_pos).max(0.0);
-                                note.envelope.v4 = volume.clamp(0.0, 100.0);
-                            }
-                            4 => {
-                                let p4_pos = (duration - note.envelope.p4).max(0.0);
-                                let p5_pos = time.max(p4_pos);
-                                note.envelope.p5 = (p5_pos - p4_pos).max(0.0);
-                                note.envelope.v5 = volume.clamp(0.0, 100.0);
-                            }
-                            5 => {
-                                note.envelope.crossfade_ms = (f64::from(note_start_x - position.x)
-                                    / f64::from(state.px_per_ms))
-                                .clamp(0.0, 600.0);
-                            }
-                            _ => {}
-                        }
-                        state.continuous_edit_dirty = true;
-                    }
-                }
-                if response.drag_stopped() {
-                    state.dragging_envelope_pt = None;
-                }
-            });
-        // `ui.max_rect()` inside the closure still reflects the layout before
-        // the resize interaction is finalized. Persist the resulting panel
-        // rectangle instead, otherwise the next frame restores the old size.
-        state.drawer_height = panel_response.response.rect.height().clamp(130.0, 500.0);
-    } else if state.show_parameters_drawer {
-        let panel_response = egui::TopBottomPanel::bottom("bottom_param_drawer_fixed")
-            .resizable(true)
-            .height_range(60.0..=750.0)
-            .default_height(state.drawer_height)
-            .frame(
-                egui::Frame::none()
-                    .fill(MelodyneTheme::BG_PANEL)
-                    .stroke(Stroke::new(1.5_f32, MelodyneTheme::ACCENT_GOLD)),
-            )
-            .show_inside(ui, |ui| {
-                let actual_h = ui.max_rect().height().clamp(60.0, 750.0);
-                let current_drawer_h = actual_h;
-                let available_graph_h = (current_drawer_h - 10.0).max(50.0);
-
-                ui.horizontal(|ui| {
-                    ui.add_space(4.0);
-                    ui.vertical(|ui| {
-                        ui.add_space(2.0);
-                        ui.label(
-                            egui::RichText::new("📊 PARÂMETROS / EXPRESSÕES")
-                                .strong()
-                                .size(10.0)
-                                .color(Color32::from_rgb(0, 255, 157)),
-                        );
-                        ui.add_space(2.0);
-
-                        egui::ScrollArea::vertical()
-                            .id_salt("param_tabs_scroll")
-                            .max_width(135.0)
-                            .max_height((current_drawer_h - 22.0).max(50.0))
-                            .show(ui, |ui| {
-                                let param_tabs = [
-                                    ("Dynamics (DYN)", ParameterTab::Dynamics),
-                                    ("Pitch Offset (PITD)", ParameterTab::PitchDelta),
-                                    ("Gender (GEN/g)", ParameterTab::Gender),
-                                    ("Vel. Consoante (VEL)", ParameterTab::Velocity),
-                                    ("Breathiness (BRE/B)", ParameterTab::Breathiness),
-                                    ("Modulação (MOD)", ParameterTab::Modulation),
-                                    ("Volume (VOL)", ParameterTab::Volume),
-                                    ("Ataque (ATK)", ParameterTab::Attack),
-                                    ("Decaimento (DEC)", ParameterTab::Decay),
-                                    ("Vibrato Tam (VIBL)", ParameterTab::VibratoLength),
-                                    ("Vibrato Prof (VIBD)", ParameterTab::VibratoDepth),
-                                    ("Vibrato Per (VIBP)", ParameterTab::VibratoPeriod),
-                                ];
-
-                                for (p_name, tab_val) in param_tabs {
-                                    let is_sel = state.selected_parameter == tab_val;
-                                    let (text_color, fill_color) = if is_sel {
-                                        (
-                                            Color32::from_rgb(0, 255, 157),
-                                            Color32::from_rgb(36, 27, 53),
-                                        )
-                                    } else {
-                                        (Color32::from_rgb(165, 148, 201), Color32::TRANSPARENT)
-                                    };
-
-                                    let btn = egui::Button::new(
-                                        egui::RichText::new(p_name).size(9.5).color(text_color),
-                                    )
-                                    .fill(fill_color)
-                                    .rounding(Rounding::same(3.0));
-
-                                    if ui.add(btn).clicked() {
-                                        state.selected_parameter = tab_val;
-                                    }
-                                }
-                            });
-                    });
-
-                    ui.add_space(4.0);
-                    ui.separator();
-                    ui.add_space(4.0);
-
-                    let (graph_rect, graph_response) = ui.allocate_exact_size(
-                        Vec2::new(ui.available_width() - 8.0, available_graph_h),
-                        Sense::click_and_drag(),
-                    );
-
-                    let painter = ui.painter_at(graph_rect);
-                    painter.rect_filled(graph_rect, Rounding::same(4.0), MelodyneTheme::BG_CANVAS);
-                    painter.rect_stroke(
-                        graph_rect,
-                        Rounding::same(4.0),
-                        Stroke::new(1.0_f32, MelodyneTheme::GRID_LINE_BAR),
-                    );
-
-                    let is_bipolar = matches!(
-                        state.selected_parameter,
-                        ParameterTab::Dynamics | ParameterTab::PitchDelta | ParameterTab::Gender
-                    );
-
-                    let mid_y = if is_bipolar {
-                        graph_rect.min.y + graph_rect.height() * 0.5
-                    } else {
-                        graph_rect.max.y - 12.0
-                    };
-
-                    let half_span_y = (graph_rect.height() * 0.45).max(10.0);
-
-                    if is_bipolar {
-                        painter.line_segment(
-                            [
-                                Pos2::new(graph_rect.min.x, mid_y),
-                                Pos2::new(graph_rect.max.x, mid_y),
-                            ],
-                            Stroke::new(1.0_f32, MelodyneTheme::GRID_LINE_SUB),
-                        );
-                    }
-
-                    if let Some(mpos) = graph_response.interact_pointer_pos() {
-                        if graph_response.dragged() || graph_response.clicked() {
-                            let click_t = (mpos.x - (ruler_rect.min.x + keyboard_width)
-                                + timeline_scroll_x)
-                                as f64
-                                / state.px_per_ms as f64;
-                            let mut changed = false;
-                            for note in notes.iter_mut() {
-                                if click_t >= note.position_ms
-                                    && click_t <= note.position_ms + note.duration_ms
-                                {
-                                    let norm_bipolar =
-                                        ((mid_y - mpos.y) / half_span_y).clamp(-1.0, 1.0) as f64; // [-1.0, 1.0]
-                                    let norm_unipolar = ((graph_rect.max.y - mpos.y)
-                                        / (graph_rect.height() - 15.0).max(1.0))
-                                    .clamp(0.0, 1.0)
-                                        as f64; // [0.0, 1.0]
-
-                                    match state.selected_parameter {
-                                        ParameterTab::Dynamics => {
-                                            note.expressions.dynamics =
-                                                (norm_bipolar * 180.0 - 60.0).clamp(-240.0, 120.0);
-                                        }
-                                        ParameterTab::PitchDelta => {
-                                            note.expressions.pitch_delta =
-                                                (norm_bipolar * 1200.0).clamp(-1200.0, 1200.0);
-                                        }
-                                        ParameterTab::Gender => {
-                                            note.expressions.gender =
-                                                (norm_bipolar * 100.0).clamp(-100.0, 100.0);
-                                        }
-                                        ParameterTab::Velocity => {
-                                            note.expressions.consonant_velocity =
-                                                (norm_unipolar * 200.0).clamp(0.0, 200.0);
-                                        }
-                                        ParameterTab::Breathiness => {
-                                            note.expressions.breathiness =
-                                                (norm_unipolar * 100.0).clamp(0.0, 100.0);
-                                        }
-                                        ParameterTab::Modulation => {
-                                            note.expressions.modulation =
-                                                (norm_unipolar * 200.0).clamp(0.0, 200.0);
-                                        }
-                                        ParameterTab::Volume => {
-                                            note.expressions.volume =
-                                                (norm_unipolar * 200.0).clamp(0.0, 200.0);
-                                        }
-                                        ParameterTab::Attack => {
-                                            note.expressions.attack =
-                                                (norm_unipolar * 200.0).clamp(0.0, 200.0);
-                                        }
-                                        ParameterTab::Decay => {
-                                            note.expressions.decay =
-                                                (norm_unipolar * 100.0).clamp(0.0, 100.0);
-                                        }
-                                        ParameterTab::VibratoLength => {
-                                            note.vibrato.length_pct =
-                                                (norm_unipolar * 100.0).clamp(0.0, 100.0);
-                                        }
-                                        ParameterTab::VibratoDepth => {
-                                            note.vibrato.depth_cents =
-                                                (norm_unipolar * 200.0).clamp(0.0, 200.0);
-                                        }
-                                        ParameterTab::VibratoPeriod => {
-                                            note.vibrato.period_ms =
-                                                (norm_unipolar * 400.0 + 50.0).clamp(50.0, 450.0);
-                                        }
-                                    }
-                                    changed = true;
-                                }
-                            }
-                            if changed {
-                                state.continuous_edit_dirty = true;
-                            }
-                        }
-                    }
-
-                    for (note_index, note) in notes.iter().enumerate() {
-                        let x_start = ruler_rect.min.x
-                            + keyboard_width
-                            + (note.position_ms * state.px_per_ms as f64) as f32
-                            - timeline_scroll_x;
-                        let x_end = x_start + (note.duration_ms * state.px_per_ms as f64) as f32;
-
-                        if x_end >= graph_rect.min.x && x_start <= graph_rect.max.x {
-                            let (val, min_v, max_v, value_label) = match state.selected_parameter {
-                                ParameterTab::Dynamics => (
-                                    note.expressions.dynamics,
-                                    -240.0,
-                                    120.0,
-                                    format!("{:+.1} dB", note.expressions.dynamics * 0.1),
-                                ),
-                                ParameterTab::PitchDelta => (
-                                    note.expressions.pitch_delta,
-                                    -1200.0,
-                                    1200.0,
-                                    format!("{:+.0} c", note.expressions.pitch_delta),
-                                ),
-                                ParameterTab::Gender => (
-                                    note.expressions.gender,
-                                    -100.0,
-                                    100.0,
-                                    format!("g{:+.0}", note.expressions.gender),
-                                ),
-                                ParameterTab::Velocity => (
-                                    note.expressions.consonant_velocity,
-                                    0.0,
-                                    200.0,
-                                    format!("VEL {:.0}%", note.expressions.consonant_velocity),
-                                ),
-                                ParameterTab::Breathiness => (
-                                    note.expressions.breathiness,
-                                    0.0,
-                                    100.0,
-                                    format!("B{:.0}", note.expressions.breathiness),
-                                ),
-                                ParameterTab::Modulation => (
-                                    note.expressions.modulation,
-                                    0.0,
-                                    200.0,
-                                    format!("MOD {:.0}%", note.expressions.modulation),
-                                ),
-                                ParameterTab::Volume => (
-                                    note.expressions.volume,
-                                    0.0,
-                                    200.0,
-                                    format!("VOL {:.0}%", note.expressions.volume),
-                                ),
-                                ParameterTab::Attack => (
-                                    note.expressions.attack,
-                                    0.0,
-                                    200.0,
-                                    format!("ATK {:.0}%", note.expressions.attack),
-                                ),
-                                ParameterTab::Decay => (
-                                    note.expressions.decay,
-                                    0.0,
-                                    100.0,
-                                    format!("DEC {:.0}%", note.expressions.decay),
-                                ),
-                                ParameterTab::VibratoLength => (
-                                    note.vibrato.length_pct,
-                                    0.0,
-                                    100.0,
-                                    format!("VIBL {:.0}%", note.vibrato.length_pct),
-                                ),
-                                ParameterTab::VibratoDepth => (
-                                    note.vibrato.depth_cents,
-                                    0.0,
-                                    200.0,
-                                    format!("VIBD {:.0} c", note.vibrato.depth_cents),
-                                ),
-                                ParameterTab::VibratoPeriod => (
-                                    note.vibrato.period_ms,
-                                    50.0,
-                                    450.0,
-                                    format!("VIBP {:.0} ms", note.vibrato.period_ms),
-                                ),
-                            };
-                            let label_str = format!("{} · {}", note.lyric, value_label);
-                            let is_selected = state.selected_note_index == Some(note_index)
-                                || state.selected_note_indices.contains(&note_index);
-
-                            let node_y = if is_bipolar {
-                                let norm = val / max_v;
-                                mid_y - (norm as f32 * half_span_y)
-                            } else {
-                                let norm = ((val - min_v) / (max_v - min_v)).clamp(0.0, 1.0);
-                                graph_rect.max.y
-                                    - (norm as f32 * (graph_rect.height() - 20.0).max(10.0))
-                                    - 10.0
-                            };
-
-                            let bar_min_y = mid_y.min(node_y);
-                            let bar_max_y = mid_y.max(node_y);
-
-                            let bar_rect = Rect::from_min_max(
-                                Pos2::new(x_start.max(graph_rect.min.x), bar_min_y),
-                                Pos2::new(
-                                    x_end.min(graph_rect.max.x),
-                                    bar_max_y.max(bar_min_y + 2.0),
-                                ),
-                            );
-
-                            painter.line_segment(
-                                [
-                                    Pos2::new(x_start, graph_rect.min.y),
-                                    Pos2::new(x_start, graph_rect.max.y),
-                                ],
-                                Stroke::new(
-                                    if is_selected { 1.5_f32 } else { 0.7_f32 },
-                                    if is_selected {
-                                        MelodyneTheme::ACCENT_GOLD
-                                    } else {
-                                        Color32::from_rgba_premultiplied(110, 85, 160, 100)
-                                    },
-                                ),
-                            );
-
-                            painter.rect_filled(
-                                bar_rect,
-                                Rounding::same(2.0),
-                                if is_selected {
-                                    Color32::from_rgba_premultiplied(255, 190, 60, 95)
-                                } else {
-                                    Color32::from_rgba_premultiplied(0, 255, 157, 60)
-                                },
-                            );
-                            painter.line_segment(
-                                [
-                                    Pos2::new(x_start.max(graph_rect.min.x), node_y),
-                                    Pos2::new(x_end.min(graph_rect.max.x), node_y),
-                                ],
-                                Stroke::new(
-                                    2.5_f32,
-                                    if is_selected {
-                                        MelodyneTheme::ACCENT_GOLD
-                                    } else {
-                                        Color32::from_rgb(0, 255, 157)
-                                    },
-                                ),
-                            );
-
-                            let text_pos = Pos2::new((x_start + x_end) * 0.5, node_y - 6.0);
-                            if text_pos.x >= graph_rect.min.x && text_pos.x <= graph_rect.max.x {
-                                painter.text(
-                                    text_pos,
-                                    egui::Align2::CENTER_BOTTOM,
-                                    &label_str,
-                                    egui::FontId::proportional(9.0),
-                                    Color32::from_rgb(216, 180, 254),
-                                );
-                            }
-                        }
-                    }
-                });
-            });
-        state.drawer_height = panel_response.response.rect.height().clamp(60.0, 750.0);
-    }
+    parameter_drawer::draw(
+        ui,
+        notes,
+        state,
+        keyboard_width,
+        timeline_scroll_x,
+        on_before_change,
+        theme,
+        ruler_rect,
+        bpm,
+        lang,
+    );
 
     let grid_width = (keyboard_width as f64 + total_canvas_ms * state.px_per_ms as f64) as f32;
     let grid_width = grid_width.max(3000.0);
@@ -1052,7 +505,9 @@ pub fn draw_piano_roll(
     let mut scroll_area = egui::ScrollArea::both()
         .id_salt("piano_roll_scroll")
         .auto_shrink([false, false])
-        .enable_scrolling(!is_mod_zoom);
+        .enable_scrolling(!is_mod_zoom)
+        // Primary-button drags edit notes; wheel and scrollbars still navigate.
+        .drag_to_scroll(false);
 
     if !state.initial_scrolled {
         let (first_note_pos, target_midi) = if let Some(first) = notes.iter().min_by(|a, b| {
@@ -1093,7 +548,7 @@ pub fn draw_piano_roll(
 
         let painter = ui.painter_at(rect);
 
-        painter.rect_filled(rect, Rounding::ZERO, MelodyneTheme::BG_CANVAS);
+        painter.rect_filled(rect, Rounding::ZERO, theme.bg_canvas_c32());
 
         let grid_start_y = rect.min.y;
         let grid_end_y = rect.max.y;
@@ -1106,33 +561,57 @@ pub fn draw_piano_roll(
             as isize)
             .clamp(0, key_count as isize) as usize;
 
-        let row_x_min = (rect.min.x + keyboard_width).max(visible_clip.min.x);
-        let row_x_max = visible_clip.max.x.min(rect.max.x);
-
         for key_idx in first_visible_key..last_visible_key {
             let midi = state.max_midi - key_idx as u8;
             let y_top = grid_start_y + key_idx as f32 * state.row_height;
             let y_bottom = y_top + state.row_height;
 
             let is_black_key = matches!(midi % 12, 1 | 3 | 6 | 8 | 10);
+            let in_scale = state.active_scale.is_in_scale(state.scale_root_key, midi);
+            let is_tonic = state.active_scale
+                != crate::gui::piano_roll::state::MusicalScale::Chromatic
+                && state.active_scale.is_tonic(state.scale_root_key, midi);
+
             let row_color = if is_black_key {
-                MelodyneTheme::BG_ROW_BLACK_KEY
+                theme.bg_row_black_key_c32()
             } else {
-                MelodyneTheme::BG_ROW_WHITE_KEY
+                theme.bg_row_white_key_c32()
             };
 
-            if row_x_max > row_x_min {
-                painter.rect_filled(
-                    Rect::from_min_max(Pos2::new(row_x_min, y_top), Pos2::new(row_x_max, y_bottom)),
-                    Rounding::ZERO,
-                    row_color,
-                );
+            let row_x_min = rect.min.x + keyboard_width;
+            let row_x_max = rect.max.x;
+
+            if row_x_min < row_x_max {
+                let row_rect =
+                    Rect::from_min_max(Pos2::new(row_x_min, y_top), Pos2::new(row_x_max, y_bottom));
+                painter.rect_filled(row_rect, Rounding::ZERO, row_color);
+
+                // Scale Assistant background tint
+                if state.active_scale != crate::gui::piano_roll::state::MusicalScale::Chromatic {
+                    if !in_scale {
+                        painter.rect_filled(
+                            row_rect,
+                            Rounding::ZERO,
+                            theme.scale_out_of_key_tint(),
+                        );
+                    } else if is_tonic {
+                        painter.rect_filled(row_rect, Rounding::ZERO, theme.scale_tonic_tint());
+                    }
+                }
+
                 painter.line_segment(
                     [
                         Pos2::new(row_x_min, y_bottom),
                         Pos2::new(row_x_max, y_bottom),
                     ],
-                    Stroke::new(0.5_f32, MelodyneTheme::GRID_LINE_SUB),
+                    Stroke::new(
+                        if is_tonic { 1.0_f32 } else { 0.5_f32 },
+                        if is_tonic {
+                            theme.accent_c32()
+                        } else {
+                            theme.grid_line_sub_c32()
+                        },
+                    ),
                 );
             }
         }
@@ -1140,6 +619,7 @@ pub fn draw_piano_roll(
         grid::draw_timeline_grid(
             &painter,
             state,
+            theme,
             rect,
             visible_clip,
             keyboard_width,
@@ -1149,244 +629,6 @@ pub fn draw_piano_roll(
             bpm,
             snap_option,
         );
-
-        if state.show_waveform && !notes.is_empty() {
-            let max_wave_half_h = (state.row_height * 0.90).max(18.0);
-            let lowest_visible_note_y = notes
-                .iter()
-                .filter_map(|note| {
-                    let key_index = state.max_midi.saturating_sub(note.midi_key()) as f32;
-                    let note_y = grid_start_y + key_index * state.row_height;
-                    (note_y >= visible_clip.min.y - state.row_height
-                        && note_y <= visible_clip.max.y)
-                        .then_some(note_y)
-                })
-                .fold(None::<f32>, |lowest, y| {
-                    Some(lowest.map_or(y, |current| current.max(y)))
-                });
-            let preferred_y = lowest_visible_note_y
-                .map(|y| y + state.row_height * 2.2)
-                .unwrap_or(visible_clip.max.y - max_wave_half_h - 12.0);
-            let wave_min_y = visible_clip.min.y + max_wave_half_h + 12.0;
-            let wave_max_y = visible_clip.max.y - max_wave_half_h - 12.0;
-            let wave_y_center = if wave_min_y <= wave_max_y {
-                preferred_y.clamp(wave_min_y, wave_max_y)
-            } else {
-                visible_clip.center().y
-            };
-
-            let visible_x_start = (visible_clip.min.x - 20.0).max(rect.min.x + keyboard_width);
-            let visible_x_end = (visible_clip.max.x + 20.0).min(rect.max.x);
-
-            if !state.rendered_waveform_peaks.is_empty() {
-                let audio_start_ms = state
-                    .rendered_waveform_peaks
-                    .first()
-                    .map(|p| p.0)
-                    .unwrap_or(0.0);
-                let audio_end_ms = state
-                    .rendered_waveform_peaks
-                    .last()
-                    .map(|p| p.0)
-                    .unwrap_or(0.0);
-                let audio_start_x = rect.min.x
-                    + keyboard_width
-                    + (audio_start_ms as f64 * state.px_per_ms as f64) as f32;
-                let audio_end_x = rect.min.x
-                    + keyboard_width
-                    + (audio_end_ms as f64 * state.px_per_ms as f64) as f32;
-
-                let draw_start_x = audio_start_x.max(visible_x_start);
-                let draw_end_x = audio_end_x.min(visible_x_end);
-
-                if draw_start_x < draw_end_x {
-                    painter.line_segment(
-                        [
-                            Pos2::new(draw_start_x, wave_y_center),
-                            Pos2::new(draw_end_x, wave_y_center),
-                        ],
-                        Stroke::new(1.0_f32, Color32::from_rgba_unmultiplied(80, 160, 220, 50)),
-                    );
-
-                    let step_px = 1.5f32;
-                    let mut wave_x = draw_start_x;
-                    let mut top_pts = Vec::new();
-                    let mut bottom_pts = Vec::new();
-
-                    while wave_x <= draw_end_x {
-                        let time_ms = ((wave_x - (rect.min.x + keyboard_width)) as f64
-                            / state.px_per_ms as f64) as f32;
-                        let amp = state.waveform_amplitude_at(time_ms).unwrap_or(0.0);
-                        let h = amp * max_wave_half_h;
-
-                        top_pts.push(Pos2::new(wave_x, wave_y_center - h));
-                        bottom_pts.push(Pos2::new(wave_x, wave_y_center + h));
-
-                        wave_x += step_px;
-                    }
-
-                    if top_pts.len() >= 2 {
-                        let mut mesh = egui::Mesh::default();
-                        for i in 0..top_pts.len() - 1 {
-                            let p0_top = top_pts[i];
-                            let p1_top = top_pts[i + 1];
-                            let p0_bot = bottom_pts[i];
-                            let p1_bot = bottom_pts[i + 1];
-
-                            let crest_color = Color32::from_rgba_unmultiplied(65, 175, 240, 95);
-                            let center_color = Color32::from_rgba_unmultiplied(30, 95, 175, 55);
-
-                            let v0 = mesh.vertices.len() as u32;
-                            mesh.vertices.push(egui::epaint::Vertex {
-                                pos: p0_top,
-                                uv: egui::epaint::WHITE_UV,
-                                color: crest_color,
-                            });
-                            mesh.vertices.push(egui::epaint::Vertex {
-                                pos: p1_top,
-                                uv: egui::epaint::WHITE_UV,
-                                color: crest_color,
-                            });
-                            mesh.vertices.push(egui::epaint::Vertex {
-                                pos: Pos2::new(p1_top.x, wave_y_center),
-                                uv: egui::epaint::WHITE_UV,
-                                color: center_color,
-                            });
-                            mesh.vertices.push(egui::epaint::Vertex {
-                                pos: Pos2::new(p0_top.x, wave_y_center),
-                                uv: egui::epaint::WHITE_UV,
-                                color: center_color,
-                            });
-
-                            mesh.add_triangle(v0, v0 + 1, v0 + 2);
-                            mesh.add_triangle(v0, v0 + 2, v0 + 3);
-
-                            let v1 = mesh.vertices.len() as u32;
-                            mesh.vertices.push(egui::epaint::Vertex {
-                                pos: Pos2::new(p0_bot.x, wave_y_center),
-                                uv: egui::epaint::WHITE_UV,
-                                color: center_color,
-                            });
-                            mesh.vertices.push(egui::epaint::Vertex {
-                                pos: Pos2::new(p1_bot.x, wave_y_center),
-                                uv: egui::epaint::WHITE_UV,
-                                color: center_color,
-                            });
-                            mesh.vertices.push(egui::epaint::Vertex {
-                                pos: p1_bot,
-                                uv: egui::epaint::WHITE_UV,
-                                color: crest_color,
-                            });
-                            mesh.vertices.push(egui::epaint::Vertex {
-                                pos: p0_bot,
-                                uv: egui::epaint::WHITE_UV,
-                                color: crest_color,
-                            });
-
-                            mesh.add_triangle(v1, v1 + 1, v1 + 2);
-                            mesh.add_triangle(v1, v1 + 2, v1 + 3);
-                        }
-                        painter.add(egui::Shape::mesh(mesh));
-
-                        painter.add(egui::Shape::line(
-                            top_pts,
-                            Stroke::new(1.3_f32, Color32::from_rgb(120, 215, 255)),
-                        ));
-                        painter.add(egui::Shape::line(
-                            bottom_pts,
-                            Stroke::new(1.3_f32, Color32::from_rgb(120, 215, 255)),
-                        ));
-                    }
-                }
-            } else {
-                for note in notes.iter() {
-                    let note_start_x = rect.min.x
-                        + keyboard_width
-                        + (note.position_ms * state.px_per_ms as f64) as f32;
-                    let note_end_x =
-                        note_start_x + (note.duration_ms * state.px_per_ms as f64) as f32;
-
-                    if note_end_x < visible_x_start || note_start_x > visible_x_end {
-                        continue;
-                    }
-
-                    let x_start_clamped = note_start_x.max(visible_x_start);
-                    let x_end_clamped = note_end_x.min(visible_x_end);
-                    let mut px = x_start_clamped;
-                    let step_px = 1.5f32;
-                    let mut ph_top_pts = Vec::new();
-                    let mut ph_bottom_pts = Vec::new();
-
-                    while px <= x_end_clamped {
-                        let rel_t = ((px - note_start_x) / (note_end_x - note_start_x).max(1.0))
-                            .clamp(0.0, 1.0);
-                        let env = if rel_t < 0.15 {
-                            (rel_t / 0.15) * 0.95
-                        } else if rel_t > 0.85 {
-                            ((1.0 - rel_t) / 0.15) * 0.85
-                        } else {
-                            0.78 + (rel_t * 12.0).sin().abs() * 0.14
-                        };
-
-                        let amp = env.clamp(0.0, 1.0) * max_wave_half_h;
-                        ph_top_pts.push(Pos2::new(px, wave_y_center - amp));
-                        ph_bottom_pts.push(Pos2::new(px, wave_y_center + amp));
-                        px += step_px;
-                    }
-
-                    if ph_top_pts.len() >= 2 {
-                        let mut mesh = egui::Mesh::default();
-                        for i in 0..ph_top_pts.len() - 1 {
-                            let p0_top = ph_top_pts[i];
-                            let p1_top = ph_top_pts[i + 1];
-                            let p0_bot = ph_bottom_pts[i];
-                            let p1_bot = ph_bottom_pts[i + 1];
-
-                            let v0 = mesh.vertices.len() as u32;
-                            let color = Color32::from_rgba_unmultiplied(80, 140, 200, 35);
-                            mesh.vertices.push(egui::epaint::Vertex {
-                                pos: p0_top,
-                                uv: egui::epaint::WHITE_UV,
-                                color,
-                            });
-                            mesh.vertices.push(egui::epaint::Vertex {
-                                pos: p1_top,
-                                uv: egui::epaint::WHITE_UV,
-                                color,
-                            });
-                            mesh.vertices.push(egui::epaint::Vertex {
-                                pos: p1_bot,
-                                uv: egui::epaint::WHITE_UV,
-                                color,
-                            });
-                            mesh.vertices.push(egui::epaint::Vertex {
-                                pos: p0_bot,
-                                uv: egui::epaint::WHITE_UV,
-                                color,
-                            });
-
-                            mesh.add_triangle(v0, v0 + 1, v0 + 2);
-                            mesh.add_triangle(v0, v0 + 2, v0 + 3);
-                        }
-                        painter.add(egui::Shape::mesh(mesh));
-                        painter.add(egui::Shape::line(
-                            ph_top_pts,
-                            Stroke::new(
-                                1.0_f32,
-                                Color32::from_rgba_unmultiplied(100, 170, 230, 70),
-                            ),
-                        ));
-                        painter.add(egui::Shape::line(
-                            ph_bottom_pts,
-                            Stroke::new(
-                                1.0_f32,
-                                Color32::from_rgba_unmultiplied(100, 170, 230, 70),
-                            ),
-                        ));
-                    }
-                }
-            }
-        }
 
         let mut note_to_delete: Option<usize> = None;
         let mut note_to_slice: Option<(usize, f64)> = None;
@@ -1406,8 +648,35 @@ pub fn draw_piano_roll(
             })
             .collect();
 
-        let mouse_interact_pos = ui.input(|i| i.pointer.interact_pos());
-        let mut interacted_with_note_or_ui = false;
+        let vibrato_buttons: Vec<_> = notes
+            .iter()
+            .enumerate()
+            .filter(|(index, note)| {
+                note.midi_key() >= state.min_midi
+                    && note.midi_key() <= state.max_midi
+                    && state.editing_lyric_index != Some(*index)
+            })
+            .map(|(index, note)| {
+                (
+                    index,
+                    vibrato_button::rect(
+                        note,
+                        state,
+                        Pos2::new(rect.min.x + keyboard_width, grid_start_y),
+                    ),
+                )
+            })
+            .filter(|(_, button)| {
+                visible_clip.contains_rect(*button)
+                    && button.left() >= visible_clip.left() + keyboard_width
+            })
+            .collect();
+        let pointer = ui.input(|i| i.pointer.interact_pos());
+        let vibrato_interaction = ui.memory(|memory| memory.any_popup_open())
+            || pointer
+                .is_some_and(|pos| vibrato_buttons.iter().any(|(_, rect)| rect.contains(pos)));
+        let mouse_interact_pos = pointer.filter(|_| !vibrato_interaction);
+        let mut interacted_with_note_or_ui = vibrato_interaction;
         let mut pending_lyric_tags: Vec<(Rect, Color32, String, Color32)> = Vec::new();
         let mut pending_phoneme_badges: Vec<(Rect, String)> = Vec::new();
 
@@ -1437,25 +706,75 @@ pub fn draw_piano_roll(
             let is_selected = state.selected_note_index == Some(idx)
                 || state.selected_note_indices.contains(&idx);
             let is_editing_lyric = state.editing_lyric_index == Some(idx);
+            let is_active_playback = state.is_playing
+                && state.playhead_ms >= note.position_ms
+                && state.playhead_ms <= note.position_ms + note.duration_ms;
 
-            let note_color = if is_selected {
-                MelodyneTheme::NOTE_SELECTED_GOLD
+            // Velocity dynamic modulation
+            let vel_factor = (note.expressions.velocity as f32 / 100.0).clamp(0.65, 1.35);
+            let base_color = if is_selected {
+                theme.note_selected_fill_c32()
             } else {
-                MelodyneTheme::NOTE_GOLD_FILL
+                theme.note_fill_c32()
             };
+            let note_color = Color32::from_rgba_unmultiplied(
+                ((base_color.r() as f32 * vel_factor).min(255.0)) as u8,
+                ((base_color.g() as f32 * vel_factor).min(255.0)) as u8,
+                ((base_color.b() as f32 * vel_factor).min(255.0)) as u8,
+                base_color.a(),
+            );
 
-            painter.rect_filled(note_rect, Rounding::same(6.0), note_color);
+            // Active playback pulsing glow halo
+            if is_active_playback {
+                painter.rect_stroke(
+                    note_rect.expand(2.5),
+                    theme.note_rounding(),
+                    Stroke::new(3.0_f32, theme.playhead_c32()),
+                );
+            }
+
+            // Main body
+            painter.rect_filled(note_rect, theme.note_rounding(), note_color);
+
+            // Top highlight bevel strip (glassmorphic shine)
+            if note_rect.height() > 8.0 && note_rect.width() > 6.0 {
+                let highlight_h = (note_rect.height() * 0.35).min(5.0);
+                let highlight_rect = Rect::from_min_max(
+                    Pos2::new(note_rect.min.x + 1.0, note_rect.min.y + 1.0),
+                    Pos2::new(note_rect.max.x - 1.0, note_rect.min.y + highlight_h),
+                );
+                painter.rect_filled(
+                    highlight_rect,
+                    Rounding {
+                        nw: theme.note_corner_radius.max(0.0),
+                        ne: theme.note_corner_radius.max(0.0),
+                        se: 0.0,
+                        sw: 0.0,
+                    },
+                    theme.note_highlight_c32(is_selected),
+                );
+
+                // Bottom shadow bevel line
+                let shadow_rect = Rect::from_min_max(
+                    Pos2::new(note_rect.min.x + 1.0, note_rect.max.y - 2.0),
+                    Pos2::new(note_rect.max.x - 1.0, note_rect.max.y - 0.5),
+                );
+                painter.rect_filled(
+                    shadow_rect,
+                    Rounding {
+                        nw: 0.0,
+                        ne: 0.0,
+                        se: theme.note_corner_radius.max(0.0),
+                        sw: theme.note_corner_radius.max(0.0),
+                    },
+                    theme.note_shadow_c32(is_selected),
+                );
+            }
+
             painter.rect_stroke(
                 note_rect,
-                Rounding::same(6.0),
-                Stroke::new(
-                    1.8_f32,
-                    if is_selected {
-                        Color32::WHITE
-                    } else {
-                        MelodyneTheme::NOTE_GOLD_STROKE
-                    },
-                ),
+                theme.note_rounding(),
+                theme.note_stroke(is_selected),
             );
 
             if let Some(ref dragged_alias) = phoneme_state.dragged_phoneme {
@@ -1463,8 +782,8 @@ pub fn draw_piano_roll(
                     if note_rect.contains(mpos) {
                         painter.rect_stroke(
                             note_rect,
-                            Rounding::same(6.0),
-                            Stroke::new(2.5_f32, Color32::from_rgb(0, 220, 255)),
+                            theme.note_rounding(),
+                            Stroke::new(2.5_f32, theme.accent_c32()),
                         );
 
                         if !ui.input(|i| i.pointer.primary_down()) {
@@ -1472,96 +791,6 @@ pub fn draw_piano_roll(
                             phoneme_state.dragged_phoneme = None;
                         }
                     }
-                }
-            }
-
-            let note_wave_start_x = (x_start + 4.0).max(visible_clip.min.x);
-            let note_wave_end_x = (x_end - 4.0).min(visible_clip.max.x);
-            let max_note_wave_h = state.row_height * 0.36;
-
-            if note_wave_start_x < note_wave_end_x {
-                let step = 2.0f32;
-                let mut wave_x = note_wave_start_x;
-                let mut note_top_pts = Vec::new();
-                let mut note_bottom_pts = Vec::new();
-
-                while wave_x <= note_wave_end_x {
-                    let time_ms = (note.position_ms
-                        + ((wave_x - x_start) / state.px_per_ms as f32) as f64)
-                        as f32;
-                    let amp = if !state.rendered_waveform_peaks.is_empty() {
-                        state.waveform_amplitude_at(time_ms).unwrap_or(0.0)
-                    } else {
-                        let rel_t =
-                            ((wave_x - x_start) / (x_end - x_start).max(1.0)).clamp(0.0, 1.0);
-                        if rel_t < 0.2 {
-                            rel_t / 0.2 * 0.5
-                        } else if rel_t > 0.8 {
-                            (1.0 - rel_t) / 0.2 * 0.45
-                        } else {
-                            0.45 + (rel_t * 16.0).sin().abs() * 0.12
-                        }
-                    };
-
-                    let h = (amp * max_note_wave_h).max(0.5);
-                    note_top_pts.push(Pos2::new(wave_x, y_center - h));
-                    note_bottom_pts.push(Pos2::new(wave_x, y_center + h));
-                    wave_x += step;
-                }
-
-                if note_top_pts.len() >= 2 {
-                    let mut note_mesh = egui::Mesh::default();
-                    let wave_fill = if is_selected {
-                        Color32::from_rgba_unmultiplied(255, 255, 255, 36)
-                    } else {
-                        Color32::from_rgba_unmultiplied(0, 0, 0, 30)
-                    };
-                    for i in 0..note_top_pts.len() - 1 {
-                        let p0_top = note_top_pts[i];
-                        let p1_top = note_top_pts[i + 1];
-                        let p0_bot = note_bottom_pts[i];
-                        let p1_bot = note_bottom_pts[i + 1];
-
-                        let v0 = note_mesh.vertices.len() as u32;
-                        note_mesh.vertices.push(egui::epaint::Vertex {
-                            pos: p0_top,
-                            uv: egui::epaint::WHITE_UV,
-                            color: wave_fill,
-                        });
-                        note_mesh.vertices.push(egui::epaint::Vertex {
-                            pos: p1_top,
-                            uv: egui::epaint::WHITE_UV,
-                            color: wave_fill,
-                        });
-                        note_mesh.vertices.push(egui::epaint::Vertex {
-                            pos: p1_bot,
-                            uv: egui::epaint::WHITE_UV,
-                            color: wave_fill,
-                        });
-                        note_mesh.vertices.push(egui::epaint::Vertex {
-                            pos: p0_bot,
-                            uv: egui::epaint::WHITE_UV,
-                            color: wave_fill,
-                        });
-
-                        note_mesh.add_triangle(v0, v0 + 1, v0 + 2);
-                        note_mesh.add_triangle(v0, v0 + 2, v0 + 3);
-                    }
-                    painter.add(egui::Shape::mesh(note_mesh));
-
-                    let crest_stroke = if is_selected {
-                        Color32::from_rgba_unmultiplied(255, 255, 255, 55)
-                    } else {
-                        Color32::from_rgba_unmultiplied(20, 35, 10, 50)
-                    };
-                    painter.add(egui::Shape::line(
-                        note_top_pts,
-                        Stroke::new(1.0_f32, crest_stroke),
-                    ));
-                    painter.add(egui::Shape::line(
-                        note_bottom_pts,
-                        Stroke::new(1.0_f32, crest_stroke),
-                    ));
                 }
             }
 
@@ -1746,33 +975,61 @@ pub fn draw_piano_roll(
                 }
             }
 
-            // resampler. The first point snaps to the previous adjacent note.
-            let (previous_midi, is_adjacent) = if idx > 0 {
-                let (prev_m, prev_pos, prev_dur, _) = note_info[idx - 1];
-                let adj = (prev_pos + prev_dur - note.position_ms).abs() <= 1.0;
-                (Some(prev_m), adj)
-            } else {
-                (None, false)
-            };
+            // Find chronologically previous and next connected notes in the phrase
+            let prev_connected = note_info
+                .iter()
+                .enumerate()
+                .filter(|(i, &(_, p_pos, _, _))| *i != idx && p_pos <= note.position_ms)
+                .max_by(|(_, (_, a_pos, a_dur, _)), (_, (_, b_pos, b_dur, _))| {
+                    (a_pos + a_dur)
+                        .partial_cmp(&(b_pos + b_dur))
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                });
+
+            let (previous_midi, is_adjacent, prev_end_offset) =
+                if let Some((_, &(prev_m, prev_pos, prev_dur, _))) = prev_connected {
+                    let gap = note.position_ms - (prev_pos + prev_dur);
+                    let connected = gap <= 400.0 && note.position_ms >= prev_pos;
+                    (Some(prev_m), connected, -(gap.max(0.0)))
+                } else {
+                    (None, false, 0.0)
+                };
 
             let pitch_curve =
                 note.pitch_bend
                     .effective_points(previous_midi, note.midi_key(), is_adjacent);
 
-            let min_t = pitch_curve.first().map(|p| p.time_offset_ms).unwrap_or(0.0);
-            let max_t = if let Some(&(_next_m, next_pos, _next_dur, next_first_t)) =
-                note_info.get(idx + 1)
-            {
-                let next_adjacent = (note.position_ms + note.duration_ms - next_pos).abs() <= 1.0;
-                let next_start = next_pos + next_first_t;
-                if next_adjacent {
-                    (next_start - note.position_ms).max(min_t)
+            let first_pt_t = pitch_curve.first().map(|p| p.time_offset_ms).unwrap_or(0.0);
+            let min_t = if is_adjacent {
+                first_pt_t.min(prev_end_offset)
+            } else {
+                first_pt_t.min(0.0)
+            };
+
+            let next_connected = note_info
+                .iter()
+                .enumerate()
+                .filter(|(i, &(_, n_pos, _, _))| *i != idx && n_pos >= note.position_ms)
+                .min_by(|(_, (_, a_pos, _, _)), (_, (_, b_pos, _, _))| {
+                    a_pos
+                        .partial_cmp(b_pos)
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                });
+
+            let max_t =
+                if let Some((_, &(_next_m, next_pos, _next_dur, next_first_t))) = next_connected {
+                    let next_gap = next_pos - (note.position_ms + note.duration_ms);
+                    if next_gap <= 400.0 {
+                        let next_start = next_pos + next_first_t;
+                        (next_start - note.position_ms)
+                            .max(min_t)
+                            .max(note.duration_ms)
+                    } else {
+                        note.duration_ms
+                    }
                 } else {
                     note.duration_ms
-                }
-            } else {
-                note.duration_ms
-            };
+                };
 
             let visible_note_start = ((visible_clip.min.x - x_start) / state.px_per_ms) as f64;
             let visible_note_end = ((visible_clip.max.x - x_start) / state.px_per_ms) as f64;
@@ -1821,16 +1078,24 @@ pub fn draw_piano_roll(
             }
 
             let in_pitch_mode = state.active_tool == EditTool::PitchDraw;
-            let pitch_stroke = if in_pitch_mode {
-                Stroke::new(1.6_f32, Color32::from_rgba_unmultiplied(255, 215, 60, 120))
-            } else {
-                Stroke::new(1.2_f32, Color32::from_rgba_unmultiplied(255, 215, 0, 70))
-            };
             if spline_points.len() >= 2 {
-                painter.add(egui::Shape::line(spline_points, pitch_stroke));
+                let (halo_stroke, core_stroke) = if in_pitch_mode {
+                    (
+                        Stroke::new(3.5_f32, theme.c32_alpha(theme.pitch_curve_color, 0.45)),
+                        Stroke::new(2.0_f32, theme.pitch_curve_c32()),
+                    )
+                } else {
+                    (
+                        Stroke::new(3.0_f32, theme.c32_alpha(theme.pitch_curve_color, 0.30)),
+                        Stroke::new(1.6_f32, theme.pitch_curve_c32()),
+                    )
+                };
+                painter.add(egui::Shape::line(spline_points.clone(), halo_stroke));
+                painter.add(egui::Shape::line(spline_points, core_stroke));
             }
 
-            if in_pitch_mode {
+            let show_pitch_anchors = in_pitch_mode || state.active_tool == EditTool::Pointer;
+            if show_pitch_anchors {
                 let mut last_rendered_x: Option<f32> = None;
                 for (pt_idx, pt) in pitch_curve.iter().enumerate() {
                     let px_x = x_start + (pt.time_offset_ms * state.px_per_ms as f64) as f32;
@@ -1841,29 +1106,34 @@ pub fn draw_piano_roll(
                     {
                         let is_active_pt = state.dragging_pitch_pt == Some((idx, pt_idx));
                         let is_hovered = mouse_interact_pos
-                            .map(|m| m.distance(pt_pos) <= 8.0)
+                            .map(|m| m.distance(pt_pos) <= 10.0)
                             .unwrap_or(false);
 
                         let is_first_or_last = pt_idx == 0 || pt_idx + 1 == pitch_curve.len();
                         let dist_ok =
-                            last_rendered_x.map_or(true, |last_x| (px_x - last_x).abs() >= 9.0);
+                            last_rendered_x.map_or(true, |last_x| (px_x - last_x).abs() >= 8.0);
 
-                        if is_active_pt || is_hovered || is_first_or_last || dist_ok {
+                        if in_pitch_mode
+                            || is_active_pt
+                            || is_hovered
+                            || is_first_or_last
+                            || dist_ok
+                        {
                             last_rendered_x = Some(px_x);
 
                             let radius = if is_active_pt {
-                                3.8
+                                4.5
                             } else if is_hovered {
-                                3.4
+                                4.0
                             } else {
-                                2.3
+                                2.8
                             };
 
                             if is_active_pt {
                                 painter.circle_filled(
                                     pt_pos,
-                                    radius + 2.5,
-                                    Color32::from_rgba_unmultiplied(255, 215, 80, 85),
+                                    radius + 3.0,
+                                    Color32::from_rgba_unmultiplied(255, 215, 80, 100),
                                 );
                                 painter.circle_filled(
                                     pt_pos,
@@ -1873,13 +1143,13 @@ pub fn draw_piano_roll(
                                 painter.circle_stroke(
                                     pt_pos,
                                     radius,
-                                    Stroke::new(1.0_f32, Color32::WHITE),
+                                    Stroke::new(1.2_f32, Color32::WHITE),
                                 );
                             } else if is_hovered {
                                 painter.circle_filled(
                                     pt_pos,
-                                    radius + 2.5,
-                                    Color32::from_rgba_unmultiplied(0, 230, 255, 95),
+                                    radius + 3.0,
+                                    Color32::from_rgba_unmultiplied(0, 230, 255, 120),
                                 );
                                 painter.circle_filled(
                                     pt_pos,
@@ -1889,7 +1159,7 @@ pub fn draw_piano_roll(
                                 painter.circle_stroke(
                                     pt_pos,
                                     radius,
-                                    Stroke::new(1.0_f32, Color32::WHITE),
+                                    Stroke::new(1.2_f32, Color32::WHITE),
                                 );
                             } else {
                                 painter.circle_filled(
@@ -1901,7 +1171,7 @@ pub fn draw_piano_roll(
                                     pt_pos,
                                     radius,
                                     Stroke::new(
-                                        0.8_f32,
+                                        1.0_f32,
                                         Color32::from_rgba_unmultiplied(20, 15, 28, 220),
                                     ),
                                 );
@@ -1914,11 +1184,12 @@ pub fn draw_piano_roll(
                                     "r" | "o" => "R-Curve (r)",
                                     _ => "S-Curve (s)",
                                 };
+                                let cents_label = format!("{:+0.0} c", pt.pitch_offset_cents);
                                 painter.text(
-                                    Pos2::new(pt_pos.x, pt_pos.y - 10.0),
+                                    Pos2::new(pt_pos.x, pt_pos.y - 12.0),
                                     egui::Align2::CENTER_BOTTOM,
-                                    shape_txt,
-                                    egui::FontId::proportional(8.5),
+                                    format!("{} ({})", cents_label, shape_txt),
+                                    egui::FontId::proportional(9.0),
                                     Color32::from_rgb(220, 240, 255),
                                 );
                             }
@@ -1948,226 +1219,6 @@ pub fn draw_piano_roll(
                             [pair[0], pair[1]],
                             Stroke::new(1.8_f32, Color32::from_rgb(255, 255, 255)),
                         );
-                    }
-                }
-            }
-
-            if is_selected && !state.is_playing {
-                let tb_w = 175.0f32;
-                let tb_h = 22.0f32;
-                let tb_x = x_start;
-                let tb_y = if y_top - tb_h - 4.0 >= visible_clip.min.y {
-                    y_top - tb_h - 4.0
-                } else {
-                    y_bottom + 4.0
-                };
-                let tb_rect = Rect::from_min_size(Pos2::new(tb_x, tb_y), Vec2::new(tb_w, tb_h));
-
-                if mouse_interact_pos
-                    .map(|m| tb_rect.contains(m))
-                    .unwrap_or(false)
-                {
-                    interacted_with_note_or_ui = true;
-                }
-
-                painter.rect_filled(tb_rect, Rounding::same(5.0), Color32::from_rgb(15, 12, 24));
-                painter.rect_stroke(
-                    tb_rect,
-                    Rounding::same(5.0),
-                    Stroke::new(1.0_f32, Color32::from_rgb(255, 215, 0)),
-                );
-
-                let btn_vib_rect =
-                    Rect::from_min_size(Pos2::new(tb_x + 2.0, tb_y + 2.0), Vec2::new(40.0, 18.0));
-                let vib_hover = mouse_interact_pos
-                    .map(|m| btn_vib_rect.contains(m))
-                    .unwrap_or(false);
-                let vib_active = state.vibrato_popover_note_idx == Some(idx);
-                painter.rect_filled(
-                    btn_vib_rect,
-                    Rounding::same(3.0),
-                    if vib_active {
-                        Color32::from_rgb(0, 180, 220)
-                    } else if vib_hover {
-                        Color32::from_rgb(35, 30, 50)
-                    } else {
-                        Color32::TRANSPARENT
-                    },
-                );
-                painter.text(
-                    btn_vib_rect.center(),
-                    egui::Align2::CENTER_CENTER,
-                    "〰 Vib",
-                    egui::FontId::proportional(10.0),
-                    if vib_active {
-                        Color32::WHITE
-                    } else {
-                        Color32::from_rgb(0, 240, 255)
-                    },
-                );
-                if vib_hover && ui.input(|i| i.pointer.primary_clicked()) {
-                    state.vibrato_popover_note_idx = if vib_active { None } else { Some(idx) };
-                    interacted_with_note_or_ui = true;
-                }
-
-                let btn_env_rect =
-                    Rect::from_min_size(Pos2::new(tb_x + 44.0, tb_y + 2.0), Vec2::new(40.0, 18.0));
-                let env_hover = mouse_interact_pos
-                    .map(|m| btn_env_rect.contains(m))
-                    .unwrap_or(false);
-                let env_active = state.show_envelope_handles;
-                painter.rect_filled(
-                    btn_env_rect,
-                    Rounding::same(3.0),
-                    if env_active {
-                        Color32::from_rgb(0, 145, 175)
-                    } else if env_hover {
-                        Color32::from_rgb(35, 30, 50)
-                    } else {
-                        Color32::TRANSPARENT
-                    },
-                );
-                painter.text(
-                    btn_env_rect.center(),
-                    egui::Align2::CENTER_CENTER,
-                    "🎚 Env",
-                    egui::FontId::proportional(10.0),
-                    if env_active {
-                        Color32::WHITE
-                    } else {
-                        Color32::from_rgb(0, 215, 240)
-                    },
-                );
-                if env_hover && ui.input(|i| i.pointer.primary_clicked()) {
-                    state.show_envelope_handles = !state.show_envelope_handles;
-                    interacted_with_note_or_ui = true;
-                }
-
-                let btn_pit_rect =
-                    Rect::from_min_size(Pos2::new(tb_x + 86.0, tb_y + 2.0), Vec2::new(44.0, 18.0));
-                let pit_hover = mouse_interact_pos
-                    .map(|m| btn_pit_rect.contains(m))
-                    .unwrap_or(false);
-                let pit_active = state.active_tool == EditTool::PitchDraw;
-                painter.rect_filled(
-                    btn_pit_rect,
-                    Rounding::same(3.0),
-                    if pit_active {
-                        Color32::from_rgb(200, 160, 20)
-                    } else if pit_hover {
-                        Color32::from_rgb(35, 30, 50)
-                    } else {
-                        Color32::TRANSPARENT
-                    },
-                );
-                painter.text(
-                    btn_pit_rect.center(),
-                    egui::Align2::CENTER_CENTER,
-                    "📈 Pitch",
-                    egui::FontId::proportional(10.0),
-                    if pit_active {
-                        Color32::WHITE
-                    } else {
-                        Color32::from_rgb(255, 215, 0)
-                    },
-                );
-                if pit_hover && ui.input(|i| i.pointer.primary_clicked()) {
-                    state.active_tool = if pit_active {
-                        EditTool::Pointer
-                    } else {
-                        EditTool::PitchDraw
-                    };
-                    interacted_with_note_or_ui = true;
-                }
-
-                let btn_prop_rect =
-                    Rect::from_min_size(Pos2::new(tb_x + 132.0, tb_y + 2.0), Vec2::new(40.0, 18.0));
-                let prop_hover = mouse_interact_pos
-                    .map(|m| btn_prop_rect.contains(m))
-                    .unwrap_or(false);
-                painter.rect_filled(
-                    btn_prop_rect,
-                    Rounding::same(3.0),
-                    if prop_hover {
-                        Color32::from_rgb(50, 45, 70)
-                    } else {
-                        Color32::TRANSPARENT
-                    },
-                );
-                painter.text(
-                    btn_prop_rect.center(),
-                    egui::Align2::CENTER_CENTER,
-                    "⚙ Prop",
-                    egui::FontId::proportional(10.0),
-                    Color32::from_rgb(220, 210, 235),
-                );
-                if prop_hover && ui.input(|i| i.pointer.primary_clicked()) {
-                    state.properties_window_for_note = Some(idx);
-                    interacted_with_note_or_ui = true;
-                }
-
-                if state.vibrato_popover_note_idx == Some(idx) {
-                    let pop_w = 200.0f32;
-                    let pop_h = 24.0f32;
-                    let pop_rect = Rect::from_min_size(
-                        Pos2::new(tb_x, tb_y - pop_h - 2.0),
-                        Vec2::new(pop_w, pop_h),
-                    );
-                    if mouse_interact_pos
-                        .map(|m| pop_rect.contains(m))
-                        .unwrap_or(false)
-                    {
-                        interacted_with_note_or_ui = true;
-                    }
-                    painter.rect_filled(
-                        pop_rect,
-                        Rounding::same(4.0),
-                        Color32::from_rgb(18, 14, 28),
-                    );
-                    painter.rect_stroke(
-                        pop_rect,
-                        Rounding::same(4.0),
-                        Stroke::new(1.0_f32, Color32::from_rgb(0, 220, 255)),
-                    );
-
-                    let presets = [
-                        ("🌸 Pop", 65.0, 48.0, 175.0),
-                        ("🎭 Drama", 75.0, 75.0, 160.0),
-                        ("🍃 Lento", 80.0, 50.0, 220.0),
-                        ("⚡ Fast", 60.0, 60.0, 140.0),
-                        ("🚫 Off", 0.0, 0.0, 175.0),
-                    ];
-                    let btn_w = (pop_w - 4.0) / presets.len() as f32;
-                    for (p_i, &(label, len, dep, per)) in presets.iter().enumerate() {
-                        let p_btn_rect = Rect::from_min_size(
-                            Pos2::new(tb_x + 2.0 + p_i as f32 * btn_w, tb_y - pop_h),
-                            Vec2::new(btn_w - 2.0, pop_h - 4.0),
-                        );
-                        let p_hov = mouse_interact_pos
-                            .map(|m| p_btn_rect.contains(m))
-                            .unwrap_or(false);
-                        if p_hov {
-                            painter.rect_filled(
-                                p_btn_rect,
-                                Rounding::same(2.0),
-                                Color32::from_rgb(40, 35, 60),
-                            );
-                        }
-                        painter.text(
-                            p_btn_rect.center(),
-                            egui::Align2::CENTER_CENTER,
-                            label,
-                            egui::FontId::proportional(9.0),
-                            Color32::from_rgb(200, 230, 255),
-                        );
-                        if p_hov && ui.input(|i| i.pointer.primary_clicked()) {
-                            note.vibrato.length_pct = len;
-                            note.vibrato.depth_cents = dep;
-                            note.vibrato.period_ms = per;
-                            state.vibrato_popover_note_idx = None;
-                            state.continuous_edit_dirty = true;
-                            interacted_with_note_or_ui = true;
-                        }
                     }
                 }
             }
@@ -2204,7 +1255,8 @@ pub fn draw_piano_roll(
                     Pos2::new(x_start + 8.0, y_bottom),
                 );
 
-                if note_rect.contains(mpos)
+                if visible_clip.contains(mpos)
+                    && note_rect.contains(mpos)
                     && (state.active_tool == EditTool::Pointer
                         || state.active_tool == EditTool::Pencil)
                     && (resize_handle_left.contains(mpos) || resize_handle_right.contains(mpos))
@@ -2357,13 +1409,15 @@ pub fn draw_piano_roll(
                             }
                             state.context_menu_note_idx = Some(idx);
                             state.context_menu_pos = Some(mpos);
+                            state.context_menu_hovered_category = None;
                         }
                     } else if state.active_tool == EditTool::Slice {
                         ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair);
                         if ui.input(|i| i.pointer.primary_clicked()) {
                             let click_t =
                                 ((mpos.x - (rect.min.x + keyboard_width)) / state.px_per_ms) as f64;
-                            let snapped_t = apply_snap(click_t, snap_option, bpm);
+                            let snapped_t =
+                                apply_snap_with_zoom(click_t, snap_option, bpm, state.px_per_ms);
                             let slice_t = if (snapped_t - note.position_ms) >= 15.0
                                 && (note.position_ms + note.duration_ms - snapped_t) >= 15.0
                             {
@@ -2380,7 +1434,11 @@ pub fn draw_piano_roll(
                     }
                 }
 
-                if state.active_tool == EditTool::PitchDraw && pitch_draw_target_rect.contains(mpos)
+                let can_interact_pitch = state.active_tool == EditTool::PitchDraw
+                    || state.active_tool == EditTool::Pointer;
+
+                if can_interact_pitch
+                    && (state.dragging_pitch_pt.is_some() || pitch_draw_target_rect.contains(mpos))
                 {
                     let mut hovered_pitch_pt: Option<usize> = None;
                     for (pt_idx, pt) in pitch_curve.iter().enumerate() {
@@ -2388,7 +1446,7 @@ pub fn draw_piano_roll(
                         let px_y =
                             y_center - (pt.pitch_offset_cents / 100.0) as f32 * state.row_height;
                         let pt_pos = Pos2::new(px_x, px_y);
-                        if mpos.distance(pt_pos) <= 8.0 {
+                        if mpos.distance(pt_pos) <= 10.0 {
                             hovered_pitch_pt = Some(pt_idx);
                             ui.ctx().set_cursor_icon(egui::CursorIcon::Grab);
                             break;
@@ -2415,14 +1473,17 @@ pub fn draw_piano_roll(
                                 on_note_changed();
                             }
                         }
-                    } else if ui.input(|i| i.pointer.secondary_clicked()) {
+                    } else if state.active_tool == EditTool::PitchDraw
+                        && ui.input(|i| i.pointer.secondary_clicked())
+                    {
                         note.pitch_bend.points.clear();
                         state.dragging_pitch_pt = None;
                         state.pitch_line_start = None;
                         on_note_changed();
                     }
 
-                    if hovered_pitch_pt.is_none()
+                    if state.active_tool == EditTool::PitchDraw
+                        && hovered_pitch_pt.is_none()
                         && (ui.input(|i| {
                             i.pointer
                                 .button_double_clicked(egui::PointerButton::Primary)
@@ -2453,9 +1514,13 @@ pub fn draw_piano_roll(
                             if pt_idx < note.pitch_bend.points.len() {
                                 state.dragging_pitch_pt = Some((idx, pt_idx));
                             }
-                        } else if state.pitch_sub_tool == PitchSubTool::Line {
+                        } else if state.active_tool == EditTool::PitchDraw
+                            && state.pitch_sub_tool == PitchSubTool::Line
+                        {
                             state.pitch_line_start = Some((idx, rel_t, cents));
-                        } else if state.pitch_sub_tool == PitchSubTool::Freehand {
+                        } else if state.active_tool == EditTool::PitchDraw
+                            && state.pitch_sub_tool == PitchSubTool::Freehand
+                        {
                             state.pitch_brush_raw_stroke.clear();
                             state.pitch_brush_raw_stroke.push((idx, rel_t, cents));
                         }
@@ -2471,10 +1536,11 @@ pub fn draw_piano_roll(
                                     ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
                                     note.pitch_bend.points[d_pt_idx].time_offset_ms = rel_t;
                                     note.pitch_bend.points[d_pt_idx].pitch_offset_cents = cents;
+                                    note.pitch_bend.snap_first = false;
                                     state.continuous_edit_dirty = true;
                                 }
                             }
-                        } else {
+                        } else if state.active_tool == EditTool::PitchDraw {
                             match state.pitch_sub_tool {
                                 PitchSubTool::Freehand => {
                                     ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair);
@@ -2778,9 +1844,9 @@ pub fn draw_piano_roll(
 
             let global_pitch_stroke =
                 Stroke::new(1.8_f32, Color32::from_rgba_unmultiplied(255, 255, 255, 175));
-            for segment in &global_segments {
+            for segment in global_segments {
                 if segment.len() >= 2 {
-                    painter.add(egui::Shape::line(segment.clone(), global_pitch_stroke));
+                    painter.add(egui::Shape::line(segment, global_pitch_stroke));
                 }
             }
         }
@@ -2810,6 +1876,21 @@ pub fn draw_piano_roll(
                 egui::FontId::proportional(10.5),
                 Color32::from_rgb(0, 235, 255),
             );
+        }
+
+        for (index, button_rect) in vibrato_buttons {
+            if let Some(note) = notes.get_mut(index) {
+                vibrato_button::draw(
+                    ui,
+                    note,
+                    index,
+                    button_rect,
+                    theme,
+                    lang,
+                    on_before_change,
+                    on_note_changed,
+                );
+            }
         }
 
         if let Some((idx, edit_rect, x_start, y_bottom)) = pending_lyric_edit {
@@ -3037,7 +2118,8 @@ pub fn draw_piano_roll(
             }
         }
 
-        if ui.input(|i| i.pointer.primary_released()) {
+        if ui.input(|i| i.pointer.primary_released() || i.pointer.secondary_released()) {
+            state.shift_locked_drawer_norm = None;
             if state.dragging_envelope_pt.is_some() {
                 state.dragging_envelope_pt = None;
             }
@@ -3066,8 +2148,11 @@ pub fn draw_piano_roll(
                     on_before_change();
                     let mut second_note = notes[slice_idx].clone();
                     notes[slice_idx].duration_ms = split_offset;
+                    notes[slice_idx].phoneme_durations_ms.clear();
                     second_note.position_ms = slice_time_ms;
                     second_note.duration_ms = orig_dur - split_offset;
+                    second_note.lyric = "+".to_string();
+                    second_note.phoneme_durations_ms.clear();
                     notes.insert(slice_idx + 1, second_note);
                     state.selected_note_index = Some(slice_idx + 1);
                     state.selected_note_indices.clear();
@@ -3157,15 +2242,25 @@ pub fn draw_piano_roll(
                             if state.dragging_is_resize {
                                 let raw_dur =
                                     (state.note_original_duration_ms + delta_ms).max(20.0);
-                                notes[drag_idx].duration_ms =
-                                    apply_snap(raw_dur, snap_option, bpm).max(20.0);
+                                notes[drag_idx].duration_ms = apply_snap_with_zoom(
+                                    raw_dur,
+                                    snap_option,
+                                    bpm,
+                                    state.px_per_ms,
+                                )
+                                .max(20.0);
                             } else if state.dragging_is_left_resize {
                                 let original_end_ms =
                                     state.note_original_start_ms + state.note_original_duration_ms;
                                 let raw_new_start =
                                     (state.note_original_start_ms + delta_ms).max(0.0);
-                                let new_start =
-                                    apply_snap(raw_new_start, snap_option, bpm).max(0.0);
+                                let new_start = apply_snap_with_zoom(
+                                    raw_new_start,
+                                    snap_option,
+                                    bpm,
+                                    state.px_per_ms,
+                                )
+                                .max(0.0);
                                 let new_dur = (original_end_ms - new_start).max(20.0);
                                 notes[drag_idx].position_ms = new_start;
                                 notes[drag_idx].duration_ms = new_dur;
@@ -3173,7 +2268,13 @@ pub fn draw_piano_roll(
                                 // Full note move (position + pitch relative to original drag start snapshot)
                                 let delta_semitones = -(delta_y / state.row_height).round() as i32;
                                 let raw_pos = (state.note_original_start_ms + delta_ms).max(0.0);
-                                let new_pos = apply_snap(raw_pos, snap_option, bpm).max(0.0);
+                                let new_pos = apply_snap_with_zoom(
+                                    raw_pos,
+                                    snap_option,
+                                    bpm,
+                                    state.px_per_ms,
+                                )
+                                .max(0.0);
                                 let new_m = (state.note_original_midi as i32 + delta_semitones)
                                     .clamp(state.min_midi as i32, state.max_midi as i32)
                                     as u8;
@@ -3204,6 +2305,28 @@ pub fn draw_piano_roll(
             state.drag_start_pos = None;
             state.dragging_is_left_resize = false;
             state.dragging_is_resize = false;
+        }
+
+        if let Some(c_idx) = state.creating_note_idx {
+            if let (Some(note), Some(mpos)) = (notes.get_mut(c_idx), mouse_interact_pos) {
+                let curr_x = mpos.x - (rect.min.x + keyboard_width);
+                let curr_ms = (curr_x / state.px_per_ms) as f64;
+                note.duration_ms = apply_snap_with_zoom(
+                    (curr_ms - note.position_ms).max(50.0),
+                    snap_option,
+                    bpm,
+                    state.px_per_ms,
+                )
+                .max(50.0);
+            }
+            if !ui.input(|i| i.pointer.primary_down()) {
+                state.creating_note_idx = None;
+                state.drag_start_pos = None;
+                if let Some(note) = notes.get(c_idx) {
+                    on_preview_freq(midi_to_freq(note.midi_key() as f64));
+                    on_note_changed();
+                }
+            }
         }
 
         if let Some(mpos) = mouse_interact_pos {
@@ -3273,7 +2396,12 @@ pub fn draw_piano_roll(
                         {
                             let click_x = mpos.x - (rect.min.x + keyboard_width);
                             let raw_t = (click_x / state.px_per_ms) as f64;
-                            let scrubbed_t = apply_snap(raw_t.max(0.0), snap_option, bpm);
+                            let scrubbed_t = apply_snap_with_zoom(
+                                raw_t.max(0.0),
+                                snap_option,
+                                bpm,
+                                state.px_per_ms,
+                            );
                             state.playhead_ms = scrubbed_t;
                             on_playhead_scrubbed(scrubbed_t);
                             state.selected_note_indices.clear();
@@ -3287,53 +2415,54 @@ pub fn draw_piano_roll(
                     }
 
                     EditTool::Pencil => {
-                        if ui.input(|i| i.pointer.primary_down()) {
-                            if state.creating_note_idx.is_none()
-                                && state.dragging_note_idx.is_none()
-                                && !interacted_with_note_or_ui
-                            {
-                                on_before_change();
-                                let click_x = mpos.x - (rect.min.x + keyboard_width);
-                                let raw_start_ms = (click_x / state.px_per_ms) as f64;
-                                let click_start_ms =
-                                    apply_snap(raw_start_ms, snap_option, bpm).max(0.0);
-                                let key_idx =
-                                    ((mpos.y - grid_start_y) / state.row_height).floor() as u8;
-                                let click_midi = (state.max_midi.saturating_sub(key_idx))
-                                    .clamp(state.min_midi, state.max_midi);
+                        if ui.input(|i| i.pointer.primary_pressed())
+                            && state.creating_note_idx.is_none()
+                            && state.dragging_note_idx.is_none()
+                            && !interacted_with_note_or_ui
+                        {
+                            on_before_change();
+                            let click_x = mpos.x - (rect.min.x + keyboard_width);
+                            let raw_start_ms = (click_x / state.px_per_ms) as f64;
+                            let click_start_ms = apply_snap_with_zoom(
+                                raw_start_ms,
+                                snap_option,
+                                bpm,
+                                state.px_per_ms,
+                            )
+                            .max(0.0);
+                            let key_idx =
+                                ((mpos.y - grid_start_y) / state.row_height).floor() as u8;
+                            let click_midi = (state.max_midi.saturating_sub(key_idx))
+                                .clamp(state.min_midi, state.max_midi);
 
-                                let new_note = UNote::new(
-                                    "ka",
-                                    midi_to_note_name(click_midi),
-                                    click_start_ms,
-                                    50.0,
-                                );
-                                notes.push(new_note);
-                                let new_idx = notes.len() - 1;
-                                state.creating_note_idx = Some(new_idx);
-                                state.selected_note_index = Some(new_idx);
-                                state.drag_start_pos = Some(mpos);
-                            } else if let (Some(c_idx), Some(_start_p)) =
-                                (state.creating_note_idx, state.drag_start_pos)
-                            {
-                                if c_idx < notes.len() {
-                                    let curr_x = mpos.x - (rect.min.x + keyboard_width);
-                                    let curr_ms = (curr_x / state.px_per_ms) as f64;
-                                    let raw_dur = (curr_ms - notes[c_idx].position_ms).max(50.0);
-                                    notes[c_idx].duration_ms =
-                                        apply_snap(raw_dur, snap_option, bpm).max(50.0);
-                                }
-                            }
-                        } else if let Some(c_idx) = state.creating_note_idx.take() {
-                            if c_idx < notes.len() {
-                                let freq = midi_to_freq(notes[c_idx].midi_key() as f64);
-                                on_preview_freq(freq);
-                            }
-                            state.drag_start_pos = None;
-                            on_note_changed();
+                            let new_note = UNote::new(
+                                "ka",
+                                midi_to_note_name(click_midi),
+                                click_start_ms,
+                                50.0,
+                            );
+                            notes.push(new_note);
+                            let new_idx = notes.len() - 1;
+                            state.creating_note_idx = Some(new_idx);
+                            state.selected_note_index = Some(new_idx);
+                            state.drag_start_pos = Some(mpos);
                         }
                     }
                     _ => {}
+                }
+
+                if let Some(mpos) = mouse_interact_pos {
+                    if !interacted_with_note_or_ui
+                        && state.dragging_note_idx.is_none()
+                        && mpos.x > rect.min.x + keyboard_width
+                        && mpos.y > grid_start_y
+                        && mpos.y < grid_end_y
+                        && ui.input(|i| i.pointer.secondary_clicked())
+                    {
+                        state.context_menu_note_idx = None;
+                        state.context_menu_pos = Some(mpos);
+                        state.context_menu_hovered_category = None;
+                    }
                 }
             }
         }
@@ -3395,7 +2524,13 @@ pub fn draw_piano_roll(
                         if !dropped_on_note {
                             let click_x = mpos.x - (rect.min.x + keyboard_width);
                             let raw_start_ms = (click_x / state.px_per_ms) as f64;
-                            let drop_start_ms = apply_snap(raw_start_ms, snap_option, bpm).max(0.0);
+                            let drop_start_ms = apply_snap_with_zoom(
+                                raw_start_ms,
+                                snap_option,
+                                bpm,
+                                state.px_per_ms,
+                            )
+                            .max(0.0);
                             let new_note = UNote::new(
                                 dragged_alias,
                                 midi_to_note_name(hover_midi),
@@ -3427,6 +2562,7 @@ pub fn draw_piano_roll(
             &painter,
             ui,
             state,
+            theme,
             rect,
             visible_clip,
             keyboard_width,
@@ -3447,7 +2583,7 @@ pub fn draw_piano_roll(
             ];
             painter.add(egui::Shape::convex_polygon(
                 handle_points,
-                Color32::from_rgb(255, 65, 85),
+                theme.playhead_c32(),
                 Stroke::new(0.8_f32, Color32::WHITE),
             ));
 
@@ -3456,7 +2592,7 @@ pub fn draw_piano_roll(
                     Pos2::new(playhead_x, keys_y_min),
                     Pos2::new(playhead_x, keys_y_max),
                 ],
-                Stroke::new(3.0_f32, Color32::from_rgba_unmultiplied(255, 65, 85, 45)),
+                Stroke::new(3.0_f32, theme.c32_alpha(theme.playhead_color, 0.25)),
             );
 
             painter.line_segment(
@@ -3464,7 +2600,7 @@ pub fn draw_piano_roll(
                     Pos2::new(playhead_x, keys_y_min),
                     Pos2::new(playhead_x, keys_y_max),
                 ],
-                Stroke::new(1.0_f32, Color32::from_rgb(255, 80, 100)),
+                Stroke::new(1.2_f32, theme.playhead_c32()),
             );
         }
     });
@@ -3473,353 +2609,7 @@ pub fn draw_piano_roll(
         state.vertical_scroll_offset = scroll_output.state.offset.y;
     }
 
-    if let (Some(menu_idx), Some(menu_pos)) = (state.context_menu_note_idx, state.context_menu_pos)
-    {
-        let mut close_menu = false;
-        let mut trigger_note_changed = false;
+    context_menu::draw(ui, notes, state, lang, on_before_change, on_note_changed);
 
-        let sel_count = state.selected_note_indices.len().max(1);
-
-        egui::Area::new(egui::Id::new("piano_roll_note_context_menu"))
-            .fixed_pos(menu_pos)
-            .order(egui::Order::Tooltip)
-            .show(ui.ctx(), |ui| {
-                egui::Frame::menu(ui.style())
-                    .fill(MelodyneTheme::BG_PANEL)
-                    .stroke(Stroke::new(1.0_f32, MelodyneTheme::ACCENT_GOLD))
-                    .rounding(Rounding::same(6.0))
-                    .shadow(egui::epaint::Shadow {
-                        offset: Vec2::new(0.0, 4.0),
-                        blur: 12.0,
-                        spread: 0.0,
-                        color: Color32::from_black_alpha(180),
-                    })
-                    .inner_margin(egui::Margin::same(6.0))
-                    .show(ui, |ui| {
-                        ui.set_min_width(260.0);
-
-                        ui.label(
-                            egui::RichText::new(format!("Menu da Nota ({} selecionada{})", sel_count, if sel_count > 1 { "s" } else { "" }))
-                                .size(11.5)
-                                .color(MelodyneTheme::TEXT_GOLD_LABEL)
-                                .strong(),
-                        );
-                        ui.separator();
-
-                        ui.label(egui::RichText::new("✨ AutoPitch & Afinação").size(10.5).color(Color32::from_rgb(255, 215, 0)));
-                        if ui
-                            .button(
-                                egui::RichText::new("🌸 AutoPitch Suave / Pop")
-                                    .color(Color32::from_rgb(0, 240, 255))
-                                    .strong(),
-                            )
-                            .on_hover_text("Transições limpas e rápidas com vibrato sutil no final da nota")
-                            .clicked()
-                        {
-                            apply_autopitch_to_selection(notes, &state.selected_note_indices, AutoPitchStyle::SmoothPop);
-                            trigger_note_changed = true;
-                            close_menu = true;
-                        }
-                        if ui
-                            .button(
-                                egui::RichText::new("✨ AutoPitch Natural (Humano)")
-                                    .color(MelodyneTheme::NOTE_SELECTED_GOLD),
-                            )
-                            .on_hover_text("Aplica curvas suaves de portamento, overshoot inicial e vibrato expressivo realista")
-                            .clicked()
-                        {
-                            apply_autopitch_to_selection(notes, &state.selected_note_indices, AutoPitchStyle::Natural);
-                            trigger_note_changed = true;
-                            close_menu = true;
-                        }
-                        if ui
-                            .button(
-                                egui::RichText::new("🔥 AutoPitch Dramático / Intenso")
-                                    .color(Color32::from_rgb(255, 120, 160)),
-                            )
-                            .on_hover_text("Curvas de afinação com modulação marcante, vibrato profundo e portamento longo")
-                            .clicked()
-                        {
-                            apply_autopitch_to_selection(notes, &state.selected_note_indices, AutoPitchStyle::Expressive);
-                            trigger_note_changed = true;
-                            close_menu = true;
-                        }
-
-                        ui.separator();
-
-                        ui.label(egui::RichText::new("〰 Presets de Vibrato Vocal").size(10.5).color(Color32::from_rgb(0, 240, 255)));
-                        ui.horizontal_wrapped(|ui| {
-                            if ui.button("🌸 Pop Suave").on_hover_text("65% comprimento, 48 cents, 5.7 Hz").clicked() {
-                                for &idx in &state.selected_note_indices {
-                                    if idx < notes.len() {
-                                        notes[idx].vibrato.length_pct = 65.0;
-                                        notes[idx].vibrato.depth_cents = 48.0;
-                                        notes[idx].vibrato.period_ms = 175.0;
-                                        notes[idx].vibrato.fade_in_pct = 25.0;
-                                        notes[idx].vibrato.fade_out_pct = 15.0;
-                                    }
-                                }
-                                trigger_note_changed = true;
-                                close_menu = true;
-                            }
-                            if ui.button("🎭 Dramático").on_hover_text("75% comprimento, 75 cents, 6.2 Hz").clicked() {
-                                for &idx in &state.selected_note_indices {
-                                    if idx < notes.len() {
-                                        notes[idx].vibrato.length_pct = 75.0;
-                                        notes[idx].vibrato.depth_cents = 75.0;
-                                        notes[idx].vibrato.period_ms = 160.0;
-                                        notes[idx].vibrato.fade_in_pct = 20.0;
-                                        notes[idx].vibrato.fade_out_pct = 10.0;
-                                    }
-                                }
-                                trigger_note_changed = true;
-                                close_menu = true;
-                            }
-                            if ui.button("🍃 Balada").on_hover_text("80% comprimento, 50 cents, 4.5 Hz").clicked() {
-                                for &idx in &state.selected_note_indices {
-                                    if idx < notes.len() {
-                                        notes[idx].vibrato.length_pct = 80.0;
-                                        notes[idx].vibrato.depth_cents = 50.0;
-                                        notes[idx].vibrato.period_ms = 220.0;
-                                        notes[idx].vibrato.fade_in_pct = 35.0;
-                                        notes[idx].vibrato.fade_out_pct = 15.0;
-                                    }
-                                }
-                                trigger_note_changed = true;
-                                close_menu = true;
-                            }
-                            if ui.button("⚡ Rápido").on_hover_text("60% comprimento, 60 cents, 7.0 Hz").clicked() {
-                                for &idx in &state.selected_note_indices {
-                                    if idx < notes.len() {
-                                        notes[idx].vibrato.length_pct = 60.0;
-                                        notes[idx].vibrato.depth_cents = 60.0;
-                                        notes[idx].vibrato.period_ms = 140.0;
-                                        notes[idx].vibrato.fade_in_pct = 20.0;
-                                        notes[idx].vibrato.fade_out_pct = 10.0;
-                                    }
-                                }
-                                trigger_note_changed = true;
-                                close_menu = true;
-                            }
-                            if ui.button("🚫 Desligar").on_hover_text("Zera o vibrato da nota").clicked() {
-                                for &idx in &state.selected_note_indices {
-                                    if idx < notes.len() {
-                                        notes[idx].vibrato.length_pct = 0.0;
-                                    }
-                                }
-                                trigger_note_changed = true;
-                                close_menu = true;
-                            }
-                        });
-
-                        ui.separator();
-
-                        if ui
-                            .button(
-                                egui::RichText::new("🧹 Limpar Curvas de Pitch e Vibrato")
-                                    .color(Color32::from_rgb(200, 190, 210)),
-                            )
-                            .clicked()
-                        {
-                            for &idx in &state.selected_note_indices {
-                                if idx < notes.len() {
-                                    notes[idx].pitch_bend.points.clear();
-                                    notes[idx].vibrato.length_pct = 0.0;
-                                }
-                            }
-                            trigger_note_changed = true;
-                            close_menu = true;
-                        }
-                        if ui
-                            .button(
-                                egui::RichText::new("🧹 Resetar Envelopes de Volume")
-                                    .color(Color32::from_rgb(200, 190, 210)),
-                            )
-                            .clicked()
-                        {
-                            for &idx in &state.selected_note_indices {
-                                if idx < notes.len() {
-                                    notes[idx].envelope = crate::dsp::envelope::UtauEnvelope::default();
-                                }
-                            }
-                            trigger_note_changed = true;
-                            close_menu = true;
-                        }
-                        if ui
-                            .button(
-                                egui::RichText::new("⏱ Resetar Tempos dos Fonemas")
-                                    .color(Color32::from_rgb(255, 205, 70))
-                                    .strong(),
-                            )
-                            .on_hover_text("Restaura os tempos e divisões originais calculados pelo fonemizador para esta nota ou todas as notas selecionadas")
-                            .clicked()
-                        {
-                            on_before_change();
-                            let target_indices: Vec<usize> = if !state.selected_note_indices.is_empty() {
-                                state.selected_note_indices.iter().copied().collect()
-                            } else {
-                                vec![menu_idx]
-                            };
-                            for idx in target_indices {
-                                if idx < notes.len() {
-                                    notes[idx].phoneme_durations_ms.clear();
-                                    notes[idx].expressions.consonant_timing_offset_ms = 0.0;
-                                    notes[idx].expressions.preutter_offset_ms = 0.0;
-                                    notes[idx].expressions.overlap_offset_ms = 0.0;
-                                }
-                            }
-                            state.phoneme_cache_hash = 0;
-                            trigger_note_changed = true;
-                            close_menu = true;
-                        }
-
-                        ui.separator();
-
-                        if ui
-                            .button(
-                                egui::RichText::new("⚙ Propriedades Detalhadas da Nota...")
-                                    .color(Color32::from_rgb(230, 220, 240)),
-                            )
-                            .clicked()
-                        {
-                            state.properties_window_for_note = Some(menu_idx);
-                            close_menu = true;
-                        }
-                    });
-            });
-
-        if ui.input(|i| i.pointer.primary_clicked() || i.pointer.secondary_clicked()) {
-            if let Some(mpos) = ui.input(|i| i.pointer.interact_pos()) {
-                let menu_rect = Rect::from_min_size(menu_pos, Vec2::new(260.0, 300.0));
-                if !menu_rect.contains(mpos) {
-                    close_menu = true;
-                }
-            }
-        }
-
-        if close_menu {
-            state.context_menu_note_idx = None;
-            state.context_menu_pos = None;
-        }
-
-        if trigger_note_changed {
-            state.continuous_edit_dirty = true;
-            on_note_changed();
-        }
-    }
-
-    if let Some(prop_idx) = state.properties_window_for_note {
-        if prop_idx < notes.len() {
-            let mut close_window = false;
-            let note = &mut notes[prop_idx];
-            egui::Window::new("⚙ Propriedades da Nota & Vibrato")
-                .collapsible(false)
-                .resizable(false)
-                .default_width(320.0)
-                .show(ui.ctx(), |ui| {
-                    ui.heading(
-                        egui::RichText::new(format!("Nota: {} ({})", note.lyric, note.pitch))
-                            .size(14.0)
-                            .color(MelodyneTheme::TEXT_GOLD_LABEL),
-                    );
-                    ui.separator();
-
-                    egui::Grid::new("prop_grid")
-                        .num_columns(2)
-                        .spacing([12.0, 8.0])
-                        .show(ui, |ui| {
-                            ui.label("Letra (Lyric):");
-                            ui.text_edit_singleline(&mut note.lyric);
-                            ui.end_row();
-
-                            ui.label("Duração (ms):");
-                            ui.add(
-                                egui::DragValue::new(&mut note.duration_ms)
-                                    .speed(1.0)
-                                    .range(20.0..=10000.0)
-                                    .suffix(" ms"),
-                            );
-                            ui.end_row();
-
-                            ui.label("Vel. da Consoante:");
-                            ui.add(
-                                egui::DragValue::new(&mut note.expressions.consonant_velocity)
-                                    .speed(1.0)
-                                    .range(0.0..=200.0)
-                                    .suffix(" %"),
-                            );
-                            ui.end_row();
-
-                            ui.label("Modulação (MOD):");
-                            ui.add(
-                                egui::DragValue::new(&mut note.expressions.modulation)
-                                    .speed(1.0)
-                                    .range(0.0..=200.0)
-                                    .suffix(" %"),
-                            );
-                            ui.end_row();
-                        });
-
-                    ui.add_space(8.0);
-                    ui.label(
-                        egui::RichText::new("〰 Parâmetros de Vibrato")
-                            .strong()
-                            .color(Color32::from_rgb(0, 240, 255)),
-                    );
-
-                    egui::Grid::new("vibrato_grid")
-                        .num_columns(2)
-                        .spacing([12.0, 8.0])
-                        .show(ui, |ui| {
-                            ui.label("Comprimento (%):");
-                            ui.add(
-                                egui::Slider::new(&mut note.vibrato.length_pct, 0.0..=100.0)
-                                    .suffix(" %"),
-                            );
-                            ui.end_row();
-
-                            ui.label("Profundidade (cents):");
-                            ui.add(
-                                egui::Slider::new(&mut note.vibrato.depth_cents, 0.0..=200.0)
-                                    .suffix(" c"),
-                            );
-                            ui.end_row();
-
-                            ui.label("Período (ms):");
-                            ui.add(
-                                egui::Slider::new(&mut note.vibrato.period_ms, 50.0..=450.0)
-                                    .suffix(" ms"),
-                            );
-                            ui.end_row();
-
-                            ui.label("Fade In (%):");
-                            ui.add(
-                                egui::Slider::new(&mut note.vibrato.fade_in_pct, 0.0..=100.0)
-                                    .suffix(" %"),
-                            );
-                            ui.end_row();
-
-                            ui.label("Fade Out (%):");
-                            ui.add(
-                                egui::Slider::new(&mut note.vibrato.fade_out_pct, 0.0..=100.0)
-                                    .suffix(" %"),
-                            );
-                            ui.end_row();
-                        });
-
-                    ui.add_space(10.0);
-                    ui.horizontal(|ui| {
-                        if ui.button("OK").clicked() {
-                            close_window = true;
-                        }
-                    });
-                });
-
-            if close_window {
-                state.properties_window_for_note = None;
-            }
-        } else {
-            state.properties_window_for_note = None;
-        }
-    }
+    note_properties::draw(ui, notes, state, lang, on_note_changed);
 }

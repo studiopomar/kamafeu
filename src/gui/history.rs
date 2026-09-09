@@ -17,6 +17,9 @@ impl UndoManager {
     }
 
     pub fn push_state(&mut self, current: UProject) {
+        if self.undo_stack.back() == Some(&current) {
+            return;
+        }
         if self.undo_stack.len() >= self.max_history {
             self.undo_stack.pop_front();
         }
@@ -79,5 +82,17 @@ mod tests {
         let redone = history.redo(undone).unwrap();
         assert_eq!(redone.parts[0].notes.len(), 1);
         assert_eq!(redone.parts[0].notes[0].duration_ms, 480.0);
+    }
+
+    #[test]
+    fn duplicate_consecutive_states_are_not_pushed() {
+        let state = UProject::default();
+        let mut history = UndoManager::new(10);
+        history.push_state(state.clone());
+        assert_eq!(history.undo_stack.len(), 1);
+
+        // Push identical state
+        history.push_state(state);
+        assert_eq!(history.undo_stack.len(), 1);
     }
 }

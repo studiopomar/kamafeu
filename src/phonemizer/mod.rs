@@ -3,6 +3,7 @@ pub mod english;
 pub mod japanese;
 pub mod portuguese;
 pub mod romaji;
+pub mod vccv;
 
 pub use brapa::{BrapaCVCPhonemizer, VccvBrapaPhonemizer};
 pub use english::EnglishPhonemizer;
@@ -79,7 +80,7 @@ impl JapanesePhonemizer {
             if is_plus {
                 if let Some(last) = result.last_mut() {
                     let last_end = last.position_ms + last.duration_ms;
-                    if (note.position_ms - last_end).abs() <= 60.0 {
+                    if (note.position_ms - last_end).abs() <= 0.001 {
                         last.duration_ms += note.duration_ms;
                         continue;
                     }
@@ -104,7 +105,7 @@ impl JapanesePhonemizer {
             if is_plus {
                 if let Some((_last_orig_idx, last_note)) = normalized_notes.last_mut() {
                     let last_end = last_note.position_ms + last_note.duration_ms;
-                    if (note.position_ms - last_end).abs() <= 60.0 {
+                    if (note.position_ms - last_end).abs() <= 0.001 {
                         last_note.duration_ms += note.duration_ms;
                         continue;
                     }
@@ -122,9 +123,10 @@ impl JapanesePhonemizer {
             PhonemizerMode::PortugueseBrapaVCCV | PhonemizerMode::PortugueseBrapaCVC => {
                 VccvBrapaPhonemizer::apply_phonemizer(&temp_notes, vb)
             }
-            PhonemizerMode::EnglishArpasing
-            | PhonemizerMode::EnglishVCCV
-            | PhonemizerMode::EnglishG2P => Self::apply_english(&temp_notes, vb, mode),
+            PhonemizerMode::EnglishVCCV => vccv::apply(&temp_notes, vb),
+            PhonemizerMode::EnglishArpasing | PhonemizerMode::EnglishG2P => {
+                Self::apply_english(&temp_notes, vb, mode)
+            }
             PhonemizerMode::PortugueseCVVC
             | PhonemizerMode::PortugueseVCV
             | PhonemizerMode::PortugueseG2P => Self::apply_portuguese(&temp_notes, vb, mode),
@@ -240,8 +242,13 @@ impl JapanesePhonemizer {
         let mut prev_note_end_ms: Option<f64> = None;
 
         for (note_index, note) in notes.iter().enumerate() {
+            if note.lyric.trim().is_empty() || note.lyric.trim() == "R" {
+                prev_vowel = None;
+                prev_note_end_ms = None;
+                continue;
+            }
             let is_phrase_start = match prev_note_end_ms {
-                Some(end_ms) => note.position_ms > end_ms + 60.0,
+                Some(end_ms) => note.position_ms > end_ms + 0.001,
                 None => true,
             };
 
@@ -264,13 +271,13 @@ impl JapanesePhonemizer {
 
                 if is_phrase_start && idx == 0 {
                     let head_try = format!("- {}", p);
-                    if let Some(entry) = vb.find_entry(&head_try, &note.pitch) {
+                    if let Some(entry) = vb.find_mapped_entry(&head_try, &note.pitch) {
                         alias = entry.alias.clone();
                     }
                 } else if idx == 0 && !is_phrase_start {
                     if let Some(ref pv) = prev_vowel {
                         let vc_try = format!("{} {}", pv, p);
-                        if let Some(entry) = vb.find_entry(&vc_try, &note.pitch) {
+                        if let Some(entry) = vb.find_mapped_entry(&vc_try, &note.pitch) {
                             let authored = ((entry.preutterance - entry.overlap).abs()
                                 * consonant_velocity_time_scale(
                                     note.expressions.consonant_velocity,
@@ -300,7 +307,7 @@ impl JapanesePhonemizer {
                     }
                 } else if let Some(ref pv) = prev_vowel {
                     let vc_try = format!("{} {}", pv, p);
-                    if let Some(entry) = vb.find_entry(&vc_try, &note.pitch) {
+                    if let Some(entry) = vb.find_mapped_entry(&vc_try, &note.pitch) {
                         alias = entry.alias.clone();
                     }
                 }
@@ -311,7 +318,7 @@ impl JapanesePhonemizer {
                     prev_vowel = None;
                 }
 
-                if let Some(entry) = vb.find_entry(&alias, &note.pitch) {
+                if let Some(entry) = vb.find_mapped_entry(&alias, &note.pitch) {
                     alias = entry.alias.clone();
                 }
 
@@ -341,8 +348,13 @@ impl JapanesePhonemizer {
         let mut prev_note_end_ms: Option<f64> = None;
 
         for (note_index, note) in notes.iter().enumerate() {
+            if note.lyric.trim().is_empty() || note.lyric.trim() == "R" {
+                prev_vowel = None;
+                prev_note_end_ms = None;
+                continue;
+            }
             let is_phrase_start = match prev_note_end_ms {
-                Some(end_ms) => note.position_ms > end_ms + 60.0,
+                Some(end_ms) => note.position_ms > end_ms + 0.001,
                 None => true,
             };
 
@@ -367,13 +379,13 @@ impl JapanesePhonemizer {
 
                 if is_phrase_start && idx == 0 {
                     let head_try = format!("- {}", syl);
-                    if let Some(entry) = vb.find_entry(&head_try, &note.pitch) {
+                    if let Some(entry) = vb.find_mapped_entry(&head_try, &note.pitch) {
                         alias = entry.alias.clone();
                     }
                 } else if mode == PhonemizerMode::PortugueseVCV {
                     if let Some(ref pv) = prev_vowel {
                         let vcv_try = format!("{} {}", pv, syl);
-                        if let Some(entry) = vb.find_entry(&vcv_try, &note.pitch) {
+                        if let Some(entry) = vb.find_mapped_entry(&vcv_try, &note.pitch) {
                             alias = entry.alias.clone();
                         }
                     }
@@ -383,7 +395,7 @@ impl JapanesePhonemizer {
                         PortuguesePhonemizer::extract_consonant(syl),
                     ) {
                         let vc_try = format!("{} {}", pv, cc);
-                        if let Some(entry) = vb.find_entry(&vc_try, &note.pitch) {
+                        if let Some(entry) = vb.find_mapped_entry(&vc_try, &note.pitch) {
                             let authored = ((entry.preutterance - entry.overlap).abs()
                                 * consonant_velocity_time_scale(
                                     note.expressions.consonant_velocity,
@@ -417,7 +429,7 @@ impl JapanesePhonemizer {
                     prev_vowel = Some(v.to_string());
                 }
 
-                if let Some(entry) = vb.find_entry(&alias, &note.pitch) {
+                if let Some(entry) = vb.find_mapped_entry(&alias, &note.pitch) {
                     alias = entry.alias.clone();
                 }
 

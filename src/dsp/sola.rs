@@ -263,13 +263,19 @@ impl SolaResampler {
         let consonant_slice = &slice[..source_consonant_samples];
 
         // Keep a tiny piece of the voiced transition on both sides. Splitting
-        // exactly at the OTO consonant boundary can cut a glottal cycle in half
+        // exactly at the oto.ini consonant boundary can cut a glottal cycle in half
         // and turn an otherwise correct resynthesis into an audible click.
         let join_samples = ((sample_rate as f64 * 0.005).round() as usize)
             .min(source_consonant_samples)
             .min(slice.len().saturating_sub(source_consonant_samples));
         let vowel_start = source_consonant_samples.saturating_sub(join_samples);
         let vowel_slice = &slice[vowel_start..];
+
+        // If cutoff < 0 (VC transitions, consonant clusters, endings) or the slice after
+        // consonant is very short (less than 25ms, impossible to extract periodic vowel pitch),
+        // treat this as a finite transition slice. Never loop unvoiced consonant tail with PSOLA!
+        let min_vowel_samples = (sample_rate as f64 * 0.025).round() as usize;
+        let is_finite_transition = cutoff_ms < 0.0 || vowel_slice.len() < min_vowel_samples;
 
         let target_consonant_samples =
             (((target_consonant_ms.max(0.0) / 1000.0) * sample_rate as f64).round() as usize)
@@ -295,42 +301,56 @@ impl SolaResampler {
             output.resize(target_consonant_samples, 0.0);
         }
 
-        // 2. Process vowel via adaptive TD-PSOLA. Render the shared boundary
-        // once more so it can be equal-power crossfaded into the consonant.
+        // 2. Process vowel via adaptive TD-PSOLA (or resize_preserving_pitch for finite transitions).
+        // Render the shared boundary once more so it can be equal-power crossfaded into the consonant.
         if target_vowel_samples > 0 && !vowel_slice.is_empty() {
-            let vowel_out = Self::render_vowel_psola(
-                vowel_slice,
-                sample_rate,
-                target_vowel_samples + target_join_samples,
-                target_pitch_freq,
-                pitch_points,
-                (target_consonant_ms - target_join_samples as f64 * 1_000.0 / sample_rate as f64)
-                    .max(0.0),
-                loop_start_ms.map(|ms| {
-                    (ms - offset_ms - source_consonant_ms
-                        + join_samples as f64 * 1_000.0 / sample_rate as f64)
-                        .max(0.0)
-                }),
-                loop_end_ms.map(|ms| {
-                    (ms - offset_ms - source_consonant_ms
-                        + join_samples as f64 * 1_000.0 / sample_rate as f64)
-                        .max(0.0)
-                }),
-                tail_start_ms.map(|ms| {
-                    (ms - offset_ms - source_consonant_ms
-                        + join_samples as f64 * 1_000.0 / sample_rate as f64)
-                        .max(0.0)
-                }),
-                mode,
-            );
+            let vowel_out = if is_finite_transition {
+                let mut out = crate::dsp::resize_preserving_pitch(
+                    vowel_slice,
+                    target_vowel_samples + target_join_samples,
+                    sample_rate,
+                );
+                if out.len() < target_vowel_samples + target_join_samples {
+                    out.resize(target_vowel_samples + target_join_samples, 0.0);
+                }
+                out
+            } else {
+                Self::render_vowel_psola(
+                    vowel_slice,
+                    sample_rate,
+                    target_vowel_samples + target_join_samples,
+                    target_pitch_freq,
+                    pitch_points,
+                    (target_consonant_ms
+                        - target_join_samples as f64 * 1_000.0 / sample_rate as f64)
+                        .max(0.0),
+                    loop_start_ms.map(|ms| {
+                        (ms - offset_ms - source_consonant_ms
+                            + join_samples as f64 * 1_000.0 / sample_rate as f64)
+                            .max(0.0)
+                    }),
+                    loop_end_ms.map(|ms| {
+                        (ms - offset_ms - source_consonant_ms
+                            + join_samples as f64 * 1_000.0 / sample_rate as f64)
+                            .max(0.0)
+                    }),
+                    tail_start_ms.map(|ms| {
+                        (ms - offset_ms - source_consonant_ms
+                            + join_samples as f64 * 1_000.0 / sample_rate as f64)
+                            .max(0.0)
+                    }),
+                    mode,
+                )
+            };
 
             if target_join_samples > 0 && output.len() >= target_join_samples {
                 let output_start = output.len() - target_join_samples;
                 for index in 0..target_join_samples {
-                    let phase = (index as f32 + 0.5) / target_join_samples as f32
-                        * std::f32::consts::FRAC_PI_2;
+                    let phase = (index as f32 + 0.5) / target_join_samples as f32;
+                    let w_consonant = 1.0 - phase;
+                    let w_vowel = phase;
                     output[output_start + index] =
-                        output[output_start + index] * phase.cos() + vowel_out[index] * phase.sin();
+                        output[output_start + index] * w_consonant + vowel_out[index] * w_vowel;
                 }
                 output.extend_from_slice(&vowel_out[target_join_samples..]);
             } else {
@@ -341,6 +361,14 @@ impl SolaResampler {
         output.truncate(target_total_samples);
         if output.len() < target_total_samples {
             output.resize(target_total_samples, 0.0);
+        }
+
+        let max_peak = output.iter().map(|s| s.abs()).fold(0.0f32, f32::max);
+        if max_peak > 0.99 {
+            let scale = 0.98 / max_peak;
+            for s in &mut output {
+                *s *= scale;
+            }
         }
 
         output
@@ -626,21 +654,17 @@ impl SolaResampler {
             let mark_index = Self::nearest_mark_index(&pitch_marks, source_position);
             let source_mark = pitch_marks[mark_index] as f64;
             let source_period = Self::local_period(&pitch_marks, mark_index, estimate.period);
-            // For large downward shifts the synthesis marks are farther apart.
-            // Widen just enough to maintain coverage without resampling a grain.
-            let grain_radius = source_period
-                .max(target_period * 0.55)
-                .clamp(8.0, sample_rate as f64 / 35.0);
+            let grain_radius = target_period;
             let first = (output_center - grain_radius).ceil() as isize;
             let last = (output_center + grain_radius).floor() as isize;
-            let overlap_gain = (target_period / source_period).clamp(0.25, 4.0) as f32;
+            let stretch_ratio = source_period / target_period;
 
             for output_index in first..=last {
                 if output_index < 0 || output_index as usize >= target_samples {
                     continue;
                 }
                 let delta = output_index as f64 - output_center;
-                let source_sample_position = source_mark + delta;
+                let source_sample_position = source_mark + delta * stretch_ratio;
                 if source_sample_position < 0.0 || source_sample_position >= v_len as f64 {
                     continue;
                 }
@@ -648,8 +672,8 @@ impl SolaResampler {
                     (0.5 + 0.5 * (std::f64::consts::PI * delta / grain_radius).cos()) as f32;
                 let output_index = output_index as usize;
                 output[output_index] +=
-                    Self::cubic_sample(vowel, source_sample_position) * window * overlap_gain;
-                weights[output_index] += window * overlap_gain;
+                    Self::cubic_sample(vowel, source_sample_position) * window;
+                weights[output_index] += window;
             }
 
             output_center += target_period;
@@ -657,17 +681,18 @@ impl SolaResampler {
 
         let mut fallback = None;
         for index in 0..target_samples {
-            if weights[index] <= 1e-5 {
-                let fallback = fallback.get_or_insert_with(|| {
+            if weights[index] > 1.0 {
+                output[index] /= weights[index];
+            } else if weights[index] <= 1e-5 {
+                let fb = fallback.get_or_insert_with(|| {
                     crate::dsp::resize_preserving_pitch(vowel, target_samples, sample_rate)
                 });
-                output[index] = fallback[index];
+                output[index] = fb[index];
             }
         }
 
-        // The theoretical OLA gain above keeps identity and pitch ratios
-        // correct. A restrained RMS correction compensates truncated edge
-        // grains and real-world irregular pitch marks without pumping.
+        // A restrained RMS correction compensates truncated edge grains and
+        // real-world irregular pitch marks without volume pumping.
         let source_rms = (analysis_slice
             .iter()
             .map(|sample| f64::from(*sample).powi(2))
@@ -681,11 +706,27 @@ impl SolaResampler {
             / output.len().max(1) as f64)
             .sqrt();
         if source_rms > 1e-6 && output_rms > 1e-6 {
-            let level_gain = (source_rms / output_rms).clamp(0.67, 1.5) as f32;
+            let level_gain = (source_rms / output_rms).clamp(0.7, 1.4) as f32;
             for sample in &mut output {
                 *sample *= level_gain;
             }
         }
+
+        // Peak limiter: prevent any overshoot from clipping
+        let source_peak = vowel
+            .iter()
+            .map(|s| s.abs())
+            .fold(0.0f32, f32::max)
+            .clamp(0.05, 1.0);
+        let output_peak = output.iter().map(|s| s.abs()).fold(0.0f32, f32::max);
+        if output_peak > source_peak && output_peak > 1e-4 {
+            let target_peak = (source_peak * 0.999).min(0.98);
+            let scale = target_peak / output_peak;
+            for sample in &mut output {
+                *sample *= scale;
+            }
+        }
+
         output
     }
 }
@@ -1037,5 +1078,72 @@ mod tests {
                 "silent output for {mode:?}"
             );
         }
+    }
+
+    #[test]
+    fn sola_never_clips_hot_inputs_across_large_pitch_shifts() {
+        let sample_rate = 44_100;
+        let source_hz = 220.0;
+        let input_samples: Vec<f32> = (0..sample_rate as usize)
+            .map(|i| {
+                let t = i as f64 / sample_rate as f64;
+                let phase = std::f64::consts::TAU * source_hz * t;
+                (0.45 * phase.sin() + 0.35 * (phase * 2.0).sin() + 0.15 * (phase * 3.0).sin())
+                    as f32
+            })
+            .collect();
+
+        for target_pitch in [55.0, 110.0, 165.0, 220.0, 330.0, 440.0, 660.0, 880.0] {
+            let rendered = SolaResampler::render_sample(
+                &input_samples,
+                sample_rate,
+                0.0,
+                30.0,
+                30.0,
+                0.0,
+                600.0,
+                target_pitch,
+                &[],
+                Some(100.0),
+                Some(500.0),
+                None,
+            );
+
+            let max_amp = rendered.iter().map(|s| s.abs()).fold(0.0f32, f32::max);
+            assert!(
+                max_amp <= 1.0,
+                "Clipping detected at target pitch {target_pitch} Hz: peak amplitude was {max_amp}"
+            );
+            assert!(
+                max_amp >= 0.25,
+                "Signal dropped out at target pitch {target_pitch} Hz: peak amplitude was {max_amp}"
+            );
+        }
+    }
+
+    #[test]
+    fn consonant_vowel_junction_never_clips() {
+        let sample_rate = 44_100;
+        let input_samples = vec![0.95f32; sample_rate as usize / 2];
+        let rendered = SolaResampler::render_sample(
+            &input_samples,
+            sample_rate,
+            0.0,
+            100.0,
+            100.0,
+            0.0,
+            400.0,
+            220.0,
+            &[],
+            None,
+            None,
+            None,
+        );
+
+        let max_amp = rendered.iter().map(|s| s.abs()).fold(0.0f32, f32::max);
+        assert!(
+            max_amp <= 1.0,
+            "Boundary crossfade caused clipping: peak was {max_amp}"
+        );
     }
 }

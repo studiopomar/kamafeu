@@ -105,6 +105,9 @@ impl Resampler {
         let consonant_slice = &slice[..source_consonant_samples];
         let vowel_slice = &slice[source_consonant_samples..];
 
+        let min_vowel_samples = (sample_rate as f64 * 0.025).round() as usize;
+        let is_finite_transition = cutoff_ms < 0.0 || vowel_slice.len() < min_vowel_samples;
+
         let target_total_samples = ((target_duration_ms / 1000.0) * sample_rate as f64) as usize;
         let target_consonant_samples =
             (((target_consonant_ms.max(0.0) / 1000.0) * sample_rate as f64).round() as usize)
@@ -124,123 +127,145 @@ impl Resampler {
         }
 
         if target_vowel_samples > 0 && !vowel_slice.is_empty() {
-            let pyin_res =
-                crate::dsp::pyin::PitchExtractor::extract_pitch_and_gci(vowel_slice, sample_rate);
-
-            let fallback_t0 = Self::estimate_pitch_period(vowel_slice, sample_rate);
-            let mut synth_residual = vec![0.0f32; target_vowel_samples];
-            let mut synth_weights = vec![0.0f32; target_vowel_samples];
-
-            let vowel_len = vowel_slice.len();
-            let loop_start = vowel_len / 4;
-            let loop_end = (vowel_len * 3 / 4).max(loop_start + fallback_t0);
-            let loop_len = (loop_end.saturating_sub(loop_start)).max(fallback_t0);
-
-            let mut out_pos = 0usize;
-            let mut virt_in_pos = 0f64;
-
-            while out_pos < target_vowel_samples {
-                let rel_t_ms = target_consonant_ms + (out_pos as f64 / sample_rate as f64) * 1000.0;
-                let pitch_cents = PitchBendSolver::get_pitch_offset_cents(rel_t_ms, pitch_points);
-                let frame_freq = (target_pitch_freq * 2.0f64.powf(pitch_cents / 1200.0)).max(20.0);
-
-                let dst_t0 = (sample_rate as f64 / frame_freq).round() as usize;
-                let dst_t0 = dst_t0.clamp(16, sample_rate as usize / 4);
-
-                let in_pos_int = virt_in_pos as usize;
-                let src_center = if in_pos_int >= loop_end && loop_len > 0 {
-                    loop_start + ((in_pos_int - loop_start) % loop_len)
-                } else {
-                    in_pos_int % vowel_len
-                };
-
-                let win_size_max = (2 * fallback_t0).max(64);
-                let check_start = src_center.saturating_sub(win_size_max / 2);
-                let check_end = (src_center + win_size_max / 2).min(vowel_len);
-
-                let mut zero_crossings = 0;
-                let mut energy = 0.0;
-                for i in check_start + 1..check_end {
-                    if (vowel_slice[i - 1] > 0.0 && vowel_slice[i] <= 0.0)
-                        || (vowel_slice[i - 1] < 0.0 && vowel_slice[i] >= 0.0)
-                    {
-                        zero_crossings += 1;
-                    }
-                    energy += vowel_slice[i] * vowel_slice[i];
+            if is_finite_transition {
+                let mut out = crate::dsp::resize_preserving_pitch(
+                    vowel_slice,
+                    target_vowel_samples,
+                    sample_rate,
+                );
+                if out.len() < target_vowel_samples {
+                    out.resize(target_vowel_samples, 0.0);
                 }
+                output.extend(out);
+            } else {
+                let pyin_res = crate::dsp::pyin::PitchExtractor::extract_pitch_and_gci(
+                    vowel_slice,
+                    sample_rate,
+                );
 
-                let check_len = (check_end - check_start).max(1);
-                let zcr = zero_crossings as f32 / check_len as f32;
+                let fallback_t0 = Self::estimate_pitch_period(vowel_slice, sample_rate);
+                let mut synth_residual = vec![0.0f32; target_vowel_samples];
+                let mut synth_weights = vec![0.0f32; target_vowel_samples];
 
-                let is_unvoiced = zcr > 0.25 || (energy < 1e-4 && zcr > 0.1);
+                let vowel_len = vowel_slice.len();
+                let loop_start = vowel_len / 4;
+                let loop_end = (vowel_len * 3 / 4).max(loop_start + fallback_t0);
+                let loop_len = (loop_end.saturating_sub(loop_start)).max(fallback_t0);
 
-                let (src_start, src_end, win_size, src_advance) = if is_unvoiced {
-                    let w_size = (sample_rate as f64 * 0.01).round() as usize; // 10ms window
-                    let s_start = src_center.saturating_sub(w_size / 2);
-                    let s_end = (s_start + w_size).min(vowel_len);
-                    (s_start, s_end, w_size, dst_t0 as f64)
-                } else {
-                    let mut best_gci = src_center;
-                    let mut src_t0 = fallback_t0;
+                let mut out_pos = 0usize;
+                let mut virt_in_pos = 0f64;
 
-                    if !pyin_res.gci_marks.is_empty() {
-                        let mut min_dist = usize::MAX;
-                        for (i, &gci) in pyin_res.gci_marks.iter().enumerate() {
-                            let dist = (gci as isize - src_center as isize).unsigned_abs();
-                            if dist < min_dist {
-                                min_dist = dist;
-                                best_gci = gci;
-                                if i < pyin_res.pitch_contour.len() {
-                                    src_t0 = pyin_res.pitch_contour[i] as usize;
+                while out_pos < target_vowel_samples {
+                    let rel_t_ms =
+                        target_consonant_ms + (out_pos as f64 / sample_rate as f64) * 1000.0;
+                    let pitch_cents =
+                        PitchBendSolver::get_pitch_offset_cents(rel_t_ms, pitch_points);
+                    let frame_freq =
+                        (target_pitch_freq * 2.0f64.powf(pitch_cents / 1200.0)).max(20.0);
+
+                    let dst_t0 = (sample_rate as f64 / frame_freq).round() as usize;
+                    let dst_t0 = dst_t0.clamp(16, sample_rate as usize / 4);
+
+                    let in_pos_int = virt_in_pos as usize;
+                    let src_center = if in_pos_int >= loop_end && loop_len > 0 {
+                        loop_start + ((in_pos_int - loop_start) % loop_len)
+                    } else {
+                        in_pos_int % vowel_len
+                    };
+
+                    let win_size_max = (2 * fallback_t0).max(64);
+                    let check_start = src_center.saturating_sub(win_size_max / 2);
+                    let check_end = (src_center + win_size_max / 2).min(vowel_len);
+
+                    let mut zero_crossings = 0;
+                    let mut energy = 0.0;
+                    for i in check_start + 1..check_end {
+                        if (vowel_slice[i - 1] > 0.0 && vowel_slice[i] <= 0.0)
+                            || (vowel_slice[i - 1] < 0.0 && vowel_slice[i] >= 0.0)
+                        {
+                            zero_crossings += 1;
+                        }
+                        energy += vowel_slice[i] * vowel_slice[i];
+                    }
+
+                    let check_len = (check_end - check_start).max(1);
+                    let zcr = zero_crossings as f32 / check_len as f32;
+
+                    let is_unvoiced = zcr > 0.25 || (energy < 1e-4 && zcr > 0.1);
+
+                    let (src_start, src_end, win_size, src_advance) = if is_unvoiced {
+                        let w_size = (sample_rate as f64 * 0.01).round() as usize; // 10ms window
+                        let s_start = src_center.saturating_sub(w_size / 2);
+                        let s_end = (s_start + w_size).min(vowel_len);
+                        (s_start, s_end, w_size, (w_size / 2).max(1) as f64)
+                    } else {
+                        let mut best_gci = src_center;
+                        let mut src_t0 = fallback_t0;
+
+                        if !pyin_res.gci_marks.is_empty() {
+                            let mut min_dist = usize::MAX;
+                            for (i, &gci) in pyin_res.gci_marks.iter().enumerate() {
+                                let dist = (gci as isize - src_center as isize).unsigned_abs();
+                                if dist < min_dist {
+                                    min_dist = dist;
+                                    best_gci = gci;
+                                    if i < pyin_res.pitch_contour.len() {
+                                        src_t0 = pyin_res.pitch_contour[i] as usize;
+                                    }
                                 }
                             }
                         }
+
+                        let w_size = (2 * src_t0).max(2 * dst_t0).max(64);
+                        let s_start = best_gci.saturating_sub(w_size / 2);
+                        let s_end = (s_start + w_size).min(vowel_len);
+                        (s_start, s_end, w_size, src_t0 as f64)
+                    };
+
+                    let actual_win = (src_end - src_start).min(target_vowel_samples - out_pos);
+                    let w_step = 2.0 * std::f32::consts::PI / win_size as f32;
+
+                    let out_slice_res = &mut synth_residual[out_pos..out_pos + actual_win];
+                    let out_slice_wei = &mut synth_weights[out_pos..out_pos + actual_win];
+
+                    if is_unvoiced {
+                        let src_slice = &vowel_slice[src_start..src_start + actual_win];
+                        for i in 0..actual_win {
+                            let w = 0.5 * (1.0 - (w_step * i as f32).cos());
+                            out_slice_res[i] += src_slice[i] * w;
+                            out_slice_wei[i] += w;
+                        }
+                    } else {
+                        // PSOLA already preserves the spectral envelope by moving
+                        // complete waveform grains. Reconstructing an LPC residual
+                        // here amplified high-frequency errors whenever the target
+                        // period changed, producing the characteristic "chipmunk"
+                        // voice on even very small bends.
+                        let src_slice = &vowel_slice[src_start..src_start + actual_win];
+                        for i in 0..actual_win {
+                            let w = 0.5 * (1.0 - (w_step * i as f32).cos());
+                            out_slice_res[i] += src_slice[i] * w;
+                            out_slice_wei[i] += w;
+                        }
                     }
 
-                    let w_size = (2 * src_t0).max(64);
-                    let s_start = best_gci.saturating_sub(w_size / 2);
-                    let s_end = (s_start + w_size).min(vowel_len);
-                    (s_start, s_end, w_size, src_t0 as f64)
-                };
+                    let synthesis_hop = if is_unvoiced {
+                        (win_size / 2).max(1)
+                    } else {
+                        dst_t0
+                    };
+                    out_pos += synthesis_hop;
+                    virt_in_pos += src_advance;
+                }
 
-                let actual_win = (src_end - src_start).min(target_vowel_samples - out_pos);
-                let w_step = 2.0 * std::f32::consts::PI / win_size as f32;
-
-                let out_slice_res = &mut synth_residual[out_pos..out_pos + actual_win];
-                let out_slice_wei = &mut synth_weights[out_pos..out_pos + actual_win];
-
-                if is_unvoiced {
-                    let src_slice = &vowel_slice[src_start..src_start + actual_win];
-                    for i in 0..actual_win {
-                        let w = 0.5 * (1.0 - (w_step * i as f32).cos());
-                        out_slice_res[i] += src_slice[i] * w;
-                        out_slice_wei[i] += w;
-                    }
-                } else {
-                    // PSOLA already preserves the spectral envelope by moving
-                    // complete waveform grains. Reconstructing an LPC residual
-                    // here amplified high-frequency errors whenever the target
-                    // period changed, producing the characteristic "chipmunk"
-                    // voice on even very small bends.
-                    let src_slice = &vowel_slice[src_start..src_start + actual_win];
-                    for i in 0..actual_win {
-                        let w = 0.5 * (1.0 - (w_step * i as f32).cos());
-                        out_slice_res[i] += src_slice[i] * w;
-                        out_slice_wei[i] += w;
+                for i in 0..target_vowel_samples {
+                    if synth_weights[i] > 1e-4 {
+                        synth_residual[i] /= synth_weights[i];
                     }
                 }
 
-                out_pos += dst_t0;
-                virt_in_pos += src_advance;
+                output.extend(synth_residual);
             }
-
-            for i in 0..target_vowel_samples {
-                if synth_weights[i] > 1e-4 {
-                    synth_residual[i] /= synth_weights[i];
-                }
-            }
-
-            output.extend(synth_residual);
         }
 
         output.truncate(target_total_samples);
@@ -413,5 +438,35 @@ mod tests {
                 "{engine}: pitch leve virou frequência anormal: esperado {expected:.1} Hz, medido {measured:.1} Hz"
             );
         }
+    }
+
+    #[test]
+    fn downward_pitch_shift_keeps_overlap_add_covered() {
+        let sample_rate = 44_100;
+        let source_hz = 220.0;
+        let input = (0..sample_rate)
+            .map(|index| {
+                (std::f64::consts::TAU * source_hz * index as f64 / sample_rate as f64).sin() as f32
+                    * 0.5
+            })
+            .collect::<Vec<_>>();
+
+        let rendered = Resampler::render_sample_with_pitch_bend_and_consonant_timing(
+            &input,
+            sample_rate,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            700.0,
+            110.0,
+            &[],
+        );
+        let largest_step = rendered
+            .windows(2)
+            .map(|pair| (pair[1] - pair[0]).abs())
+            .fold(0.0f32, f32::max);
+
+        assert!(largest_step < 0.12, "largest step was {largest_step}");
     }
 }

@@ -73,7 +73,7 @@ pub struct PitchBendPoint {
     pub semitones: f64,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct VibratoParam {
     pub length_pct: f64,

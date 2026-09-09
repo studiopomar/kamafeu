@@ -7,6 +7,26 @@ e este projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR
 
 ---
 
+## [1.0.0-A] - 2026-09-08
+
+### Reformulação do Motor de Síntese e Renderização
+- **Pesquisa estrita de aliases e fallbacks fonéticos**: separação rigorosa entre busca exata de prefixos fonéticos (VCV, VC, CC) e candidatos Romaji/Kana, evitando degradação indevida para CV simples.
+- **Temporização e crossfades unificados**: preutterance, overlap, envelopes acústicos e velocidade de consoante resolvidos em um único plano de renderização por frase vocal.
+- **Suporte a wavtools externos com concatenação contínua**: integração completa com wavtools como `wavtool-yawu` preservando duração e contexto acústico entre fonemas vizinhos.
+- **Fonemizador English VCCV completo**: preservação de símbolos, encontros consonantais complexos, vogais sustentadas e finais de sílaba.
+- **Compensação de fase vocálica**: alinhamento automático de fase em junções de vogais para eliminar cancelamentos e oscilações de volume.
+- **Diagnóstico fonético e oto.ini integrado**: painel lateral de notas e tooltips ricos na régua de fonemas mostrando alias solicitado, alias mapeado, existência de arquivo WAV e tempos calculados.
+
+### Conforto Visual, Interface e Edição
+- **Parâmetros em curva contínua (estilo OpenUtau)**: suporte a edição contínua em formato de curva para `PITD` (Pitch Deviation/Curva de Pitch Bend) diretamente no rodapé de parâmetros, permitindo desenhar variações de afinação em tempo real, avaliar a curva real com interpolação de alta precisão e resetar curvas individuais ou em lote.
+- **Reset de parâmetros via botão direito (clique e arraste estilo borracha)**: clicar com o botão direito ou arrastar com o botão direito pressionado sobre o rodapé de parâmetros/expressões restaura instantaneamente os valores do parâmetro selecionado para o padrão nas notas e fonemas afetados.
+- **Redimensionamento contínuo da gaveta de parâmetros/expressões**: correção do colapso automático ao soltar o mouse ao redimensionar a gaveta inferior de parâmetros e o editor expandido de envelopes.
+- **Limpeza geral de parâmetros de notas**: ação rápida "Limpar Todos os Parâmetros (Reset Geral)" disponível no menu de contexto (clique direito ou esquerdo), painel unificado e menu superior para restaurar propriedades de notas selecionadas aos valores padrão.
+- **Recalibragem de saturação e contraste**: eliminação de tons fluorescentes agressivos em favor de paletas confortáveis e ergonômicas para longas sessões de trabalho.
+- **Suavização de realces e linhas de grade**: tons de fundo refinados e marcações de compasso integradas ao plano de fundo.
+
+---
+
 ## [0.0.4-hotfix.1] - 2026-09-06
 
 ### Correções de inicialização
@@ -40,7 +60,7 @@ e este projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR
 - **Detecção Automática e Otimização do Subsistema Wine**:
   - Implementado escaneamento dinâmico em tempo de execução para executáveis Win32/Win64 (`.exe` em formato Portable Executable) nos sistemas operacionais baseados em Unix (macOS e Linux).
   - Resolução automática de binários em caminhos de sistema (`/usr/local/bin/wine`, `/opt/homebrew/bin/wine`, `/usr/bin/wine`, `/opt/wine/bin/wine64`, etc.).
-  - **Tradução Automática de Caminhos (`to_wine_windows_path`)**: Caminhos POSIX de entrada e saída (`/Users/victor/...` e `/var/folders/...`) agora são traduzidos transparentemente para o formato Windows (`Z:\Users\victor\...` e `Z:\var\folders\...` com contrabarras `\`). Isso impede que os analisadores de linha de comando padrão do Windows (MSVCRT/MinGW) confundam barras `/` com argumentos ou switches (`/U`, `/v`), eliminando falhas de execução em resamplers como `TIPS.exe`, `moresampler.exe` e `ChopSampler.exe`.
+  - **Tradução Automática de Caminhos (`to_wine_windows_path`)**: Caminhos POSIX de entrada e saída (`/path/to/project/...` e `/tmp/...`) agora são traduzidos transparentemente para o formato Windows (`Z:\path\to\project\...` e `Z:\tmp\...` com contrabarras `\`). Isso impede que os analisadores de linha de comando padrão do Windows (MSVCRT/MinGW) confundam barras `/` com argumentos ou switches (`/U`, `/v`), eliminando falhas de execução em resamplers como `TIPS.exe`, `moresampler.exe` e `ChopSampler.exe`.
   - **Modo CLI Headless Otimizado**: Injeção automática das variáveis de ambiente `DISPLAY=""` (evitando inicialização demorada de janelas e subsistemas Vulkan/MoltenVK no macOS para ferramentas em segundo plano) e `LANG="ja_JP.utf8"`.
   - **Compatibilidade Automática com `moresampler.exe`**: Criação ou atualização dinâmica do arquivo `moreconfig.txt` no diretório do binário com `resampler-compatibility on`.
   - **Busca Abrangente de Executáveis**: Adicionados múltiplos diretórios de descoberta automática (`std::env::current_exe`, `Documents/kamafeu/resamplers`, `Downloads`, `Library/Application Support/OpenUtau/Resamplers`, etc.).
@@ -55,7 +75,7 @@ e este projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR
 ### Engenharia DSP: Pipeline de Transições, Resampler, Wavtool e Concatenação
 - **Cache content-addressed de fragmentos do resampler**:
   - Resultados são reutilizados em RAM e em `~/Library/Caches/kamafeu/resampler-v1`, evitando relançar TIPS/Wine para fonemas idênticos a cada prévia ou exportação.
-  - A chave inclui amostra e metadados de análise (`.frq`, `.pmk`, `.mrq` e equivalentes), parâmetros OTO, pitch/curva, duração, flags, tempo e versão do executável.
+  - A chave inclui amostra e metadados de análise (`.frq`, `.pmk`, `.mrq` e equivalentes), parâmetros do `oto.ini`, pitch/curva, duração, flags, tempo e versão do executável.
   - Pedidos simultâneos idênticos são coalescidos em uma única execução e o limite de threads configurado na interface agora controla prévia e exportação.
 - **SOLA adaptativo para canto**:
   - Substituída a estimativa global por análise YIN com refinamento subamostral e rejeição de material aperiódico.
@@ -83,7 +103,7 @@ e este projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR
   - Serialização de cabeçalhos de tempo, compassos, andamentos (`tempoList`), faixas com blocos `<musicalPart>`, notas `<note>` com durações em ticks e fonemas SAMPA mapeados.
 - **Unificação de Diálogos de Abertura, Importação e Exportação**:
   - Os filtros do seletor de arquivos (`rfd::FileDialog`) passaram a aceitar todas as extensões em formatos maiúsculos e minúsculos: `.aps`, `.ustx`, `.ust`, `.ufdata`, `.svp`, `.vsqx`, `.vsq`, `.mid`, `.midi`, `.json`.
-  - Criação de entradas dedicadas nos submenus `📥 Importar` e `📤 Exportar` da barra superior (`menu_bar.rs`) para `.ufdata`, `.svp` e `.vsqx`.
+  - Criação de entradas dedicadas nos submenus `Importar` e `Exportar` da barra superior (`menu_bar.rs`) para `.ufdata`, `.svp` e `.vsqx`.
 
 ### Edição Direta e Cirúrgica de Fonemas na Régua Inferior
 - **Editor Inline via Clique Duplo em Badges**:
@@ -98,7 +118,7 @@ e este projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR
     - *Passo 1 (Base & Curvas)*: Desenho do corpo da nota (blobs estilo Melodyne), formas de onda internas, envelopes de volume, modulação senoidal de vibrato e curvas de pitch bend contínuas.
     - *Passo 2 (Primeiro Plano Absoluto)*: Execução diferida (`pending_lyric_tags` e `pending_phoneme_badges`) desenhando caixas de texto com fundo 100% opaco (`rgb(26, 18, 8)`) sobrepostas às curvas de pitch.
   - O texto da letra nunca mais é atravessado ou cortado pela linha de pitch, garantindo 100% de legibilidade e contraste cromático.
-  - O fundo da mini-barra flutuante (`〰 Vib`, `🎚 Env`, `📈 Pitch`, `⚙ Prop`) foi tornado 100% opaco (`rgb(15, 12, 24)`), isolando-a contra trajetórias de notas adjacentes.
+  - O fundo da mini-barra flutuante (`Vib`, `Env`, `Pitch`, `Prop`) foi tornado 100% opaco (`rgb(15, 12, 24)`), isolando-a contra trajetórias de notas adjacentes.
 
 ### Renderização Visual da Curva de Pitch e Micro-Nós de Controle
 - **Translucidez e Suavidade da Curva de Pitch**:
@@ -142,7 +162,7 @@ e este projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR
 ### Corrigido
 
 - Corrigida a voz de “esquilo” reproduzida com o alias `k ae` do KYE no projeto `dancing_queen.aps`, tanto no TD-PSOLA quanto no SOLA/WSOLA.
-- Regiões consonantais do OTO encurtadas para caber em fonemas breves agora usam WSOLA com preservação de tom; a reamostragem linear anterior alterava a velocidade e elevava o pitch das transições vocálicas contidas nessas regiões.
+- Regiões consonantais do `oto.ini` encurtadas para caber em fonemas breves agora usam WSOLA com preservação de tom; a reamostragem linear anterior alterava a velocidade e elevava o pitch das transições vocálicas contidas nessas regiões.
 - Adicionado teste de regressão para a proporção real encontrada no KYE (`204 ms` de região consonantal reduzidos para aproximadamente `96 ms`) e validado o resultado no projeto real em B3.
 
 ### Edição de fonemas
@@ -158,7 +178,7 @@ e este projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR
 
 - Cada nota agora possui controles próprios de `Fade-in`, `Fade-out` e `Crossfade` na aba **Nota**, além de predefinições suave, seca e automática.
 - Crossfades individuais são desenhados diretamente sobre a nota como uma região em “X”, seguindo a referência visual de editores de áudio.
-- O valor individual controla o overlap usado pelo renderer e pelo wavtool; em `0 ms`, permanece ativo o comportamento automático baseado no OTO e na configuração global.
+- O valor individual controla o overlap usado pelo renderer e pelo wavtool; em `0 ms`, permanece ativo o comportamento automático baseado no `oto.ini` e na configuração global.
 - Fade-in, fade-out e crossfade são salvos no `.aps`, aplicam-se a múltiplas notas selecionadas e são normalizados ao carregar projetos.
 
 ### Outras correções

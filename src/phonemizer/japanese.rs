@@ -413,8 +413,10 @@ impl JapanesePhonemizer {
 
     fn find_oto_candidate(vb: &Voicebank, candidates: &[String], pitch: &str) -> Option<String> {
         for cand in candidates {
-            if let Some(entry) = vb.find_entry(cand, pitch) {
-                return Some(entry.alias.clone());
+            for spelling in romaji::lyric_candidates(cand) {
+                if let Some(entry) = vb.find_mapped_entry(&spelling, pitch) {
+                    return Some(entry.alias.clone());
+                }
             }
         }
         None
@@ -479,11 +481,17 @@ impl JapanesePhonemizer {
             let note = exp.note;
             let note_index = exp.note_index;
 
+            if exp.lyric.is_empty() || exp.lyric == "R" {
+                prev_vowel = None;
+                prev_note_end_ms = None;
+                continue;
+            }
+
             let cur_vowel = Self::extract_vowel(exp.lyric);
             let _cur_consonant = Self::extract_consonant(exp.lyric);
 
             let is_phrase_start = match prev_note_end_ms {
-                Some(end_ms) => exp.position_ms > end_ms + 60.0,
+                Some(end_ms) => exp.position_ms > end_ms + 0.001,
                 None => true,
             };
 
@@ -512,8 +520,10 @@ impl JapanesePhonemizer {
                         {
                             alias = found;
                         }
-                    } else if let Some(found) = vb.find_entry(&alias, &note.pitch) {
-                        alias = found.alias.clone();
+                    } else if let Some(found) =
+                        Self::find_oto_candidate(vb, &[alias.clone()], &note.pitch)
+                    {
+                        alias = found;
                     }
 
                     phones.push(RenderPhone {
@@ -538,6 +548,8 @@ impl JapanesePhonemizer {
                                 format!("{} {}", pv, exp.lyric),
                                 format!("{}_{}", pv, exp.lyric),
                                 format!("{}{}", pv, exp.lyric),
+                                format!("* {}", exp.lyric),
+                                exp.lyric.to_string(),
                             ];
                             if let Some(found) =
                                 Self::find_oto_candidate(vb, &vcv_cands, &note.pitch)
@@ -615,7 +627,7 @@ impl JapanesePhonemizer {
 
                     if let Some(next_exp) = next_note_ref {
                         let next_gap = next_exp.position_ms - (exp.position_ms + exp.duration_ms);
-                        let is_next_adjacent = next_gap <= 60.0;
+                        let is_next_adjacent = next_gap <= 0.001;
 
                         if is_next_adjacent && !PLAIN_VOWELS.contains(&next_exp.lyric) {
                             if let (Some(vow), Some(con)) =
@@ -639,7 +651,7 @@ impl JapanesePhonemizer {
                                 ) {
                                     let mut vc_length_ms = 80.0;
                                     if let Some(oto) =
-                                        vb.find_entry(next_exp.lyric, &next_exp.note.pitch)
+                                        vb.find_mapped_entry(next_exp.lyric, &next_exp.note.pitch)
                                     {
                                         if oto.overlap < 0.0 {
                                             vc_length_ms =
@@ -675,19 +687,7 @@ impl JapanesePhonemizer {
                             flags: note.flags.clone(),
                         });
 
-                        let vc_envelope = crate::dsp::envelope::UtauEnvelope {
-                            p1: 0.0,
-                            p2: 5.0,
-                            p3: 20.0,
-                            p4: 0.0,
-                            p5: 10.0,
-                            v1: 0.0,
-                            v2: 100.0,
-                            v3: 100.0,
-                            v4: 100.0,
-                            v5: 100.0,
-                            crossfade_ms: 0.0,
-                        };
+                        let vc_envelope = note.envelope.clone();
 
                         phones.push(RenderPhone {
                             note_index,

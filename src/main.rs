@@ -64,10 +64,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     match cli.command {
         None | Some(Commands::Gui) => {
-            println!("Starting Kamafeu Studio - sintetizador de voz...");
+            println!("Starting Kamafeu Studio v1.0.0-A (Âmbar) - sintetizador de voz...");
             let icon_data = kamafeu::gui::window_icon::load_window_icon().ok();
             let mut viewport = eframe::egui::ViewportBuilder::default()
-                .with_title("Kamafeu Studio - sintetizador de voz")
+                .with_title("Kamafeu Studio v1.0.0-A (Âmbar)")
                 .with_inner_size([1280.0, 750.0])
                 .with_min_inner_size([800.0, 500.0]);
 
@@ -81,7 +81,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             };
 
             eframe::run_native(
-                "Kamafeu Studio - sintetizador de voz",
+                "Kamafeu Studio v1.0.0-A (Âmbar)",
                 options,
                 Box::new(|cc| Ok(Box::new(KamafeuStudioApp::new(cc)))),
             )?;
@@ -190,6 +190,10 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 &RenderOptions::default(),
                 None,
             );
+
+            if let Some(error) = &rendered.error {
+                return Err(std::io::Error::other(error.clone()).into());
+            }
 
             println!("Writing rendered audio to: {:?}", output);
             let spec = hound::WavSpec {

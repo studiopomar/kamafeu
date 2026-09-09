@@ -2,14 +2,14 @@ use crate::dsp::envelope::UtauEnvelope;
 use crate::dsp::pitch::{midi_to_note_name, note_name_to_midi, VibratoParam};
 use serde::{Deserialize, Serialize};
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct UPitchBendPoint {
     pub time_offset_ms: f64,
     pub pitch_offset_cents: f64,
     pub shape: String, // "", "s" (linear), "j" (exp), "r" (log)
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct UPitchBend {
     pub points: Vec<UPitchBendPoint>,
@@ -88,7 +88,7 @@ impl UPitchBend {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct UExpressions {
     pub dynamics: f64,    // DYN (-240 to +120, in 0.1 dB units)
     pub pitch_delta: f64, // PITD (-1200 to +1200 cents, default 0)
@@ -149,7 +149,7 @@ impl Default for UExpressions {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct UNote {
     pub lyric: String,
     pub pitch: String,
@@ -193,6 +193,17 @@ impl UNote {
             flags: String::new(),
             phoneme_durations_ms: Vec::new(),
         }
+    }
+
+    /// Restaura todos os parâmetros de expressão, envelopes UTAU, vibrato, curvas de afinação,
+    /// flags e durações fonéticas da nota para seus valores padrão de fábrica.
+    pub fn reset_all_parameters(&mut self) {
+        self.envelope = UtauEnvelope::default();
+        self.vibrato = VibratoParam::default();
+        self.pitch_bend = UPitchBend::default();
+        self.expressions = UExpressions::default();
+        self.flags.clear();
+        self.phoneme_durations_ms.clear();
     }
 
     /// Resolve durações internas válidas para `count` fonemas, preservando as
@@ -252,7 +263,7 @@ impl UNote {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct UTrack {
     pub name: String,
     pub singer: String,
@@ -268,6 +279,8 @@ pub struct UTrack {
     pub pan: f64,
     pub mute: bool,
     pub solo: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub fx_rack: Option<crate::audio::FxRackConfig>,
 }
 
 impl Default for UTrack {
@@ -283,11 +296,12 @@ impl Default for UTrack {
             pan: 0.0,
             mute: false,
             solo: false,
+            fx_rack: None,
         }
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct UVoicePart {
     pub name: String,
     pub track_index: usize,
@@ -306,7 +320,7 @@ impl UVoicePart {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct UWavePart {
     pub name: String,
     pub file_path: String,
@@ -339,7 +353,7 @@ impl UWavePart {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct UProject {
     pub name: String,
     pub bpm: f64,
@@ -735,5 +749,56 @@ mod project_tests {
             (point.time_offset_ms - 30.0).abs() < 1e-6
                 && (point.pitch_offset_cents - 25.0).abs() < 1e-6
         }));
+    }
+
+    #[test]
+    fn test_reset_all_parameters_restores_defaults() {
+        let mut note = UNote::new("ka", "A4", 480.0, 480.0);
+        note.expressions.dynamics = 45.0;
+        note.expressions.gender = -20.0;
+        note.expressions.breathiness = 30.0;
+        note.expressions.velocity = 150.0;
+        note.expressions.consonant_velocity = 120.0;
+        note.expressions.modulation = 50.0;
+        note.expressions.volume = 80.0;
+        note.expressions.attack = 110.0;
+        note.expressions.decay = 25.0;
+        note.expressions.consonant_timing_offset_ms = 15.0;
+        note.expressions.preutter_offset_ms = -10.0;
+        note.expressions.overlap_offset_ms = 8.0;
+        note.flags = "g-5BRE50".to_string();
+        note.phoneme_durations_ms = vec![120.0, 360.0];
+        note.vibrato.depth_cents = 60.0;
+        note.envelope.p1 = 20.0;
+        note.pitch_bend.points.push(UPitchBendPoint {
+            time_offset_ms: 50.0,
+            pitch_offset_cents: 20.0,
+            shape: "s".to_string(),
+        });
+
+        note.reset_all_parameters();
+
+        assert_eq!(note.lyric, "ka");
+        assert_eq!(note.pitch, "A4");
+        assert_eq!(note.position_ms, 480.0);
+        assert_eq!(note.duration_ms, 480.0);
+        assert_eq!(note.expressions.dynamics, 0.0);
+        assert_eq!(note.expressions.gender, 0.0);
+        assert_eq!(note.expressions.breathiness, 0.0);
+        assert_eq!(note.expressions.velocity, 100.0);
+        assert_eq!(note.expressions.consonant_velocity, 100.0);
+        assert_eq!(note.expressions.modulation, 0.0);
+        assert_eq!(note.expressions.volume, 100.0);
+        assert_eq!(note.expressions.attack, 100.0);
+        assert_eq!(note.expressions.decay, 0.0);
+        assert_eq!(note.expressions.consonant_timing_offset_ms, 0.0);
+        assert_eq!(note.expressions.preutter_offset_ms, 0.0);
+        assert_eq!(note.expressions.overlap_offset_ms, 0.0);
+        assert!(note.flags.is_empty());
+        assert!(note.phoneme_durations_ms.is_empty());
+        assert_eq!(note.vibrato.length_pct, 0.0);
+        assert_eq!(note.envelope.p1, 0.0);
+        assert_eq!(note.envelope.p2, 5.0);
+        assert!(note.pitch_bend.points.is_empty());
     }
 }
