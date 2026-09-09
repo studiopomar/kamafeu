@@ -126,34 +126,41 @@ impl KamafeuStudioApp {
                     .vocal_mode_params
                     .phonemizer_mode
                 {
-                    crate::phonemizer::PhonemizerMode::None => {
-                        ("Manual", lang.tr("Manual (Sem Fonemizador)", "Manual (No Phonemizer)"))
-                    }
+                    crate::phonemizer::PhonemizerMode::None => (
+                        "Manual",
+                        lang.tr("Manual (Sem Fonemizador)", "Manual (No Phonemizer)"),
+                    ),
                     crate::phonemizer::PhonemizerMode::BasicCV => ("JA: CV", "JA: Basic CV"),
                     crate::phonemizer::PhonemizerMode::VCV => ("JA: VCV", "JA: VCV"),
                     crate::phonemizer::PhonemizerMode::CVVC => ("JA: CVVC", "JA: CVVC"),
-                    crate::phonemizer::PhonemizerMode::EnglishArpasing => {
-                        ("EN: Arpasing", lang.tr("EN: Arpasing (Fonética)", "EN: Arpasing (Phonetic)"))
-                    }
-                    crate::phonemizer::PhonemizerMode::EnglishVCCV => {
-                        ("EN: VCCV", lang.tr("EN: VCCV (Fonética)", "EN: VCCV (Phonetic)"))
-                    }
+                    crate::phonemizer::PhonemizerMode::EnglishArpasing => (
+                        "EN: Arpasing",
+                        lang.tr("EN: Arpasing (Fonética)", "EN: Arpasing (Phonetic)"),
+                    ),
+                    crate::phonemizer::PhonemizerMode::EnglishVCCV => (
+                        "EN: VCCV",
+                        lang.tr("EN: VCCV (Fonética)", "EN: VCCV (Phonetic)"),
+                    ),
                     crate::phonemizer::PhonemizerMode::EnglishG2P => ("EN: G2P", "EN: English G2P"),
                     crate::phonemizer::PhonemizerMode::PortugueseBrapaVCCV => {
                         ("PT: VCCV", "PT: VCCV BRAPA (xiao)")
                     }
-                    crate::phonemizer::PhonemizerMode::PortugueseBrapaCVC => {
-                        ("PT: CVC", lang.tr("PT: BRAPA CVC (Fonética)", "PT: BRAPA CVC (Phonetic)"))
-                    }
-                    crate::phonemizer::PhonemizerMode::PortugueseCVVC => {
-                        ("PT: CVVC", lang.tr("PT: CVVC (Fonética)", "PT: CVVC (Phonetic)"))
-                    }
-                    crate::phonemizer::PhonemizerMode::PortugueseVCV => {
-                        ("PT: VCV", lang.tr("PT: VCV (Fonética)", "PT: VCV (Phonetic)"))
-                    }
-                    crate::phonemizer::PhonemizerMode::PortugueseG2P => {
-                        ("PT: G2P", lang.tr("PT: Português G2P", "PT: Portuguese G2P"))
-                    }
+                    crate::phonemizer::PhonemizerMode::PortugueseBrapaCVC => (
+                        "PT: CVC",
+                        lang.tr("PT: BRAPA CVC (Fonética)", "PT: BRAPA CVC (Phonetic)"),
+                    ),
+                    crate::phonemizer::PhonemizerMode::PortugueseCVVC => (
+                        "PT: CVVC",
+                        lang.tr("PT: CVVC (Fonética)", "PT: CVVC (Phonetic)"),
+                    ),
+                    crate::phonemizer::PhonemizerMode::PortugueseVCV => (
+                        "PT: VCV",
+                        lang.tr("PT: VCV (Fonética)", "PT: VCV (Phonetic)"),
+                    ),
+                    crate::phonemizer::PhonemizerMode::PortugueseG2P => (
+                        "PT: G2P",
+                        lang.tr("PT: Português G2P", "PT: Portuguese G2P"),
+                    ),
                 };
 
                 ui.label(
@@ -167,7 +174,10 @@ impl KamafeuStudioApp {
                         .size(10.0)
                         .color(theme.accent_c32()),
                 )
-                .on_hover_text(format!("{}: {phonemizer_full}", lang.tr("Fonetizador", "Phonemizer")));
+                .on_hover_text(format!(
+                    "{}: {phonemizer_full}",
+                    lang.tr("Fonetizador", "Phonemizer")
+                ));
 
                 if is_playing {
                     ui.add_space(4.0);

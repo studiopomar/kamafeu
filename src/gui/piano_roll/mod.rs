@@ -255,12 +255,13 @@ pub fn draw_piano_roll(
 
     // Draw Loop Region on Ruler
     if state.loop_end_ms > state.loop_start_ms {
-        let loop_start_x = ruler_rect.min.x + keyboard_width
+        let loop_start_x = ruler_rect.min.x
+            + keyboard_width
             + (state.loop_start_ms * state.px_per_ms as f64) as f32
             - timeline_scroll_x;
-        let loop_end_x = ruler_rect.min.x + keyboard_width
-            + (state.loop_end_ms * state.px_per_ms as f64) as f32
-            - timeline_scroll_x;
+        let loop_end_x =
+            ruler_rect.min.x + keyboard_width + (state.loop_end_ms * state.px_per_ms as f64) as f32
+                - timeline_scroll_x;
 
         let left_bound = ruler_rect.min.x + keyboard_width;
         let right_bound = ruler_rect.max.x;
@@ -422,9 +423,15 @@ pub fn draw_piano_roll(
 
     if is_hovered {
         max_btn_resp.clone().on_hover_text(if state.is_maximized {
-            lang.tr("Restaurar layout padrão (F11 / Shift+F)", "Restore default layout (F11 / Shift+F)")
+            lang.tr(
+                "Restaurar layout padrão (F11 / Shift+F)",
+                "Restore default layout (F11 / Shift+F)",
+            )
         } else {
-            lang.tr("Maximizar Piano Roll / Otimizar espaço (F11 / Shift+F)", "Maximize Piano Roll / Optimize space (F11 / Shift+F)")
+            lang.tr(
+                "Maximizar Piano Roll / Otimizar espaço (F11 / Shift+F)",
+                "Maximize Piano Roll / Optimize space (F11 / Shift+F)",
+            )
         });
     }
 
@@ -460,7 +467,8 @@ pub fn draw_piano_roll(
                 if playhead_canvas_x < state.horizontal_scroll_offset + 50.0 {
                     state.horizontal_scroll_offset = (playhead_canvas_x - 50.0).max(0.0);
                 } else if playhead_canvas_x > state.horizontal_scroll_offset + visible_w - 70.0 {
-                    state.horizontal_scroll_offset = (playhead_canvas_x - visible_w + 70.0).max(0.0);
+                    state.horizontal_scroll_offset =
+                        (playhead_canvas_x - visible_w + 70.0).max(0.0);
                 }
             }
         }

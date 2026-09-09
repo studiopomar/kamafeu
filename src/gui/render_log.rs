@@ -401,7 +401,10 @@ impl KamafeuStudioApp {
 
         if trigger_save_log {
             if let Some(path) = crate::dialogs::FileDialog::new()
-                .add_filter(lang.tr("Arquivo de Log (*.txt; *.log)", "Log File (*.txt; *.log)"), &["txt", "log"])
+                .add_filter(
+                    lang.tr("Arquivo de Log (*.txt; *.log)", "Log File (*.txt; *.log)"),
+                    &["txt", "log"],
+                )
                 .set_file_name("kamafeu_engine.log")
                 .save_file()
             {
@@ -415,8 +418,14 @@ impl KamafeuStudioApp {
                 );
                 let content = header + &self.render_log_messages.join("\n");
                 if std::fs::write(&path, content).is_ok() {
-                    self.transport_state.status_message =
-                        format!("{}: {}", lang.tr("Log exportado com sucesso para", "Log successfully exported to"), path.display());
+                    self.transport_state.status_message = format!(
+                        "{}: {}",
+                        lang.tr(
+                            "Log exportado com sucesso para",
+                            "Log successfully exported to"
+                        ),
+                        path.display()
+                    );
                 }
             }
         }

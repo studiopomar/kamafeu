@@ -51,7 +51,8 @@ impl KamafeuStudioApp {
                                     ui.add_space(8.0);
 
                                     let lang = self.config.language;
-                                    let reveal_label = crate::gui::dialogs::reveal_in_file_manager_label_for(lang);
+                                    let reveal_label =
+                                        crate::gui::dialogs::reveal_in_file_manager_label_for(lang);
                                     let reveal_btn = egui::Button::new(
                                         egui::RichText::new(reveal_label)
                                             .size(11.0)
@@ -65,21 +66,25 @@ impl KamafeuStudioApp {
                                         reveal_path = Some(path.clone());
                                     }
 
-                                    let copy_btn =
-                                        egui::Button::new(egui::RichText::new(lang.tr("Copiar", "Copy")).size(10.0))
-                                            .fill(egui::Color32::from_rgb(45, 40, 60))
-                                            .min_size(egui::vec2(45.0, 24.0));
+                                    let copy_btn = egui::Button::new(
+                                        egui::RichText::new(lang.tr("Copiar", "Copy")).size(10.0),
+                                    )
+                                    .fill(egui::Color32::from_rgb(45, 40, 60))
+                                    .min_size(egui::vec2(45.0, 24.0));
 
                                     if ui
                                         .add(copy_btn)
-                                        .on_hover_text(lang.tr("Copiar caminho do arquivo", "Copy file path"))
+                                        .on_hover_text(
+                                            lang.tr("Copiar caminho do arquivo", "Copy file path"),
+                                        )
                                         .clicked()
                                     {
                                         ui.output_mut(|o| {
                                             o.copied_text = path.to_string_lossy().to_string()
                                         });
-                                        self.transport_state.status_message =
-                                            lang.tr("Caminho do arquivo copiado!", "File path copied!").to_string();
+                                        self.transport_state.status_message = lang
+                                            .tr("Caminho do arquivo copiado!", "File path copied!")
+                                            .to_string();
                                     }
 
                                     let close_btn = egui::Button::new(

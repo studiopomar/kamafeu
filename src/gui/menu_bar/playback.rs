@@ -64,10 +64,7 @@ impl KamafeuStudioApp {
                         (lang.tr("0.75x (Moderada)", "0.75x (Moderate)"), 0.75f64),
                         (lang.tr("1.0x (Normal)", "1.0x (Normal)"), 1.0f64),
                         (lang.tr("1.25x (Rápida)", "1.25x (Fast)"), 1.25f64),
-                        (
-                            lang.tr("1.5x (Muito Rápida)", "1.5x (Very Fast)"),
-                            1.5f64,
-                        ),
+                        (lang.tr("1.5x (Muito Rápida)", "1.5x (Very Fast)"), 1.5f64),
                     ];
                     for (label, spd) in speeds {
                         let is_active = (self.playback_speed_rate - spd).abs() < 0.01;
@@ -86,10 +83,7 @@ impl KamafeuStudioApp {
             );
             ui.separator();
             if ui
-                .button(lang.tr(
-                    "Forçar Pré-renderização do Áudio",
-                    "Force Audio Pre-render",
-                ))
+                .button(lang.tr("Forçar Pré-renderização do Áudio", "Force Audio Pre-render"))
                 .clicked()
             {
                 self.play_current_track();

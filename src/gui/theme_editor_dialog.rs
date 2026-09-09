@@ -1,5 +1,5 @@
-use crate::gui::theme::{ThemeConfig, ThemePreset};
 use crate::config::AppLanguage;
+use crate::gui::theme::{ThemeConfig, ThemePreset};
 use eframe::egui::{self, Frame, RichText, Window};
 
 #[derive(Debug, Clone, Copy)]
@@ -96,28 +96,41 @@ pub fn draw_theme_editor_dialog(
                             ui.horizontal(|ui| {
                                 modified |=
                                     ui.color_edit_button_srgb(&mut theme.bg_canvas).changed();
-                                ui.label(lang.tr("Fundo do Canvas / Piano Roll", "Canvas / Piano Roll Background"));
+                                ui.label(lang.tr(
+                                    "Fundo do Canvas / Piano Roll",
+                                    "Canvas / Piano Roll Background",
+                                ));
                             });
                             ui.horizontal(|ui| {
                                 modified |=
                                     ui.color_edit_button_srgb(&mut theme.bg_panel).changed();
-                                ui.label(lang.tr("Fundo dos Painéis e Toolbars", "Panels & Toolbars Background"));
+                                ui.label(lang.tr(
+                                    "Fundo dos Painéis e Toolbars",
+                                    "Panels & Toolbars Background",
+                                ));
                             });
                             ui.horizontal(|ui| {
                                 modified |=
                                     ui.color_edit_button_srgb(&mut theme.bg_header).changed();
-                                ui.label(lang.tr("Fundo de Cabeçalhos e Réguas", "Headers & Rulers Background"));
+                                ui.label(lang.tr(
+                                    "Fundo de Cabeçalhos e Réguas",
+                                    "Headers & Rulers Background",
+                                ));
                             });
                             ui.horizontal(|ui| {
                                 modified |=
                                     ui.color_edit_button_srgb(&mut theme.accent_color).changed();
-                                ui.label(lang.tr("Cor de Acento / Destaque", "Accent / Highlight Color"));
+                                ui.label(
+                                    lang.tr("Cor de Acento / Destaque", "Accent / Highlight Color"),
+                                );
                             });
                             ui.horizontal(|ui| {
                                 modified |= ui
                                     .color_edit_button_srgb(&mut theme.playhead_color)
                                     .changed();
-                                ui.label(lang.tr("Cursor de Reprodução (Playhead)", "Playhead Cursor"));
+                                ui.label(
+                                    lang.tr("Cursor de Reprodução (Playhead)", "Playhead Cursor"),
+                                );
                             });
                         });
 
@@ -141,7 +154,9 @@ pub fn draw_theme_editor_dialog(
                             ui.horizontal(|ui| {
                                 modified |=
                                     ui.color_edit_button_srgb(&mut theme.note_fill).changed();
-                                ui.label(lang.tr("Preenchimento da Nota Normal", "Normal Note Fill"));
+                                ui.label(
+                                    lang.tr("Preenchimento da Nota Normal", "Normal Note Fill"),
+                                );
                             });
                             ui.horizontal(|ui| {
                                 modified |=
@@ -152,18 +167,28 @@ pub fn draw_theme_editor_dialog(
                                 modified |= ui
                                     .color_edit_button_srgb(&mut theme.note_selected_fill)
                                     .changed();
-                                ui.label(lang.tr("Preenchimento da Nota Selecionada", "Selected Note Fill"));
+                                ui.label(
+                                    lang.tr(
+                                        "Preenchimento da Nota Selecionada",
+                                        "Selected Note Fill",
+                                    ),
+                                );
                             });
                             ui.horizontal(|ui| {
                                 modified |= ui
                                     .color_edit_button_srgb(&mut theme.note_selected_stroke)
                                     .changed();
-                                ui.label(lang.tr("Borda da Nota Selecionada", "Selected Note Border"));
+                                ui.label(
+                                    lang.tr("Borda da Nota Selecionada", "Selected Note Border"),
+                                );
                             });
                             ui.horizontal(|ui| {
                                 modified |=
                                     ui.color_edit_button_srgb(&mut theme.note_hover).changed();
-                                ui.label(lang.tr("Nota em Hover (Mouse Sobre)", "Hovered Note (Mouse Over)"));
+                                ui.label(lang.tr(
+                                    "Nota em Hover (Mouse Sobre)",
+                                    "Hovered Note (Mouse Over)",
+                                ));
                             });
                             ui.horizontal(|ui| {
                                 modified |= ui
@@ -198,7 +223,9 @@ pub fn draw_theme_editor_dialog(
                             ui.horizontal(|ui| {
                                 modified |=
                                     ui.color_edit_button_srgb(&mut theme.text_muted).changed();
-                                ui.label(lang.tr("Texto Secundário / Muted", "Secondary / Muted Text"));
+                                ui.label(
+                                    lang.tr("Texto Secundário / Muted", "Secondary / Muted Text"),
+                                );
                             });
                             ui.horizontal(|ui| {
                                 modified |= ui
@@ -210,7 +237,12 @@ pub fn draw_theme_editor_dialog(
                                 modified |= ui
                                     .color_edit_button_srgb(&mut theme.grid_line_sub)
                                     .changed();
-                                ui.label(lang.tr("Linhas de Subdivisão de Tempo", "Beat Subdivision Lines"));
+                                ui.label(
+                                    lang.tr(
+                                        "Linhas de Subdivisão de Tempo",
+                                        "Beat Subdivision Lines",
+                                    ),
+                                );
                             });
                         });
 
@@ -224,15 +256,19 @@ pub fn draw_theme_editor_dialog(
                         .inner_margin(egui::Margin::same(8.0))
                         .show(ui, |ui| {
                             ui.label(
-                                RichText::new(lang.tr("Geometria & Arredondamentos", "Geometry & Rounding"))
-                                    .strong()
-                                    .size(11.0)
-                                    .color(theme.accent_c32()),
+                                RichText::new(
+                                    lang.tr("Geometria & Arredondamentos", "Geometry & Rounding"),
+                                )
+                                .strong()
+                                .size(11.0)
+                                .color(theme.accent_c32()),
                             );
                             ui.add_space(4.0);
 
                             ui.horizontal(|ui| {
-                                ui.label(lang.tr("Arredondamento das Notas:", "Note Corner Radius:"));
+                                ui.label(
+                                    lang.tr("Arredondamento das Notas:", "Note Corner Radius:"),
+                                );
                                 modified |= ui
                                     .add(
                                         egui::Slider::new(
@@ -244,7 +280,10 @@ pub fn draw_theme_editor_dialog(
                                     .changed();
                             });
                             ui.horizontal(|ui| {
-                                ui.label(lang.tr("Arredondamento da UI / Cards:", "UI / Card Corner Radius:"));
+                                ui.label(lang.tr(
+                                    "Arredondamento da UI / Cards:",
+                                    "UI / Card Corner Radius:",
+                                ));
                                 modified |= ui
                                     .add(
                                         egui::Slider::new(&mut theme.ui_corner_radius, 0.0..=12.0)
@@ -253,7 +292,10 @@ pub fn draw_theme_editor_dialog(
                                     .changed();
                             });
                             ui.horizontal(|ui| {
-                                ui.label(lang.tr("Espessura da Borda das Notas:", "Note Border Stroke Width:"));
+                                ui.label(lang.tr(
+                                    "Espessura da Borda das Notas:",
+                                    "Note Border Stroke Width:",
+                                ));
                                 modified |= ui
                                     .add(
                                         egui::Slider::new(&mut theme.note_stroke_width, 0.5..=3.0)
@@ -277,9 +319,11 @@ pub fn draw_theme_editor_dialog(
             ui.horizontal(|ui| {
                 if ui
                     .button(
-                        RichText::new(lang.tr("Salvar como Tema Personalizado", "Save as Custom Theme"))
-                            .strong()
-                            .size(11.5),
+                        RichText::new(
+                            lang.tr("Salvar como Tema Personalizado", "Save as Custom Theme"),
+                        )
+                        .strong()
+                        .size(11.5),
                     )
                     .clicked()
                 {
@@ -287,7 +331,10 @@ pub fn draw_theme_editor_dialog(
                     modified = true;
                     close_clicked = true;
                 }
-                if ui.button(RichText::new(lang.tr("Fechar", "Close")).size(11.0)).clicked() {
+                if ui
+                    .button(RichText::new(lang.tr("Fechar", "Close")).size(11.0))
+                    .clicked()
+                {
                     close_clicked = true;
                 }
             });

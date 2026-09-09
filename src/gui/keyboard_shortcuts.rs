@@ -269,8 +269,7 @@ impl KamafeuStudioApp {
                     !self.piano_roll_state.show_phoneme_ruler;
             }
             if do_toggle_inspector {
-                self.piano_roll_state.show_inspector =
-                    !self.piano_roll_state.show_inspector;
+                self.piano_roll_state.show_inspector = !self.piano_roll_state.show_inspector;
             }
             if do_toggle_arrangement {
                 self.piano_roll_state.show_arrangement_view =

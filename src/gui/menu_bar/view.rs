@@ -65,10 +65,7 @@ impl KamafeuStudioApp {
                             lang.tr("125% (Grande / HiDPI)", "125% (Large / HiDPI)"),
                             1.25f32,
                         ),
-                        (
-                            lang.tr("150% (Muito Grande)", "150% (Very Large)"),
-                            1.50f32,
-                        ),
+                        (lang.tr("150% (Muito Grande)", "150% (Very Large)"), 1.50f32),
                     ];
                     for (label, s) in scales {
                         let is_active = (self.config.ui_scale_factor - s).abs() < 0.02;

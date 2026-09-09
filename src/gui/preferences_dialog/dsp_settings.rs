@@ -8,12 +8,18 @@ use eframe::egui::RichText;
 impl KamafeuStudioApp {
     pub(in crate::gui) fn render_dsp_settings_tab(&mut self, ui: &mut egui::Ui) {
         let lang = self.config.language;
-        section_card(ui, lang.tr("Desempenho & Paralelismo de Renderização", "Rendering Performance & Parallelism"), |ui| {
-            let cpu_threads = std::thread::available_parallelism()
-                .map(|n| n.get())
-                .unwrap_or(4);
+        section_card(
+            ui,
+            lang.tr(
+                "Desempenho & Paralelismo de Renderização",
+                "Rendering Performance & Parallelism",
+            ),
+            |ui| {
+                let cpu_threads = std::thread::available_parallelism()
+                    .map(|n| n.get())
+                    .unwrap_or(4);
 
-            ui.horizontal(|ui| {
+                ui.horizontal(|ui| {
                 ui.label(lang.tr("Threads de Renderização:", "Render Threads:"));
                 let threads_val = self.config.dsp.render_threads;
                 if threads_val == 0 {
@@ -30,24 +36,29 @@ impl KamafeuStudioApp {
                 );
             });
 
-            ui.horizontal(|ui| {
-                ui.add(
-                    egui::Slider::new(&mut self.config.dsp.render_threads, 0..=32)
-                        .text(lang.tr("threads (0 = auto)", "threads (0 = auto)")),
-                );
-                if ui
-                    .button(
-                        RichText::new(format!("{} ({cpu_threads} {})", lang.tr("Auto-detectar", "Auto-detect"), lang.tr("núcleos", "cores"))).size(10.5),
-                    )
-                    .clicked()
-                {
-                    self.config.dsp.render_threads = 0;
-                    self.render_threads = cpu_threads as u32;
-                }
-            });
+                ui.horizontal(|ui| {
+                    ui.add(
+                        egui::Slider::new(&mut self.config.dsp.render_threads, 0..=32)
+                            .text(lang.tr("threads (0 = auto)", "threads (0 = auto)")),
+                    );
+                    if ui
+                        .button(
+                            RichText::new(format!(
+                                "{} ({cpu_threads} {})",
+                                lang.tr("Auto-detectar", "Auto-detect"),
+                                lang.tr("núcleos", "cores")
+                            ))
+                            .size(10.5),
+                        )
+                        .clicked()
+                    {
+                        self.config.dsp.render_threads = 0;
+                        self.render_threads = cpu_threads as u32;
+                    }
+                });
 
-            ui.add_space(4.0);
-            ui.horizontal(|ui| {
+                ui.add_space(4.0);
+                ui.horizontal(|ui| {
                 ui.label(lang.tr("Prioridade das Threads:", "Thread Priority:"));
                 let prio_list = [
                     ("Normal", lang.tr("Normal", "Normal")),
@@ -67,11 +78,15 @@ impl KamafeuStudioApp {
                     ),
                 );
             });
-        });
+            },
+        );
 
         section_card(
             ui,
-            lang.tr("Algoritmos DSP, Interpolação & Curvas de Pitch", "DSP Algorithms, Interpolation & Pitch Curves"),
+            lang.tr(
+                "Algoritmos DSP, Interpolação & Curvas de Pitch",
+                "DSP Algorithms, Interpolation & Pitch Curves",
+            ),
             |ui| {
                 ui.horizontal(|ui| {
                     ui.label(lang.tr("Resolução Temporal da Curva de Pitch:", "Pitch Curve Time Resolution:"));
@@ -304,7 +319,10 @@ impl KamafeuStudioApp {
 
         section_card(
             ui,
-            lang.tr("Motores de Síntese Padrão (Resampler & Wavtool)", "Default Synthesis Engines (Resampler & Wavtool)"),
+            lang.tr(
+                "Motores de Síntese Padrão (Resampler & Wavtool)",
+                "Default Synthesis Engines (Resampler & Wavtool)",
+            ),
             |ui| {
                 ui.horizontal(|ui| {
                     ui.label(lang.tr("Resampler Padrão:", "Default Resampler:"));

@@ -37,7 +37,10 @@ impl KamafeuStudioApp {
 
         section_card(
             ui,
-            lang.tr("Suíte de Testes & Calibração Ativa de Hardware", "Hardware Testing Suite & Active Calibration"),
+            lang.tr(
+                "Suíte de Testes & Calibração Ativa de Hardware",
+                "Hardware Testing Suite & Active Calibration",
+            ),
             |ui| {
                 ui.label(RichText::new(lang.tr(
                     "Execute diagnósticos em tempo real para verificar latência de áudio, poder de cálculo DSP, taxa de alocação de memória e integridade dos bancos de voz.",
@@ -101,10 +104,13 @@ impl KamafeuStudioApp {
                 // 2. Benchmarks & Stress Tests
                 ui.group(|ui| {
                     ui.label(
-                        RichText::new(lang.tr("Benchmarks de Alto Desempenho & Testes de Estresse", "High-Performance Benchmarks & Stress Tests"))
-                            .strong()
-                            .size(12.0)
-                            .color(Color32::from_rgb(255, 215, 100)),
+                        RichText::new(lang.tr(
+                            "Benchmarks de Alto Desempenho & Testes de Estresse",
+                            "High-Performance Benchmarks & Stress Tests",
+                        ))
+                        .strong()
+                        .size(12.0)
+                        .color(Color32::from_rgb(255, 215, 100)),
                     );
                     ui.add_space(4.0);
 
@@ -124,8 +130,11 @@ impl KamafeuStudioApp {
 
                         if ui
                             .button(
-                                RichText::new(lang.tr("Testar Alocação de Memória RAM (64 MB Heap)", "Test RAM Allocation (64 MB Heap)"))
-                                    .size(11.0),
+                                RichText::new(lang.tr(
+                                    "Testar Alocação de Memória RAM (64 MB Heap)",
+                                    "Test RAM Allocation (64 MB Heap)",
+                                ))
+                                .size(11.0),
                             )
                             .clicked()
                         {
@@ -134,8 +143,11 @@ impl KamafeuStudioApp {
 
                         if ui
                             .button(
-                                RichText::new(lang.tr("Auditar Integridade de Todos os Cantores", "Audit All Singer Voicebank Integrity"))
-                                    .size(11.0),
+                                RichText::new(lang.tr(
+                                    "Auditar Integridade de Todos os Cantores",
+                                    "Audit All Singer Voicebank Integrity",
+                                ))
+                                .size(11.0),
                             )
                             .clicked()
                         {
@@ -178,7 +190,10 @@ impl KamafeuStudioApp {
 
         section_card(
             ui,
-            lang.tr("Otimizações de Baixo Nível & Parâmetros do Kernel", "Low-Level Optimizations & Kernel Parameters"),
+            lang.tr(
+                "Otimizações de Baixo Nível & Parâmetros do Kernel",
+                "Low-Level Optimizations & Kernel Parameters",
+            ),
             |ui| {
                 ui.horizontal(|ui| {
                     ui.label(lang.tr("Conjunto de Instruções Vetoriais SIMD:", "SIMD Vector Instruction Set:"));
@@ -343,7 +358,10 @@ impl KamafeuStudioApp {
 
         section_card(
             ui,
-            lang.tr("Telemetria de Hardware & Sistema em Tempo Real", "Real-Time Hardware & System Telemetry"),
+            lang.tr(
+                "Telemetria de Hardware & Sistema em Tempo Real",
+                "Real-Time Hardware & System Telemetry",
+            ),
             |ui| {
                 let cpu_threads = std::thread::available_parallelism()
                     .map(|n| n.get())
@@ -353,15 +371,21 @@ impl KamafeuStudioApp {
 
                 ui.horizontal_wrapped(|ui| {
                     ui.label(
-                        RichText::new(format!("{}: {os_name} ({arch_name})", lang.tr("Sistema", "System")))
-                            .strong()
-                            .color(Color32::from_rgb(180, 230, 255)),
+                        RichText::new(format!(
+                            "{}: {os_name} ({arch_name})",
+                            lang.tr("Sistema", "System")
+                        ))
+                        .strong()
+                        .color(Color32::from_rgb(180, 230, 255)),
                     );
                     ui.separator();
                     ui.label(
-                        RichText::new(format!("{}: {cpu_threads}", lang.tr("Threads Lógicas", "Logical Threads")))
-                            .strong()
-                            .color(Color32::from_rgb(0, 255, 157)),
+                        RichText::new(format!(
+                            "{}: {cpu_threads}",
+                            lang.tr("Threads Lógicas", "Logical Threads")
+                        ))
+                        .strong()
+                        .color(Color32::from_rgb(0, 255, 157)),
                     );
                     ui.separator();
                     ui.label(

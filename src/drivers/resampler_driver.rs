@@ -439,7 +439,10 @@ fn parse_flag_numeric(flags: &str, flag: char) -> Option<f64> {
             if matches!(chars.peek().copied(), Some('+' | '-')) {
                 num_str.push(chars.next().unwrap());
             }
-            while chars.peek().is_some_and(|next| next.is_ascii_digit() || *next == '.') {
+            while chars
+                .peek()
+                .is_some_and(|next| next.is_ascii_digit() || *next == '.')
+            {
                 num_str.push(chars.next().unwrap());
             }
             if let Ok(val) = num_str.parse::<f64>() {

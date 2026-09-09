@@ -153,10 +153,42 @@ pub(super) fn draw(
             }
 
             let presets = [
-                (lang.tr("Pop suave", "Soft Pop"), 65.0, 48.0, 175.0, 25.0, 15.0, "65% • 48c"),
-                (lang.tr("Dramático", "Dramatic"), 75.0, 75.0, 160.0, 20.0, 10.0, "75% • 75c"),
-                (lang.tr("Balada", "Ballad"), 80.0, 50.0, 220.0, 35.0, 15.0, "80% • 50c"),
-                (lang.tr("Rápido", "Fast"), 60.0, 60.0, 140.0, 20.0, 10.0, "60% • 60c"),
+                (
+                    lang.tr("Pop suave", "Soft Pop"),
+                    65.0,
+                    48.0,
+                    175.0,
+                    25.0,
+                    15.0,
+                    "65% • 48c",
+                ),
+                (
+                    lang.tr("Dramático", "Dramatic"),
+                    75.0,
+                    75.0,
+                    160.0,
+                    20.0,
+                    10.0,
+                    "75% • 75c",
+                ),
+                (
+                    lang.tr("Balada", "Ballad"),
+                    80.0,
+                    50.0,
+                    220.0,
+                    35.0,
+                    15.0,
+                    "80% • 50c",
+                ),
+                (
+                    lang.tr("Rápido", "Fast"),
+                    60.0,
+                    60.0,
+                    140.0,
+                    20.0,
+                    10.0,
+                    "60% • 60c",
+                ),
             ];
 
             for (display_label, length, depth, period, fade_in, fade_out, desc) in presets {
@@ -177,7 +209,9 @@ pub(super) fn draw(
                     .wrap_mode(egui::TextWrapMode::Extend);
 
                 let period_label = lang.tr("Período", "Period");
-                let btn_resp = ui.add(btn).on_hover_text(format!("{} ({}: {:.0}ms)", desc, period_label, period));
+                let btn_resp = ui
+                    .add(btn)
+                    .on_hover_text(format!("{} ({}: {:.0}ms)", desc, period_label, period));
                 if btn_resp.clicked() {
                     let vibrato = crate::dsp::pitch::VibratoParam {
                         length_pct: length,

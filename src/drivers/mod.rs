@@ -4,8 +4,8 @@ pub mod wavtool_driver;
 
 pub use resampler_driver::{
     ExternalResamplerDriver, KnownResampler, MacResDriver, NativeResamplerDriver,
-    NativeSolaResamplerDriver, NativeVenusResamplerDriver, NativeWorldResamplerDriver, ResamplerArgs,
-    ResamplerDriver,
+    NativeSolaResamplerDriver, NativeVenusResamplerDriver, NativeWorldResamplerDriver,
+    ResamplerArgs, ResamplerDriver,
 };
 pub use wavtool_driver::{
     ExternalWavtoolDriver, KnownWavtool, NativeWavtoolDriver, WavtoolArgs, WavtoolDriver,

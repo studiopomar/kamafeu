@@ -689,8 +689,7 @@ impl SolaResampler {
                 let window =
                     (0.5 + 0.5 * (std::f64::consts::PI * delta / grain_radius).cos()) as f32;
                 let output_index = output_index as usize;
-                output[output_index] +=
-                    Self::cubic_sample(vowel, source_sample_position) * window;
+                output[output_index] += Self::cubic_sample(vowel, source_sample_position) * window;
                 weights[output_index] += window;
             }
 

@@ -211,7 +211,10 @@ impl WorldF0Extractor {
 
             let mut selected_lag = best_lag;
             for lag in (search_min + 1)..search_max {
-                if nacf[lag] > nacf[lag - 1] && nacf[lag] >= nacf[lag + 1] && nacf[lag] >= max_corr * 0.85 {
+                if nacf[lag] > nacf[lag - 1]
+                    && nacf[lag] >= nacf[lag + 1]
+                    && nacf[lag] >= max_corr * 0.85
+                {
                     selected_lag = lag;
                     break;
                 }
@@ -559,7 +562,12 @@ mod tests {
         FastFft::transform(&mut re, &mut im, true);
 
         for i in 0..64 {
-            assert!((re[i] - orig_re[i]).abs() < 1e-5, "Mismatch at {i}: {} vs {}", re[i], orig_re[i]);
+            assert!(
+                (re[i] - orig_re[i]).abs() < 1e-5,
+                "Mismatch at {i}: {} vs {}",
+                re[i],
+                orig_re[i]
+            );
             assert!(im[i].abs() < 1e-5, "Imaginary component should be ~0");
         }
     }
@@ -586,7 +594,10 @@ mod tests {
         assert!(!voiced_f0s.is_empty(), "Should detect voiced frames");
 
         let avg_f0: f32 = voiced_f0s.iter().sum::<f32>() / voiced_f0s.len() as f32;
-        assert!((avg_f0 - freq).abs() < 5.0, "Detected f0 {avg_f0} close to target {freq}");
+        assert!(
+            (avg_f0 - freq).abs() < 5.0,
+            "Detected f0 {avg_f0} close to target {freq}"
+        );
     }
 
     #[test]
@@ -633,7 +644,10 @@ mod tests {
         // Verify that rendered audio does NOT clip or explode beyond 0.95
         let max_peak = rendered.iter().map(|s| s.abs()).fold(0.0f32, f32::max);
         assert!(max_peak <= 0.96, "Output must not clip: peak is {max_peak}");
-        assert!(max_peak >= 0.10, "Output must not be silent: peak is {max_peak}");
+        assert!(
+            max_peak >= 0.10,
+            "Output must not be silent: peak is {max_peak}"
+        );
 
         // Verify synthesized fundamental frequency is actually 330 Hz!
         let extractor = WorldF0Extractor::default();
@@ -641,7 +655,10 @@ mod tests {
         let voiced_f0s: Vec<f32> = f0_contour.iter().cloned().filter(|&f| f > 50.0).collect();
         assert!(!voiced_f0s.is_empty(), "Synthesized audio must be voiced");
         let avg_f0: f32 = voiced_f0s.iter().sum::<f32>() / voiced_f0s.len() as f32;
-        assert!((avg_f0 - 330.0).abs() < 10.0, "Synthesized pitch must be 330Hz (E4), but got {avg_f0}Hz");
+        assert!(
+            (avg_f0 - 330.0).abs() < 10.0,
+            "Synthesized pitch must be 330Hz (E4), but got {avg_f0}Hz"
+        );
     }
 
     #[test]
@@ -674,7 +691,10 @@ mod tests {
         // Check for step discontinuities / clicks across entire buffer
         for i in 1..rendered.len() {
             let diff = (rendered[i] - rendered[i - 1]).abs();
-            assert!(diff < 0.90, "No extreme step discontinuity allowed: {diff} at sample {i}");
+            assert!(
+                diff < 0.90,
+                "No extreme step discontinuity allowed: {diff} at sample {i}"
+            );
         }
     }
 }

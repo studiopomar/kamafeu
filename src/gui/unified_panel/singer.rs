@@ -247,10 +247,9 @@ pub(super) fn draw(
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                             if ui
                                 .small_button(lang.tr("Recarregar", "Reload"))
-                                .on_hover_text(lang.tr(
-                                    "Recarregar lista de cantores",
-                                    "Reload singers list",
-                                ))
+                                .on_hover_text(
+                                    lang.tr("Recarregar lista de cantores", "Reload singers list"),
+                                )
                                 .clicked()
                             {
                                 on_reload_singers();
@@ -284,10 +283,9 @@ pub(super) fn draw(
                         .show(ui, |ui| {
                             if filtered_singers.is_empty() {
                                 ui.label(
-                                    RichText::new(lang.tr(
-                                        "Nenhum cantor encontrado.",
-                                        "No singers found.",
-                                    ))
+                                    RichText::new(
+                                        lang.tr("Nenhum cantor encontrado.", "No singers found."),
+                                    )
                                     .size(9.5)
                                     .italics()
                                     .color(theme.text_muted_c32()),
@@ -347,7 +345,12 @@ pub(super) fn draw(
                                                     ),
                                                     |ui| {
                                                         if !is_current {
-                                                            if ui.small_button(lang.tr("Usar", "Use")).clicked() {
+                                                            if ui
+                                                                .small_button(
+                                                                    lang.tr("Usar", "Use"),
+                                                                )
+                                                                .clicked()
+                                                            {
                                                                 on_load_vb(Some(
                                                                     singer.path.clone(),
                                                                 ));
@@ -377,7 +380,10 @@ pub(super) fn draw(
                     )
                     .show(ui, |ui| {
                         if ui
-                            .button(RichText::new(lang.tr("+ Adicionar Pasta...", "+ Add Folder...")).size(9.5))
+                            .button(
+                                RichText::new(lang.tr("+ Adicionar Pasta...", "+ Add Folder..."))
+                                    .size(9.5),
+                            )
                             .clicked()
                         {
                             on_add_singers_dir();
@@ -568,9 +574,11 @@ pub(super) fn draw(
                     }
 
                     ui.label(
-                        RichText::new(lang.tr("Formante / Gênero (GEN):", "Formant / Gender (GEN):"))
-                            .size(10.0)
-                            .color(theme.text_muted_c32()),
+                        RichText::new(
+                            lang.tr("Formante / Gênero (GEN):", "Formant / Gender (GEN):"),
+                        )
+                        .size(10.0)
+                        .color(theme.text_muted_c32()),
                     );
                     let gen_slider = ui.add_sized(
                         Vec2::new(ui.available_width(), 18.0),
@@ -619,7 +627,9 @@ pub(super) fn draw(
                         if cols[0]
                             .add_sized(
                                 Vec2::new(cols[0].available_width(), 20.0),
-                                egui::Button::new(RichText::new(lang.tr("Orgânico", "Organic")).size(9.5)),
+                                egui::Button::new(
+                                    RichText::new(lang.tr("Orgânico", "Organic")).size(9.5),
+                                ),
                             )
                             .clicked()
                         {
@@ -645,7 +655,9 @@ pub(super) fn draw(
                         if cols[2]
                             .add_sized(
                                 Vec2::new(cols[2].available_width(), 20.0),
-                                egui::Button::new(RichText::new(lang.tr("Robô", "Robot")).size(9.5)),
+                                egui::Button::new(
+                                    RichText::new(lang.tr("Robô", "Robot")).size(9.5),
+                                ),
                             )
                             .clicked()
                         {

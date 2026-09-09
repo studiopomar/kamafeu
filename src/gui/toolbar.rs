@@ -621,10 +621,9 @@ pub fn draw_unified_toolbar(
                             .speed(0.5)
                             .suffix(" BPM"),
                     )
-                    .on_hover_text(lang.tr(
-                        "Andamento (Batidas por Minuto)",
-                        "Tempo (Beats Per Minute)",
-                    ));
+                    .on_hover_text(
+                        lang.tr("Andamento (Batidas por Minuto)", "Tempo (Beats Per Minute)"),
+                    );
 
                     ui.separator();
 
@@ -653,7 +652,9 @@ pub fn draw_unified_toolbar(
                         .selected_text(format!(
                             "{}: {}",
                             lang.tr("Grade", "Grid"),
-                            state.grid_snap.resolved_label_for(state.bpm, *px_per_ms, lang)
+                            state
+                                .grid_snap
+                                .resolved_label_for(state.bpm, *px_per_ms, lang)
                         ))
                         .show_ui(ui, |ui| {
                             for (opt, label) in snap_options {
@@ -705,11 +706,14 @@ pub fn draw_unified_toolbar(
                 // Cartão 2: Metrônomo
                 toolbar_card(ui, theme, |ui| {
                     ui.spacing_mut().item_spacing = Vec2::new(3.0, 0.0);
-                    ui.toggle_value(&mut state.metronome_enabled, lang.tr("Metrônomo", "Metronome"))
-                        .on_hover_text(lang.tr(
-                            "Ativar metrônomo durante a reprodução",
-                            "Enable metronome during playback",
-                        ));
+                    ui.toggle_value(
+                        &mut state.metronome_enabled,
+                        lang.tr("Metrônomo", "Metronome"),
+                    )
+                    .on_hover_text(lang.tr(
+                        "Ativar metrônomo durante a reprodução",
+                        "Enable metronome during playback",
+                    ));
 
                     ui.label(
                         RichText::new(lang.tr("Contagem:", "Count-in:"))
@@ -722,10 +726,7 @@ pub fn draw_unified_toolbar(
                             .range(0..=4)
                             .suffix(" c."),
                     )
-                    .on_hover_text(lang.tr(
-                        "Compassos de contagem prévia",
-                        "Count-in bars",
-                    ));
+                    .on_hover_text(lang.tr("Compassos de contagem prévia", "Count-in bars"));
                 });
 
                 // Cartão 3: Loop A / B
@@ -757,10 +758,9 @@ pub fn draw_unified_toolbar(
                             .speed(10.0)
                             .suffix("ms"),
                     )
-                    .on_hover_text(lang.tr(
-                        "Fim do Loop (milissegundos)",
-                        "Loop End (milliseconds)",
-                    ));
+                    .on_hover_text(
+                        lang.tr("Fim do Loop (milissegundos)", "Loop End (milliseconds)"),
+                    );
 
                     if state.loop_end_ms <= state.loop_start_ms {
                         state.loop_end_ms = state.loop_start_ms + 1.0;

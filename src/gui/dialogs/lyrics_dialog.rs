@@ -31,8 +31,12 @@ impl KamafeuStudioApp {
                 self.undo_manager.push_state(pre_project);
                 self.is_dirty = true;
                 self.piano_roll_state.phoneme_cache.clear();
-                self.transport_state.status_message =
-                    lang.tr("Letras distribuídas pelas notas com sucesso!", "Lyrics successfully distributed across notes!").to_string();
+                self.transport_state.status_message = lang
+                    .tr(
+                        "Letras distribuídas pelas notas com sucesso!",
+                        "Lyrics successfully distributed across notes!",
+                    )
+                    .to_string();
             }
         }
     }

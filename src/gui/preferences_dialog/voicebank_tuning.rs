@@ -8,50 +8,60 @@ use eframe::egui::RichText;
 impl KamafeuStudioApp {
     pub(in crate::gui) fn render_voicebank_tuning_tab(&mut self, ui: &mut egui::Ui) {
         let lang = self.config.language;
-        section_card(ui, lang.tr("Diretórios Globais de Cantores & Voicebanks", "Global Singer & Voicebank Directories"), |ui| {
-            let mut remove_idx = None;
-            for (i, folder) in self.config.singers_paths.iter().enumerate() {
+        section_card(
+            ui,
+            lang.tr(
+                "Diretórios Globais de Cantores & Voicebanks",
+                "Global Singer & Voicebank Directories",
+            ),
+            |ui| {
+                let mut remove_idx = None;
+                for (i, folder) in self.config.singers_paths.iter().enumerate() {
+                    ui.horizontal(|ui| {
+                        ui.label(
+                            RichText::new("dir:")
+                                .size(10.5)
+                                .color(Color32::from_rgb(180, 200, 240)),
+                        );
+                        ui.label(
+                            RichText::new(folder.to_string_lossy().to_string())
+                                .size(10.5)
+                                .monospace(),
+                        );
+
+                        if ui
+                            .button(RichText::new(lang.tr("Abrir", "Open")).size(10.0))
+                            .on_hover_text(crate::gui::dialogs::reveal_in_file_manager_label_for(
+                                lang,
+                            ))
+                            .clicked()
+                        {
+                            crate::gui::dialogs::open_file_in_folder(folder);
+                        }
+
+                        if ui
+                            .button(
+                                RichText::new(lang.tr("Remover", "Remove"))
+                                    .size(10.0)
+                                    .color(Color32::from_rgb(255, 120, 120)),
+                            )
+                            .on_hover_text(
+                                lang.tr("Remover da lista de busca", "Remove from search paths"),
+                            )
+                            .clicked()
+                        {
+                            remove_idx = Some(i);
+                        }
+                    });
+                }
+
+                if let Some(i) = remove_idx {
+                    self.config.singers_paths.remove(i);
+                    self.persist_config();
+                }
+
+                ui.add_space(4.0);
                 ui.horizontal(|ui| {
-                    ui.label(
-                        RichText::new("dir:")
-                            .size(10.5)
-                            .color(Color32::from_rgb(180, 200, 240)),
-                    );
-                    ui.label(
-                        RichText::new(folder.to_string_lossy().to_string())
-                            .size(10.5)
-                            .monospace(),
-                    );
-
-                    if ui
-                        .button(RichText::new(lang.tr("Abrir", "Open")).size(10.0))
-                        .on_hover_text(crate::gui::dialogs::reveal_in_file_manager_label_for(lang))
-                        .clicked()
-                    {
-                        crate::gui::dialogs::open_file_in_folder(folder);
-                    }
-
-                    if ui
-                        .button(
-                            RichText::new(lang.tr("Remover", "Remove"))
-                                .size(10.0)
-                                .color(Color32::from_rgb(255, 120, 120)),
-                        )
-                        .on_hover_text(lang.tr("Remover da lista de busca", "Remove from search paths"))
-                        .clicked()
-                    {
-                        remove_idx = Some(i);
-                    }
-                });
-            }
-
-            if let Some(i) = remove_idx {
-                self.config.singers_paths.remove(i);
-                self.persist_config();
-            }
-
-            ui.add_space(4.0);
-            ui.horizontal(|ui| {
                 if ui.button(RichText::new(lang.tr("+ Adicionar Nova Pasta de Voicebanks...", "+ Add New Voicebank Folder...")).size(11.0)).clicked() {
                     if let Some(folder) = crate::dialogs::FileDialog::new()
                         .set_title(lang.tr("Selecionar Diretório Raiz de Voicebanks", "Select Voicebank Root Directory"))
@@ -72,23 +82,33 @@ impl KamafeuStudioApp {
                 );
             });
 
-            ui.horizontal(|ui| {
-                ui.checkbox(
-                    &mut self.config.voicebank_tuning.recursive_voicebank_scan,
-                    lang.tr("Escanear subpastas recursivamente dentro dos diretórios de cantores", "Recursively scan subfolders inside singer directories"),
-                );
-                help_marker(
-                    ui,
-                    lang.tr(
-                        "Permite organizar bancos de voz em subpastas por autor ou idioma.",
-                        "Allows organizing voicebanks in subfolders by author or language.",
-                    ),
-                );
-            });
-        });
+                ui.horizontal(|ui| {
+                    ui.checkbox(
+                        &mut self.config.voicebank_tuning.recursive_voicebank_scan,
+                        lang.tr(
+                            "Escanear subpastas recursivamente dentro dos diretórios de cantores",
+                            "Recursively scan subfolders inside singer directories",
+                        ),
+                    );
+                    help_marker(
+                        ui,
+                        lang.tr(
+                            "Permite organizar bancos de voz em subpastas por autor ou idioma.",
+                            "Allows organizing voicebanks in subfolders by author or language.",
+                        ),
+                    );
+                });
+            },
+        );
 
-        section_card(ui, lang.tr("Resolução de Aliases, Fonemizadores & oto.ini", "Alias Resolution, Phonemizers & oto.ini"), |ui| {
-            ui.horizontal(|ui| {
+        section_card(
+            ui,
+            lang.tr(
+                "Resolução de Aliases, Fonemizadores & oto.ini",
+                "Alias Resolution, Phonemizers & oto.ini",
+            ),
+            |ui| {
+                ui.horizontal(|ui| {
                 ui.label(lang.tr("Estratégia de Busca de Aliases:", "Alias Search Strategy:"));
                 let strat_list = [
                     ("Prioritário (Prefixo/Sufixo -> Exato -> Romaji)", lang.tr("Prioritário (Prefixo/Sufixo -> Exato -> Romaji)", "Priority (Prefix/Suffix -> Exact -> Romaji)")),
@@ -109,8 +129,8 @@ impl KamafeuStudioApp {
                 );
             });
 
-            ui.add_space(4.0);
-            ui.horizontal(|ui| {
+                ui.add_space(4.0);
+                ui.horizontal(|ui| {
                 ui.label(lang.tr("Algoritmo de Estiramento de Consoante:", "Consonant Stretch Algorithm:"));
                 for alg in ["Adaptive SOLA", "Hybrid PSOLA", "WSOLA"] {
                     if ui.selectable_label(self.config.voicebank_tuning.consonant_stretch_mode == alg, alg).clicked() {
@@ -126,8 +146,8 @@ impl KamafeuStudioApp {
                 );
             });
 
-            ui.add_space(4.0);
-            ui.horizontal(|ui| {
+                ui.add_space(4.0);
+                ui.horizontal(|ui| {
                 ui.checkbox(
                     &mut self.config.voicebank_tuning.auto_reload_oto,
                     lang.tr("Recarregar oto.ini automaticamente quando modificado no disco", "Automatically reload oto.ini when modified on disk"),
@@ -141,7 +161,7 @@ impl KamafeuStudioApp {
                 );
             });
 
-            ui.horizontal(|ui| {
+                ui.horizontal(|ui| {
                 ui.checkbox(
                     &mut self.config.voicebank_tuning.strict_oto_parsing,
                     lang.tr("Modo Estrito de Validação do oto.ini (Ignorar valores negativos ilegais)", "Strict oto.ini Validation Mode (Ignore illegal negative values)"),
@@ -155,7 +175,7 @@ impl KamafeuStudioApp {
                 );
             });
 
-            ui.horizontal(|ui| {
+                ui.horizontal(|ui| {
                 ui.checkbox(
                     &mut self.config.voicebank_tuning.auto_phonetic_g2p,
                     lang.tr("Ativar conversão Grapheme-to-Phoneme (G2P) automática", "Enable automatic Grapheme-to-Phoneme (G2P) conversion"),
@@ -169,8 +189,8 @@ impl KamafeuStudioApp {
                 );
             });
 
-            ui.add_space(4.0);
-            ui.horizontal(|ui| {
+                ui.add_space(4.0);
+                ui.horizontal(|ui| {
                 ui.label(lang.tr("Escala Global de Pré-enunciado (Preutterance Scale):", "Global Preutterance Scale:"));
                 ui.add(egui::Slider::new(&mut self.config.voicebank_tuning.preutterance_scale, 0.2..=3.0).suffix("x"));
                 help_marker(
@@ -182,7 +202,7 @@ impl KamafeuStudioApp {
                 );
             });
 
-            ui.horizontal(|ui| {
+                ui.horizontal(|ui| {
                 ui.label(lang.tr("Escala Global de Sobreposição (Overlap Scale):", "Global Overlap Scale:"));
                 ui.add(egui::Slider::new(&mut self.config.voicebank_tuning.overlap_scale, 0.2..=3.0).suffix("x"));
                 help_marker(
@@ -194,26 +214,29 @@ impl KamafeuStudioApp {
                 );
             });
 
-            ui.horizontal(|ui| {
-                ui.label(lang.tr("Multiplicador Global de Consoante Fixa (Fixed Consonant):", "Global Fixed Consonant Multiplier:"));
-                ui.add(
-                    egui::Slider::new(
-                        &mut self.config.voicebank_tuning.fixed_consonant_scale,
-                        0.2..=3.0,
-                    )
-                    .suffix("x"),
-                );
-                help_marker(
+                ui.horizontal(|ui| {
+                    ui.label(lang.tr(
+                        "Multiplicador Global de Consoante Fixa (Fixed Consonant):",
+                        "Global Fixed Consonant Multiplier:",
+                    ));
+                    ui.add(
+                        egui::Slider::new(
+                            &mut self.config.voicebank_tuning.fixed_consonant_scale,
+                            0.2..=3.0,
+                        )
+                        .suffix("x"),
+                    );
+                    help_marker(
                     ui,
                     lang.tr(
                         "Controla a porção não estirável da consoante (ataque oclusivo / plosivo).",
                         "Controls the non-stretchable portion of the consonant (plosive / attack).",
                     ),
                 );
-            });
+                });
 
-            ui.add_space(4.0);
-            ui.horizontal(|ui| {
+                ui.add_space(4.0);
+                ui.horizontal(|ui| {
                 ui.label(lang.tr("Inclinação de Transição Vocálica (Vowel Crossfade Slope):", "Vowel Crossfade Slope:"));
                 ui.add(
                     egui::Slider::new(
@@ -231,7 +254,7 @@ impl KamafeuStudioApp {
                 );
             });
 
-            ui.horizontal(|ui| {
+                ui.horizontal(|ui| {
                 ui.label(lang.tr("Redução de Ruído de Respiração (Breath Reduction):", "Breath Noise Reduction:"));
                 ui.add(egui::Slider::new(&mut self.config.voicebank_tuning.breath_noise_reduction_db, -24.0..=0.0).suffix(" dB"));
                 help_marker(
@@ -242,6 +265,7 @@ impl KamafeuStudioApp {
                     ),
                 );
             });
-        });
+            },
+        );
     }
 }

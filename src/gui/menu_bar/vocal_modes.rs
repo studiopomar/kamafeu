@@ -44,10 +44,7 @@ impl KamafeuStudioApp {
                 .radio_value(
                     mode,
                     crate::phonemizer::PhonemizerMode::None,
-                    lang.tr(
-                        "• Sem Fonemizador (Manual)",
-                        "• No Phonemizer (Manual)",
-                    ),
+                    lang.tr("• Sem Fonemizador (Manual)", "• No Phonemizer (Manual)"),
                 )
                 .clicked()
             {
@@ -204,10 +201,7 @@ impl KamafeuStudioApp {
             }
             ui.separator();
             if ui
-                .button(lang.tr(
-                    "Forçar Atualização de Fonemas",
-                    "Force Phonemes Refresh",
-                ))
+                .button(lang.tr("Forçar Atualização de Fonemas", "Force Phonemes Refresh"))
                 .clicked()
             {
                 self.rephonemize_all_notes();

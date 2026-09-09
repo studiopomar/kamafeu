@@ -10,8 +10,11 @@ impl KamafeuStudioApp {
         ctx: &egui::Context,
     ) {
         let lang = self.config.language;
-        section_card(ui, lang.tr("Idioma & Localização", "Language & Locale"), |ui| {
-            ui.horizontal(|ui| {
+        section_card(
+            ui,
+            lang.tr("Idioma & Localização", "Language & Locale"),
+            |ui| {
+                ui.horizontal(|ui| {
                 ui.label(lang.tr("Idioma da Interface:", "Interface Language:"));
                 for (l, label) in [
                     (crate::config::AppLanguage::PtBr, lang.tr("Brasileiro (Brasil)", "Portuguese (Brazil)")),
@@ -31,10 +34,17 @@ impl KamafeuStudioApp {
                     ),
                 );
             });
-        });
+            },
+        );
 
-        section_card(ui, lang.tr("Escala da Interface Gráfica & Acessibilidade", "UI Scale & Accessibility"), |ui| {
-            ui.horizontal(|ui| {
+        section_card(
+            ui,
+            lang.tr(
+                "Escala da Interface Gráfica & Acessibilidade",
+                "UI Scale & Accessibility",
+            ),
+            |ui| {
+                ui.horizontal(|ui| {
                 ui.label(lang.tr("Escala de Zoom da Interface (UI Scale):", "UI Scale Factor:"));
                 let mut scale = self.config.ui_scale_factor;
                 if ui.add(egui::Slider::new(&mut scale, 0.75..=2.0).step_by(0.05).custom_formatter(|v, _| format!("{:.0}%", v * 100.0))).changed() {
@@ -49,10 +59,17 @@ impl KamafeuStudioApp {
                     ),
                 );
             });
-        });
+            },
+        );
 
-        section_card(ui, lang.tr("Fluxo de Trabalho, Salvamento & Histórico Undo", "Workflow, Saving & Undo History"), |ui| {
-            ui.horizontal(|ui| {
+        section_card(
+            ui,
+            lang.tr(
+                "Fluxo de Trabalho, Salvamento & Histórico Undo",
+                "Workflow, Saving & Undo History",
+            ),
+            |ui| {
+                ui.horizontal(|ui| {
                 ui.checkbox(
                     &mut self.config.workflow.auto_save_enabled,
                     lang.tr("Ativar Salvamento Automático Periódico (Auto-save)", "Enable Periodic Auto-save"),
@@ -69,7 +86,7 @@ impl KamafeuStudioApp {
                 );
             });
 
-            ui.horizontal(|ui| {
+                ui.horizontal(|ui| {
                 ui.checkbox(
                     &mut self.config.workflow.backup_on_save,
                     lang.tr("Criar arquivo de backup (.bak) ao salvar o projeto", "Create backup file (.bak) when saving project"),
@@ -83,22 +100,25 @@ impl KamafeuStudioApp {
                 );
             });
 
-            ui.horizontal(|ui| {
-                ui.label(lang.tr("Passos Máximos de Desfazer (Undo History):", "Maximum Undo Steps:"));
-                ui.add(
-                    egui::Slider::new(&mut self.config.workflow.max_undo_steps, 20..=500)
-                        .suffix(lang.tr(" passos", " steps")),
-                );
-                help_marker(
-                    ui,
-                    lang.tr(
-                        "Número máximo de ações que podem ser desfeitas com Ctrl+Z.",
-                        "Maximum number of actions that can be undone with Ctrl+Z.",
-                    ),
-                );
-            });
+                ui.horizontal(|ui| {
+                    ui.label(lang.tr(
+                        "Passos Máximos de Desfazer (Undo History):",
+                        "Maximum Undo Steps:",
+                    ));
+                    ui.add(
+                        egui::Slider::new(&mut self.config.workflow.max_undo_steps, 20..=500)
+                            .suffix(lang.tr(" passos", " steps")),
+                    );
+                    help_marker(
+                        ui,
+                        lang.tr(
+                            "Número máximo de ações que podem ser desfeitas com Ctrl+Z.",
+                            "Maximum number of actions that can be undone with Ctrl+Z.",
+                        ),
+                    );
+                });
 
-            ui.horizontal(|ui| {
+                ui.horizontal(|ui| {
                 ui.checkbox(
                     &mut self.config.workflow.note_audition_on_click,
                     lang.tr("Tocar tom da nota ao clicar/arrastar no Piano Roll", "Audition note pitch on click/drag in Piano Roll"),
@@ -112,7 +132,7 @@ impl KamafeuStudioApp {
                 );
             });
 
-            ui.horizontal(|ui| {
+                ui.horizontal(|ui| {
                 ui.checkbox(
                     &mut self.config.discord_rpc_enabled,
                     lang.tr("Integração Discord Rich Presence (Exibir projeto e status no Discord)", "Discord Rich Presence Integration (Show project and status in Discord)"),
@@ -126,7 +146,7 @@ impl KamafeuStudioApp {
                 );
             });
 
-            ui.horizontal(|ui| {
+                ui.horizontal(|ui| {
                 ui.checkbox(
                     &mut self.config.workflow.confirm_on_exit_dirty,
                     lang.tr("Pedir confirmação ao fechar o programa caso haja alterações não salvas", "Confirm before closing if there are unsaved changes"),
@@ -139,6 +159,7 @@ impl KamafeuStudioApp {
                     ),
                 );
             });
-        });
+            },
+        );
     }
 }

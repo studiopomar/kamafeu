@@ -240,8 +240,11 @@ impl KamafeuStudioApp {
 
             if let Some(path) = singer_to_load {
                 if let Ok(vb) = crate::oto::Voicebank::new(&path) {
-                    self.transport_state.status_message =
-                        format!("{}: {}", lang.tr("Voicebank Carregado", "Voicebank Loaded"), vb.name);
+                    self.transport_state.status_message = format!(
+                        "{}: {}",
+                        lang.tr("Voicebank Carregado", "Voicebank Loaded"),
+                        vb.name
+                    );
                     self.transport_state.voicebank_name = vb.name.clone();
                     self.transport_state.voicebank_path = Some(vb.root_path.clone());
                     self.config.add_recent_voicebank(vb.root_path.clone());

@@ -28,8 +28,12 @@ impl KamafeuStudioApp {
             if applied {
                 self.undo_manager.push_state(pre_project);
                 self.is_dirty = true;
-                self.transport_state.status_message =
-                    lang.tr("Humanização e vibrato aplicados com sucesso!", "Humanization and vibrato applied successfully!").to_string();
+                self.transport_state.status_message = lang
+                    .tr(
+                        "Humanização e vibrato aplicados com sucesso!",
+                        "Humanization and vibrato applied successfully!",
+                    )
+                    .to_string();
             }
         }
     }

@@ -46,10 +46,12 @@ pub(super) fn draw(
                         |ui| {
                             ui.add_space(2.0);
                             ui.label(
-                                egui::RichText::new(lang.tr("PARÂMETROS / EXPRESSÕES", "PARAMETERS / EXPRESSIONS"))
-                                    .strong()
-                                    .size(10.0)
-                                    .color(Color32::from_rgb(0, 255, 157)),
+                                egui::RichText::new(
+                                    lang.tr("PARÂMETROS / EXPRESSÕES", "PARAMETERS / EXPRESSIONS"),
+                                )
+                                .strong()
+                                .size(10.0)
+                                .color(Color32::from_rgb(0, 255, 157)),
                             );
                             ui.add_space(2.0);
 
@@ -62,18 +64,54 @@ pub(super) fn draw(
                                 .show(ui, |ui| {
                                     ui.set_width(135.0);
                                     let param_tabs = [
-                                        (lang.tr("Dynamics (DYN)", "Dynamics (DYN)"), ParameterTab::Dynamics),
-                                        (lang.tr("Pitch Offset (PITD)", "Pitch Offset (PITD)"), ParameterTab::PitchDelta),
-                                        (lang.tr("Gender (GEN/g)", "Gender (GEN/g)"), ParameterTab::Gender),
-                                        (lang.tr("Vel. Consoante (VEL)", "Consonant Vel. (VEL)"), ParameterTab::Velocity),
-                                        (lang.tr("Breathiness (BRE/B)", "Breathiness (BRE/B)"), ParameterTab::Breathiness),
-                                        (lang.tr("Modulação (MOD)", "Modulation (MOD)"), ParameterTab::Modulation),
-                                        (lang.tr("Volume (VOL)", "Volume (VOL)"), ParameterTab::Volume),
-                                        (lang.tr("Ataque (ATK)", "Attack (ATK)"), ParameterTab::Attack),
-                                        (lang.tr("Decaimento (DEC)", "Decay (DEC)"), ParameterTab::Decay),
-                                        (lang.tr("Vibrato Tam (VIBL)", "Vibrato Len (VIBL)"), ParameterTab::VibratoLength),
-                                        (lang.tr("Vibrato Prof (VIBD)", "Vibrato Depth (VIBD)"), ParameterTab::VibratoDepth),
-                                        (lang.tr("Vibrato Per (VIBP)", "Vibrato Per (VIBP)"), ParameterTab::VibratoPeriod),
+                                        (
+                                            lang.tr("Dynamics (DYN)", "Dynamics (DYN)"),
+                                            ParameterTab::Dynamics,
+                                        ),
+                                        (
+                                            lang.tr("Pitch Offset (PITD)", "Pitch Offset (PITD)"),
+                                            ParameterTab::PitchDelta,
+                                        ),
+                                        (
+                                            lang.tr("Gender (GEN/g)", "Gender (GEN/g)"),
+                                            ParameterTab::Gender,
+                                        ),
+                                        (
+                                            lang.tr("Vel. Consoante (VEL)", "Consonant Vel. (VEL)"),
+                                            ParameterTab::Velocity,
+                                        ),
+                                        (
+                                            lang.tr("Breathiness (BRE/B)", "Breathiness (BRE/B)"),
+                                            ParameterTab::Breathiness,
+                                        ),
+                                        (
+                                            lang.tr("Modulação (MOD)", "Modulation (MOD)"),
+                                            ParameterTab::Modulation,
+                                        ),
+                                        (
+                                            lang.tr("Volume (VOL)", "Volume (VOL)"),
+                                            ParameterTab::Volume,
+                                        ),
+                                        (
+                                            lang.tr("Ataque (ATK)", "Attack (ATK)"),
+                                            ParameterTab::Attack,
+                                        ),
+                                        (
+                                            lang.tr("Decaimento (DEC)", "Decay (DEC)"),
+                                            ParameterTab::Decay,
+                                        ),
+                                        (
+                                            lang.tr("Vibrato Tam (VIBL)", "Vibrato Len (VIBL)"),
+                                            ParameterTab::VibratoLength,
+                                        ),
+                                        (
+                                            lang.tr("Vibrato Prof (VIBD)", "Vibrato Depth (VIBD)"),
+                                            ParameterTab::VibratoDepth,
+                                        ),
+                                        (
+                                            lang.tr("Vibrato Per (VIBP)", "Vibrato Per (VIBP)"),
+                                            ParameterTab::VibratoPeriod,
+                                        ),
                                     ];
 
                                     for (p_name, tab_val) in param_tabs {

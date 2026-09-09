@@ -22,10 +22,7 @@ impl KamafeuStudioApp {
                 ui.close_menu();
             }
             if ui
-                .button(lang.tr(
-                    "Diagnóstico do Voicebank...",
-                    "Voicebank Diagnostics...",
-                ))
+                .button(lang.tr("Diagnóstico do Voicebank...", "Voicebank Diagnostics..."))
                 .clicked()
             {
                 self.voicebank_diagnostic_open = true;

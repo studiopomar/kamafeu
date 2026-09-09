@@ -33,8 +33,13 @@ impl KamafeuStudioApp {
         crate::dsp::AutoPitchEngine::apply_to_notes(notes, selected.as_deref(), &options);
         self.piano_roll_state.continuous_edit_dirty = true;
         self.is_dirty = true;
-        self.transport_state.status_message =
-            format!("Pre-tunning {} ({})", self.config.language.tr("aplicado com sucesso", "applied successfully"), options.preset.display_name(self.config.language));
+        self.transport_state.status_message = format!(
+            "Pre-tunning {} ({})",
+            self.config
+                .language
+                .tr("aplicado com sucesso", "applied successfully"),
+            options.preset.display_name(self.config.language)
+        );
     }
 
     pub fn current_notes_mut(&mut self) -> &mut Vec<UNote> {
@@ -734,9 +739,13 @@ impl KamafeuStudioApp {
                 crate::gui::piano_roll::AutoPitchStyle::SmoothPop,
             );
         }
-        self.transport_state.status_message = self.config.language.tr(
-            "Pre-tunning Suave/Pop aplicado a todas as notas!",
-            "Soft/Pop Pre-tunning applied to all notes!",
-        ).to_string();
+        self.transport_state.status_message = self
+            .config
+            .language
+            .tr(
+                "Pre-tunning Suave/Pop aplicado a todas as notas!",
+                "Soft/Pop Pre-tunning applied to all notes!",
+            )
+            .to_string();
     }
 }

@@ -96,7 +96,10 @@ impl KamafeuStudioApp {
             msamples_per_sec,
             lang.tr("Desempenho Estimado", "Estimated Performance"),
             mflops,
-            lang.tr("amostras com janela Blackman/FFT", "samples with Blackman/FFT window")
+            lang.tr(
+                "amostras com janela Blackman/FFT",
+                "samples with Blackman/FFT window"
+            )
         ));
     }
 
@@ -119,7 +122,10 @@ impl KamafeuStudioApp {
         let gb_per_sec = (0.064) / alloc_time.as_secs_f64().max(0.00001);
         self.preferences_state.memory_stress_result = Some(format!(
             "[OK] {} {:.2} ms ({}: {:.2} GB/s)",
-            lang.tr("64 MB alocados, verificados e liberados em", "64 MB allocated, verified and freed in"),
+            lang.tr(
+                "64 MB alocados, verificados e liberados em",
+                "64 MB allocated, verified and freed in"
+            ),
             total_time.as_secs_f64() * 1000.0,
             lang.tr("Taxa de escrita Heap", "Heap write rate"),
             gb_per_sec
@@ -156,7 +162,10 @@ impl KamafeuStudioApp {
             total_found,
             lang.tr("pastas de cantores verificadas", "singer folders checked"),
             oto_found,
-            lang.tr("voicebanks com oto.ini/character.txt validados com sucesso.", "voicebanks with oto.ini/character.txt successfully validated.")
+            lang.tr(
+                "voicebanks com oto.ini/character.txt validados com sucesso.",
+                "voicebanks with oto.ini/character.txt successfully validated."
+            )
         ));
     }
 }

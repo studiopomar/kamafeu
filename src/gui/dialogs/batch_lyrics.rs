@@ -14,34 +14,45 @@ impl KamafeuStudioApp {
                 egui::ViewportBuilder::default()
                     .with_title(format!(
                         "{} - Kamafeu Studio",
-                        lang.tr("Inserir Letras em Lote (Batch Lyrics)", "Insert Batch Lyrics")
+                        lang.tr(
+                            "Inserir Letras em Lote (Batch Lyrics)",
+                            "Insert Batch Lyrics"
+                        )
                     ))
                     .with_inner_size([480.0, 260.0])
                     .with_min_inner_size([380.0, 200.0]),
                 |ctx, _class| {
                     egui::CentralPanel::default().show(ctx, |ui| {
                         ui.heading(
-                            egui::RichText::new(lang.tr("Inserir Letras em Lote", "Insert Batch Lyrics"))
-                                .strong()
-                                .color(egui::Color32::from_rgb(0, 255, 180)),
+                            egui::RichText::new(
+                                lang.tr("Inserir Letras em Lote", "Insert Batch Lyrics"),
+                            )
+                            .strong()
+                            .color(egui::Color32::from_rgb(0, 255, 180)),
                         );
                         ui.add_space(6.0);
-                        ui.label(
-                            lang.tr(
-                                "Cole ou digite o texto com palavras ou sílabas separadas por espaço:",
-                                "Paste or type text with words or syllables separated by spaces:"
-                            ),
-                        );
+                        ui.label(lang.tr(
+                            "Cole ou digite o texto com palavras ou sílabas separadas por espaço:",
+                            "Paste or type text with words or syllables separated by spaces:",
+                        ));
                         ui.add_space(4.0);
                         ui.add(
                             egui::TextEdit::multiline(&mut self.batch_lyrics_buffer)
                                 .desired_rows(6)
                                 .desired_width(f32::INFINITY)
-                                .hint_text(lang.tr("ex: quem te viu quem te ve", "e.g.: do re mi fa sol")),
+                                .hint_text(
+                                    lang.tr("ex: quem te viu quem te ve", "e.g.: do re mi fa sol"),
+                                ),
                         );
                         ui.add_space(8.0);
                         ui.horizontal(|ui| {
-                            if ui.button(lang.tr("Distribuir Letras pelas Notas", "Distribute Lyrics to Notes")).clicked() {
+                            if ui
+                                .button(lang.tr(
+                                    "Distribuir Letras pelas Notas",
+                                    "Distribute Lyrics to Notes",
+                                ))
+                                .clicked()
+                            {
                                 apply_lyrics = true;
                             }
                             if ui.button(lang.tr("Cancelar", "Cancel")).clicked() {

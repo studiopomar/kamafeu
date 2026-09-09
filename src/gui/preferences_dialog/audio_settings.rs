@@ -12,9 +12,15 @@ use eframe::egui::Stroke;
 impl KamafeuStudioApp {
     pub(in crate::gui) fn render_audio_settings_tab(&mut self, ui: &mut egui::Ui) {
         let lang = self.config.language;
-        section_card(ui, lang.tr("Placa de Som & Dispositivos de Saída", "Sound Card & Output Devices"), |ui| {
-            let host_name = AudioPlayer::default_host_name();
-            ui.horizontal(|ui| {
+        section_card(
+            ui,
+            lang.tr(
+                "Placa de Som & Dispositivos de Saída",
+                "Sound Card & Output Devices",
+            ),
+            |ui| {
+                let host_name = AudioPlayer::default_host_name();
+                ui.horizontal(|ui| {
                 ui.label(lang.tr("Host de Áudio Ativo:", "Active Audio Host:"));
                 ui.label(RichText::new(&host_name).strong().color(Color32::from_rgb(180, 230, 255)));
                 help_marker(
@@ -26,9 +32,9 @@ impl KamafeuStudioApp {
                 );
             });
 
-            ui.add_space(4.0);
+                ui.add_space(4.0);
 
-            ui.horizontal(|ui| {
+                ui.horizontal(|ui| {
                 ui.label(lang.tr("Dispositivo de Saída:", "Output Device:"));
                 let default_device_str = lang.tr("Padrão do Sistema Operacional", "Operating System Default");
                 let current_device = self
@@ -81,8 +87,8 @@ impl KamafeuStudioApp {
                 );
             });
 
-            ui.add_space(4.0);
-            ui.horizontal(|ui| {
+                ui.add_space(4.0);
+                ui.horizontal(|ui| {
                 ui.label(lang.tr("Roteamento de Canais:", "Channel Routing:"));
                 let channel_modes = [
                     ("Estéreo (L+R)", lang.tr("Estéreo (L+R)", "Stereo (L+R)")),
@@ -104,8 +110,8 @@ impl KamafeuStudioApp {
                 );
             });
 
-            ui.add_space(4.0);
-            ui.horizontal(|ui| {
+                ui.add_space(4.0);
+                ui.horizontal(|ui| {
                 ui.checkbox(
                     &mut self.config.audio.exclusive_mode,
                     lang.tr("Modo Exclusivo de Baixa Latência (Exclusive Device Access)", "Low-Latency Exclusive Mode (Exclusive Device Access)"),
@@ -119,8 +125,8 @@ impl KamafeuStudioApp {
                 );
             });
 
-            ui.add_space(4.0);
-            ui.horizontal(|ui| {
+                ui.add_space(4.0);
+                ui.horizontal(|ui| {
                 ui.checkbox(
                     &mut self.config.audio.auto_mute_on_device_change,
                     lang.tr("Silenciar temporariamente ao desconectar/trocar dispositivo de áudio", "Temporarily mute when disconnecting/switching audio devices"),
@@ -133,10 +139,17 @@ impl KamafeuStudioApp {
                     ),
                 );
             });
-        });
+            },
+        );
 
-        section_card(ui, lang.tr("Taxa de Amostragem, Buffer & Latência do DAC", "Sample Rate, Buffer & DAC Latency"), |ui| {
-            ui.horizontal(|ui| {
+        section_card(
+            ui,
+            lang.tr(
+                "Taxa de Amostragem, Buffer & Latência do DAC",
+                "Sample Rate, Buffer & DAC Latency",
+            ),
+            |ui| {
+                ui.horizontal(|ui| {
                 ui.label(lang.tr("Taxa de Amostragem (DAC Playback):", "Sample Rate (DAC Playback):"));
                 for rate in [44100, 48000, 88200, 96000, 192000] {
                     let is_sel = self.config.audio.sample_rate == rate;
@@ -159,9 +172,9 @@ impl KamafeuStudioApp {
                 );
             });
 
-            ui.add_space(6.0);
+                ui.add_space(6.0);
 
-            ui.horizontal(|ui| {
+                ui.horizontal(|ui| {
                 ui.label(lang.tr("Tamanho do Buffer (Frames):", "Buffer Size (Frames):"));
                 for buf in [64, 128, 256, 512, 1024, 2048] {
                     let is_sel = self.config.audio.buffer_size_frames == buf;
@@ -186,8 +199,8 @@ impl KamafeuStudioApp {
                 );
             });
 
-            ui.add_space(6.0);
-            ui.horizontal(|ui| {
+                ui.add_space(6.0);
+                ui.horizontal(|ui| {
                 ui.label(lang.tr("Número de Períodos de Buffer:", "Number of Buffer Periods:"));
                 for p in [1, 2, 3, 4] {
                     let is_sel = self.config.audio.buffer_periods == p;
@@ -210,8 +223,8 @@ impl KamafeuStudioApp {
                 );
             });
 
-            ui.add_space(4.0);
-            ui.horizontal(|ui| {
+                ui.add_space(4.0);
+                ui.horizontal(|ui| {
                 ui.label(lang.tr("Compensação Manual de Latência de Monitoração:", "Manual Monitoring Latency Compensation:"));
                 ui.add(egui::Slider::new(&mut self.config.audio.latency_compensation_ms, -100.0..=100.0).suffix(" ms"));
                 help_marker(
@@ -223,8 +236,8 @@ impl KamafeuStudioApp {
                 );
             });
 
-            ui.add_space(4.0);
-            ui.horizontal(|ui| {
+                ui.add_space(4.0);
+                ui.horizontal(|ui| {
                 ui.label(lang.tr("Algoritmo de Dither de Saída:", "Output Dither Algorithm:"));
                 let dither_modes = [
                     ("TPDF (Triangular)", lang.tr("TPDF (Triangular)", "TPDF (Triangular)")),
@@ -245,7 +258,7 @@ impl KamafeuStudioApp {
                 );
             });
 
-            ui.horizontal(|ui| {
+                ui.horizontal(|ui| {
                 ui.checkbox(
                     &mut self.config.audio.high_quality_resampling,
                     lang.tr("Reamostragem Sinc em Tempo Real para Preview", "Real-Time Sinc Resampling for Preview"),
@@ -258,11 +271,15 @@ impl KamafeuStudioApp {
                     ),
                 );
             });
-        });
+            },
+        );
 
         section_card(
             ui,
-            lang.tr("Volume Master & Calibração de Pré-amplificação", "Master Volume & Preamp Calibration"),
+            lang.tr(
+                "Volume Master & Calibração de Pré-amplificação",
+                "Master Volume & Preamp Calibration",
+            ),
             |ui| {
                 ui.horizontal(|ui| {
                     ui.label(lang.tr("Volume Master Padrão:", "Default Master Volume:"));

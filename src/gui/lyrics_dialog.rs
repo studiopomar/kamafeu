@@ -1,6 +1,6 @@
+use crate::config::AppLanguage;
 use crate::gui::theme::ThemeConfig;
 use crate::project::model::UNote;
-use crate::config::AppLanguage;
 use eframe::egui::{self, Color32, Frame, RichText, Window};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -15,9 +15,18 @@ impl SplitMode {
     pub fn label(&self, lang: AppLanguage) -> &'static str {
         match self {
             SplitMode::Spaces => lang.tr("Espaços (Palavra por Nota)", "Spaces (Word per Note)"),
-            SplitMode::HyphensAndSpaces => lang.tr("Hífens e Espaços (ex: ka-ma-feu)", "Hyphens and Spaces (e.g. ka-ma-feu)"),
-            SplitMode::JapaneseSyllables => lang.tr("Japonês (Romaji / Kana por sílaba)", "Japanese (Romaji / Kana per syllable)"),
-            SplitMode::PortugueseSyllables => lang.tr("Português (Divisão Silábica Automática)", "Portuguese (Automatic Syllable Division)"),
+            SplitMode::HyphensAndSpaces => lang.tr(
+                "Hífens e Espaços (ex: ka-ma-feu)",
+                "Hyphens and Spaces (e.g. ka-ma-feu)",
+            ),
+            SplitMode::JapaneseSyllables => lang.tr(
+                "Japonês (Romaji / Kana por sílaba)",
+                "Japanese (Romaji / Kana per syllable)",
+            ),
+            SplitMode::PortugueseSyllables => lang.tr(
+                "Português (Divisão Silábica Automática)",
+                "Portuguese (Automatic Syllable Division)",
+            ),
         }
     }
 }
@@ -40,9 +49,16 @@ pub enum LyricsTargetMode {
 impl LyricsTargetMode {
     pub fn label(&self, lang: AppLanguage) -> &'static str {
         match self {
-            LyricsTargetMode::SelectedNotes => lang.tr("Somente Notas Selecionadas", "Selected Notes Only"),
-            LyricsTargetMode::FromFirstSelected => lang.tr("A partir da primeira nota selecionada", "From First Selected Note"),
-            LyricsTargetMode::FromPlayhead => lang.tr("A partir da posição do Playhead", "From Playhead Position"),
+            LyricsTargetMode::SelectedNotes => {
+                lang.tr("Somente Notas Selecionadas", "Selected Notes Only")
+            }
+            LyricsTargetMode::FromFirstSelected => lang.tr(
+                "A partir da primeira nota selecionada",
+                "From First Selected Note",
+            ),
+            LyricsTargetMode::FromPlayhead => {
+                lang.tr("A partir da posição do Playhead", "From Playhead Position")
+            }
         }
     }
 }

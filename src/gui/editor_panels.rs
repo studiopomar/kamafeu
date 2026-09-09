@@ -76,10 +76,7 @@ impl KamafeuStudioApp {
                         self.transport_state.bpm = self.project.bpm;
                         self.transport_state.status_message = if was_active {
                             if lang.is_en() {
-                                format!(
-                                    "BPM changed to {:.0}; playback stopped",
-                                    self.project.bpm
-                                )
+                                format!("BPM changed to {:.0}; playback stopped", self.project.bpm)
                             } else {
                                 format!(
                                     "BPM alterado para {:.0}; reprodução interrompida",
@@ -95,7 +92,8 @@ impl KamafeuStudioApp {
                         };
                     } else {
                         self.transport_state.bpm = self.project.bpm;
-                        self.transport_state.status_message = lang.tr("BPM inválido", "Invalid BPM").to_string();
+                        self.transport_state.status_message =
+                            lang.tr("BPM inválido", "Invalid BPM").to_string();
                     }
                 }
 

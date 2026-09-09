@@ -5,10 +5,7 @@ impl KamafeuStudioApp {
         let lang = self.config.language;
         ui.menu_button(lang.tr("Ferramentas", "Tools"), |ui| {
             if ui
-                .button(lang.tr(
-                    "Ponteiro (Seleção) [V / 1]",
-                    "Pointer (Selection) [V / 1]",
-                ))
+                .button(lang.tr("Ponteiro (Seleção) [V / 1]", "Pointer (Selection) [V / 1]"))
                 .clicked()
             {
                 self.piano_roll_state.active_tool = EditTool::Pointer;
@@ -37,9 +34,9 @@ impl KamafeuStudioApp {
                         lang.tr("  Pitch Livre (Suave)", "  Freehand Pitch (Smooth)"),
                     )
                     .clicked()
-                    {
-                        ui.close_menu();
-                    }
+                {
+                    ui.close_menu();
+                }
                 if ui
                     .radio_value(
                         &mut self.piano_roll_state.pitch_sub_tool,
@@ -47,9 +44,9 @@ impl KamafeuStudioApp {
                         lang.tr("  Reta / Glissando", "  Line / Glissando"),
                     )
                     .clicked()
-                    {
-                        ui.close_menu();
-                    }
+                {
+                    ui.close_menu();
+                }
                 if ui
                     .radio_value(
                         &mut self.piano_roll_state.pitch_sub_tool,
@@ -57,9 +54,9 @@ impl KamafeuStudioApp {
                         lang.tr("  Pincel de Vibrato", "  Vibrato Brush"),
                     )
                     .clicked()
-                    {
-                        ui.close_menu();
-                    }
+                {
+                    ui.close_menu();
+                }
                 if ui
                     .radio_value(
                         &mut self.piano_roll_state.pitch_sub_tool,
@@ -67,9 +64,9 @@ impl KamafeuStudioApp {
                         lang.tr("  Pincel Suavizador", "  Smooth Brush"),
                     )
                     .clicked()
-                    {
-                        ui.close_menu();
-                    }
+                {
+                    ui.close_menu();
+                }
                 ui.separator();
             }
             if ui

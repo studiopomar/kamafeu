@@ -25,9 +25,14 @@ pub(super) fn draw(
                 |ctx, _class| {
                     egui::CentralPanel::default().show(ctx, |ui| {
                         ui.heading(
-                            egui::RichText::new(format!("{}: {} ({})", lang.tr("Nota", "Note"), note.lyric, note.pitch))
-                                .size(14.0)
-                                .color(MelodyneTheme::TEXT_GOLD_LABEL),
+                            egui::RichText::new(format!(
+                                "{}: {} ({})",
+                                lang.tr("Nota", "Note"),
+                                note.lyric,
+                                note.pitch
+                            ))
+                            .size(14.0)
+                            .color(MelodyneTheme::TEXT_GOLD_LABEL),
                         );
                         ui.separator();
 
@@ -89,9 +94,11 @@ pub(super) fn draw(
 
                         ui.add_space(8.0);
                         ui.label(
-                            egui::RichText::new(lang.tr("Parâmetros de Vibrato", "Vibrato Parameters"))
-                                .strong()
-                                .color(Color32::from_rgb(0, 240, 255)),
+                            egui::RichText::new(
+                                lang.tr("Parâmetros de Vibrato", "Vibrato Parameters"),
+                            )
+                            .strong()
+                            .color(Color32::from_rgb(0, 240, 255)),
                         );
 
                         egui::Grid::new("vibrato_grid")

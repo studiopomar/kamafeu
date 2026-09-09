@@ -64,10 +64,18 @@ mod tests {
 
         // At 120 BPM, beats occur at 0ms (sample 0) and 500ms (sample 22050)
         let has_click_at_start = samples[0..100].iter().any(|&s| s.abs() > 0.05);
-        assert!(has_click_at_start, "Downbeat click should be present at 0ms");
+        assert!(
+            has_click_at_start,
+            "Downbeat click should be present at 0ms"
+        );
 
         let beat2_idx = (22050 * channels as usize) as usize;
-        let has_click_at_beat2 = samples[beat2_idx..beat2_idx + 100].iter().any(|&s| s.abs() > 0.05);
-        assert!(has_click_at_beat2, "Beat 2 click should be present at 500ms");
+        let has_click_at_beat2 = samples[beat2_idx..beat2_idx + 100]
+            .iter()
+            .any(|&s| s.abs() > 0.05);
+        assert!(
+            has_click_at_beat2,
+            "Beat 2 click should be present at 500ms"
+        );
     }
 }

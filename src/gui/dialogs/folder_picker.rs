@@ -162,16 +162,22 @@ impl KamafeuStudioApp {
 
             if let Some(folder) = selected_dir {
                 if let Ok(vb) = crate::oto::Voicebank::new(&folder) {
-                    self.transport_state.status_message =
-                        format!("{}: {}", lang.tr("Voicebank Carregado", "Voicebank Loaded"), vb.name);
+                    self.transport_state.status_message = format!(
+                        "{}: {}",
+                        lang.tr("Voicebank Carregado", "Voicebank Loaded"),
+                        vb.name
+                    );
                     self.transport_state.voicebank_name = vb.name.clone();
                     self.transport_state.voicebank_path = Some(vb.root_path.clone());
                     self.config.add_recent_voicebank(vb.root_path.clone());
                     self.voicebank = Some(vb);
                     self.persist_config();
                 } else {
-                    self.transport_state.status_message =
-                        format!("{}: {}", lang.tr("Pasta adicionada", "Folder added"), folder.display());
+                    self.transport_state.status_message = format!(
+                        "{}: {}",
+                        lang.tr("Pasta adicionada", "Folder added"),
+                        folder.display()
+                    );
                 }
                 if !self.config.singers_paths.contains(&folder) {
                     self.config.singers_paths.push(folder);

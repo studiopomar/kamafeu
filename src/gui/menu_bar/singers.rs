@@ -23,10 +23,7 @@ impl KamafeuStudioApp {
             }
             ui.separator();
             if ui
-                .button(lang.tr(
-                    "Carregar Voicebank Único...",
-                    "Load Single Voicebank...",
-                ))
+                .button(lang.tr("Carregar Voicebank Único...", "Load Single Voicebank..."))
                 .clicked()
             {
                 #[cfg(not(target_os = "android"))]
@@ -82,62 +79,57 @@ impl KamafeuStudioApp {
                 ui.close_menu();
             }
 
-            ui.menu_button(
-                lang.tr("Voicebanks Recentes", "Recent Voicebanks"),
-                |ui| {
-                    if self.config.recent_voicebanks.is_empty() {
-                        ui.label(
-                            egui::RichText::new(lang.tr(
-                                "Nenhum voicebank recente",
-                                "No recent voicebanks",
-                            ))
-                            .size(11.0)
-                            .color(MelodyneTheme::TEXT_MUTED),
-                        );
-                    } else {
-                        let mut to_load: Option<PathBuf> = None;
-                        for vb_path in &self.config.recent_voicebanks {
-                            let label = vb_path
-                                .file_name()
-                                .and_then(|n| n.to_str())
-                                .unwrap_or("Voicebank");
-                            if ui
-                                .button(egui::RichText::new(label).size(11.0))
-                                .on_hover_text(vb_path.to_string_lossy())
-                                .clicked()
-                            {
-                                to_load = Some(vb_path.clone());
-                                ui.close_menu();
-                            }
-                        }
-                        if let Some(vb_dir) = to_load {
-                            if let Ok(vb) = Voicebank::new(&vb_dir) {
-                                self.transport_state.status_message = if lang.is_en() {
-                                    format!("Voicebank Loaded: {}", vb.name)
-                                } else {
-                                    format!("Voicebank Carregado: {}", vb.name)
-                                };
-                                self.transport_state.voicebank_name = vb.name.clone();
-                                self.transport_state.voicebank_path = Some(vb.root_path.clone());
-                                self.config.add_recent_voicebank(vb.root_path.clone());
-                                self.voicebank = Some(vb);
-                            }
-                        }
-                        ui.separator();
+            ui.menu_button(lang.tr("Voicebanks Recentes", "Recent Voicebanks"), |ui| {
+                if self.config.recent_voicebanks.is_empty() {
+                    ui.label(
+                        egui::RichText::new(
+                            lang.tr("Nenhum voicebank recente", "No recent voicebanks"),
+                        )
+                        .size(11.0)
+                        .color(MelodyneTheme::TEXT_MUTED),
+                    );
+                } else {
+                    let mut to_load: Option<PathBuf> = None;
+                    for vb_path in &self.config.recent_voicebanks {
+                        let label = vb_path
+                            .file_name()
+                            .and_then(|n| n.to_str())
+                            .unwrap_or("Voicebank");
                         if ui
-                            .button(lang.tr(
-                                "Limpar Histórico de Voicebanks",
-                                "Clear Voicebanks History",
-                            ))
+                            .button(egui::RichText::new(label).size(11.0))
+                            .on_hover_text(vb_path.to_string_lossy())
                             .clicked()
                         {
-                            self.config.recent_voicebanks.clear();
-                            self.persist_config();
+                            to_load = Some(vb_path.clone());
                             ui.close_menu();
                         }
                     }
-                },
-            );
+                    if let Some(vb_dir) = to_load {
+                        if let Ok(vb) = Voicebank::new(&vb_dir) {
+                            self.transport_state.status_message = if lang.is_en() {
+                                format!("Voicebank Loaded: {}", vb.name)
+                            } else {
+                                format!("Voicebank Carregado: {}", vb.name)
+                            };
+                            self.transport_state.voicebank_name = vb.name.clone();
+                            self.transport_state.voicebank_path = Some(vb.root_path.clone());
+                            self.config.add_recent_voicebank(vb.root_path.clone());
+                            self.voicebank = Some(vb);
+                        }
+                    }
+                    ui.separator();
+                    if ui
+                        .button(
+                            lang.tr("Limpar Histórico de Voicebanks", "Clear Voicebanks History"),
+                        )
+                        .clicked()
+                    {
+                        self.config.recent_voicebanks.clear();
+                        self.persist_config();
+                        ui.close_menu();
+                    }
+                }
+            });
 
             ui.separator();
             if ui.button("Copaiba Voicebank Toolkit").clicked() {

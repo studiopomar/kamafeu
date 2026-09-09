@@ -42,16 +42,31 @@ pub fn draw_fx_rack_dialog(
 
     let dialog_title = match state.target_track {
         Some(idx) => {
-            let name = tracks.get(idx).map(|t| t.name.as_str()).unwrap_or(lang.tr("Faixa", "Track"));
-            format!("{} - {} {}: {}", lang.tr("Rack de Efeitos DSP", "DSP Effects Rack"), lang.tr("Faixa", "Track"), idx + 1, name)
+            let name = tracks
+                .get(idx)
+                .map(|t| t.name.as_str())
+                .unwrap_or(lang.tr("Faixa", "Track"));
+            format!(
+                "{} - {} {}: {}",
+                lang.tr("Rack de Efeitos DSP", "DSP Effects Rack"),
+                lang.tr("Faixa", "Track"),
+                idx + 1,
+                name
+            )
         }
-        None => format!("{} - Master", lang.tr("Rack de Efeitos DSP", "DSP Effects Rack")),
+        None => format!(
+            "{} - Master",
+            lang.tr("Rack de Efeitos DSP", "DSP Effects Rack")
+        ),
     };
 
     let mut trigger_close = false;
 
     let mut working_fx = match state.target_track {
-        Some(idx) => tracks.get(idx).and_then(|t| t.fx_rack.clone()).unwrap_or_default(),
+        Some(idx) => tracks
+            .get(idx)
+            .and_then(|t| t.fx_rack.clone())
+            .unwrap_or_default(),
         None => master_fx_config.clone(),
     };
     let initial_fx = working_fx.clone();
@@ -142,10 +157,17 @@ fn render_fx_rack_ui(
 
     // Track selector combo
     ui.horizontal(|ui| {
-        ui.label(RichText::new(lang.tr("Destino do FX:", "FX Target:")).strong().color(theme.text_muted_c32()));
+        ui.label(
+            RichText::new(lang.tr("Destino do FX:", "FX Target:"))
+                .strong()
+                .color(theme.text_muted_c32()),
+        );
         let current_target_name = match state.target_track {
             Some(idx) => {
-                let name = tracks.get(idx).map(|t| t.name.as_str()).unwrap_or(lang.tr("Faixa", "Track"));
+                let name = tracks
+                    .get(idx)
+                    .map(|t| t.name.as_str())
+                    .unwrap_or(lang.tr("Faixa", "Track"));
                 format!("{} {}: {}", lang.tr("Faixa", "Track"), idx + 1, name)
             }
             None => lang.tr("Master (Geral)", "Master (Global)").to_string(),
@@ -154,12 +176,22 @@ fn render_fx_rack_ui(
         egui::ComboBox::from_id_salt("fx_rack_target_combo")
             .selected_text(current_target_name)
             .show_ui(ui, |ui| {
-                if ui.selectable_value(&mut state.target_track, None, lang.tr("Master (Geral)", "Master (Global)")).clicked() {
+                if ui
+                    .selectable_value(
+                        &mut state.target_track,
+                        None,
+                        lang.tr("Master (Geral)", "Master (Global)"),
+                    )
+                    .clicked()
+                {
                     // Switched to Master
                 }
                 for (i, t) in tracks.iter().enumerate() {
                     let label = format!("{} {}: {}", lang.tr("Faixa", "Track"), i + 1, t.name);
-                    if ui.selectable_value(&mut state.target_track, Some(i), label).clicked() {
+                    if ui
+                        .selectable_value(&mut state.target_track, Some(i), label)
+                        .clicked()
+                    {
                         // Switched to Track i
                     }
                 }
@@ -219,10 +251,13 @@ fn render_fx_rack_ui(
                     ui.horizontal(|ui| {
                         ui.checkbox(
                             &mut fx_config.eq.enabled,
-                            RichText::new(lang.tr("Equalizador Gráfico de 31 Bandas (1/3 Oitava)", "31-Band Graphic Equalizer (1/3 Octave)"))
-                                .strong()
-                                .size(12.0)
-                                .color(theme.accent_c32()),
+                            RichText::new(lang.tr(
+                                "Equalizador Gráfico de 31 Bandas (1/3 Oitava)",
+                                "31-Band Graphic Equalizer (1/3 Octave)",
+                            ))
+                            .strong()
+                            .size(12.0)
+                            .color(theme.accent_c32()),
                         );
                         if !fx_config.eq.enabled {
                             ui.label(
@@ -234,45 +269,80 @@ fn render_fx_rack_ui(
                         }
 
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            if ui.button(RichText::new(lang.tr("Flat (Zerar)", "Flat (Zero)")).size(10.0)).clicked() {
+                            if ui
+                                .button(
+                                    RichText::new(lang.tr("Flat (Zerar)", "Flat (Zero)"))
+                                        .size(10.0),
+                                )
+                                .clicked()
+                            {
                                 fx_config.eq.gains = [0.0; 31];
                             }
 
                             egui::ComboBox::from_id_salt("eq_presets_combo")
-                                .selected_text(RichText::new(lang.tr("Presets de EQ...", "EQ Presets...")).size(10.0))
+                                .selected_text(
+                                    RichText::new(lang.tr("Presets de EQ...", "EQ Presets..."))
+                                        .size(10.0),
+                                )
                                 .show_ui(ui, |ui| {
-                                    if ui.button(lang.tr("Flat (Linear)", "Flat (Linear)")).clicked() {
+                                    if ui
+                                        .button(lang.tr("Flat (Linear)", "Flat (Linear)"))
+                                        .clicked()
+                                    {
                                         fx_config.eq.gains = [0.0; 31];
                                         ui.close_menu();
                                     }
-                                    if ui.button(lang.tr("Vocal - Brilho e Ar (Vocal Air)", "Vocal - Brightness and Air (Vocal Air)")).clicked() {
+                                    if ui
+                                        .button(lang.tr(
+                                            "Vocal - Brilho e Ar (Vocal Air)",
+                                            "Vocal - Brightness and Air (Vocal Air)",
+                                        ))
+                                        .clicked()
+                                    {
                                         fx_config.eq.gains = [
-                                            -12.0, -10.0, -8.0, -6.0, -4.0, -2.0, 0.0, 0.0,
-                                            0.0, 0.0, 0.0, 0.0, 0.0, 0.0,
-                                            0.5, 1.0, 1.5, 2.0, 2.5, 3.0, 3.5, 4.0, 4.5, 5.0, 5.5, 5.0,
-                                            4.0, 3.0, 2.0, 1.0, 0.0,
+                                            -12.0, -10.0, -8.0, -6.0, -4.0, -2.0, 0.0, 0.0, 0.0,
+                                            0.0, 0.0, 0.0, 0.0, 0.0, 0.5, 1.0, 1.5, 2.0, 2.5, 3.0,
+                                            3.5, 4.0, 4.5, 5.0, 5.5, 5.0, 4.0, 3.0, 2.0, 1.0, 0.0,
                                         ];
                                         ui.close_menu();
                                     }
-                                    if ui.button(lang.tr("Vocal - Calor & Presença (Warmth)", "Vocal - Warmth & Presence")).clicked() {
+                                    if ui
+                                        .button(lang.tr(
+                                            "Vocal - Calor & Presença (Warmth)",
+                                            "Vocal - Warmth & Presence",
+                                        ))
+                                        .clicked()
+                                    {
                                         fx_config.eq.gains = [
-                                            -12.0, -10.0, -6.0, -3.0, 0.0, 1.0, 2.0, 2.5,
-                                            3.0, 2.5, 2.0, 1.0, 0.0, -1.0,
-                                            -1.0, 0.0, 1.0, 2.0, 2.5, 3.0, 3.0, 2.5, 2.0, 1.5, 1.0, 0.5,
-                                            0.0, 0.0, 0.0, -1.0, -2.0,
+                                            -12.0, -10.0, -6.0, -3.0, 0.0, 1.0, 2.0, 2.5, 3.0, 2.5,
+                                            2.0, 1.0, 0.0, -1.0, -1.0, 0.0, 1.0, 2.0, 2.5, 3.0,
+                                            3.0, 2.5, 2.0, 1.5, 1.0, 0.5, 0.0, 0.0, 0.0, -1.0,
+                                            -2.0,
                                         ];
                                         ui.close_menu();
                                     }
-                                    if ui.button(lang.tr("Vocal - Clareza (Anti-Muffled)", "Vocal - Clarity (Anti-Muffled)")).clicked() {
+                                    if ui
+                                        .button(lang.tr(
+                                            "Vocal - Clareza (Anti-Muffled)",
+                                            "Vocal - Clarity (Anti-Muffled)",
+                                        ))
+                                        .clicked()
+                                    {
                                         fx_config.eq.gains = [
-                                            -12.0, -10.0, -8.0, -5.0, -3.0, -1.0, 0.0, 0.0,
-                                            -1.0, -2.0, -3.0, -3.5, -3.0, -2.0,
-                                            -1.0, 0.0, 1.5, 2.5, 3.5, 4.0, 3.5, 3.0, 2.5, 2.0, 1.5, 1.0,
-                                            0.5, 0.0, 0.0, 0.0, 0.0,
+                                            -12.0, -10.0, -8.0, -5.0, -3.0, -1.0, 0.0, 0.0, -1.0,
+                                            -2.0, -3.0, -3.5, -3.0, -2.0, -1.0, 0.0, 1.5, 2.5, 3.5,
+                                            4.0, 3.5, 3.0, 2.5, 2.0, 1.5, 1.0, 0.5, 0.0, 0.0, 0.0,
+                                            0.0,
                                         ];
                                         ui.close_menu();
                                     }
-                                    if ui.button(lang.tr("Corte de Sub-Graves (High-Pass 80Hz)", "Sub-Bass Cut (High-Pass 80Hz)")).clicked() {
+                                    if ui
+                                        .button(lang.tr(
+                                            "Corte de Sub-Graves (High-Pass 80Hz)",
+                                            "Sub-Bass Cut (High-Pass 80Hz)",
+                                        ))
+                                        .clicked()
+                                    {
                                         fx_config.eq.gains[0] = -12.0;
                                         fx_config.eq.gains[1] = -12.0;
                                         fx_config.eq.gains[2] = -12.0;
@@ -306,33 +376,51 @@ fn render_fx_rack_ui(
                                         } else {
                                             format!("{:0.1}", *gain)
                                         };
-                                        ui.label(
-                                            RichText::new(val_str)
-                                                .size(8.5)
-                                                .color(if gain.abs() > 0.1 {
-                                                    theme.accent_c32()
-                                                } else {
-                                                    theme.text_muted_c32()
-                                                }),
-                                        );
+                                        ui.label(RichText::new(val_str).size(8.5).color(
+                                            if gain.abs() > 0.1 {
+                                                theme.accent_c32()
+                                            } else {
+                                                theme.text_muted_c32()
+                                            },
+                                        ));
 
                                         // Vertical slider
-                                        let slider_resp = ui.add(
-                                            egui::Slider::new(gain, -12.0..=12.0)
-                                                .vertical()
-                                                .show_value(false),
-                                        ).on_hover_text(format!("Freq: {} Hz\n{}: {:+0.1} dB\n({})", freq, lang.tr("Ganho", "Gain"), *gain, lang.tr("Clique direito para resetar a 0 dB", "Right click to reset to 0 dB")));
+                                        let slider_resp = ui
+                                            .add(
+                                                egui::Slider::new(gain, -12.0..=12.0)
+                                                    .vertical()
+                                                    .show_value(false),
+                                            )
+                                            .on_hover_text(format!(
+                                                "Freq: {} Hz\n{}: {:+0.1} dB\n({})",
+                                                freq,
+                                                lang.tr("Ganho", "Gain"),
+                                                *gain,
+                                                lang.tr(
+                                                    "Clique direito para resetar a 0 dB",
+                                                    "Right click to reset to 0 dB"
+                                                )
+                                            ));
 
                                         if slider_resp.clicked_by(egui::PointerButton::Secondary) {
                                             *gain = 0.0;
                                         }
 
                                         // Frequency label
-                                        let lbl_resp = ui.label(
-                                            RichText::new(label)
-                                                .size(8.5)
-                                                .color(theme.text_primary_c32()),
-                                        ).on_hover_text(format!("{} Hz ({})", freq, lang.tr("Clique direito para resetar", "Right click to reset")));
+                                        let lbl_resp = ui
+                                            .label(
+                                                RichText::new(label)
+                                                    .size(8.5)
+                                                    .color(theme.text_primary_c32()),
+                                            )
+                                            .on_hover_text(format!(
+                                                "{} Hz ({})",
+                                                freq,
+                                                lang.tr(
+                                                    "Clique direito para resetar",
+                                                    "Right click to reset"
+                                                )
+                                            ));
                                         if lbl_resp.clicked_by(egui::PointerButton::Secondary) {
                                             *gain = 0.0;
                                         }
@@ -356,10 +444,12 @@ fn render_fx_rack_ui(
                             ui.horizontal(|ui| {
                                 ui.checkbox(
                                     &mut fx_config.compressor.enabled,
-                                    RichText::new(lang.tr("Compressor Dinâmico", "Dynamic Compressor"))
-                                        .strong()
-                                        .size(11.5)
-                                        .color(theme.accent_c32()),
+                                    RichText::new(
+                                        lang.tr("Compressor Dinâmico", "Dynamic Compressor"),
+                                    )
+                                    .strong()
+                                    .size(11.5)
+                                    .color(theme.accent_c32()),
                                 );
                                 if !fx_config.compressor.enabled {
                                     ui.label(
@@ -377,23 +467,53 @@ fn render_fx_rack_ui(
                                 .spacing([8.0, 6.0])
                                 .show(ui, |ui| {
                                     ui.label("Threshold:");
-                                    ui.add(egui::Slider::new(&mut fx_config.compressor.threshold_db, -40.0..=0.0).suffix(" dB"));
+                                    ui.add(
+                                        egui::Slider::new(
+                                            &mut fx_config.compressor.threshold_db,
+                                            -40.0..=0.0,
+                                        )
+                                        .suffix(" dB"),
+                                    );
                                     ui.end_row();
 
                                     ui.label("Ratio:");
-                                    ui.add(egui::Slider::new(&mut fx_config.compressor.ratio, 1.0..=20.0).suffix(":1"));
+                                    ui.add(
+                                        egui::Slider::new(
+                                            &mut fx_config.compressor.ratio,
+                                            1.0..=20.0,
+                                        )
+                                        .suffix(":1"),
+                                    );
                                     ui.end_row();
 
                                     ui.label(lang.tr("Ataque:", "Attack:"));
-                                    ui.add(egui::Slider::new(&mut fx_config.compressor.attack_ms, 0.5..=100.0).suffix(" ms"));
+                                    ui.add(
+                                        egui::Slider::new(
+                                            &mut fx_config.compressor.attack_ms,
+                                            0.5..=100.0,
+                                        )
+                                        .suffix(" ms"),
+                                    );
                                     ui.end_row();
 
                                     ui.label("Release:");
-                                    ui.add(egui::Slider::new(&mut fx_config.compressor.release_ms, 10.0..=1000.0).suffix(" ms"));
+                                    ui.add(
+                                        egui::Slider::new(
+                                            &mut fx_config.compressor.release_ms,
+                                            10.0..=1000.0,
+                                        )
+                                        .suffix(" ms"),
+                                    );
                                     ui.end_row();
 
                                     ui.label(lang.tr("Ganho Makeup:", "Makeup Gain:"));
-                                    ui.add(egui::Slider::new(&mut fx_config.compressor.makeup_gain_db, 0.0..=24.0).suffix(" dB"));
+                                    ui.add(
+                                        egui::Slider::new(
+                                            &mut fx_config.compressor.makeup_gain_db,
+                                            0.0..=24.0,
+                                        )
+                                        .suffix(" dB"),
+                                    );
                                     ui.end_row();
                                 });
                         });
@@ -406,10 +526,12 @@ fn render_fx_rack_ui(
                             ui.horizontal(|ui| {
                                 ui.checkbox(
                                     &mut fx_config.delay.enabled,
-                                    RichText::new(lang.tr("Delay Estéreo / Eco", "Stereo Delay / Echo"))
-                                        .strong()
-                                        .size(11.5)
-                                        .color(theme.accent_c32()),
+                                    RichText::new(
+                                        lang.tr("Delay Estéreo / Eco", "Stereo Delay / Echo"),
+                                    )
+                                    .strong()
+                                    .size(11.5)
+                                    .color(theme.accent_c32()),
                                 );
                                 if !fx_config.delay.enabled {
                                     ui.label(
@@ -427,20 +549,35 @@ fn render_fx_rack_ui(
                                 .spacing([8.0, 6.0])
                                 .show(ui, |ui| {
                                     ui.label(lang.tr("Tempo:", "Time:"));
-                                    ui.add(egui::Slider::new(&mut fx_config.delay.time_ms, 20.0..=1000.0).suffix(" ms"));
+                                    ui.add(
+                                        egui::Slider::new(
+                                            &mut fx_config.delay.time_ms,
+                                            20.0..=1000.0,
+                                        )
+                                        .suffix(" ms"),
+                                    );
                                     ui.end_row();
 
                                     ui.label("Feedback:");
-                                    ui.add(egui::Slider::new(&mut fx_config.delay.feedback, 0.0..=0.95));
+                                    ui.add(egui::Slider::new(
+                                        &mut fx_config.delay.feedback,
+                                        0.0..=0.95,
+                                    ));
                                     ui.end_row();
 
                                     ui.label("Mix Wet:");
-                                    ui.add(egui::Slider::new(&mut fx_config.delay.wet_level, 0.0..=1.0));
+                                    ui.add(egui::Slider::new(
+                                        &mut fx_config.delay.wet_level,
+                                        0.0..=1.0,
+                                    ));
                                     ui.end_row();
                                 });
 
                             ui.add_space(2.0);
-                            ui.checkbox(&mut fx_config.delay.ping_pong, lang.tr("Modo Ping-Pong (L/R)", "Ping-Pong Mode (L/R)"));
+                            ui.checkbox(
+                                &mut fx_config.delay.ping_pong,
+                                lang.tr("Modo Ping-Pong (L/R)", "Ping-Pong Mode (L/R)"),
+                            );
                         });
                     });
 
@@ -451,10 +588,13 @@ fn render_fx_rack_ui(
                             ui.horizontal(|ui| {
                                 ui.checkbox(
                                     &mut fx_config.reverb.enabled,
-                                    RichText::new(lang.tr("Reverb Espacial (Freeverb)", "Spatial Reverb (Freeverb)"))
-                                        .strong()
-                                        .size(11.5)
-                                        .color(theme.accent_c32()),
+                                    RichText::new(lang.tr(
+                                        "Reverb Espacial (Freeverb)",
+                                        "Spatial Reverb (Freeverb)",
+                                    ))
+                                    .strong()
+                                    .size(11.5)
+                                    .color(theme.accent_c32()),
                                 );
                                 if !fx_config.reverb.enabled {
                                     ui.label(
@@ -472,23 +612,38 @@ fn render_fx_rack_ui(
                                 .spacing([8.0, 6.0])
                                 .show(ui, |ui| {
                                     ui.label(lang.tr("Tamanho da Sala:", "Room Size:"));
-                                    ui.add(egui::Slider::new(&mut fx_config.reverb.room_size, 0.0..=1.0));
+                                    ui.add(egui::Slider::new(
+                                        &mut fx_config.reverb.room_size,
+                                        0.0..=1.0,
+                                    ));
                                     ui.end_row();
 
                                     ui.label(lang.tr("Amortecimento:", "Damping:"));
-                                    ui.add(egui::Slider::new(&mut fx_config.reverb.damping, 0.0..=1.0));
+                                    ui.add(egui::Slider::new(
+                                        &mut fx_config.reverb.damping,
+                                        0.0..=1.0,
+                                    ));
                                     ui.end_row();
 
                                     ui.label(lang.tr("Largura Estéreo:", "Stereo Width:"));
-                                    ui.add(egui::Slider::new(&mut fx_config.reverb.width, 0.0..=1.0));
+                                    ui.add(egui::Slider::new(
+                                        &mut fx_config.reverb.width,
+                                        0.0..=1.0,
+                                    ));
                                     ui.end_row();
 
                                     ui.label(lang.tr("Mix Wet (Reverb):", "Wet Mix (Reverb):"));
-                                    ui.add(egui::Slider::new(&mut fx_config.reverb.wet_level, 0.0..=1.0));
+                                    ui.add(egui::Slider::new(
+                                        &mut fx_config.reverb.wet_level,
+                                        0.0..=1.0,
+                                    ));
                                     ui.end_row();
 
                                     ui.label(lang.tr("Nível Dry:", "Dry Level:"));
-                                    ui.add(egui::Slider::new(&mut fx_config.reverb.dry_level, 0.0..=1.0));
+                                    ui.add(egui::Slider::new(
+                                        &mut fx_config.reverb.dry_level,
+                                        0.0..=1.0,
+                                    ));
                                     ui.end_row();
                                 });
                         });

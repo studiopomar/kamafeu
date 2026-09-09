@@ -12,12 +12,21 @@ impl KamafeuStudioApp {
 
             let title = if export_finished {
                 if has_error {
-                    lang.tr("Falha na Exportação de Áudio - Kamafeu Studio", "Audio Export Failed - Kamafeu Studio")
+                    lang.tr(
+                        "Falha na Exportação de Áudio - Kamafeu Studio",
+                        "Audio Export Failed - Kamafeu Studio",
+                    )
                 } else {
-                    lang.tr("Exportação de Áudio Concluída - Kamafeu Studio", "Audio Export Completed - Kamafeu Studio")
+                    lang.tr(
+                        "Exportação de Áudio Concluída - Kamafeu Studio",
+                        "Audio Export Completed - Kamafeu Studio",
+                    )
                 }
             } else {
-                lang.tr("Exportando Áudio... - Kamafeu Studio", "Exporting Audio... - Kamafeu Studio")
+                lang.tr(
+                    "Exportando Áudio... - Kamafeu Studio",
+                    "Exporting Audio... - Kamafeu Studio",
+                )
             };
 
             let mut trigger_close = false;
@@ -115,7 +124,11 @@ impl KamafeuStudioApp {
                         } else if !self.export_status_detail.is_empty() {
                             self.export_status_detail.clone()
                         } else {
-                            lang.tr("Processando amostras de áudio...", "Processing audio samples...").to_string()
+                            lang.tr(
+                                "Processando amostras de áudio...",
+                                "Processing audio samples...",
+                            )
+                            .to_string()
                         };
 
                         ui.label(
@@ -134,10 +147,13 @@ impl KamafeuStudioApp {
                                 .show(ui, |ui| {
                                     ui.horizontal(|ui| {
                                         ui.label(
-                                            egui::RichText::new(format!("{}:", lang.tr("Destino", "Destination")))
-                                                .strong()
-                                                .size(11.0)
-                                                .color(egui::Color32::from_rgb(180, 175, 200)),
+                                            egui::RichText::new(format!(
+                                                "{}:",
+                                                lang.tr("Destino", "Destination")
+                                            ))
+                                            .strong()
+                                            .size(11.0)
+                                            .color(egui::Color32::from_rgb(180, 175, 200)),
                                         );
                                         ui.label(
                                             egui::RichText::new(path.to_string_lossy())
@@ -149,7 +165,8 @@ impl KamafeuStudioApp {
                                     if export_finished && !has_error {
                                         ui.add_space(4.0);
                                         ui.horizontal(|ui| {
-                                            let reveal_label = reveal_in_file_manager_label_for(lang);
+                                            let reveal_label =
+                                                reveal_in_file_manager_label_for(lang);
                                             let reveal_btn = egui::Button::new(
                                                 egui::RichText::new(reveal_label)
                                                     .size(11.5)
@@ -164,7 +181,10 @@ impl KamafeuStudioApp {
                                             }
 
                                             let copy_btn = egui::Button::new(
-                                                egui::RichText::new(lang.tr("Copiar Caminho", "Copy Path")).size(11.5),
+                                                egui::RichText::new(
+                                                    lang.tr("Copiar Caminho", "Copy Path"),
+                                                )
+                                                .size(11.5),
                                             )
                                             .fill(egui::Color32::from_rgb(45, 40, 60))
                                             .min_size(egui::vec2(120.0, 24.0));
@@ -174,8 +194,12 @@ impl KamafeuStudioApp {
                                                     o.copied_text =
                                                         path.to_string_lossy().to_string()
                                                 });
-                                                self.transport_state.status_message =
-                                                    lang.tr("Caminho do arquivo copiado!", "File path copied!").to_string();
+                                                self.transport_state.status_message = lang
+                                                    .tr(
+                                                        "Caminho do arquivo copiado!",
+                                                        "File path copied!",
+                                                    )
+                                                    .to_string();
                                             }
                                         });
                                     }

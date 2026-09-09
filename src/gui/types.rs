@@ -101,7 +101,12 @@ impl GridSnapOption {
         self.resolved_label_for(bpm, px_per_ms, crate::config::AppLanguage::PtBr)
     }
 
-    pub fn resolved_label_for(&self, bpm: f64, px_per_ms: f32, lang: crate::config::AppLanguage) -> String {
+    pub fn resolved_label_for(
+        &self,
+        bpm: f64,
+        px_per_ms: f32,
+        lang: crate::config::AppLanguage,
+    ) -> String {
         if *self == GridSnapOption::Auto {
             if let Some(step) = self.step_ms_with_zoom(bpm, px_per_ms) {
                 let beat_ms = 60000.0 / bpm;

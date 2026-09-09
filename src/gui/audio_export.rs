@@ -305,10 +305,11 @@ impl KamafeuStudioApp {
             .unwrap_or(0);
 
         if self.project.parts.is_empty() || part_idx >= self.project.parts.len() {
-            self.transport_state.status_message = self.config.language.tr(
-                "Nenhuma parte ativa encontrada",
-                "No active part found",
-            ).to_string();
+            self.transport_state.status_message = self
+                .config
+                .language
+                .tr("Nenhuma parte ativa encontrada", "No active part found")
+                .to_string();
             return;
         }
 
@@ -334,10 +335,14 @@ impl KamafeuStudioApp {
         };
 
         if selected_notes.is_empty() {
-            self.transport_state.status_message = self.config.language.tr(
-                "Selecione uma ou mais notas no piano roll para exportar a demo",
-                "Select one or more notes in the piano roll to export demo",
-            ).to_string();
+            self.transport_state.status_message = self
+                .config
+                .language
+                .tr(
+                    "Selecione uma ou mais notas no piano roll para exportar a demo",
+                    "Select one or more notes in the piano roll to export demo",
+                )
+                .to_string();
             return;
         }
 
@@ -365,7 +370,13 @@ impl KamafeuStudioApp {
 
         let clean_name = |s: &str| -> String {
             s.chars()
-                .map(|c| if ['/', '\\', ':', '*', '?', '"', '<', '>', '|'].contains(&c) { '_' } else { c })
+                .map(|c| {
+                    if ['/', '\\', ':', '*', '?', '"', '<', '>', '|'].contains(&c) {
+                        '_'
+                    } else {
+                        c
+                    }
+                })
                 .collect::<String>()
                 .trim()
                 .to_string()
@@ -377,16 +388,16 @@ impl KamafeuStudioApp {
 
         let lang = self.config.language;
         if let Some(save_path) = crate::dialogs::FileDialog::new()
-            .add_filter(
-                lang.tr("Áudio WAV (*.wav)", "WAV Audio (*.wav)"),
-                &["wav"],
-            )
+            .add_filter(lang.tr("Áudio WAV (*.wav)", "WAV Audio (*.wav)"), &["wav"])
             .add_filter(
                 lang.tr("Áudio FLAC (*.flac)", "FLAC Audio (*.flac)"),
                 &["flac"],
             )
             .add_filter(
-                lang.tr("Todos os Formatos Suportados (*.wav, *.flac)", "All Supported Formats (*.wav, *.flac)"),
+                lang.tr(
+                    "Todos os Formatos Suportados (*.wav, *.flac)",
+                    "All Supported Formats (*.wav, *.flac)",
+                ),
                 &["wav", "flac"],
             )
             .set_file_name(&default_name)
@@ -451,7 +462,10 @@ impl KamafeuStudioApp {
             self.export_save_path = Some(save_path.clone());
             self.export_status_detail = format!(
                 "{} ({})",
-                lang.tr("Exportando seleção Demo / WIP", "Exporting WIP / Demo selection"),
+                lang.tr(
+                    "Exportando seleção Demo / WIP",
+                    "Exporting WIP / Demo selection"
+                ),
                 save_path.file_name().unwrap_or_default().to_string_lossy()
             );
 

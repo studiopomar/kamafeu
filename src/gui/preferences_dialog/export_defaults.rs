@@ -8,7 +8,10 @@ impl KamafeuStudioApp {
         let lang = self.config.language;
         section_card(
             ui,
-            lang.tr("Formato & Qualidade Padrão de Exportação Master", "Master Export Default Format & Quality"),
+            lang.tr(
+                "Formato & Qualidade Padrão de Exportação Master",
+                "Master Export Default Format & Quality",
+            ),
             |ui| {
                 ui.horizontal(|ui| {
                     ui.label(lang.tr("Formato Padrão:", "Default Format:"));
@@ -74,7 +77,10 @@ impl KamafeuStudioApp {
                 ui.horizontal(|ui| {
                     ui.checkbox(
                         &mut self.config.export.normalize_audio,
-                        lang.tr("Normalizar Pico de Áudio Automaticamente", "Automatically Normalize Peak Audio"),
+                        lang.tr(
+                            "Normalizar Pico de Áudio Automaticamente",
+                            "Automatically Normalize Peak Audio",
+                        ),
                     );
                     if self.config.export.normalize_audio {
                         ui.add(

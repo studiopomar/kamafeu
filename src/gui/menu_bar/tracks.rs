@@ -6,12 +6,19 @@ impl KamafeuStudioApp {
         let is_pt = lang.is_pt();
 
         ui.menu_button(lang.tr("Faixas", "Tracks"), |ui| {
-            if ui.button(lang.tr("+ Nova Faixa (Track)", "+ New Track")).clicked() {
+            if ui
+                .button(lang.tr("+ Nova Faixa (Track)", "+ New Track"))
+                .clicked()
+            {
                 let new_idx = self.project.tracks.len();
                 let track_name = format!("Track {}", new_idx + 1);
                 self.project.tracks.push(crate::project::model::UTrack {
                     name: track_name.clone(),
-                    singer: if is_pt { "Cantor Padrão".to_string() } else { "Default Singer".to_string() },
+                    singer: if is_pt {
+                        "Cantor Padrão".to_string()
+                    } else {
+                        "Default Singer".to_string()
+                    },
                     volume_db: 0.0,
                     pan: 0.0,
                     mute: false,
@@ -27,7 +34,10 @@ impl KamafeuStudioApp {
                 self.active_track_index = new_idx;
                 ui.close_menu();
             }
-            if ui.button(lang.tr("Duplicar Faixa Ativa", "Duplicate Active Track")).clicked() {
+            if ui
+                .button(lang.tr("Duplicar Faixa Ativa", "Duplicate Active Track"))
+                .clicked()
+            {
                 let active_idx = self.active_track_index;
                 if active_idx < self.project.tracks.len() {
                     let mut new_track = self.project.tracks[active_idx].clone();
@@ -49,11 +59,20 @@ impl KamafeuStudioApp {
                     }
                     self.active_track_index = new_track_idx;
                     self.push_history();
-                    self.transport_state.status_message = lang.tr("Faixa duplicada com sucesso", "Track duplicated successfully").to_string();
+                    self.transport_state.status_message = lang
+                        .tr(
+                            "Faixa duplicada com sucesso",
+                            "Track duplicated successfully",
+                        )
+                        .to_string();
                 }
                 ui.close_menu();
             }
-            if self.project.tracks.len() > 1 && ui.button(lang.tr("Excluir Faixa Ativa", "Delete Active Track")).clicked() {
+            if self.project.tracks.len() > 1
+                && ui
+                    .button(lang.tr("Excluir Faixa Ativa", "Delete Active Track"))
+                    .clicked()
+            {
                 let del_idx = self.active_track_index;
                 if del_idx < self.project.tracks.len() {
                     self.project.tracks.remove(del_idx);
@@ -71,7 +90,10 @@ impl KamafeuStudioApp {
             }
             ui.separator();
             if let Some(track) = self.project.tracks.get_mut(self.active_track_index) {
-                if ui.checkbox(&mut track.mute, lang.tr("Mudo (Mute) [M]", "Mute [M]")).clicked() {
+                if ui
+                    .checkbox(&mut track.mute, lang.tr("Mudo (Mute) [M]", "Mute [M]"))
+                    .clicked()
+                {
                     ui.close_menu();
                 }
                 if ui.checkbox(&mut track.solo, "Solo").clicked() {
@@ -79,7 +101,13 @@ impl KamafeuStudioApp {
                 }
             }
             ui.separator();
-            if ui.button(lang.tr("Refonetizar Toda a Faixa Ativa", "Re-phonemize Entire Active Track")).clicked() {
+            if ui
+                .button(lang.tr(
+                    "Refonetizar Toda a Faixa Ativa",
+                    "Re-phonemize Entire Active Track",
+                ))
+                .clicked()
+            {
                 self.rephonemize_all_notes();
                 ui.close_menu();
             }

@@ -1,7 +1,7 @@
+use crate::config::AppLanguage;
 use crate::dsp::pitch::VibratoParam;
 use crate::gui::theme::ThemeConfig;
 use crate::project::model::UNote;
-use crate::config::AppLanguage;
 use eframe::egui::{self, Color32, Frame, RichText, Window};
 use std::collections::HashSet;
 
@@ -158,9 +158,12 @@ pub fn draw_humanize_dialog(
     };
 
     Window::new(
-        RichText::new(lang.tr("Humanizador & Vibrato Natural", "Humanizer & Natural Vibrato"))
-            .strong()
-            .color(theme.accent_c32()),
+        RichText::new(lang.tr(
+            "Humanizador & Vibrato Natural",
+            "Humanizer & Natural Vibrato",
+        ))
+        .strong()
+        .color(theme.accent_c32()),
     )
     .open(&mut window_open)
     .resizable(true)
@@ -174,10 +177,15 @@ pub fn draw_humanize_dialog(
         ui.vertical(|ui| {
             let note_count = target_indices.len();
             ui.label(
-                RichText::new(format!("{}: {} {}", lang.tr("Alvo", "Target"), note_count, lang.tr("notas selecionadas", "selected notes")))
-                    .strong()
-                    .size(11.0)
-                    .color(theme.accent_c32()),
+                RichText::new(format!(
+                    "{}: {} {}",
+                    lang.tr("Alvo", "Target"),
+                    note_count,
+                    lang.tr("notas selecionadas", "selected notes")
+                ))
+                .strong()
+                .size(11.0)
+                .color(theme.accent_c32()),
             );
             ui.add_space(4.0);
             ui.separator();
@@ -191,18 +199,19 @@ pub fn draw_humanize_dialog(
                 .inner_margin(egui::Margin::same(8.0))
                 .show(ui, |ui| {
                     ui.label(
-                        RichText::new(lang.tr("Variação Orgânica / Humanização", "Organic Variation / Humanization"))
-                            .strong()
-                            .size(11.5)
-                            .color(theme.accent_c32()),
+                        RichText::new(lang.tr(
+                            "Variação Orgânica / Humanização",
+                            "Organic Variation / Humanization",
+                        ))
+                        .strong()
+                        .size(11.5)
+                        .color(theme.accent_c32()),
                     );
                     ui.label(
-                        RichText::new(
-                            lang.tr(
-                                "Adiciona micro-imperfeições sutis para soar mais humano e natural:",
-                                "Adds subtle micro-imperfections for a more human and natural sound:",
-                            ),
-                        )
+                        RichText::new(lang.tr(
+                            "Adiciona micro-imperfeições sutis para soar mais humano e natural:",
+                            "Adds subtle micro-imperfections for a more human and natural sound:",
+                        ))
                         .size(9.5)
                         .color(theme.text_muted_c32()),
                     );
@@ -254,7 +263,12 @@ pub fn draw_humanize_dialog(
 
                     ui.add_space(4.0);
                     if ui
-                        .button(RichText::new(lang.tr("Aplicar Apenas Humanização", "Apply Humanization Only")).size(11.0))
+                        .button(
+                            RichText::new(
+                                lang.tr("Aplicar Apenas Humanização", "Apply Humanization Only"),
+                            )
+                            .size(11.0),
+                        )
                         .clicked()
                     {
                         apply_humanize_clicked = true;
@@ -277,12 +291,10 @@ pub fn draw_humanize_dialog(
                             .color(theme.accent_c32()),
                     );
                     ui.label(
-                        RichText::new(
-                            lang.tr(
-                                "Detecta notas sustentadas e aplica vibrato musical progressivo:",
-                                "Detects sustained notes and applies progressive musical vibrato:",
-                            ),
-                        )
+                        RichText::new(lang.tr(
+                            "Detecta notas sustentadas e aplica vibrato musical progressivo:",
+                            "Detects sustained notes and applies progressive musical vibrato:",
+                        ))
                         .size(9.5)
                         .color(theme.text_muted_c32()),
                     );
@@ -333,7 +345,12 @@ pub fn draw_humanize_dialog(
 
                     ui.add_space(4.0);
                     if ui
-                        .button(RichText::new(lang.tr("Aplicar Apenas Auto-Vibrato", "Apply Auto-Vibrato Only")).size(11.0))
+                        .button(
+                            RichText::new(
+                                lang.tr("Aplicar Apenas Auto-Vibrato", "Apply Auto-Vibrato Only"),
+                            )
+                            .size(11.0),
+                        )
                         .clicked()
                     {
                         apply_vibrato_clicked = true;
@@ -347,16 +364,22 @@ pub fn draw_humanize_dialog(
             ui.horizontal(|ui| {
                 if ui
                     .button(
-                        RichText::new(lang.tr("Aplicar Ambos (Humanizar + Vibrato)", "Apply Both (Humanize + Vibrato)"))
-                            .strong()
-                            .size(11.5)
-                            .color(Color32::WHITE),
+                        RichText::new(lang.tr(
+                            "Aplicar Ambos (Humanizar + Vibrato)",
+                            "Apply Both (Humanize + Vibrato)",
+                        ))
+                        .strong()
+                        .size(11.5)
+                        .color(Color32::WHITE),
                     )
                     .clicked()
                 {
                     apply_all_clicked = true;
                 }
-                if ui.button(RichText::new(lang.tr("Fechar", "Close")).size(11.0)).clicked() {
+                if ui
+                    .button(RichText::new(lang.tr("Fechar", "Close")).size(11.0))
+                    .clicked()
+                {
                     close_clicked = true;
                 }
             });

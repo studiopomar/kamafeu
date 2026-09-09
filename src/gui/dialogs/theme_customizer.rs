@@ -16,7 +16,10 @@ impl KamafeuStudioApp {
         ctx.show_viewport_immediate(
             egui::ViewportId::from_hash_of("theme_customizer_native_viewport"),
             egui::ViewportBuilder::default()
-                .with_title(lang.tr("Personalizar Tema e Aparência - Kamafeu Studio", "Customize Theme & Appearance - Kamafeu Studio"))
+                .with_title(lang.tr(
+                    "Personalizar Tema e Aparência - Kamafeu Studio",
+                    "Customize Theme & Appearance - Kamafeu Studio",
+                ))
                 .with_inner_size([720.0, 590.0])
                 .with_min_inner_size([580.0, 480.0]),
             |ctx, _class| {
@@ -29,13 +32,16 @@ impl KamafeuStudioApp {
                         );
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                             if ui
-                                .button(lang.tr("Restaurar Padrão do Preset", "Restore Preset Defaults"))
-                                .on_hover_text(
+                                .button(
                                     lang.tr(
-                                        "Restaura as cores e parâmetros padrão do preset ativo",
-                                        "Restores default colors and parameters of active preset",
+                                        "Restaurar Padrão do Preset",
+                                        "Restore Preset Defaults",
                                     ),
                                 )
+                                .on_hover_text(lang.tr(
+                                    "Restaura as cores e parâmetros padrão do preset ativo",
+                                    "Restores default colors and parameters of active preset",
+                                ))
                                 .clicked()
                             {
                                 let preset = self.config.theme.preset;
@@ -116,7 +122,10 @@ impl KamafeuStudioApp {
                                         .num_columns(2)
                                         .spacing([24.0, 10.0])
                                         .show(ui, |ui| {
-                                            ui.label(lang.tr("Fundo do Piano Roll (Canvas):", "Piano Roll Background (Canvas):"));
+                                            ui.label(lang.tr(
+                                                "Fundo do Piano Roll (Canvas):",
+                                                "Piano Roll Background (Canvas):",
+                                            ));
                                             if egui::color_picker::color_edit_button_srgb(
                                                 ui,
                                                 &mut self.config.theme.bg_canvas,
@@ -129,7 +138,10 @@ impl KamafeuStudioApp {
                                             }
                                             ui.end_row();
 
-                                            ui.label(lang.tr("Fundo de Painéis e Janelas:", "Panels & Windows Background:"));
+                                            ui.label(lang.tr(
+                                                "Fundo de Painéis e Janelas:",
+                                                "Panels & Windows Background:",
+                                            ));
                                             if egui::color_picker::color_edit_button_srgb(
                                                 ui,
                                                 &mut self.config.theme.bg_panel,
@@ -143,7 +155,10 @@ impl KamafeuStudioApp {
                                             }
                                             ui.end_row();
 
-                                            ui.label(lang.tr("Barra Superior & Cabeçalhos:", "Top Bar & Headers:"));
+                                            ui.label(lang.tr(
+                                                "Barra Superior & Cabeçalhos:",
+                                                "Top Bar & Headers:",
+                                            ));
                                             if egui::color_picker::color_edit_button_srgb(
                                                 ui,
                                                 &mut self.config.theme.bg_header,
@@ -157,7 +172,12 @@ impl KamafeuStudioApp {
                                             }
                                             ui.end_row();
 
-                                            ui.label(lang.tr("Cor de Destaque (Accent):", "Accent Color:"));
+                                            ui.label(
+                                                lang.tr(
+                                                    "Cor de Destaque (Accent):",
+                                                    "Accent Color:",
+                                                ),
+                                            );
                                             if egui::color_picker::color_edit_button_srgb(
                                                 ui,
                                                 &mut self.config.theme.accent_color,
@@ -185,7 +205,10 @@ impl KamafeuStudioApp {
                                             }
                                             ui.end_row();
 
-                                            ui.label(lang.tr("Texto Secundário / Esmaecido:", "Secondary / Muted Text:"));
+                                            ui.label(lang.tr(
+                                                "Texto Secundário / Esmaecido:",
+                                                "Secondary / Muted Text:",
+                                            ));
                                             if egui::color_picker::color_edit_button_srgb(
                                                 ui,
                                                 &mut self.config.theme.text_muted,
@@ -206,7 +229,12 @@ impl KamafeuStudioApp {
                                         .num_columns(2)
                                         .spacing([24.0, 10.0])
                                         .show(ui, |ui| {
-                                            ui.label(lang.tr("Cor do Corpo da Nota:", "Note Body Color:"));
+                                            ui.label(
+                                                lang.tr(
+                                                    "Cor do Corpo da Nota:",
+                                                    "Note Body Color:",
+                                                ),
+                                            );
                                             if egui::color_picker::color_edit_button_srgb(
                                                 ui,
                                                 &mut self.config.theme.note_fill,
@@ -219,7 +247,12 @@ impl KamafeuStudioApp {
                                             }
                                             ui.end_row();
 
-                                            ui.label(lang.tr("Cor da Borda da Nota:", "Note Border Color:"));
+                                            ui.label(
+                                                lang.tr(
+                                                    "Cor da Borda da Nota:",
+                                                    "Note Border Color:",
+                                                ),
+                                            );
                                             if egui::color_picker::color_edit_button_srgb(
                                                 ui,
                                                 &mut self.config.theme.note_stroke,
@@ -232,7 +265,10 @@ impl KamafeuStudioApp {
                                             }
                                             ui.end_row();
 
-                                            ui.label(lang.tr("Nota Selecionada (Corpo):", "Selected Note (Body):"));
+                                            ui.label(lang.tr(
+                                                "Nota Selecionada (Corpo):",
+                                                "Selected Note (Body):",
+                                            ));
                                             if egui::color_picker::color_edit_button_srgb(
                                                 ui,
                                                 &mut self.config.theme.note_selected_fill,
@@ -245,7 +281,10 @@ impl KamafeuStudioApp {
                                             }
                                             ui.end_row();
 
-                                            ui.label(lang.tr("Nota Selecionada (Borda):", "Selected Note (Border):"));
+                                            ui.label(lang.tr(
+                                                "Nota Selecionada (Borda):",
+                                                "Selected Note (Border):",
+                                            ));
                                             if egui::color_picker::color_edit_button_srgb(
                                                 ui,
                                                 &mut self.config.theme.note_selected_stroke,
@@ -258,7 +297,10 @@ impl KamafeuStudioApp {
                                             }
                                             ui.end_row();
 
-                                            ui.label(lang.tr("Cor do Texto da Letra na Nota:", "Note Lyric Text Color:"));
+                                            ui.label(lang.tr(
+                                                "Cor do Texto da Letra na Nota:",
+                                                "Note Lyric Text Color:",
+                                            ));
                                             if egui::color_picker::color_edit_button_srgb(
                                                 ui,
                                                 &mut self.config.theme.text_note_tag,
@@ -271,7 +313,10 @@ impl KamafeuStudioApp {
                                             }
                                             ui.end_row();
 
-                                            ui.label(lang.tr("Arredondamento dos Cantos (Radius):", "Corner Rounding (Radius):"));
+                                            ui.label(lang.tr(
+                                                "Arredondamento dos Cantos (Radius):",
+                                                "Corner Rounding (Radius):",
+                                            ));
                                             if ui
                                                 .add(
                                                     egui::Slider::new(
@@ -288,7 +333,12 @@ impl KamafeuStudioApp {
                                             }
                                             ui.end_row();
 
-                                            ui.label(lang.tr("Espessura da Borda:", "Border Stroke Width:"));
+                                            ui.label(
+                                                lang.tr(
+                                                    "Espessura da Borda:",
+                                                    "Border Stroke Width:",
+                                                ),
+                                            );
                                             if ui
                                                 .add(
                                                     egui::Slider::new(
@@ -305,7 +355,10 @@ impl KamafeuStudioApp {
                                             }
                                             ui.end_row();
 
-                                            ui.label(lang.tr("Opacidade do Bloco da Nota:", "Note Block Opacity:"));
+                                            ui.label(lang.tr(
+                                                "Opacidade do Bloco da Nota:",
+                                                "Note Block Opacity:",
+                                            ));
                                             if ui
                                                 .add(
                                                     egui::Slider::new(
@@ -324,7 +377,10 @@ impl KamafeuStudioApp {
                                             }
                                             ui.end_row();
 
-                                            ui.label(lang.tr("Cor da Forma de Onda (Waveform):", "Waveform Color:"));
+                                            ui.label(lang.tr(
+                                                "Cor da Forma de Onda (Waveform):",
+                                                "Waveform Color:",
+                                            ));
                                             if egui::color_picker::color_edit_button_srgb(
                                                 ui,
                                                 &mut self.config.theme.note_waveform_color,
@@ -337,7 +393,10 @@ impl KamafeuStudioApp {
                                             }
                                             ui.end_row();
 
-                                            ui.label(lang.tr("Opacidade da Waveform Interna:", "Internal Waveform Opacity:"));
+                                            ui.label(lang.tr(
+                                                "Opacidade da Waveform Interna:",
+                                                "Internal Waveform Opacity:",
+                                            ));
                                             if ui
                                                 .add(
                                                     egui::Slider::new(
@@ -366,7 +425,10 @@ impl KamafeuStudioApp {
                                         .num_columns(2)
                                         .spacing([24.0, 10.0])
                                         .show(ui, |ui| {
-                                            ui.label(lang.tr("Teclas Brancas (Teclado Lateral):", "White Keys (Side Keyboard):"));
+                                            ui.label(lang.tr(
+                                                "Teclas Brancas (Teclado Lateral):",
+                                                "White Keys (Side Keyboard):",
+                                            ));
                                             if egui::color_picker::color_edit_button_srgb(
                                                 ui,
                                                 &mut self.config.theme.bg_keyboard_white,
@@ -379,7 +441,10 @@ impl KamafeuStudioApp {
                                             }
                                             ui.end_row();
 
-                                            ui.label(lang.tr("Teclas Pretas (Teclado Lateral):", "Black Keys (Side Keyboard):"));
+                                            ui.label(lang.tr(
+                                                "Teclas Pretas (Teclado Lateral):",
+                                                "Black Keys (Side Keyboard):",
+                                            ));
                                             if egui::color_picker::color_edit_button_srgb(
                                                 ui,
                                                 &mut self.config.theme.bg_keyboard_black,
@@ -392,7 +457,10 @@ impl KamafeuStudioApp {
                                             }
                                             ui.end_row();
 
-                                            ui.label(lang.tr("Linhas de Compasso (Bar Lines):", "Bar Lines:"));
+                                            ui.label(lang.tr(
+                                                "Linhas de Compasso (Bar Lines):",
+                                                "Bar Lines:",
+                                            ));
                                             if egui::color_picker::color_edit_button_srgb(
                                                 ui,
                                                 &mut self.config.theme.grid_line_bar,
@@ -405,7 +473,10 @@ impl KamafeuStudioApp {
                                             }
                                             ui.end_row();
 
-                                            ui.label(lang.tr("Subdivisões do Grid (Sub Lines):", "Grid Subdivisions (Sub Lines):"));
+                                            ui.label(lang.tr(
+                                                "Subdivisões do Grid (Sub Lines):",
+                                                "Grid Subdivisions (Sub Lines):",
+                                            ));
                                             if egui::color_picker::color_edit_button_srgb(
                                                 ui,
                                                 &mut self.config.theme.grid_line_sub,
@@ -418,7 +489,10 @@ impl KamafeuStudioApp {
                                             }
                                             ui.end_row();
 
-                                            ui.label(lang.tr("Linhas de Fundo das Teclas Brancas:", "White Key Row Background Lines:"));
+                                            ui.label(lang.tr(
+                                                "Linhas de Fundo das Teclas Brancas:",
+                                                "White Key Row Background Lines:",
+                                            ));
                                             if egui::color_picker::color_edit_button_srgb(
                                                 ui,
                                                 &mut self.config.theme.bg_row_white_key,
@@ -431,7 +505,10 @@ impl KamafeuStudioApp {
                                             }
                                             ui.end_row();
 
-                                            ui.label(lang.tr("Linhas de Fundo das Teclas Pretas:", "Black Key Row Background Lines:"));
+                                            ui.label(lang.tr(
+                                                "Linhas de Fundo das Teclas Pretas:",
+                                                "Black Key Row Background Lines:",
+                                            ));
                                             if egui::color_picker::color_edit_button_srgb(
                                                 ui,
                                                 &mut self.config.theme.bg_row_black_key,
@@ -451,7 +528,12 @@ impl KamafeuStudioApp {
                                         .num_columns(2)
                                         .spacing([24.0, 10.0])
                                         .show(ui, |ui| {
-                                            ui.label(lang.tr("Curva de Pitch Bend:", "Pitch Bend Curve:"));
+                                            ui.label(
+                                                lang.tr(
+                                                    "Curva de Pitch Bend:",
+                                                    "Pitch Bend Curve:",
+                                                ),
+                                            );
                                             if egui::color_picker::color_edit_button_srgb(
                                                 ui,
                                                 &mut self.config.theme.pitch_curve_color,
@@ -464,7 +546,10 @@ impl KamafeuStudioApp {
                                             }
                                             ui.end_row();
 
-                                            ui.label(lang.tr("Pontos de Ancoragem do Pitch:", "Pitch Anchor Points:"));
+                                            ui.label(lang.tr(
+                                                "Pontos de Ancoragem do Pitch:",
+                                                "Pitch Anchor Points:",
+                                            ));
                                             if egui::color_picker::color_edit_button_srgb(
                                                 ui,
                                                 &mut self.config.theme.pitch_anchor_color,
@@ -477,7 +562,10 @@ impl KamafeuStudioApp {
                                             }
                                             ui.end_row();
 
-                                            ui.label(lang.tr("Cursor de Reprodução (Playhead):", "Playhead Cursor:"));
+                                            ui.label(lang.tr(
+                                                "Cursor de Reprodução (Playhead):",
+                                                "Playhead Cursor:",
+                                            ));
                                             if egui::color_picker::color_edit_button_srgb(
                                                 ui,
                                                 &mut self.config.theme.playhead_color,
@@ -497,7 +585,10 @@ impl KamafeuStudioApp {
                                         .num_columns(2)
                                         .spacing([24.0, 10.0])
                                         .show(ui, |ui| {
-                                            ui.label(lang.tr("Cantos Arredondados da Interface:", "UI Corner Rounding:"));
+                                            ui.label(lang.tr(
+                                                "Cantos Arredondados da Interface:",
+                                                "UI Corner Rounding:",
+                                            ));
                                             if ui
                                                 .add(
                                                     egui::Slider::new(
@@ -515,7 +606,10 @@ impl KamafeuStudioApp {
                                             }
                                             ui.end_row();
 
-                                            ui.label(lang.tr("Opacidade de Fundo dos Painéis:", "Panels Background Opacity:"));
+                                            ui.label(lang.tr(
+                                                "Opacidade de Fundo dos Painéis:",
+                                                "Panels Background Opacity:",
+                                            ));
                                             if ui
                                                 .add(
                                                     egui::Slider::new(
@@ -547,9 +641,11 @@ impl KamafeuStudioApp {
                     ui.group(|ui| {
                         ui.horizontal(|ui| {
                             ui.label(
-                                egui::RichText::new(lang.tr("Pré-visualização em Tempo Real", "Real-Time Preview"))
-                                    .strong()
-                                    .size(11.5),
+                                egui::RichText::new(
+                                    lang.tr("Pré-visualização em Tempo Real", "Real-Time Preview"),
+                                )
+                                .strong()
+                                .size(11.5),
                             );
                             ui.with_layout(
                                 egui::Layout::right_to_left(egui::Align::Center),
@@ -783,9 +879,15 @@ impl KamafeuStudioApp {
 
                     // Action Footer
                     ui.horizontal(|ui| {
-                        if ui.button(lang.tr("Importar Tema (.json)...", "Import Theme (.json)...")).clicked() {
+                        if ui
+                            .button(lang.tr("Importar Tema (.json)...", "Import Theme (.json)..."))
+                            .clicked()
+                        {
                             if let Some(path) = rfd::FileDialog::new()
-                                .add_filter(lang.tr("Tema JSON (*.json)", "Theme JSON (*.json)"), &["json"])
+                                .add_filter(
+                                    lang.tr("Tema JSON (*.json)", "Theme JSON (*.json)"),
+                                    &["json"],
+                                )
                                 .pick_file()
                             {
                                 if let Ok(content) = std::fs::read_to_string(&path) {
@@ -797,26 +899,39 @@ impl KamafeuStudioApp {
                                         self.config.theme = imported;
                                         theme_modified = true;
                                         visuals_modified = true;
-                                        self.transport_state.status_message =
-                                            format!("{}: {}", lang.tr("Tema importado de", "Theme imported from"), path.display());
+                                        self.transport_state.status_message = format!(
+                                            "{}: {}",
+                                            lang.tr("Tema importado de", "Theme imported from"),
+                                            path.display()
+                                        );
                                     } else {
-                                        self.transport_state.status_message =
-                                            lang.tr("Arquivo de tema inválido.", "Invalid theme file.").to_string();
+                                        self.transport_state.status_message = lang
+                                            .tr("Arquivo de tema inválido.", "Invalid theme file.")
+                                            .to_string();
                                     }
                                 }
                             }
                         }
 
-                        if ui.button(lang.tr("Exportar Tema (.json)...", "Export Theme (.json)...")).clicked() {
+                        if ui
+                            .button(lang.tr("Exportar Tema (.json)...", "Export Theme (.json)..."))
+                            .clicked()
+                        {
                             if let Some(path) = rfd::FileDialog::new()
-                                .add_filter(lang.tr("Tema JSON (*.json)", "Theme JSON (*.json)"), &["json"])
+                                .add_filter(
+                                    lang.tr("Tema JSON (*.json)", "Theme JSON (*.json)"),
+                                    &["json"],
+                                )
                                 .set_file_name("kamafeu_custom_theme.json")
                                 .save_file()
                             {
                                 if let Ok(json) = serde_json::to_string_pretty(&self.config.theme) {
                                     if std::fs::write(&path, json).is_ok() {
-                                        self.transport_state.status_message =
-                                            format!("{}: {}", lang.tr("Tema exportado para", "Theme exported to"), path.display());
+                                        self.transport_state.status_message = format!(
+                                            "{}: {}",
+                                            lang.tr("Tema exportado para", "Theme exported to"),
+                                            path.display()
+                                        );
                                     }
                                 }
                             }
