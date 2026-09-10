@@ -80,6 +80,16 @@ impl UfdataFormat {
 
     pub fn parse_str(content: &str) -> Result<UProject, Box<dyn std::error::Error>> {
         let clean = content.trim_start_matches('\u{feff}').trim();
+        if let Ok(ufdata) = serde_json::from_str::<UFData>(clean) {
+            return Ok(Self::to_uproject(&ufdata));
+        }
+        if let Ok(project) = serde_json::from_str::<UFProject>(clean) {
+            let ufdata = UFData {
+                format_version: 1,
+                project,
+            };
+            return Ok(Self::to_uproject(&ufdata));
+        }
         let ufdata: UFData = serde_json::from_str(clean)?;
         Ok(Self::to_uproject(&ufdata))
     }

@@ -44,6 +44,16 @@ impl eframe::App for KamafeuStudioApp {
 
         self.update_background_tasks(ctx);
 
+        // Process dropped files (Drag & Drop)
+        let dropped = ctx.input(|i| i.raw.dropped_files.clone());
+        if !dropped.is_empty() {
+            for dropped_file in dropped {
+                if let Some(path) = dropped_file.path {
+                    self.open_project_from_path(&path);
+                }
+            }
+        }
+
         self.update_keyboard_shortcuts(ctx);
 
         self.update_editor_panels(ctx);

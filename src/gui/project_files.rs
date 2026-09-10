@@ -228,22 +228,41 @@ impl KamafeuStudioApp {
             .and_then(|s| s.to_str())
             .unwrap_or("")
             .to_lowercase();
+
+        if matches!(extension.as_str(), "wav" | "mp3" | "ogg" | "flac") {
+            self.import_audio_track_from_path(path);
+            return;
+        }
+
         let loaded = match extension.as_str() {
-            "aps" => ApsFormat::load_file(path),
-            "mid" | "midi" => MidiFormat::load_file(path),
-            "ust" => UstFormat::load_file(path),
-            "ustx" => UstxFormat::load_file(path),
-            "ufdata" => UfdataFormat::load_file(path),
-            "svp" => SvpFormat::load_file(path),
-            "vsqx" | "vsq" => VsqxFormat::load_file(path),
-            "json" => UfdataFormat::load_file(path)
+            "aps" => ApsFormat::load_file(path)
+                .or_else(|_| UstxFormat::load_file(path))
+                .or_else(|_| UfdataFormat::load_file(path)),
+            "mid" | "midi" => MidiFormat::load_file(path)
+                .or_else(|_| VsqxFormat::load_file(path)),
+            "ust" => UstFormat::load_file(path)
+                .or_else(|_| UstxFormat::load_file(path)),
+            "ustx" => UstxFormat::load_file(path)
+                .or_else(|_| ApsFormat::load_file(path))
+                .or_else(|_| UstFormat::load_file(path)),
+            "ufdata" => UfdataFormat::load_file(path)
                 .or_else(|_| SvpFormat::load_file(path))
                 .or_else(|_| ApsFormat::load_file(path)),
+            "svp" => SvpFormat::load_file(path)
+                .or_else(|_| UfdataFormat::load_file(path))
+                .or_else(|_| ApsFormat::load_file(path)),
+            "vsqx" | "vsq" => VsqxFormat::load_file(path)
+                .or_else(|_| MidiFormat::load_file(path))
+                .or_else(|_| UfdataFormat::load_file(path)),
+            "json" => UfdataFormat::load_file(path)
+                .or_else(|_| SvpFormat::load_file(path))
+                .or_else(|_| ApsFormat::load_file(path))
+                .or_else(|_| UstxFormat::load_file(path)),
             _ => ApsFormat::load_file(path)
+                .or_else(|_| SvpFormat::load_file(path))
                 .or_else(|_| UstxFormat::load_file(path))
                 .or_else(|_| UfdataFormat::load_file(path))
                 .or_else(|_| UstFormat::load_file(path))
-                .or_else(|_| SvpFormat::load_file(path))
                 .or_else(|_| VsqxFormat::load_file(path))
                 .or_else(|_| MidiFormat::load_file(path)),
         };

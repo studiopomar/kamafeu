@@ -233,34 +233,38 @@ impl KamafeuStudioApp {
             )
             .pick_file()
         {
-            self.push_history();
-            let file_stem = path
-                .file_stem()
-                .and_then(|s| s.to_str())
-                .unwrap_or("Audio Track")
-                .to_string();
-            let file_name = path
-                .file_name()
-                .and_then(|s| s.to_str())
-                .unwrap_or("Audio Track")
-                .to_string();
-            let file_path_str = path.to_string_lossy().to_string();
-
-            let new_idx = self.project.tracks.len();
-            self.project.tracks.push(crate::project::model::UTrack {
-                name: file_stem,
-                singer: "Instrumental / Áudio".to_string(),
-                volume_db: 0.0,
-                pan: 0.0,
-                mute: false,
-                solo: false,
-                ..crate::project::model::UTrack::default()
-            });
-            let wave = crate::project::model::UWavePart::new(file_name, file_path_str, new_idx);
-            self.project.wave_parts.push(wave);
-            self.active_track_index = new_idx;
-            self.transport_state.status_message =
-                "Faixa de áudio adicionada com sucesso!".to_string();
+            self.import_audio_track_from_path(&path);
         }
+    }
+
+    pub fn import_audio_track_from_path(&mut self, path: &std::path::Path) {
+        self.push_history();
+        let file_stem = path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .unwrap_or("Audio Track")
+            .to_string();
+        let file_name = path
+            .file_name()
+            .and_then(|s| s.to_str())
+            .unwrap_or("Audio Track")
+            .to_string();
+        let file_path_str = path.to_string_lossy().to_string();
+
+        let new_idx = self.project.tracks.len();
+        self.project.tracks.push(crate::project::model::UTrack {
+            name: file_stem,
+            singer: "Instrumental / Áudio".to_string(),
+            volume_db: 0.0,
+            pan: 0.0,
+            mute: false,
+            solo: false,
+            ..crate::project::model::UTrack::default()
+        });
+        let wave = crate::project::model::UWavePart::new(file_name, file_path_str, new_idx);
+        self.project.wave_parts.push(wave);
+        self.active_track_index = new_idx;
+        self.transport_state.status_message =
+            "Faixa de áudio adicionada com sucesso!".to_string();
     }
 }

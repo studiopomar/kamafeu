@@ -11,7 +11,17 @@ pub struct UstFormat;
 
 impl UstFormat {
     pub fn parse_bytes(bytes: &[u8]) -> Result<UProject, Box<dyn std::error::Error>> {
-        let (text, _, _) = SHIFT_JIS.decode(bytes);
+        let clean_bytes = if bytes.starts_with(&[0xEF, 0xBB, 0xBF]) {
+            &bytes[3..]
+        } else {
+            bytes
+        };
+        let text = if let Ok(utf8_str) = std::str::from_utf8(clean_bytes) {
+            utf8_str.to_string()
+        } else {
+            let (decoded, _, _) = SHIFT_JIS.decode(clean_bytes);
+            decoded.into_owned()
+        };
         Self::parse_str(&text)
     }
 
