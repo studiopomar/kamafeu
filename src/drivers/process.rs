@@ -2,21 +2,36 @@ use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::OnceLock;
+use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
 static WINE_PATH_CACHE: OnceLock<Option<PathBuf>> = OnceLock::new();
+static WINE_CUSTOM_OVERRIDE: Mutex<Option<PathBuf>> = Mutex::new(None);
 #[allow(dead_code)]
 static WINE_VERSION_CACHE: OnceLock<Option<String>> = OnceLock::new();
 
+pub fn set_custom_wine_path(path: Option<PathBuf>) {
+    if let Ok(mut guard) = WINE_CUSTOM_OVERRIDE.lock() {
+        *guard = path;
+    }
+}
+
 pub fn find_wine_executable() -> Option<PathBuf> {
+    if let Ok(guard) = WINE_CUSTOM_OVERRIDE.lock() {
+        if let Some(ref custom) = *guard {
+            if custom.is_file() {
+                return Some(custom.clone());
+            }
+        }
+    }
+
     WINE_PATH_CACHE
         .get_or_init(find_wine_executable_uncached)
         .clone()
 }
 
 fn find_wine_executable_uncached() -> Option<PathBuf> {
-    for env_var in &["WINE", "WINELOADER"] {
+    for env_var in &["WINE", "WINELOADER", "WINE_PATH"] {
         if let Some(val) = std::env::var_os(env_var) {
             let path = PathBuf::from(val);
             if path.is_file() {
@@ -45,6 +60,8 @@ fn find_wine_executable_uncached() -> Option<PathBuf> {
             PathBuf::from("/usr/local/bin/wine64"),
             PathBuf::from("/opt/local/bin/wine"),
             PathBuf::from("/opt/local/bin/wine64"),
+            PathBuf::from("/Applications/Wine.app/Contents/Resources/wine/bin/wine"),
+            PathBuf::from("/Applications/Wine.app/Contents/Resources/wine/bin/wine64"),
             PathBuf::from("/Applications/Wine Stable.app/Contents/Resources/wine/bin/wine"),
             PathBuf::from("/Applications/Wine Stable.app/Contents/Resources/wine/bin/wine64"),
             PathBuf::from("/Applications/Wine Stable.app/Contents/MacOS/wine"),
@@ -58,6 +75,8 @@ fn find_wine_executable_uncached() -> Option<PathBuf> {
             ),
             PathBuf::from("/Applications/Whisky.app/Contents/Resources/Wine/bin/wine"),
             PathBuf::from("/Applications/Whisky.app/Contents/Resources/Wine/bin/wine64"),
+            PathBuf::from("/Applications/Whisky.app/Contents/Resources/Libraries/Wine/bin/wine"),
+            PathBuf::from("/Applications/Porting Kit.app/Contents/MacOS/portingkit"),
         ];
 
         for candidate in mac_candidates {
@@ -71,9 +90,12 @@ fn find_wine_executable_uncached() -> Option<PathBuf> {
             let user_mac_candidates = [
                 home.join(".local/bin/wine"),
                 home.join(".local/bin/wine64"),
+                home.join("Applications/Wine.app/Contents/Resources/wine/bin/wine"),
                 home.join("Applications/Wine Stable.app/Contents/Resources/wine/bin/wine"),
                 home.join("Applications/CrossOver.app/Contents/SharedSupport/CrossOver/bin/wine"),
                 home.join("Applications/Whisky.app/Contents/Resources/Wine/bin/wine"),
+                home.join("Applications/Whisky.app/Contents/Resources/Libraries/Wine/bin/wine"),
+                home.join("Library/Application Support/CrossOver/bin/wine"),
             ];
             for candidate in user_mac_candidates {
                 if candidate.is_file() {
@@ -98,6 +120,7 @@ fn find_wine_executable_uncached() -> Option<PathBuf> {
             PathBuf::from("/usr/lib32/wine/wine"),
             PathBuf::from("/usr/lib64/wine/wine"),
             PathBuf::from("/run/current-system/sw/bin/wine"),
+            PathBuf::from("/var/lib/flatpak/exports/bin/org.winehq.Wine"),
         ];
 
         for candidate in linux_candidates {
@@ -112,6 +135,7 @@ fn find_wine_executable_uncached() -> Option<PathBuf> {
                 home.join(".local/bin/wine"),
                 home.join(".local/bin/wine64"),
                 home.join(".nix-profile/bin/wine"),
+                home.join(".local/share/flatpak/exports/bin/org.winehq.Wine"),
             ];
             for candidate in user_linux_candidates {
                 if candidate.is_file() {
@@ -157,7 +181,25 @@ pub fn wine_version() -> Option<String> {
 }
 
 pub fn to_wine_windows_path(path: &Path) -> std::ffi::OsString {
-    let s = path.to_string_lossy();
+    // Resolve symlinks (e.g. /var/folders/... -> /private/var/folders/...) so Wine's
+    // Z: drive (which maps to /) maps directly to the actual physical filesystem location.
+    let canonical = if path.is_file() || path.is_dir() {
+        path.canonicalize().unwrap_or_else(|_| path.to_path_buf())
+    } else if let Some(parent) = path.parent() {
+        if let Ok(canon_parent) = parent.canonicalize() {
+            if let Some(file_name) = path.file_name() {
+                canon_parent.join(file_name)
+            } else {
+                path.to_path_buf()
+            }
+        } else {
+            path.to_path_buf()
+        }
+    } else {
+        path.to_path_buf()
+    };
+
+    let s = canonical.to_string_lossy();
     if s.starts_with('/') {
         std::ffi::OsString::from(format!("Z:{}", s.replace('/', "\\")))
     } else {
@@ -175,8 +217,6 @@ pub fn prepare_command(executable_path: &Path) -> Result<Command, String> {
 
     // Canonicalize the path so relative paths (e.g. ./resamplers/straycat-rs) are
     // resolved to absolute paths *before* we set current_dir on the Command.
-    // Without this, a relative program path becomes unresolvable once current_dir
-    // changes the working directory to the executable's parent folder.
     let executable_path = &executable_path
         .canonicalize()
         .unwrap_or_else(|_| executable_path.to_path_buf());
@@ -199,9 +239,14 @@ pub fn prepare_command(executable_path: &Path) -> Result<Command, String> {
             })?;
             let mut cmd = Command::new(wine_binary);
             cmd.arg(executable_path);
+            // Suppress verbose Wine debug messages
             cmd.env("WINEDEBUG", "-all");
-            cmd.env("LANG", "ja_JP.utf8");
-            cmd.env("DISPLAY", "");
+            // Speed up Wine startup and avoid attempting to install/load Mono and Gecko
+            cmd.env("WINEDLLOVERRIDES", "mscoree,mshtml=");
+            // Standard UTF-8 locale
+            cmd.env("LC_ALL", "C.UTF-8");
+            cmd.env("LANG", "C.UTF-8");
+
             if let Some(parent) = executable_path.parent() {
                 if parent.is_dir() {
                     cmd.current_dir(parent);
@@ -248,42 +293,44 @@ pub(crate) fn run_with_timeout(
         .stderr
         .take()
         .ok_or("stderr do processo indisponível")?;
+
     let stdout_reader = std::thread::spawn(move || {
-        let mut bytes = Vec::new();
+        let mut buffer = Vec::new();
         stdout
             .take(MAX_CAPTURE_BYTES + 1)
-            .read_to_end(&mut bytes)
-            .map(|_| bytes)
+            .read_to_end(&mut buffer)
+            .map(|_| buffer)
     });
     let stderr_reader = std::thread::spawn(move || {
-        let mut bytes = Vec::new();
+        let mut buffer = Vec::new();
         stderr
             .take(MAX_CAPTURE_BYTES + 1)
-            .read_to_end(&mut bytes)
-            .map(|_| bytes)
+            .read_to_end(&mut buffer)
+            .map(|_| buffer)
     });
-    let started = Instant::now();
 
+    let start = Instant::now();
     let status = loop {
         if cancel.is_some_and(|flag| flag.load(Ordering::Relaxed)) {
             let _ = child.kill();
             let _ = child.wait();
-            return Err("processo externo cancelado".to_string());
+            return Err("execução cancelada pelo usuário".to_string());
         }
-        if started.elapsed() >= timeout {
-            let _ = child.kill();
-            let _ = child.wait();
-            return Err(format!(
-                "processo externo excedeu o limite de {} segundos",
-                timeout.as_secs()
-            ));
-        }
+
         match child
             .try_wait()
-            .map_err(|error| format!("falha ao consultar processo externo: {error}"))?
+            .map_err(|error| format!("falha ao consultar status do processo: {error}"))?
         {
             Some(status) => break status,
-            None => std::thread::sleep(Duration::from_millis(25)),
+            None if start.elapsed() >= timeout => {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(format!(
+                    "tempo limite excedido ({:.1}s) aguardando o processo",
+                    timeout.as_secs_f64()
+                ));
+            }
+            None => std::thread::sleep(Duration::from_millis(5)),
         }
     };
 
@@ -336,5 +383,14 @@ mod tests {
                 cmd_res
             );
         }
+    }
+
+    #[test]
+    fn test_to_wine_windows_path() {
+        let p = Path::new("/tmp/test_audio.wav");
+        let win_path = to_wine_windows_path(p);
+        let win_str = win_path.to_string_lossy();
+        assert!(win_str.starts_with("Z:\\"), "Must map root to Z:\\: {}", win_str);
+        assert!(!win_str.contains('/'), "Must not contain forward slashes: {}", win_str);
     }
 }

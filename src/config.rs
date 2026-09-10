@@ -180,6 +180,8 @@ pub struct DspEngineConfig {
     pub verbose_dsp_logging: bool,
     #[serde(default)]
     pub custom_wine_prefix: Option<PathBuf>,
+    #[serde(default)]
+    pub custom_wine_path: Option<PathBuf>,
 }
 
 impl Default for DspEngineConfig {
@@ -205,6 +207,7 @@ impl Default for DspEngineConfig {
             background_prerender: true,
             verbose_dsp_logging: false,
             custom_wine_prefix: None,
+            custom_wine_path: None,
         }
     }
 }

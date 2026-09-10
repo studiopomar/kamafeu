@@ -343,6 +343,37 @@ impl KamafeuStudioApp {
 
                 ui.add_space(4.0);
                 ui.horizontal(|ui| {
+                    let wine_found = crate::drivers::process::find_wine_executable();
+                    if let Some(ref w) = wine_found {
+                        let ver = crate::drivers::process::wine_version().unwrap_or_else(|| "Wine".to_string());
+                        ui.label(RichText::new(format!("✔ Wine: {} ({})", w.display(), ver)).size(11.0).color(Color32::from_rgb(0, 255, 157)));
+                    } else {
+                        ui.label(RichText::new(lang.tr("⚠ Wine não detectado (necessário para executar resamplers .exe no macOS/Linux)", "⚠ Wine not detected (needed for Windows .exe resamplers on macOS/Linux)")).size(11.0).color(Color32::from_rgb(255, 180, 70)));
+                    }
+                });
+
+                ui.horizontal(|ui| {
+                    ui.label(lang.tr("Executável Personalizado do Wine:", "Custom Wine Executable:"));
+                    if ui.button(lang.tr("Procurar Wine...", "Browse Wine...")).clicked() {
+                        if let Some(file) = crate::dialogs::FileDialog::new()
+                            .set_title("Selecionar binário do Wine")
+                            .pick_file()
+                        {
+                            self.config.dsp.custom_wine_path = Some(file.clone());
+                            crate::drivers::process::set_custom_wine_path(Some(file));
+                            self.persist_config();
+                        }
+                    }
+                    if self.config.dsp.custom_wine_path.is_some() {
+                        if ui.button(lang.tr("Limpar", "Clear")).clicked() {
+                            self.config.dsp.custom_wine_path = None;
+                            crate::drivers::process::set_custom_wine_path(None);
+                            self.persist_config();
+                        }
+                    }
+                });
+
+                ui.horizontal(|ui| {
                     ui.label(lang.tr("Canais de Depuração do Wine/Proton:", "Wine/Proton Debug Channels:"));
                     ui.add(egui::TextEdit::singleline(&mut self.config.experimental.wine_debug_channel).desired_width(180.0));
                     help_marker(

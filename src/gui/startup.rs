@@ -30,6 +30,10 @@ impl KamafeuStudioApp {
 
         cc.egui_ctx.set_visuals(config.theme.create_egui_visuals());
 
+        if let Some(ref wine_path) = config.dsp.custom_wine_path {
+            crate::drivers::process::set_custom_wine_path(Some(wine_path.clone()));
+        }
+
         let project = crate::project::model::UProject::default();
 
         let mut voicebank: Option<Voicebank> = None;
