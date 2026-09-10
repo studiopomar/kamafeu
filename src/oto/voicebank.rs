@@ -95,8 +95,7 @@ impl Voicebank {
                     let mut readme_info = String::new();
                     if readme_path.exists() {
                         if let Ok(bytes) = fs::read(&readme_path) {
-                            let (text, _, _) = SHIFT_JIS.decode(&bytes);
-                            readme_info = text.to_string();
+                            readme_info = decode_text_autodetect(&bytes);
                         }
                     }
 
@@ -129,8 +128,8 @@ impl Voicebank {
         let char_path = real_root_path.join("character.txt");
         if char_path.exists() {
             if let Ok(bytes) = fs::read(&char_path) {
-                let (text, _, _) = SHIFT_JIS.decode(&bytes);
-                character_info = text.to_string();
+                let text = decode_text_autodetect(&bytes);
+                character_info = text.clone();
                 for line in text.lines() {
                     let line = line.trim();
                     if line.starts_with("name=") {
@@ -648,6 +647,20 @@ fn extract_kfv(zip_path: &Path, dest_dir: &Path) -> Result<(), std::io::Error> {
         }
     }
     Ok(())
+}
+
+fn decode_text_autodetect(bytes: &[u8]) -> String {
+    let clean = if bytes.starts_with(&[0xEF, 0xBB, 0xBF]) {
+        &bytes[3..]
+    } else {
+        bytes
+    };
+    if let Ok(utf8) = std::str::from_utf8(clean) {
+        utf8.to_string()
+    } else {
+        let (decoded, _, _) = SHIFT_JIS.decode(clean);
+        decoded.into_owned()
+    }
 }
 
 #[cfg(test)]
