@@ -150,11 +150,11 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: ./release_assets/*
-          name: Kamafeu Release ${{ github.ref_name }}
+          name: Kamafeu Pre-release ${{ github.ref_name }}
           tag_name: ${{ github.ref_name }}
           draft: false
-          prerelease: false
-          make_latest: true
+          prerelease: true
+          make_latest: false
           generate_release_notes: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

@@ -95,6 +95,7 @@ jobs:
         with:
           files: ./apk_output/*.apk
           tag_name: ${{ github.ref_name }}
+          prerelease: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
