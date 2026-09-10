@@ -143,16 +143,74 @@ pub(super) fn draw(
                                 ),
                             )
                             .clicked()
-                        {
-                            if let Some(file) = crate::dialogs::FileDialog::new()
-                                .set_title(lang.tr("Selecionar executável de resampler", "Select resampler executable"))
-                                .pick_file()
                             {
-                                *custom_resampler_path = Some(file);
-                                *selected_resampler =
-                                    "Personalizado (UTAU CLI)".to_string();
+                                if let Some(file) = crate::dialogs::FileDialog::new()
+                                    .set_title(lang.tr("Selecionar executável de resampler", "Select resampler executable"))
+                                    .pick_file()
+                                {
+                                    *custom_resampler_path = Some(file);
+                                    *selected_resampler =
+                                        "Personalizado (UTAU CLI)".to_string();
+                                }
                             }
-                        }
+                    }
+
+                    #[cfg(unix)]
+                    {
+                        ui.add_space(6.0);
+                        ui.separator();
+                        let wine_found = crate::drivers::process::find_wine_executable();
+                        ui.horizontal(|ui| {
+                            if let Some(ref w) = wine_found {
+                                let ver = crate::drivers::process::wine_version().unwrap_or_else(|| "Wine".to_string());
+                                ui.label(
+                                    RichText::new(format!("🍷 {}", ver))
+                                        .size(9.0)
+                                        .color(theme.accent_c32()),
+                                )
+                                .on_hover_text(format!("Wine: {}", w.display()));
+                            } else {
+                                ui.label(
+                                    RichText::new(lang.tr("🍷 Wine não detectado", "🍷 Wine not detected"))
+                                        .size(9.0)
+                                        .color(Color32::from_rgb(255, 170, 60)),
+                                )
+                                .on_hover_text(lang.tr(
+                                    "Necessário para executar resamplers .exe do Windows no macOS/Linux.",
+                                    "Required to run Windows .exe resamplers on macOS/Linux.",
+                                ));
+                            }
+                        });
+
+                        ui.horizontal(|ui| {
+                            if ui
+                                .button(RichText::new(lang.tr("🔍 Detectar Wine", "🔍 Detect Wine")).size(9.0))
+                                .on_hover_text(lang.tr(
+                                    "Buscar automaticamente instalações do Wine no sistema (Homebrew, Whisky, CrossOver, etc)",
+                                    "Automatically search for Wine installations in the system (Homebrew, Whisky, CrossOver, etc)",
+                                ))
+                                .clicked()
+                            {
+                                crate::drivers::process::rescan_wine_executable();
+                            }
+
+                            if ui
+                                .button(RichText::new(lang.tr("Procurar Wine...", "Browse Wine...")).size(9.0))
+                                .on_hover_text(lang.tr(
+                                    "Selecionar manualmente o binário do Wine no disco",
+                                    "Manually select the Wine binary on disk",
+                                ))
+                                .clicked()
+                            {
+                                if let Some(file) = crate::dialogs::FileDialog::new()
+                                    .set_title(lang.tr("Selecionar executável do Wine", "Select Wine executable"))
+                                    .pick_file()
+                                {
+                                    crate::drivers::process::set_custom_wine_path(Some(file));
+                                    crate::drivers::process::rescan_wine_executable();
+                                }
+                            }
+                        });
                     }
                 });
 

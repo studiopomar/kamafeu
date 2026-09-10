@@ -5,15 +5,35 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant};
 
-static WINE_PATH_CACHE: OnceLock<Option<PathBuf>> = OnceLock::new();
+static WINE_PATH_CACHE: Mutex<Option<Option<PathBuf>>> = Mutex::new(None);
 static WINE_CUSTOM_OVERRIDE: Mutex<Option<PathBuf>> = Mutex::new(None);
-#[allow(dead_code)]
-static WINE_VERSION_CACHE: OnceLock<Option<String>> = OnceLock::new();
+static WINE_VERSION_CACHE: Mutex<Option<Option<String>>> = Mutex::new(None);
 
 pub fn set_custom_wine_path(path: Option<PathBuf>) {
     if let Ok(mut guard) = WINE_CUSTOM_OVERRIDE.lock() {
         *guard = path;
     }
+    // Invalidate version cache
+    if let Ok(mut vguard) = WINE_VERSION_CACHE.lock() {
+        *vguard = None;
+    }
+}
+
+pub fn rescan_wine_executable() -> Option<(PathBuf, String)> {
+    let uncached = find_wine_executable_uncached();
+    if let Ok(mut guard) = WINE_PATH_CACHE.lock() {
+        *guard = Some(uncached.clone());
+    }
+    if let Ok(mut vguard) = WINE_VERSION_CACHE.lock() {
+        *vguard = None;
+    }
+
+    let wine_path = uncached?;
+    let ver = wine_version_uncached(&wine_path).unwrap_or_else(|| "Wine".to_string());
+    if let Ok(mut vguard) = WINE_VERSION_CACHE.lock() {
+        *vguard = Some(Some(ver.clone()));
+    }
+    Some((wine_path, ver))
 }
 
 pub fn find_wine_executable() -> Option<PathBuf> {
@@ -25,9 +45,17 @@ pub fn find_wine_executable() -> Option<PathBuf> {
         }
     }
 
-    WINE_PATH_CACHE
-        .get_or_init(find_wine_executable_uncached)
-        .clone()
+    if let Ok(guard) = WINE_PATH_CACHE.lock() {
+        if let Some(ref cached) = *guard {
+            return cached.clone();
+        }
+    }
+
+    let found = find_wine_executable_uncached();
+    if let Ok(mut guard) = WINE_PATH_CACHE.lock() {
+        *guard = Some(found.clone());
+    }
+    found
 }
 
 fn find_wine_executable_uncached() -> Option<PathBuf> {
@@ -160,24 +188,33 @@ fn find_wine_executable_uncached() -> Option<PathBuf> {
     None
 }
 
-#[allow(dead_code)]
 pub fn wine_version() -> Option<String> {
-    WINE_VERSION_CACHE
-        .get_or_init(|| {
-            let wine_bin = find_wine_executable()?;
-            let mut cmd = Command::new(wine_bin);
-            cmd.arg("--version");
-            cmd.env("WINEDEBUG", "-all");
-            let output = cmd.output().ok()?;
-            if output.status.success() {
-                let ver = String::from_utf8_lossy(&output.stdout).trim().to_string();
-                if !ver.is_empty() {
-                    return Some(ver);
-                }
-            }
-            None
-        })
-        .clone()
+    if let Ok(guard) = WINE_VERSION_CACHE.lock() {
+        if let Some(ref cached) = *guard {
+            return cached.clone();
+        }
+    }
+
+    let wine_bin = find_wine_executable()?;
+    let ver = wine_version_uncached(&wine_bin);
+    if let Ok(mut guard) = WINE_VERSION_CACHE.lock() {
+        *guard = Some(ver.clone());
+    }
+    ver
+}
+
+pub fn wine_version_uncached(wine_bin: &Path) -> Option<String> {
+    let mut cmd = Command::new(wine_bin);
+    cmd.arg("--version");
+    cmd.env("WINEDEBUG", "-all");
+    let output = cmd.output().ok()?;
+    if output.status.success() {
+        let ver = String::from_utf8_lossy(&output.stdout).trim().to_string();
+        if !ver.is_empty() {
+            return Some(ver);
+        }
+    }
+    None
 }
 
 pub fn to_wine_windows_path(path: &Path) -> std::ffi::OsString {

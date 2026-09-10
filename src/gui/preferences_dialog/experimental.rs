@@ -354,6 +354,9 @@ impl KamafeuStudioApp {
 
                 ui.horizontal(|ui| {
                     ui.label(lang.tr("Executável Personalizado do Wine:", "Custom Wine Executable:"));
+                    if ui.button(lang.tr("🔍 Detectar Wine", "🔍 Detect Wine")).clicked() {
+                        crate::drivers::process::rescan_wine_executable();
+                    }
                     if ui.button(lang.tr("Procurar Wine...", "Browse Wine...")).clicked() {
                         if let Some(file) = crate::dialogs::FileDialog::new()
                             .set_title("Selecionar binário do Wine")
@@ -361,6 +364,7 @@ impl KamafeuStudioApp {
                         {
                             self.config.dsp.custom_wine_path = Some(file.clone());
                             crate::drivers::process::set_custom_wine_path(Some(file));
+                            crate::drivers::process::rescan_wine_executable();
                             self.persist_config();
                         }
                     }
@@ -368,6 +372,7 @@ impl KamafeuStudioApp {
                         if ui.button(lang.tr("Limpar", "Clear")).clicked() {
                             self.config.dsp.custom_wine_path = None;
                             crate::drivers::process::set_custom_wine_path(None);
+                            crate::drivers::process::rescan_wine_executable();
                             self.persist_config();
                         }
                     }
