@@ -187,6 +187,10 @@ pub fn draw_right_panel(
                             let mut portamento_length = notes[target_idx].pitch_bend.portamento_length_ms;
                             let mut portamento_shape = notes[target_idx].pitch_bend.portamento_shape.clone();
                             let mut snap_first = notes[target_idx].pitch_bend.snap_first;
+                            let mut phonemizer_override = notes[target_idx].phonemizer_override.clone();
+                            let mut fade_in_ms = notes[target_idx].envelope.p2;
+                            let mut fade_out_ms = notes[target_idx].envelope.p5;
+                            let mut crossfade_ms = notes[target_idx].envelope.crossfade_ms;
 
                             let mut changed_lyric = false;
                             let mut changed_dur = false;
@@ -198,6 +202,8 @@ pub fn draw_right_panel(
                             let mut changed_amplitude = false;
                             let mut changed_vibrato = false;
                             let mut changed_portamento = false;
+                            let mut changed_envelope = false;
+                            let mut changed_phonemizer = false;
 
                             Frame::none()
                                 .fill(Color32::from_rgb(36, 27, 53))
@@ -214,6 +220,15 @@ pub fn draw_right_panel(
                                             changed_lyric = true;
                                         }
                                     });
+                                    egui::ComboBox::from_label("Fonemizador desta nota")
+                                        .selected_text(phonemizer_override.as_deref().unwrap_or("Global"))
+                                        .show_ui(ui, |ui| {
+                                            changed_phonemizer |= ui.selectable_value(&mut phonemizer_override, None, "Global").changed();
+                                            for mode in crate::phonemizer::PhonemizerMode::ALL {
+                                                let name = format!("{mode:?}");
+                                                changed_phonemizer |= ui.selectable_value(&mut phonemizer_override, Some(name.clone()), name).changed();
+                                            }
+                                        });
 
                                     ui.horizontal(|ui| {
                                         ui.label("Tom / Nota:");
@@ -274,7 +289,7 @@ pub fn draw_right_panel(
 
                                     ui.horizontal(|ui| {
                                         ui.label("Velocidade da consoante:");
-                                        if ui.add(egui::Slider::new(&mut consonant_velocity, 0.0..=200.0).suffix("%")).changed() {
+                                        if ui.add(egui::Slider::new(&mut consonant_velocity, -100.0..=200.0).suffix("%")).changed() {
                                             changed_timing = true;
                                         }
                                     });
@@ -293,15 +308,55 @@ pub fn draw_right_panel(
                                 .stroke(Stroke::new(1.0, Color32::from_rgb(61, 46, 84)))
                                 .inner_margin(egui::Margin::same(8.0))
                                 .show(ui, |ui| {
+                                    ui.label(RichText::new("Envelope / Fades").strong().size(11.0).color(Color32::from_rgb(0, 255, 157)));
+                                    ui.separator();
+                                    changed_envelope |= ui.add(egui::Slider::new(&mut fade_in_ms, 0.0..=500.0).text("Fade In").suffix(" ms")).changed();
+                                    changed_envelope |= ui.add(egui::Slider::new(&mut fade_out_ms, 0.0..=500.0).text("Fade Out").suffix(" ms")).changed();
+                                    changed_envelope |= ui.add(egui::Slider::new(&mut crossfade_ms, 0.0..=500.0).text("Crossfade").suffix(" ms")).changed();
+                                    ui.label(RichText::new("Os valores são aplicados explicitamente à nota e ao render.").size(9.0).color(theme.text_muted_c32()));
+                                });
+
+                            ui.add_space(8.0);
+                            Frame::none()
+                                .fill(Color32::from_rgb(26, 20, 38))
+                                .rounding(Rounding::same(4.0))
+                                .stroke(Stroke::new(1.0, Color32::from_rgb(61, 46, 84)))
+                                .inner_margin(egui::Margin::same(8.0))
+                                .show(ui, |ui| {
                                     ui.label(RichText::new("Portamento").strong().size(11.0).color(Color32::from_rgb(0, 255, 157)));
                                     ui.separator();
+                                    ui.horizontal(|ui| {
+                                        ui.label("Presets:");
+                                        for (label, start, length, shape, snap) in [
+                                            ("Suave", -55.0, 110.0, "io", true),
+                                            ("Natural", -40.0, 80.0, "io", true),
+                                            ("Rápido", -20.0, 45.0, "l", true),
+                                            ("Deslizante", -100.0, 220.0, "s", true),
+                                            ("Sem snap", -25.0, 60.0, "l", false),
+                                        ] {
+                                            if ui.small_button(label).clicked() {
+                                                portamento_start = start;
+                                                portamento_length = length;
+                                                portamento_shape = shape.to_string();
+                                                snap_first = snap;
+                                                changed_portamento = true;
+                                            }
+                                        }
+                                    });
                                     changed_portamento |= ui.checkbox(&mut snap_first, "Ligar à nota anterior").changed();
                                     changed_portamento |= ui.add(egui::Slider::new(&mut portamento_length, 1.0..=500.0).text("Comprimento").suffix(" ms")).changed();
                                     changed_portamento |= ui.add(egui::Slider::new(&mut portamento_start, -500.0..=500.0).text("Início").suffix(" ms")).changed();
                                     egui::ComboBox::from_label("Formato da curva")
                                         .selected_text(&portamento_shape)
                                         .show_ui(ui, |ui| {
-                                            for (value, label) in [("io", "S suave"), ("l", "Linear"), ("i", "Entrada"), ("o", "Saída")] {
+                                            for (value, label) in [
+                                                ("io", "S suave"),
+                                                ("l", "Linear"),
+                                                ("i", "Entrada"),
+                                                ("o", "Saída"),
+                                                ("j", "Exponencial"),
+                                                ("r", "Logarítmica"),
+                                            ] {
                                                 if ui.selectable_value(&mut portamento_shape, value.to_string(), label).changed() {
                                                     changed_portamento = true;
                                                 }
@@ -353,6 +408,14 @@ pub fn draw_right_panel(
                                         notes[idx].expressions.volume = volume;
                                         notes[idx].expressions.attack = attack;
                                         notes[idx].expressions.decay = decay;
+                                    }
+                                    if changed_envelope {
+                                        notes[idx].envelope.p2 = fade_in_ms;
+                                        notes[idx].envelope.p5 = fade_out_ms;
+                                        notes[idx].envelope.crossfade_ms = crossfade_ms;
+                                    }
+                                    if changed_phonemizer {
+                                        notes[idx].phonemizer_override = phonemizer_override.clone();
                                     }
                                     if changed_vibrato { notes[idx].vibrato = vibrato.clone(); }
                                     if changed_portamento {

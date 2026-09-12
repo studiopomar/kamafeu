@@ -59,6 +59,22 @@ impl KamafeuStudioApp {
 
                 ui.add_space(4.0);
                 ui.horizontal(|ui| {
+                    ui.label(lang.tr("Instâncias do Resampler:", "Resampler Instances:"));
+                    ui.add(
+                        egui::Slider::new(&mut self.config.dsp.resampler_instances, 1..=16)
+                            .text(lang.tr("instâncias", "instances")),
+                    );
+                    help_marker(
+                        ui,
+                        lang.tr(
+                            "Número máximo de resamplers simultâneos. Duas instâncias permitem renderizar pares como 'a' e 'ka' ao mesmo tempo; aumente apenas se o motor e a RAM suportarem.",
+                            "Maximum simultaneous resampler jobs. Two instances can render pairs such as 'a' and 'ka' together; increase only if the engine and RAM can handle it.",
+                        ),
+                    );
+                });
+
+                ui.add_space(4.0);
+                ui.horizontal(|ui| {
                 ui.label(lang.tr("Prioridade das Threads:", "Thread Priority:"));
                 let prio_list = [
                     ("Normal", lang.tr("Normal", "Normal")),

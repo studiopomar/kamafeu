@@ -66,6 +66,15 @@ impl DiscordRpcManager {
     }
 
     pub fn set_enabled(&mut self, enabled: bool) {
+        // Force the next frame to be published after a disable/enable toggle;
+        // otherwise an identical activity can remain absent from Discord.
+        if self
+            .last_state
+            .as_ref()
+            .is_some_and(|state| state.enabled != enabled)
+        {
+            self.last_state = None;
+        }
         let _ = self.tx.send(RpcMessage::SetEnabled(enabled));
     }
 }
@@ -223,8 +232,8 @@ pub fn activity_presentation(
         };
         (
             format!(
-                "Editando {part_name} • {note_count} notas • {:.0} BPM{selection}",
-                bpm
+                "Editando {part_name} • {voicebank_name} • {note_count} notas • {:.0} BPM{selection}",
+                bpm,
             ),
             EDIT_ASSET,
             "Editando no Kamafeu Studio",
@@ -273,7 +282,7 @@ mod tests {
         assert_eq!(activity.small_asset, EDIT_ASSET);
         assert_eq!(
             activity.state,
-            "Editando Voz principal • 12 notas • 128 BPM • 2 selecionada(s)"
+            "Editando Voz principal • Cantor • 12 notas • 128 BPM • 2 selecionada(s)"
         );
     }
 

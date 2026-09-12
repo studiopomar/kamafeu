@@ -10,6 +10,12 @@ pub struct UPitchBendPoint {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct UExpressionPoint {
+    pub time_offset_ms: f64,
+    pub value: f64,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct UPitchBend {
     pub points: Vec<UPitchBendPoint>,
@@ -32,6 +38,39 @@ impl Default for UPitchBend {
 }
 
 impl UPitchBend {
+    /// Materializes the default portamento so newly created notes and adjacent
+    /// notes behave identically in the editor, renderer and exported formats.
+    pub fn ensure_portamento(
+        &mut self,
+        previous_midi: Option<u8>,
+        current_midi: u8,
+        adjacent: bool,
+    ) {
+        if self.points.is_empty() {
+            let start = self.portamento_start_ms.clamp(-2000.0, 2000.0);
+            let length = self.portamento_length_ms.clamp(1.0, 2000.0);
+            let first_offset = if self.snap_first && adjacent {
+                previous_midi
+                    .map(|previous| (f64::from(previous) - f64::from(current_midi)) * 100.0)
+                    .unwrap_or(0.0)
+            } else {
+                0.0
+            };
+            self.points = vec![
+                UPitchBendPoint {
+                    time_offset_ms: start,
+                    pitch_offset_cents: first_offset,
+                    shape: self.portamento_shape.clone(),
+                },
+                UPitchBendPoint {
+                    time_offset_ms: start + length,
+                    pitch_offset_cents: 0.0,
+                    shape: self.portamento_shape.clone(),
+                },
+            ];
+        }
+    }
+
     pub fn effective_points(
         &self,
         previous_midi: Option<u8>,
@@ -91,6 +130,8 @@ impl UPitchBend {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct UExpressions {
     pub dynamics: f64,    // DYN (-240 to +120, in 0.1 dB units)
+    #[serde(default)]
+    pub dynamics_curve: Vec<UExpressionPoint>,
     pub pitch_delta: f64, // PITD (-1200 to +1200 cents, default 0)
     pub gender: f64,      // GEN (-100 to +100, default 0)
     #[serde(default = "default_velocity")]
@@ -133,6 +174,7 @@ impl Default for UExpressions {
     fn default() -> Self {
         Self {
             dynamics: 0.0,
+            dynamics_curve: Vec::new(),
             pitch_delta: 0.0,
             gender: 0.0,
             velocity: 100.0,
@@ -170,6 +212,9 @@ pub struct UNote {
     /// antigos deixam este vetor vazio e continuam usando divisão igual.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub phoneme_durations_ms: Vec<f64>,
+    /// Optional per-note phonemizer override. `None` uses the track/global mode.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub phonemizer_override: Option<String>,
 }
 
 impl UNote {
@@ -192,6 +237,7 @@ impl UNote {
             expressions: UExpressions::default(),
             flags: String::new(),
             phoneme_durations_ms: Vec::new(),
+            phonemizer_override: None,
         }
     }
 
@@ -204,6 +250,7 @@ impl UNote {
         self.expressions = UExpressions::default();
         self.flags.clear();
         self.phoneme_durations_ms.clear();
+        self.phonemizer_override = None;
     }
 
     /// Resolve durações internas válidas para `count` fonemas, preservando as
@@ -531,7 +578,7 @@ impl UProject {
                     note.expressions.consonant_velocity = 100.0;
                 }
                 note.expressions.consonant_velocity =
-                    note.expressions.consonant_velocity.clamp(0.0, 200.0);
+                    note.expressions.consonant_velocity.clamp(-100.0, 200.0);
                 if !note.expressions.velocity.is_finite() {
                     note.expressions.velocity = 100.0;
                 }

@@ -4,7 +4,7 @@ mod phrase_pitch;
 mod wav_io;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Condvar, Mutex};
 
 use rayon::prelude::*;
 
@@ -18,6 +18,60 @@ use crate::renderer::timing::resolve_phoneme_timings;
 use crate::renderer::RenderOptions;
 
 pub struct TrackRenderer;
+
+/// Limits actual synthesis work independently from the Rayon pool. This keeps
+/// external UTAU engines from spawning more concurrent processes than their
+/// voicebank caches and the host machine can sustain.
+struct ResamplerSlots {
+    available: Mutex<usize>,
+    ready: Condvar,
+}
+
+struct ResamplerSlot<'a> {
+    slots: &'a ResamplerSlots,
+}
+
+impl ResamplerSlots {
+    fn new(instances: u32) -> Self {
+        Self {
+            available: Mutex::new(instances.max(1) as usize),
+            ready: Condvar::new(),
+        }
+    }
+
+    fn acquire(&self, cancel: Option<&AtomicBool>) -> Result<ResamplerSlot<'_>, String> {
+        loop {
+            if cancel.is_some_and(|token| token.load(Ordering::Relaxed)) {
+                return Err("renderização cancelada".to_string());
+            }
+            let mut available = self
+                .available
+                .lock()
+                .unwrap_or_else(|error| error.into_inner());
+            if *available > 0 {
+                *available -= 1;
+                return Ok(ResamplerSlot { slots: self });
+            }
+            let (next, _) = self
+                .ready
+                .wait_timeout(available, std::time::Duration::from_millis(20))
+                .unwrap_or_else(|error| error.into_inner());
+            drop(next);
+        }
+    }
+}
+
+impl Drop for ResamplerSlot<'_> {
+    fn drop(&mut self) {
+        let mut available = self
+            .slots
+            .available
+            .lock()
+            .unwrap_or_else(|error| error.into_inner());
+        *available += 1;
+        self.slots.ready.notify_one();
+    }
+}
 
 struct PhrasePitchNote {
     position_ms: f64,
@@ -134,18 +188,25 @@ impl TrackRenderer {
             }
         };
 
-        let (loudness_db, gender_offset, breathiness_offset, tone_shift, crossfade_ms) =
-            if let Some(vm) = vocal_mode {
-                (
-                    vm.loudness,
-                    vm.gender,
-                    vm.breathiness,
-                    vm.tone_shift,
-                    vm.crossfade_ms,
-                )
-            } else {
-                (0.0, 0.0, 0.0, 0.0, 0.0)
-            };
+        let (
+            loudness_db,
+            gender_offset,
+            breathiness_offset,
+            tone_shift,
+            crossfade_ms,
+            resampler_instances,
+        ) = if let Some(vm) = vocal_mode {
+            (
+                vm.loudness,
+                vm.gender,
+                vm.breathiness,
+                vm.tone_shift,
+                vm.crossfade_ms,
+                vm.resampler_instances,
+            )
+        } else {
+            (0.0, 0.0, 0.0, 0.0, 0.0, 2)
+        };
 
         let max_end_ms = notes
             .iter()
@@ -272,7 +333,6 @@ impl TrackRenderer {
             logs: Vec<(f32, String)>,
             wav_args: WavtoolArgs,
             adjacent: bool,
-            is_transition: bool,
         }
 
         let temp_dir_path = temp_dir.path().to_path_buf();
@@ -280,9 +340,18 @@ impl TrackRenderer {
         let completed_phones = std::sync::atomic::AtomicUsize::new(0);
         let completed_ref = &completed_phones;
 
-        let phone_results: Result<Vec<PhoneResult>, String> = phones
+        // Schedule the earliest audible leads first. A VCV/CVVC alias often
+        // begins before its musical note because of preutterance, so this is a
+        // better preview order than the source note order.
+        let mut render_order: Vec<_> = phones.into_iter().enumerate().collect();
+        render_order.sort_unstable_by(|(left_index, left), (right_index, right)| {
+            (left.position_ms - timings[*left_index].preutter_ms)
+                .total_cmp(&(right.position_ms - timings[*right_index].preutter_ms))
+        });
+        let resampler_slots = ResamplerSlots::new(resampler_instances);
+
+        let phone_results: Result<Vec<PhoneResult>, String> = render_order
             .into_par_iter()
-            .enumerate()
             .map(|(idx, phone)| {
                 if cancel.is_some_and(|t| t.load(Ordering::Relaxed)) {
                     return Err("Renderização cancelada".to_string());
@@ -321,7 +390,7 @@ impl TrackRenderer {
                 let target_freq = midi_to_freq(base_midi);
 
                 let consonant_velocity = if phone.expressions.consonant_velocity.is_finite() {
-                    phone.expressions.consonant_velocity.clamp(0.0, 200.0)
+                    phone.expressions.consonant_velocity.clamp(-100.0, 200.0)
                 } else {
                     100.0
                 };
@@ -395,33 +464,37 @@ impl TrackRenderer {
                     format!("  [Resampler] Motor: '{}'", resampler_driver.name()),
                 ));
 
-                let mut note_rendered = crate::renderer::resampler_cache::render_with_cache(
-                    resampler_driver,
-                    raw_samples,
-                    src_sample_rate,
-                    &res_args,
-                    cancel,
-                )
-                .map(|(samples, cache_hit)| {
-                    logs.push((
-                        progress,
-                        if cache_hit {
-                            "  [Resampler Cache] hit".to_string()
-                        } else {
-                            "  [Resampler Cache] miss".to_string()
-                        },
-                    ));
-                    samples
-                })
-                .map_err(|error| {
-                    format!(
-                        "Fonema #{} '{}' em {:.1} ms, resampler {}: {error}",
-                        idx + 1,
-                        phone.lyric,
-                        phone.position_ms,
-                        resampler_driver.name()
+                let rendered_or_cached = {
+                    let _resampler_slot = resampler_slots.acquire(cancel)?;
+                    crate::renderer::resampler_cache::render_with_cache(
+                        resampler_driver,
+                        raw_samples,
+                        src_sample_rate,
+                        &res_args,
+                        cancel,
                     )
-                })?;
+                };
+                let mut note_rendered = rendered_or_cached
+                    .map(|(samples, cache_hit)| {
+                        logs.push((
+                            progress,
+                            if cache_hit {
+                                "  [Resampler Cache] hit".to_string()
+                            } else {
+                                "  [Resampler Cache] miss".to_string()
+                            },
+                        ));
+                        samples
+                    })
+                    .map_err(|error| {
+                        format!(
+                            "Fonema #{} '{}' em {:.1} ms, resampler {}: {error}",
+                            idx + 1,
+                            phone.lyric,
+                            phone.position_ms,
+                            resampler_driver.name()
+                        )
+                    })?;
 
                 if src_sample_rate != sample_rate {
                     note_rendered =
@@ -518,7 +591,7 @@ impl TrackRenderer {
                     ),
                 ));
 
-                let total_dyn_db = phone.expressions.dynamics * 0.1 + loudness_db;
+                let dynamics_curve = phone.expressions.dynamics_curve.clone();
                 for (sample_index, sample) in note_rendered.iter_mut().enumerate() {
                     let time_ms = sample_index as f64 * 1000.0 / sample_rate as f64
                         - timing.pitch_leading_ms
@@ -527,7 +600,22 @@ impl TrackRenderer {
                         } else {
                             0.0
                         };
-                    let dyn_gain = 10.0f64.powf(total_dyn_db / 20.0);
+                    let curve_value = if dynamics_curve.is_empty() {
+                        phone.expressions.dynamics
+                    } else {
+                        let t = time_ms.max(0.0);
+                        dynamics_curve
+                            .windows(2)
+                            .find(|pair| t <= pair[1].time_offset_ms)
+                            .map(|pair| {
+                                let span = (pair[1].time_offset_ms - pair[0].time_offset_ms).max(1e-6);
+                                let u = ((t - pair[0].time_offset_ms) / span).clamp(0.0, 1.0);
+                                pair[0].value + (pair[1].value - pair[0].value) * u
+                            })
+                            .or_else(|| dynamics_curve.last().map(|point| point.value))
+                            .unwrap_or(phone.expressions.dynamics)
+                    };
+                    let dyn_gain = 10.0f64.powf((curve_value * 0.1 + loudness_db) / 20.0);
                     let vibrato_volume = phone
                         .vibrato
                         .volume_multiplier_at(time_ms, phone.duration_ms);
@@ -570,11 +658,6 @@ impl TrackRenderer {
                     ),
                 );
 
-                let is_transition = cutoff_ms < 0.0
-                    || phone.lyric.contains(' ')
-                    || phone.lyric.contains('-')
-                    || phone.lyric.starts_with('_');
-
                 Ok(PhoneResult {
                     idx,
                     wav_args,
@@ -589,7 +672,6 @@ impl TrackRenderer {
                     },
                     pitch_freq: target_freq,
                     logs,
-                    is_transition,
                 })
             })
             .collect();
@@ -637,7 +719,6 @@ impl TrackRenderer {
                     0,
                     0.0,
                     sample_rate,
-                    false,
                 );
                 for item in group {
                     for (p, message) in &item.logs {
@@ -671,7 +752,6 @@ impl TrackRenderer {
                 ((result.crossfade_ms / 1000.0) * sample_rate as f64).round() as usize,
                 result.pitch_freq,
                 sample_rate,
-                result.is_transition,
             );
         }
 

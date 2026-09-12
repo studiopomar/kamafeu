@@ -6,13 +6,47 @@ use eframe::egui::IconData;
 /// Sending the full 2048px artwork can fail with MaximumRequestLengthExceeded
 /// while winit sets _NET_WM_ICON, before the OpenGL context is created.
 pub fn load_window_icon() -> Result<IconData, image::ImageError> {
-    let image = image::load_from_memory(include_bytes!("../../assets/icon.png"))?
-        .thumbnail(128, 128)
+    let artwork = image::load_from_memory(include_bytes!("../../assets/icon.png"))?
+        .thumbnail(104, 104)
         .into_rgba8();
 
+    // Use a solid white, rounded tile so the artwork remains legible on both
+    // dark and light desktop themes.  Keep the outside of the tile transparent
+    // for platforms that support shaped window icons.
+    let size = 128u32;
+    let tile_margin = 12u32;
+    let tile_size = size - tile_margin * 2;
+    let radius = 17u32;
+    let mut image = image::RgbaImage::from_pixel(size, size, image::Rgba([255, 255, 255, 0]));
+    for y in tile_margin..(tile_margin + tile_size) {
+        for x in tile_margin..(tile_margin + tile_size) {
+            let dx = if x < tile_margin + radius {
+                tile_margin + radius - x
+            } else if x >= tile_margin + tile_size - radius {
+                x - (tile_margin + tile_size - radius - 1)
+            } else {
+                0
+            };
+            let dy = if y < tile_margin + radius {
+                tile_margin + radius - y
+            } else if y >= tile_margin + tile_size - radius {
+                y - (tile_margin + tile_size - radius - 1)
+            } else {
+                0
+            };
+            if dx > 0 && dy > 0 && dx * dx + dy * dy > radius * radius {
+                image.put_pixel(x, y, image::Rgba([255, 255, 255, 0]));
+            } else {
+                image.put_pixel(x, y, image::Rgba([255, 255, 255, 255]));
+            }
+        }
+    }
+    let artwork_offset = ((size - artwork.width()) / 2, (size - artwork.height()) / 2);
+    image::imageops::overlay(&mut image, &artwork, artwork_offset.0 as i64, artwork_offset.1 as i64);
+
     Ok(IconData {
-        width: image.width(),
-        height: image.height(),
+        width: size,
+        height: size,
         rgba: image.into_raw(),
     })
 }

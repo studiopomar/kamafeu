@@ -643,15 +643,20 @@ impl AutoPitchEngine {
             portamento_shape: portamento_shape.to_string(),
         };
 
+        let depth_mult = options.vibrato_depth_mult.clamp(0.0, 2.5);
+        let period_mult = options.vibrato_period_mult.clamp(0.4, 2.5);
+        let adjusted_period = (vib_period_ms * period_mult).clamp(40.0, 500.0);
+        // A short note cannot establish a perceptible vibrato cycle. Applying
+        // one there produces a tremolo-like wobble, especially on CVVC/VCV
+        // consonant transitions. Require two complete cycles plus an onset
+        // margin before enabling automatic vibrato.
+        let vibrato_min_duration = (adjusted_period * 2.0 + 80.0).max(300.0);
         let vibrato = if options.enable_vibrato
-            && duration_ms >= 240.0
+            && duration_ms >= vibrato_min_duration
             && intensity > 0.1
             && vib_depth_cents > 0.0
         {
-            let depth_mult = options.vibrato_depth_mult.clamp(0.0, 2.5);
-            let period_mult = options.vibrato_period_mult.clamp(0.4, 2.5);
             let adjusted_depth = (vib_depth_cents * intensity * depth_mult).clamp(5.0, 150.0);
-            let adjusted_period = (vib_period_ms * period_mult).clamp(40.0, 500.0);
 
             VibratoParam {
                 length_pct: vib_length_pct,
@@ -825,5 +830,16 @@ mod tests {
             notes[1].pitch_bend.portamento_length_ms, 20.0,
             "Hard tune portamento instantaneo"
         );
+    }
+
+    #[test]
+    fn vibrato_is_skipped_on_short_notes() {
+        let options = AutoPitchOptions::default();
+        let (_bend, short_vibrato) =
+            AutoPitchEngine::generate_pitch_for_note(60, 300.0, None, false, false, &options);
+        let (_bend, long_vibrato) =
+            AutoPitchEngine::generate_pitch_for_note(60, 600.0, None, false, false, &options);
+        assert_eq!(short_vibrato.length_pct, 0.0);
+        assert!(long_vibrato.length_pct > 0.0);
     }
 }

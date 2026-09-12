@@ -88,6 +88,7 @@ impl KamafeuStudioApp {
                 )
                 .clicked()
             {
+                self.persist_config();
                 ui.close_menu();
             }
             if ui
@@ -100,6 +101,7 @@ impl KamafeuStudioApp {
                 )
                 .clicked()
             {
+                self.persist_config();
                 ui.close_menu();
             }
             if ui
@@ -112,6 +114,7 @@ impl KamafeuStudioApp {
                 )
                 .clicked()
             {
+                self.persist_config();
                 ui.close_menu();
             }
             if ui
@@ -124,6 +127,7 @@ impl KamafeuStudioApp {
                 )
                 .clicked()
             {
+                self.persist_config();
                 ui.close_menu();
             }
             if ui
@@ -136,6 +140,7 @@ impl KamafeuStudioApp {
                 )
                 .clicked()
             {
+                self.persist_config();
                 ui.close_menu();
             }
             if ui

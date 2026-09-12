@@ -76,7 +76,8 @@ impl KamafeuStudioApp {
             };
 
             let active_vb = self.voicebank.clone().unwrap_or(dummy_vb);
-            let vocal_mode_params = self.vocal_mode_params.clone();
+            let mut vocal_mode_params = self.vocal_mode_params.clone();
+            vocal_mode_params.resampler_instances = self.config.dsp.resampler_instances.max(1);
             let render_threads = self.render_threads.clamp(1, 16) as usize;
             let mut project = self.project.clone();
             project.bpm = bpm;
@@ -443,7 +444,8 @@ impl KamafeuStudioApp {
                 temp_dir: None,
             };
             let active_vb = self.voicebank.clone().unwrap_or(dummy_vb);
-            let vocal_mode_params = self.vocal_mode_params.clone();
+            let mut vocal_mode_params = self.vocal_mode_params.clone();
+            vocal_mode_params.resampler_instances = self.config.dsp.resampler_instances.max(1);
             let fx_config = self.fx_rack_config.clone();
 
             let export_format = if let Some(ext) = save_path.extension().and_then(|e| e.to_str()) {

@@ -54,12 +54,20 @@ impl PitchBendSolver {
                 let duration = (p1.time_offset_ms - p0.time_offset_ms).max(1e-3);
                 let norm_t = ((time_ms - p0.time_offset_ms) / duration).clamp(0.0, 1.0);
 
-                let factor = match p0.shape.to_lowercase().as_str() {
+                let shape = p0.shape.to_lowercase();
+                let factor = match shape.as_str() {
                     // OpenUtau names followed by their UTAU Mode 2 aliases.
-                    "l" | "s" => norm_t,
-                    "i" | "j" => 1.0 - (norm_t * std::f64::consts::FRAC_PI_2).cos(),
-                    "o" | "r" => (norm_t * std::f64::consts::FRAC_PI_2).sin(),
-                    "io" | "" => 0.5 - 0.5 * (norm_t * std::f64::consts::PI).cos(),
+                    "l" | "linear" => norm_t,
+                    "s" | "io" | "s-curve" | "smooth" => {
+                        0.5 - 0.5 * (norm_t * std::f64::consts::PI).cos()
+                    }
+                    "i" | "j" | "easein" | "ease-in" | "exponential" => {
+                        1.0 - (norm_t * std::f64::consts::FRAC_PI_2).cos()
+                    }
+                    "o" | "r" | "easeout" | "ease-out" | "logarithmic" => {
+                        (norm_t * std::f64::consts::FRAC_PI_2).sin()
+                    }
+                    "" => 0.5 - 0.5 * (norm_t * std::f64::consts::PI).cos(),
                     _ => 0.5 - 0.5 * (norm_t * std::f64::consts::PI).cos(),
                 };
 

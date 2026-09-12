@@ -29,6 +29,20 @@ impl KamafeuStudioApp {
                 ui.close_menu();
             }
             if ui
+                .button(lang.tr("Pacotes adicionais...", "Additional Packages..."))
+                .clicked()
+            {
+                self.packages_window_open = true;
+                ui.close_menu();
+            }
+            if ui
+                .button(lang.tr("Mostrar Dica dos Painéis (10s)", "Show Panel Tips (10s)"))
+                .clicked()
+            {
+                self.panel_tips_created_at = Some(std::time::Instant::now());
+                ui.close_menu();
+            }
+            if ui
                 .checkbox(
                     &mut self.config.discord_rpc_enabled,
                     "Discord Rich Presence",
@@ -54,7 +68,7 @@ impl KamafeuStudioApp {
                     "OpenUTAU / UTAU Vocal Engine in Rust",
                 ))
                 .size(9.5)
-                .color(MelodyneTheme::TEXT_MUTED),
+                .color(self.config.theme.text_muted_c32()),
             );
         });
     }

@@ -16,7 +16,6 @@ pub struct CopaibaToolkitApp {
     pub selected_entry_index: Option<usize>,
     pub search_query: String,
     pub filter_mode: ListFilterMode,
-    pub audio_player: AudioPlayer,
     pub loaded_waveform: Option<(Vec<f32>, u32)>, // samples, sample_rate
     pub loaded_wav_filename: Option<String>,
     pub previous_waveform: Option<(String, Vec<f32>, u32)>,
@@ -38,7 +37,6 @@ impl Default for CopaibaToolkitApp {
             selected_entry_index: None,
             search_query: String::new(),
             filter_mode: ListFilterMode::ByAlias,
-            audio_player: AudioPlayer::new(),
             loaded_waveform: None,
             loaded_wav_filename: None,
             previous_waveform: None,
@@ -389,7 +387,11 @@ fn draw_waveform_peak_envelope(
     }
 }
 
-pub fn draw_copaiba_toolkit_ui(app: &mut CopaibaToolkitApp, ui: &mut egui::Ui) {
+pub fn draw_copaiba_toolkit_ui(
+    app: &mut CopaibaToolkitApp,
+    audio_player: &mut AudioPlayer,
+    ui: &mut egui::Ui,
+) {
     ui.vertical(|ui| {
         let mut style = ui.style().as_ref().clone();
 
@@ -808,7 +810,7 @@ pub fn draw_copaiba_toolkit_ui(app: &mut CopaibaToolkitApp, ui: &mut egui::Ui) {
 
                     if let Some((ref samples, sr)) = app.loaded_waveform {
                         if ui.button("▶ Tocar").clicked() {
-                            app.audio_player.play_samples(samples.clone(), sr);
+                            audio_player.play_samples(samples.clone(), sr);
                         }
                     }
 

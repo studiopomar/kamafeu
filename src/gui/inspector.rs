@@ -80,7 +80,7 @@ pub fn draw_inspector_panel(
 
                     ui.label("Vel. consoante:");
                     ui.add(
-                        egui::Slider::new(&mut note.expressions.consonant_velocity, 0.0..=200.0)
+                        egui::Slider::new(&mut note.expressions.consonant_velocity, -100.0..=200.0)
                             .suffix(" %"),
                     )
                     .on_hover_text(

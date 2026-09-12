@@ -125,20 +125,21 @@ pub fn draw_unified_toolbar(
     on_quantize_snap: &mut dyn FnMut(),
     on_fix_overlaps: &mut dyn FnMut(),
 ) {
-    ui.spacing_mut().item_spacing = Vec2::new(4.0, 2.0);
+    ui.spacing_mut().item_spacing = Vec2::new(3.0, 0.0);
 
     // ==========================================
-    // LINHA 1: Transporte, Ferramentas, AutoPitch, Exportar, Console
+    // SINGLE COMPACT LINE
     // ==========================================
     egui::ScrollArea::horizontal()
-        .id_salt("toolbar_row1_scroll")
+        .id_salt("toolbar_compact_scroll")
         .auto_shrink([false, true])
         .show(ui, |ui| {
             ui.horizontal(|ui| {
                 ui.add_space(2.0);
 
+                // ── Card 1: Transport (Play / Stop / Time) ──
                 toolbar_card(ui, theme, |ui| {
-                    ui.spacing_mut().item_spacing = Vec2::new(4.0, 0.0);
+                    ui.spacing_mut().item_spacing = Vec2::new(3.0, 0.0);
 
                     let (play_bg, play_text, play_color, play_stroke) = if is_playing {
                         (
@@ -159,13 +160,13 @@ pub fn draw_unified_toolbar(
                     let play_btn = egui::Button::new(
                         RichText::new(play_text)
                             .strong()
-                            .size(13.0)
+                            .size(12.0)
                             .color(play_color),
                     )
-                    .min_size(Vec2::new(26.0, 22.0))
+                    .min_size(Vec2::new(24.0, 20.0))
                     .fill(play_bg)
-                    .stroke(Stroke::new(1.2_f32, play_stroke))
-                    .rounding(Rounding::same(4.0));
+                    .stroke(Stroke::new(1.0_f32, play_stroke))
+                    .rounding(Rounding::same(3.0));
 
                     if ui
                         .add(play_btn)
@@ -178,13 +179,13 @@ pub fn draw_unified_toolbar(
                     let stop_btn = egui::Button::new(
                         RichText::new("⏹")
                             .strong()
-                            .size(13.0)
+                            .size(12.0)
                             .color(Color32::from_rgb(255, 110, 110)),
                     )
-                    .min_size(Vec2::new(26.0, 22.0))
-                    .fill(Color32::from_rgba_unmultiplied(255, 70, 70, 45))
+                    .min_size(Vec2::new(24.0, 20.0))
+                    .fill(Color32::from_rgba_unmultiplied(255, 70, 70, 35))
                     .stroke(Stroke::new(1.0_f32, Color32::from_rgb(180, 50, 50)))
-                    .rounding(Rounding::same(4.0));
+                    .rounding(Rounding::same(3.0));
 
                     if ui
                         .add(stop_btn)
@@ -197,97 +198,104 @@ pub fn draw_unified_toolbar(
                         on_stop();
                     }
 
-                    ui.add_space(4.0);
-                    ui.separator();
-                    ui.add_space(4.0);
-
                     ui.label(
                         RichText::new(&state.playhead_time_str)
                             .monospace()
                             .strong()
-                            .size(12.0)
+                            .size(11.0)
                             .color(theme.accent_c32()),
                     );
 
-                    ui.add_space(4.0);
-                    ui.separator();
-                    ui.add_space(4.0);
-
-                    let (loop_bg, loop_color, loop_stroke) = if state.loop_enabled {
+                    // Transport actions must not depend on the trailing
+                    // overflow menu: it disappears first on compact windows.
+                    // Keep the three playback modes next to Play/Stop, where
+                    // they remain reachable without horizontal scrolling.
+                    let transport_toggles = [
                         (
-                            theme.c32_alpha(theme.accent_color, 0.25),
+                            &mut state.loop_enabled,
+                            "Loop",
+                            lang.tr("Repetir intervalo A–B", "Repeat A–B range"),
                             theme.accent_c32(),
-                            Stroke::new(1.2_f32, theme.accent_c32()),
-                        )
-                    } else {
+                        ),
                         (
-                            theme.bg_header_c32(),
-                            theme.text_muted_c32(),
-                            Stroke::new(1.0_f32, theme.grid_line_sub_c32()),
-                        )
-                    };
-                    let loop_btn = egui::Button::new(RichText::new("Loop").size(10.5).color(loop_color))
-                        .min_size(Vec2::new(34.0, 22.0))
-                        .fill(loop_bg)
-                        .stroke(loop_stroke)
-                        .rounding(Rounding::same(3.0));
-
-                    if ui
-                        .add(loop_btn)
-                        .on_hover_text(if state.loop_enabled {
-                            lang.tr(
-                                "Loop Ativo (clique para desativar)",
-                                "Loop Active (click to disable)",
+                            &mut state.preview_selection_only,
+                            "Sel",
+                            lang.tr("Tocar apenas a seleção", "Play selection only"),
+                            theme.note_fill_c32(),
+                        ),
+                        (
+                            &mut state.metronome_enabled,
+                            "Metr",
+                            lang.tr("Ativar metrônomo", "Enable metronome"),
+                            theme.playhead_c32(),
+                        ),
+                    ];
+                    for (enabled, label, tooltip, active_color) in transport_toggles {
+                        let (fill, stroke, text_color) = if *enabled {
+                            (
+                                Color32::from_rgba_unmultiplied(
+                                    active_color.r(),
+                                    active_color.g(),
+                                    active_color.b(),
+                                    64,
+                                ),
+                                Stroke::new(1.2, active_color),
+                                active_color,
                             )
                         } else {
-                            lang.tr(
-                                "Loop Desativado (clique para ativar)",
-                                "Loop Disabled (click to enable)",
+                            (
+                                theme.bg_header_c32(),
+                                Stroke::new(1.0, theme.grid_line_sub_c32()),
+                                theme.text_muted_c32(),
                             )
-                        })
-                        .clicked()
-                    {
-                        state.loop_enabled = !state.loop_enabled;
+                        };
+                        let button =
+                            egui::Button::new(RichText::new(label).size(9.5).color(text_color))
+                                .min_size(Vec2::new(30.0, 20.0))
+                                .fill(fill)
+                                .stroke(stroke)
+                                .rounding(Rounding::same(3.0));
+                        if ui.add(button).on_hover_text(tooltip).clicked() {
+                            *enabled = !*enabled;
+                        }
                     }
 
-                    let (sel_bg, sel_color, sel_stroke) = if state.preview_selection_only {
-                        (
-                            theme.c32_alpha(theme.note_fill, 0.25),
-                            theme.note_fill_c32(),
-                            Stroke::new(1.2_f32, theme.note_stroke_c32()),
-                        )
-                    } else {
-                        (
-                            theme.bg_header_c32(),
-                            theme.text_muted_c32(),
-                            Stroke::new(1.0_f32, theme.grid_line_sub_c32()),
-                        )
-                    };
-                    let sel_btn = egui::Button::new(RichText::new("Sel").size(10.5).color(sel_color))
-                        .min_size(Vec2::new(28.0, 22.0))
-                        .fill(sel_bg)
-                        .stroke(sel_stroke)
-                        .rounding(Rounding::same(3.0));
-
-                    if ui
-                        .add(sel_btn)
-                        .on_hover_text(if state.preview_selection_only {
-                            lang.tr(
-                                "Tocar Apenas Seleção (Ativo)",
-                                "Play Selection Only (Active)",
-                            )
-                        } else {
-                            lang.tr(
-                                "Tocar Projeto Todo (Clique para tocar apenas notas selecionadas)",
-                                "Play Entire Project (Click to play selected notes only)",
-                            )
-                        })
-                        .clicked()
-                    {
-                        state.preview_selection_only = !state.preview_selection_only;
+                    // Keep the active loop range visible in the main toolbar;
+                    // users should not have to open the overflow menu to know
+                    // which part of the track will repeat.
+                    ui.separator();
+                    ui.label(
+                        RichText::new("A")
+                            .size(9.0)
+                            .strong()
+                            .color(theme.accent_c32()),
+                    );
+                    ui.add_sized(
+                        [48.0, 20.0],
+                        egui::DragValue::new(&mut state.loop_start_ms)
+                            .range(0.0..=3_600_000.0)
+                            .speed(10.0)
+                            .suffix("ms"),
+                    );
+                    ui.label(
+                        RichText::new("B")
+                            .size(9.0)
+                            .strong()
+                            .color(theme.accent_c32()),
+                    );
+                    ui.add_sized(
+                        [48.0, 20.0],
+                        egui::DragValue::new(&mut state.loop_end_ms)
+                            .range(1.0..=3_600_000.0)
+                            .speed(10.0)
+                            .suffix("ms"),
+                    );
+                    if state.loop_end_ms <= state.loop_start_ms {
+                        state.loop_end_ms = state.loop_start_ms + 1.0;
                     }
                 });
 
+                // ── Card 2: Edit Tools ──
                 toolbar_card(ui, theme, |ui| {
                     ui.spacing_mut().item_spacing = Vec2::new(2.0, 0.0);
 
@@ -336,9 +344,9 @@ pub fn draw_unified_toolbar(
                         };
 
                         let btn = egui::Button::new(
-                            RichText::new(label).strong().size(11.0).color(text_color),
+                            RichText::new(label).strong().size(10.0).color(text_color),
                         )
-                        .min_size(Vec2::new(28.0, 22.0))
+                        .min_size(Vec2::new(26.0, 20.0))
                         .fill(bg_color)
                         .stroke(stroke_color)
                         .rounding(Rounding::same(3.0));
@@ -349,9 +357,9 @@ pub fn draw_unified_toolbar(
                     }
 
                     if *current_tool == EditTool::PitchDraw {
-                        ui.add_space(3.0);
-                        ui.separator();
                         ui.add_space(2.0);
+                        ui.separator();
+                        ui.add_space(1.0);
 
                         for (subtool, label, tip) in [
                             (
@@ -369,249 +377,15 @@ pub fn draw_unified_toolbar(
                                 lang.tr("Reta", "Line"),
                                 lang.tr("Linha reta", "Straight line"),
                             ),
-                            (
-                                PitchSubTool::Vibrato,
-                                "Vibrato",
-                                "Vibrato",
-                            ),
+                            (PitchSubTool::Vibrato, "Vibrato", "Vibrato"),
                         ] {
                             ui.selectable_value(pitch_sub_tool, subtool, label)
                                 .on_hover_text(tip);
                         }
                     }
-
-                    ui.add_space(3.0);
-                    ui.separator();
-                    ui.add_space(2.0);
-
-                    let autopitch_btn = egui::Button::new(
-                        RichText::new("Pre-tunning")
-                            .strong()
-                            .size(11.0)
-                            .color(theme.accent_c32()),
-                    )
-                    .min_size(Vec2::new(75.0, 22.0))
-                    .fill(theme.c32_alpha(theme.accent_color, 0.15))
-                    .stroke(Stroke::new(1.0_f32, theme.accent_c32()))
-                    .rounding(Rounding::same(3.0));
-
-                    if ui
-                        .add(autopitch_btn)
-                        .on_hover_text(lang.tr(
-                            "Pre-tunning: Gerar curvas de afinação orgânicas, overshoots e vibrato natural",
-                            "Pre-tunning: Generate organic pitch curves, overshoots and natural vibrato",
-                        ))
-                        .clicked()
-                    {
-                        on_open_autopitch();
-                    }
                 });
 
-                let export_btn = egui::Button::new(
-                    RichText::new(lang.tr("Exportar Áudio", "Export Audio"))
-                        .size(11.0)
-                        .color(theme.text_primary_c32()),
-                )
-                .min_size(Vec2::new(0.0, 22.0))
-                .fill(theme.bg_header_c32())
-                .stroke(Stroke::new(1.0_f32, theme.grid_line_bar_c32()))
-                .rounding(Rounding::same(4.0));
-
-                if ui
-                    .add(export_btn)
-                    .on_hover_text(lang.tr(
-                        "Exportar áudio do projeto (WAV, FLAC, RAW PCM)",
-                        "Export project audio (WAV, FLAC, RAW PCM)",
-                    ))
-                    .clicked()
-                {
-                    on_export_wav();
-                }
-
-                let log_bg = if *log_open {
-                    theme.c32_alpha(theme.accent_color, 0.25)
-                } else {
-                    theme.bg_header_c32()
-                };
-                let log_stroke = if *log_open {
-                    Stroke::new(1.2_f32, theme.accent_c32())
-                } else {
-                    Stroke::new(1.0_f32, theme.grid_line_sub_c32())
-                };
-                let log_text_color = if *log_open {
-                    theme.accent_c32()
-                } else {
-                    theme.text_muted_c32()
-                };
-
-                let log_btn = egui::Button::new(
-                    RichText::new(if *log_open { "Console ●" } else { "Console" })
-                        .size(11.0)
-                        .color(log_text_color),
-                )
-                .min_size(Vec2::new(0.0, 22.0))
-                .fill(log_bg)
-                .stroke(log_stroke)
-                .rounding(Rounding::same(4.0));
-
-                if ui
-                    .add(log_btn)
-                    .on_hover_text(lang.tr(
-                        "Abrir/Fechar terminal e console de renderização",
-                        "Open/Close terminal and render console",
-                    ))
-                    .clicked()
-                {
-                    *log_open = !*log_open;
-                }
-
-                ui.add_space(4.0);
-                ui.separator();
-                ui.add_space(4.0);
-
-                // Cartão de Alternância de Visualização e Painéis
-                toolbar_card(ui, theme, |ui| {
-                    ui.spacing_mut().item_spacing = Vec2::new(3.0, 0.0);
-
-                    // 1. Faixas (Arrangement)
-                    let arr_bg = if *show_arrangement {
-                        theme.c32_alpha(theme.accent_color, 0.25)
-                    } else {
-                        theme.bg_header_c32()
-                    };
-                    let arr_stroke = if *show_arrangement {
-                        Stroke::new(1.2_f32, theme.accent_c32())
-                    } else {
-                        Stroke::new(1.0_f32, theme.grid_line_sub_c32())
-                    };
-                    let arr_color = if *show_arrangement {
-                        theme.accent_c32()
-                    } else {
-                        theme.text_muted_c32()
-                    };
-                    let arr_btn = egui::Button::new(RichText::new(lang.tr("Faixas", "Tracks")).size(10.5).color(arr_color))
-                        .min_size(Vec2::new(0.0, 22.0))
-                        .fill(arr_bg)
-                        .stroke(arr_stroke)
-                        .rounding(Rounding::same(3.0));
-                    if ui.add(arr_btn).on_hover_text(lang.tr("Exibir/Ocultar painel de multifaixas / arrangement (A)", "Show/Hide multitrack arrangement panel (A)")).clicked() {
-                        *show_arrangement = !*show_arrangement;
-                    }
-
-                    // 2. Parâmetros / Expressões (Drawer)
-                    let draw_bg = if *show_drawer {
-                        theme.c32_alpha(theme.note_fill, 0.25)
-                    } else {
-                        theme.bg_header_c32()
-                    };
-                    let draw_stroke = if *show_drawer {
-                        Stroke::new(1.2_f32, theme.note_stroke_c32())
-                    } else {
-                        Stroke::new(1.0_f32, theme.grid_line_sub_c32())
-                    };
-                    let draw_color = if *show_drawer {
-                        theme.note_fill_c32()
-                    } else {
-                        theme.text_muted_c32()
-                    };
-                    let draw_btn = egui::Button::new(RichText::new(lang.tr("Expressões", "Expressions")).size(10.5).color(draw_color))
-                        .min_size(Vec2::new(0.0, 22.0))
-                        .fill(draw_bg)
-                        .stroke(draw_stroke)
-                        .rounding(Rounding::same(3.0));
-                    if ui.add(draw_btn).on_hover_text(lang.tr("Exibir/Ocultar gaveta de parâmetros e curvas de dinâmica/pitch (Tab)", "Show/Hide parameter curves drawer (Tab)")).clicked() {
-                        *show_drawer = !*show_drawer;
-                    }
-
-                    // 3. Fonemas / OTO Ruler
-                    let ph_bg = if *show_phonemes {
-                        theme.c32_alpha(theme.accent_color, 0.25)
-                    } else {
-                        theme.bg_header_c32()
-                    };
-                    let ph_stroke = if *show_phonemes {
-                        Stroke::new(1.2_f32, theme.accent_c32())
-                    } else {
-                        Stroke::new(1.0_f32, theme.grid_line_sub_c32())
-                    };
-                    let ph_color = if *show_phonemes {
-                        theme.accent_c32()
-                    } else {
-                        theme.text_muted_c32()
-                    };
-                    let ph_btn = egui::Button::new(RichText::new(lang.tr("Fonemas", "Phonemes")).size(10.5).color(ph_color))
-                        .min_size(Vec2::new(0.0, 22.0))
-                        .fill(ph_bg)
-                        .stroke(ph_stroke)
-                        .rounding(Rounding::same(3.0));
-                    if ui.add(ph_btn).on_hover_text(lang.tr("Exibir/Ocultar régua de fonemas e envelopes OTO (Alt+O)", "Show/Hide phoneme envelope ruler (Alt+O)")).clicked() {
-                        *show_phonemes = !*show_phonemes;
-                    }
-
-                    // 4. Inspetor / Sidebar
-                    let side_bg = if *show_inspector {
-                        theme.c32_alpha(theme.note_fill, 0.25)
-                    } else {
-                        theme.bg_header_c32()
-                    };
-                    let side_stroke = if *show_inspector {
-                        Stroke::new(1.2_f32, theme.note_stroke_c32())
-                    } else {
-                        Stroke::new(1.0_f32, theme.grid_line_sub_c32())
-                    };
-                    let side_color = if *show_inspector {
-                        theme.note_fill_c32()
-                    } else {
-                        theme.text_muted_c32()
-                    };
-                    let side_btn = egui::Button::new(RichText::new(lang.tr("Inspetor", "Inspector")).size(10.5).color(side_color))
-                        .min_size(Vec2::new(0.0, 22.0))
-                        .fill(side_bg)
-                        .stroke(side_stroke)
-                        .rounding(Rounding::same(3.0));
-                    if ui.add(side_btn).on_hover_text(lang.tr("Exibir/Ocultar painel lateral direito / Inspetor (Cmd+B / Ctrl+B)", "Show/Hide right sidebar inspector (Cmd+B / Ctrl+B)")).clicked() {
-                        *show_inspector = !*show_inspector;
-                    }
-
-                    // 5. Maximizar
-                    let max_bg = if *is_maximized {
-                        theme.c32_alpha(theme.accent_color, 0.35)
-                    } else {
-                        theme.bg_header_c32()
-                    };
-                    let max_stroke = if *is_maximized {
-                        Stroke::new(1.2_f32, theme.accent_c32())
-                    } else {
-                        Stroke::new(1.0_f32, theme.grid_line_sub_c32())
-                    };
-                    let max_color = if *is_maximized {
-                        theme.accent_c32()
-                    } else {
-                        theme.text_muted_c32()
-                    };
-                    let max_btn = egui::Button::new(RichText::new(if *is_maximized { "⛶ Max" } else { "⛶" }).size(10.5).color(max_color))
-                        .min_size(Vec2::new(22.0, 22.0))
-                        .fill(max_bg)
-                        .stroke(max_stroke)
-                        .rounding(Rounding::same(3.0));
-                    if ui.add(max_btn).on_hover_text(lang.tr("Maximizar Piano Roll / Ocultar todas as barras secundárias (F11 / Shift+F)", "Maximize Piano Roll / Hide surrounding panels (F11 / Shift+F)")).clicked() {
-                        *is_maximized = !*is_maximized;
-                    }
-                });
-            });
-        });
-
-    // ==========================================
-    // LINHA 2: BPM, Snap, Metrônomo, Loop, Rolagem, Guia de Escalas, Master
-    // ==========================================
-    egui::ScrollArea::horizontal()
-        .id_salt("toolbar_row2_scroll")
-        .auto_shrink([false, true])
-        .show(ui, |ui| {
-            ui.horizontal(|ui| {
-                ui.add_space(2.0);
-
-                // Cartão 1: BPM, Snap, Alinhar, Sobreposição
+                // ── Card 3: BPM + Grid Snap ──
                 toolbar_card(ui, theme, |ui| {
                     ui.spacing_mut().item_spacing = Vec2::new(3.0, 0.0);
 
@@ -624,8 +398,6 @@ pub fn draw_unified_toolbar(
                     .on_hover_text(
                         lang.tr("Andamento (Batidas por Minuto)", "Tempo (Beats Per Minute)"),
                     );
-
-                    ui.separator();
 
                     let snap_options = [
                         (
@@ -649,209 +421,480 @@ pub fn draw_unified_toolbar(
                     ];
 
                     egui::ComboBox::from_id_salt("grid_snap_combo_unified")
-                        .selected_text(format!(
-                            "{}: {}",
-                            lang.tr("Grade", "Grid"),
+                        .selected_text(
                             state
                                 .grid_snap
-                                .resolved_label_for(state.bpm, *px_per_ms, lang)
-                        ))
+                                .resolved_label_for(state.bpm, *px_per_ms, lang),
+                        )
+                        .width(60.0)
                         .show_ui(ui, |ui| {
                             for (opt, label) in snap_options {
                                 ui.selectable_value(&mut state.grid_snap, opt, label);
                             }
                         });
+                });
 
-                    let quant_btn = egui::Button::new(
-                        RichText::new("Snap").size(10.5).color(theme.accent_c32()),
+                // ── Card 4: Pre-tunning + Export ──
+                toolbar_card(ui, theme, |ui| {
+                    ui.spacing_mut().item_spacing = Vec2::new(3.0, 0.0);
+
+                    let autopitch_btn = egui::Button::new(
+                        RichText::new("Pre-tunning")
+                            .strong()
+                            .size(10.0)
+                            .color(theme.accent_c32()),
                     )
-                    .min_size(Vec2::new(20.0, 19.0))
+                    .min_size(Vec2::new(65.0, 20.0))
                     .fill(theme.c32_alpha(theme.accent_color, 0.15))
                     .stroke(Stroke::new(1.0_f32, theme.accent_c32()))
                     .rounding(Rounding::same(3.0));
 
                     if ui
-                        .add(quant_btn)
+                        .add(autopitch_btn)
                         .on_hover_text(lang.tr(
-                            "Alinhar e quantizar notas para a grade selecionada",
-                            "Align and quantize notes to selected grid",
+                            "Pre-tunning: Gerar curvas de afinação orgânicas",
+                            "Pre-tunning: Generate organic pitch curves",
                         ))
                         .clicked()
                     {
-                        on_quantize_snap();
+                        on_open_autopitch();
                     }
 
-                    let overlap_btn = egui::Button::new(
-                        RichText::new(lang.tr("Sobreposição", "Overlap"))
-                            .size(10.5)
-                            .color(theme.note_fill_c32()),
+                    let export_btn = egui::Button::new(
+                        RichText::new(lang.tr("Exportar", "Export"))
+                            .size(10.0)
+                            .color(theme.text_primary_c32()),
                     )
-                    .min_size(Vec2::new(20.0, 19.0))
-                    .fill(theme.c32_alpha(theme.note_fill, 0.15))
-                    .stroke(Stroke::new(1.0_f32, theme.note_stroke_c32()))
+                    .min_size(Vec2::new(50.0, 20.0))
+                    .fill(theme.bg_header_c32())
+                    .stroke(Stroke::new(1.0_f32, theme.grid_line_bar_c32()))
                     .rounding(Rounding::same(3.0));
 
                     if ui
-                        .add(overlap_btn)
+                        .add(export_btn)
                         .on_hover_text(lang.tr(
-                            "Corrigir e cortar notas sobrepostas",
-                            "Fix and trim overlapping notes",
+                            "Exportar áudio (WAV, FLAC, RAW PCM)",
+                            "Export audio (WAV, FLAC, RAW PCM)",
                         ))
                         .clicked()
                     {
-                        on_fix_overlaps();
+                        on_export_wav();
                     }
                 });
 
-                // Cartão 2: Metrônomo
+                // ── Card 5: Panel Toggles ──
                 toolbar_card(ui, theme, |ui| {
-                    ui.spacing_mut().item_spacing = Vec2::new(3.0, 0.0);
-                    ui.toggle_value(
-                        &mut state.metronome_enabled,
-                        lang.tr("Metrônomo", "Metronome"),
-                    )
-                    .on_hover_text(lang.tr(
-                        "Ativar metrônomo durante a reprodução",
-                        "Enable metronome during playback",
-                    ));
+                    ui.spacing_mut().item_spacing = Vec2::new(2.0, 0.0);
 
-                    ui.label(
-                        RichText::new(lang.tr("Contagem:", "Count-in:"))
-                            .size(10.0)
-                            .color(theme.text_muted_c32()),
-                    );
-                    ui.add_sized(
-                        [38.0, 18.0],
-                        egui::DragValue::new(&mut state.count_in_bars)
-                            .range(0..=4)
-                            .suffix(" c."),
-                    )
-                    .on_hover_text(lang.tr("Compassos de contagem prévia", "Count-in bars"));
-                });
+                    let toggles: [(&mut bool, &str, &str, &str); 4] = [
+                        (
+                            show_arrangement,
+                            lang.tr("Fxs", "Trk"),
+                            lang.tr("Faixas / Arrangement (A)", "Tracks / Arrangement (A)"),
+                            "panel_btn_arrangement",
+                        ),
+                        (
+                            show_drawer,
+                            lang.tr("Exp", "Exp"),
+                            lang.tr(
+                                "Expressões / Parâmetros (Tab)",
+                                "Expressions / Parameters (Tab)",
+                            ),
+                            "panel_btn_drawer",
+                        ),
+                        (
+                            show_phonemes,
+                            lang.tr("Fon", "Pho"),
+                            lang.tr("Fonemas / OTO (Alt+O)", "Phonemes / OTO (Alt+O)"),
+                            "panel_btn_phonemes",
+                        ),
+                        (
+                            show_inspector,
+                            lang.tr("Ins", "Ins"),
+                            lang.tr("Inspetor (Cmd+B / Ctrl+B)", "Inspector (Cmd+B / Ctrl+B)"),
+                            "panel_btn_inspector",
+                        ),
+                    ];
 
-                // Cartão 3: Loop A / B
-                toolbar_card(ui, theme, |ui| {
-                    ui.spacing_mut().item_spacing = Vec2::new(3.0, 0.0);
+                    for (flag, label, tooltip, id_str) in toggles {
+                        let active = *flag;
+                        let (bg, stroke, color) = if active {
+                            (
+                                theme.c32_alpha(theme.accent_color, 0.25),
+                                Stroke::new(1.2_f32, theme.accent_c32()),
+                                theme.accent_c32(),
+                            )
+                        } else {
+                            (
+                                theme.bg_header_c32(),
+                                Stroke::new(1.0_f32, theme.grid_line_sub_c32()),
+                                theme.text_muted_c32(),
+                            )
+                        };
 
-                    ui.label(
-                        RichText::new("Loop A:")
-                            .size(10.0)
-                            .color(theme.text_muted_c32()),
-                    );
-                    ui.add_sized(
-                        [52.0, 18.0],
-                        egui::DragValue::new(&mut state.loop_start_ms)
-                            .range(0.0..=3_600_000.0)
-                            .speed(10.0)
-                            .suffix("ms"),
-                    )
-                    .on_hover_text(lang.tr(
-                        "Início do Loop (milissegundos)",
-                        "Loop Start (milliseconds)",
-                    ));
+                        let btn = egui::Button::new(RichText::new(label).size(9.5).color(color))
+                            .min_size(Vec2::new(24.0, 20.0))
+                            .fill(bg)
+                            .stroke(stroke)
+                            .rounding(Rounding::same(3.0));
 
-                    ui.label(RichText::new("B:").size(10.0).color(theme.text_muted_c32()));
-                    ui.add_sized(
-                        [52.0, 18.0],
-                        egui::DragValue::new(&mut state.loop_end_ms)
-                            .range(1.0..=3_600_000.0)
-                            .speed(10.0)
-                            .suffix("ms"),
-                    )
-                    .on_hover_text(
-                        lang.tr("Fim do Loop (milissegundos)", "Loop End (milliseconds)"),
-                    );
+                        let resp = ui.add(btn).on_hover_text(tooltip);
+                        ui.ctx()
+                            .data_mut(|d| d.insert_temp(egui::Id::new(id_str), resp.rect));
 
-                    if state.loop_end_ms <= state.loop_start_ms {
-                        state.loop_end_ms = state.loop_start_ms + 1.0;
+                        if resp.clicked() {
+                            *flag = !*flag;
+                        }
                     }
-                });
 
-                // Cartão 4: Rolagem da Tela
-                toolbar_card(ui, theme, |ui| {
-                    ui.spacing_mut().item_spacing = Vec2::new(3.0, 0.0);
-
-                    egui::ComboBox::from_id_salt("autoscroll_combo_unified")
-                        .selected_text(match auto_scroll_mode {
-                            AutoScrollMode::Off => lang.tr("Rolagem: Off", "Scroll: Off"),
-                            AutoScrollMode::StationaryCursor => {
-                                lang.tr("Rolagem: Cursor", "Scroll: Cursor")
-                            }
-                            AutoScrollMode::PageScroll => {
-                                lang.tr("Rolagem: Página", "Scroll: Page")
-                            }
-                        })
-                        .show_ui(ui, |ui| {
-                            ui.selectable_value(
-                                auto_scroll_mode,
-                                AutoScrollMode::Off,
-                                lang.tr("Desligada", "Off"),
-                            );
-                            ui.selectable_value(
-                                auto_scroll_mode,
-                                AutoScrollMode::StationaryCursor,
-                                lang.tr("Cursor estacionário", "Stationary cursor"),
-                            );
-                            ui.selectable_value(
-                                auto_scroll_mode,
-                                AutoScrollMode::PageScroll,
-                                lang.tr("Por página", "Page scroll"),
-                            );
-                        });
-                });
-
-                // Cartão 5: Guia de Escalas Musicais (sempre acessível e visível)
-                toolbar_card(ui, theme, |ui| {
-                    ui.spacing_mut().item_spacing = Vec2::new(3.0, 0.0);
-                    ui.label(
-                        RichText::new(lang.tr("Guia:", "Guide:"))
-                            .size(10.5)
-                            .strong()
-                            .color(theme.accent_c32()),
-                    );
-
-                    egui::ComboBox::from_id_salt("toolbar_scale_root_combo")
-                        .selected_text(
-                            ROOT_NOTE_NAMES
-                                .get(*scale_root_key as usize)
-                                .copied()
-                                .unwrap_or("C"),
+                    // Maximize
+                    let max_active = *is_maximized;
+                    let (max_bg, max_stroke, max_color) = if max_active {
+                        (
+                            theme.c32_alpha(theme.accent_color, 0.35),
+                            Stroke::new(1.2_f32, theme.accent_c32()),
+                            theme.accent_c32(),
                         )
-                        .width(36.0)
-                        .show_ui(ui, |ui| {
-                            for (k_idx, k_name) in ROOT_NOTE_NAMES.iter().enumerate() {
-                                ui.selectable_value(scale_root_key, k_idx as u8, *k_name);
-                            }
-                        });
+                    } else {
+                        (
+                            theme.bg_header_c32(),
+                            Stroke::new(1.0_f32, theme.grid_line_sub_c32()),
+                            theme.text_muted_c32(),
+                        )
+                    };
+                    let max_btn = egui::Button::new(RichText::new("⛶").size(10.0).color(max_color))
+                        .min_size(Vec2::new(20.0, 20.0))
+                        .fill(max_bg)
+                        .stroke(max_stroke)
+                        .rounding(Rounding::same(3.0));
 
-                    egui::ComboBox::from_id_salt("toolbar_scale_type_combo")
-                        .selected_text(active_scale.display_name())
-                        .width(120.0)
-                        .show_ui(ui, |ui| {
-                            for scale in MusicalScale::ALL {
-                                ui.selectable_value(active_scale, scale, scale.display_name());
-                            }
-                        });
+                    if ui
+                        .add(max_btn)
+                        .on_hover_text(lang.tr(
+                            "Maximizar Piano Roll (F11 / Shift+F)",
+                            "Maximize Piano Roll (F11 / Shift+F)",
+                        ))
+                        .clicked()
+                    {
+                        *is_maximized = !*is_maximized;
+                    }
                 });
 
-                // Cartão 6: Master Volume & VU Meter
+                // ── Card 6: ⋯ More (Popover) ──
+                let more_btn = egui::Button::new(
+                    RichText::new("⋯")
+                        .size(12.0)
+                        .strong()
+                        .color(theme.text_muted_c32()),
+                )
+                .min_size(Vec2::new(24.0, 20.0))
+                .fill(theme.bg_header_c32())
+                .stroke(Stroke::new(1.0_f32, theme.grid_line_sub_c32()))
+                .rounding(Rounding::same(3.0));
+
+                let more_response = ui.add(more_btn).on_hover_text(lang.tr(
+                    "Mais: Loop, Metrônomo, Escalas, Rolagem…",
+                    "More: Loop, Metronome, Scales, Scroll…",
+                ));
+
+                let popup_id = ui.make_persistent_id("toolbar_more_popup");
+                if more_response.clicked() {
+                    ui.memory_mut(|mem| mem.toggle_popup(popup_id));
+                }
+
+                egui::popup::popup_below_widget(
+                    ui,
+                    popup_id,
+                    &more_response,
+                    egui::PopupCloseBehavior::CloseOnClickOutside,
+                    |ui| {
+                        ui.set_min_width(280.0);
+                        ui.spacing_mut().item_spacing = Vec2::new(4.0, 4.0);
+
+                        // --- Loop ---
+                        ui.horizontal(|ui| {
+                            let (loop_bg, loop_color, loop_stroke) = if state.loop_enabled {
+                                (
+                                    theme.c32_alpha(theme.accent_color, 0.25),
+                                    theme.accent_c32(),
+                                    Stroke::new(1.2_f32, theme.accent_c32()),
+                                )
+                            } else {
+                                (
+                                    theme.bg_header_c32(),
+                                    theme.text_muted_c32(),
+                                    Stroke::new(1.0_f32, theme.grid_line_sub_c32()),
+                                )
+                            };
+                            let loop_btn = egui::Button::new(
+                                RichText::new("Loop").size(10.5).color(loop_color),
+                            )
+                            .min_size(Vec2::new(34.0, 20.0))
+                            .fill(loop_bg)
+                            .stroke(loop_stroke)
+                            .rounding(Rounding::same(3.0));
+                            if ui.add(loop_btn).clicked() {
+                                state.loop_enabled = !state.loop_enabled;
+                            }
+
+                            let (sel_bg, sel_color, sel_stroke) = if state.preview_selection_only {
+                                (
+                                    theme.c32_alpha(theme.note_fill, 0.25),
+                                    theme.note_fill_c32(),
+                                    Stroke::new(1.2_f32, theme.note_stroke_c32()),
+                                )
+                            } else {
+                                (
+                                    theme.bg_header_c32(),
+                                    theme.text_muted_c32(),
+                                    Stroke::new(1.0_f32, theme.grid_line_sub_c32()),
+                                )
+                            };
+                            let sel_btn =
+                                egui::Button::new(RichText::new("Sel").size(10.5).color(sel_color))
+                                    .min_size(Vec2::new(28.0, 20.0))
+                                    .fill(sel_bg)
+                                    .stroke(sel_stroke)
+                                    .rounding(Rounding::same(3.0));
+                            if ui
+                                .add(sel_btn)
+                                .on_hover_text(
+                                    lang.tr("Tocar Apenas Seleção", "Play Selection Only"),
+                                )
+                                .clicked()
+                            {
+                                state.preview_selection_only = !state.preview_selection_only;
+                            }
+                        });
+
+                        // --- Loop A / B ---
+                        ui.horizontal(|ui| {
+                            ui.label(
+                                RichText::new("Loop A:")
+                                    .size(10.0)
+                                    .color(theme.text_muted_c32()),
+                            );
+                            ui.add_sized(
+                                [52.0, 18.0],
+                                egui::DragValue::new(&mut state.loop_start_ms)
+                                    .range(0.0..=3_600_000.0)
+                                    .speed(10.0)
+                                    .suffix("ms"),
+                            );
+                            ui.label(RichText::new("B:").size(10.0).color(theme.text_muted_c32()));
+                            ui.add_sized(
+                                [52.0, 18.0],
+                                egui::DragValue::new(&mut state.loop_end_ms)
+                                    .range(1.0..=3_600_000.0)
+                                    .speed(10.0)
+                                    .suffix("ms"),
+                            );
+                            if state.loop_end_ms <= state.loop_start_ms {
+                                state.loop_end_ms = state.loop_start_ms + 1.0;
+                            }
+                        });
+
+                        ui.separator();
+
+                        // --- Metronome ---
+                        ui.horizontal(|ui| {
+                            ui.toggle_value(
+                                &mut state.metronome_enabled,
+                                lang.tr("Metrônomo", "Metronome"),
+                            );
+                            ui.label(
+                                RichText::new(lang.tr("Contagem:", "Count-in:"))
+                                    .size(10.0)
+                                    .color(theme.text_muted_c32()),
+                            );
+                            ui.add_sized(
+                                [38.0, 18.0],
+                                egui::DragValue::new(&mut state.count_in_bars)
+                                    .range(0..=4)
+                                    .suffix(" c."),
+                            );
+                        });
+
+                        ui.separator();
+
+                        // --- Quantize & Fix Overlaps ---
+                        ui.horizontal(|ui| {
+                            let quant_btn = egui::Button::new(
+                                RichText::new("Snap").size(10.5).color(theme.accent_c32()),
+                            )
+                            .min_size(Vec2::new(40.0, 19.0))
+                            .fill(theme.c32_alpha(theme.accent_color, 0.15))
+                            .stroke(Stroke::new(1.0_f32, theme.accent_c32()))
+                            .rounding(Rounding::same(3.0));
+
+                            if ui
+                                .add(quant_btn)
+                                .on_hover_text(
+                                    lang.tr("Alinhar notas para a grade", "Align notes to grid"),
+                                )
+                                .clicked()
+                            {
+                                on_quantize_snap();
+                            }
+
+                            let overlap_btn = egui::Button::new(
+                                RichText::new(lang.tr("Sobreposição", "Overlap"))
+                                    .size(10.5)
+                                    .color(theme.note_fill_c32()),
+                            )
+                            .min_size(Vec2::new(40.0, 19.0))
+                            .fill(theme.c32_alpha(theme.note_fill, 0.15))
+                            .stroke(Stroke::new(1.0_f32, theme.note_stroke_c32()))
+                            .rounding(Rounding::same(3.0));
+
+                            if ui
+                                .add(overlap_btn)
+                                .on_hover_text(
+                                    lang.tr("Corrigir notas sobrepostas", "Fix overlapping notes"),
+                                )
+                                .clicked()
+                            {
+                                on_fix_overlaps();
+                            }
+                        });
+
+                        ui.separator();
+
+                        // --- Auto Scroll ---
+                        ui.horizontal(|ui| {
+                            egui::ComboBox::from_id_salt("autoscroll_combo_popup")
+                                .selected_text(match auto_scroll_mode {
+                                    AutoScrollMode::Off => lang.tr("Rolagem: Off", "Scroll: Off"),
+                                    AutoScrollMode::StationaryCursor => {
+                                        lang.tr("Rolagem: Cursor", "Scroll: Cursor")
+                                    }
+                                    AutoScrollMode::PageScroll => {
+                                        lang.tr("Rolagem: Página", "Scroll: Page")
+                                    }
+                                })
+                                .show_ui(ui, |ui| {
+                                    ui.selectable_value(
+                                        auto_scroll_mode,
+                                        AutoScrollMode::Off,
+                                        lang.tr("Desligada", "Off"),
+                                    );
+                                    ui.selectable_value(
+                                        auto_scroll_mode,
+                                        AutoScrollMode::StationaryCursor,
+                                        lang.tr("Cursor estacionário", "Stationary cursor"),
+                                    );
+                                    ui.selectable_value(
+                                        auto_scroll_mode,
+                                        AutoScrollMode::PageScroll,
+                                        lang.tr("Por página", "Page scroll"),
+                                    );
+                                });
+                        });
+
+                        // --- Scale Guide ---
+                        ui.horizontal(|ui| {
+                            ui.label(
+                                RichText::new(lang.tr("Guia:", "Guide:"))
+                                    .size(10.5)
+                                    .strong()
+                                    .color(theme.accent_c32()),
+                            );
+
+                            egui::ComboBox::from_id_salt("toolbar_scale_root_popup")
+                                .selected_text(
+                                    ROOT_NOTE_NAMES
+                                        .get(*scale_root_key as usize)
+                                        .copied()
+                                        .unwrap_or("C"),
+                                )
+                                .width(36.0)
+                                .show_ui(ui, |ui| {
+                                    for (k_idx, k_name) in ROOT_NOTE_NAMES.iter().enumerate() {
+                                        ui.selectable_value(scale_root_key, k_idx as u8, *k_name);
+                                    }
+                                });
+
+                            egui::ComboBox::from_id_salt("toolbar_scale_type_popup")
+                                .selected_text(active_scale.display_name())
+                                .width(120.0)
+                                .show_ui(ui, |ui| {
+                                    for scale in MusicalScale::ALL {
+                                        ui.selectable_value(
+                                            active_scale,
+                                            scale,
+                                            scale.display_name(),
+                                        );
+                                    }
+                                });
+                        });
+
+                        ui.separator();
+
+                        // --- Console ---
+                        ui.horizontal(|ui| {
+                            let log_bg = if *log_open {
+                                theme.c32_alpha(theme.accent_color, 0.25)
+                            } else {
+                                theme.bg_header_c32()
+                            };
+                            let log_text_color = if *log_open {
+                                theme.accent_c32()
+                            } else {
+                                theme.text_muted_c32()
+                            };
+
+                            let log_btn = egui::Button::new(
+                                RichText::new(if *log_open { "Console ●" } else { "Console" })
+                                    .size(10.5)
+                                    .color(log_text_color),
+                            )
+                            .min_size(Vec2::new(60.0, 20.0))
+                            .fill(log_bg)
+                            .rounding(Rounding::same(3.0));
+
+                            if ui
+                                .add(log_btn)
+                                .on_hover_text(lang.tr(
+                                    "Abrir/Fechar console de renderização",
+                                    "Open/Close render console",
+                                ))
+                                .clicked()
+                            {
+                                *log_open = !*log_open;
+                            }
+                        });
+                    },
+                );
+
+                // ── Card 7: Master Volume + VU ──
                 toolbar_card(ui, theme, |ui| {
-                    ui.spacing_mut().item_spacing = Vec2::new(4.0, 0.0);
+                    ui.spacing_mut().item_spacing = Vec2::new(3.0, 0.0);
                     draw_vu_meter(ui, theme, state, is_playing);
                     ui.separator();
                     ui.label(
-                        RichText::new("Master:")
-                            .size(10.0)
+                        RichText::new("Vol:")
+                            .size(9.0)
                             .color(theme.text_muted_c32()),
                     );
                     ui.add_sized(
-                        [56.0, 18.0],
+                        [48.0, 16.0],
                         egui::Slider::new(&mut state.master_volume, 0.0..=2.0)
                             .show_value(true)
                             .suffix("×"),
                     )
                     .on_hover_text(lang.tr("Volume Geral de Saída", "Master Output Volume"));
                 });
+
+                // ── Inline status (replaces marquee) ──
+                if !state.voicebank_name.is_empty() {
+                    ui.add_space(4.0);
+                    ui.label(
+                        RichText::new(format!("🎤 {}", &state.voicebank_name))
+                            .size(9.5)
+                            .color(theme.text_muted_c32()),
+                    )
+                    .on_hover_text(lang.tr("Voicebank carregado", "Loaded voicebank"));
+                }
             });
         });
 }

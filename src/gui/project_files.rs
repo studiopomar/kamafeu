@@ -238,10 +238,8 @@ impl KamafeuStudioApp {
             "aps" => ApsFormat::load_file(path)
                 .or_else(|_| UstxFormat::load_file(path))
                 .or_else(|_| UfdataFormat::load_file(path)),
-            "mid" | "midi" => MidiFormat::load_file(path)
-                .or_else(|_| VsqxFormat::load_file(path)),
-            "ust" => UstFormat::load_file(path)
-                .or_else(|_| UstxFormat::load_file(path)),
+            "mid" | "midi" => MidiFormat::load_file(path).or_else(|_| VsqxFormat::load_file(path)),
+            "ust" => UstFormat::load_file(path).or_else(|_| UstxFormat::load_file(path)),
             "ustx" => UstxFormat::load_file(path)
                 .or_else(|_| ApsFormat::load_file(path))
                 .or_else(|_| UstFormat::load_file(path)),

@@ -19,7 +19,7 @@ impl KamafeuStudioApp {
     pub(crate) fn render_menu_bar(&mut self, ctx: &egui::Context) {
         TopBottomPanel::top("top_menu_bar")
             .exact_height(26.0)
-            .frame(Frame::none().fill(MelodyneTheme::BG_PANEL))
+            .frame(Frame::none().fill(self.config.theme.bg_panel_c32()))
             .show(ctx, |ui| {
                 egui::menu::bar(ui, |ui| {
                     // ==========================================
@@ -65,7 +65,14 @@ impl KamafeuStudioApp {
                     self.menu_language(ui);
 
                     // ==========================================
-                    // 10. AJUDA
+                    // 10. PACOTES
+                    // ==========================================
+                    if ui.button(self.config.language.tr("Pacotes", "Packages")).clicked() {
+                        self.packages_window_open = true;
+                    }
+
+                    // ==========================================
+                    // 11. AJUDA
                     // ==========================================
                     self.menu_help(ui);
 
@@ -93,28 +100,55 @@ impl KamafeuStudioApp {
                         project_display_name.clone()
                     };
 
+                    let is_light = self.config.theme.is_light();
                     let (badge_bg, badge_border, badge_fg, badge_icon, badge_tooltip) = if self.is_dirty {
-                        (
-                            egui::Color32::from_rgb(58, 30, 16),
-                            egui::Stroke::new(1.0_f32, egui::Color32::from_rgb(255, 170, 50)),
-                            egui::Color32::from_rgb(255, 200, 100),
-                            "●",
-                            lang.tr(
-                                "Projeto modificado (não salvo). Clique aqui ou use Ctrl+S / Cmd+S para salvar agora.",
-                                "Project modified (unsaved). Click here or press Ctrl+S / Cmd+S to save now.",
-                            ),
-                        )
+                        if is_light {
+                            (
+                                egui::Color32::from_rgb(255, 235, 220),
+                                egui::Stroke::new(1.0_f32, egui::Color32::from_rgb(230, 120, 20)),
+                                egui::Color32::from_rgb(180, 70, 0),
+                                "●",
+                                lang.tr(
+                                    "Projeto modificado (não salvo). Clique aqui ou use Ctrl+S / Cmd+S para salvar agora.",
+                                    "Project modified (unsaved). Click here or press Ctrl+S / Cmd+S to save now.",
+                                ),
+                            )
+                        } else {
+                            (
+                                egui::Color32::from_rgb(58, 30, 16),
+                                egui::Stroke::new(1.0_f32, egui::Color32::from_rgb(255, 170, 50)),
+                                egui::Color32::from_rgb(255, 200, 100),
+                                "●",
+                                lang.tr(
+                                    "Projeto modificado (não salvo). Clique aqui ou use Ctrl+S / Cmd+S para salvar agora.",
+                                    "Project modified (unsaved). Click here or press Ctrl+S / Cmd+S to save now.",
+                                ),
+                            )
+                        }
                     } else {
-                        (
-                            egui::Color32::from_rgb(18, 32, 28),
-                            egui::Stroke::new(1.0_f32, egui::Color32::from_rgb(45, 180, 120)),
-                            egui::Color32::from_rgb(130, 240, 190),
-                            "•",
-                            lang.tr(
-                                "Projeto salvo no disco. Clique para salvar novamente ou salvar cópia.",
-                                "Project saved to disk. Click to save again or save copy.",
-                            ),
-                        )
+                        if is_light {
+                            (
+                                egui::Color32::from_rgb(230, 248, 238),
+                                egui::Stroke::new(1.0_f32, egui::Color32::from_rgb(40, 170, 100)),
+                                egui::Color32::from_rgb(20, 120, 60),
+                                "•",
+                                lang.tr(
+                                    "Projeto salvo no disco. Clique para salvar novamente ou salvar cópia.",
+                                    "Project saved to disk. Click to save again or save copy.",
+                                ),
+                            )
+                        } else {
+                            (
+                                egui::Color32::from_rgb(18, 32, 28),
+                                egui::Stroke::new(1.0_f32, egui::Color32::from_rgb(45, 180, 120)),
+                                egui::Color32::from_rgb(130, 240, 190),
+                                "•",
+                                lang.tr(
+                                    "Projeto salvo no disco. Clique para salvar novamente ou salvar cópia.",
+                                    "Project saved to disk. Click to save again or save copy.",
+                                ),
+                            )
+                        }
                     };
 
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -135,14 +169,27 @@ impl KamafeuStudioApp {
                         }
 
                         ui.add_space(4.0);
+                        let (v_bg, v_stroke, v_fg) = if is_light {
+                            (
+                                egui::Color32::from_rgb(255, 245, 220),
+                                egui::Stroke::new(1.0_f32, egui::Color32::from_rgb(220, 160, 40)),
+                                egui::Color32::from_rgb(160, 95, 0),
+                            )
+                        } else {
+                            (
+                                egui::Color32::from_rgb(38, 28, 14),
+                                egui::Stroke::new(1.0_f32, egui::Color32::from_rgb(200, 140, 40)),
+                                egui::Color32::from_rgb(255, 205, 100),
+                            )
+                        };
                         let version_badge = egui::Button::new(
                             egui::RichText::new("v1.0.0-A")
                                 .size(10.0)
                                 .strong()
-                                .color(egui::Color32::from_rgb(255, 205, 100)),
+                                .color(v_fg),
                         )
-                        .fill(egui::Color32::from_rgb(38, 28, 14))
-                        .stroke(egui::Stroke::new(1.0_f32, egui::Color32::from_rgb(200, 140, 40)))
+                        .fill(v_bg)
+                        .stroke(v_stroke)
                         .rounding(egui::Rounding::same(4.0));
 
                         let version_resp = ui.add(version_badge).on_hover_text(lang.tr(

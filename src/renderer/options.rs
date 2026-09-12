@@ -9,6 +9,9 @@ pub struct RenderOptions {
     pub gender: f64,
     pub tone_shift: f64,
     pub crossfade_ms: f64,
+    /// Number of resampler jobs that may synthesize at the same time.
+    /// `0` is treated as one safe instance.
+    pub resampler_instances: u32,
     pub phonemizer_mode: PhonemizerMode,
 }
 
@@ -23,6 +26,7 @@ impl Default for RenderOptions {
             gender: 0.0,
             tone_shift: 0.0,
             crossfade_ms: 0.0,
+            resampler_instances: 2,
             phonemizer_mode: PhonemizerMode::None,
         }
     }
@@ -35,5 +39,10 @@ mod tests {
     #[test]
     fn default_breathiness_preserves_the_resampler_native_balance() {
         assert_eq!(RenderOptions::default().breathiness, 0.0);
+    }
+
+    #[test]
+    fn default_uses_two_resampler_instances() {
+        assert_eq!(RenderOptions::default().resampler_instances, 2);
     }
 }

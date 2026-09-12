@@ -37,7 +37,7 @@ impl KamafeuStudioApp {
             let mut do_save = false;
             let mut do_save_as = false;
             let mut do_export = false;
-            let mut transpose_semitones: i32 = 0;
+            let transpose_semitones: i32 = 0;
             let mut nudge_ms: f64 = 0.0;
             let mut duration_nudge_ms: f64 = 0.0;
 
@@ -72,14 +72,33 @@ impl KamafeuStudioApp {
                 if has_cmd_or_ctrl && i.key_pressed(Key::N) {
                     do_new = true;
                 } else if i.key_pressed(Key::N) || i.key_pressed(Key::Num2) {
-                    self.piano_roll_state.active_tool = EditTool::Pencil;
+                    if self.piano_roll_state.active_tool == EditTool::Pencil {
+                        self.piano_roll_state.active_tool = EditTool::Pointer;
+                    } else {
+                        self.piano_roll_state.active_tool = EditTool::Pencil;
+                    }
                 }
                 if i.key_pressed(Key::V) || i.key_pressed(Key::Num1) {
-                    self.piano_roll_state.active_tool = EditTool::Pointer;
+                    if self.piano_roll_state.active_tool != EditTool::Pointer {
+                        self.piano_roll_state.active_tool = EditTool::Pointer;
+                    } else {
+                        // Multi-press on 1 / V cycles playback/selection modes: Loop -> Sel -> Normal
+                        if !self.transport_state.loop_enabled
+                            && !self.transport_state.preview_selection_only
+                        {
+                            self.transport_state.loop_enabled = true;
+                            self.transport_state.preview_selection_only = false;
+                        } else if self.transport_state.loop_enabled {
+                            self.transport_state.loop_enabled = false;
+                            self.transport_state.preview_selection_only = true;
+                        } else {
+                            self.transport_state.loop_enabled = false;
+                            self.transport_state.preview_selection_only = false;
+                        }
+                    }
                 }
                 if i.key_pressed(Key::P) || i.key_pressed(Key::Num3) {
-                    if i.modifiers.shift && self.piano_roll_state.active_tool == EditTool::PitchDraw
-                    {
+                    if self.piano_roll_state.active_tool == EditTool::PitchDraw {
                         self.piano_roll_state.pitch_sub_tool =
                             match self.piano_roll_state.pitch_sub_tool {
                                 crate::gui::types::PitchSubTool::Freehand => {
@@ -104,6 +123,21 @@ impl KamafeuStudioApp {
                 }
                 if i.key_pressed(Key::E) && !has_cmd_or_ctrl || i.key_pressed(Key::Num5) {
                     self.piano_roll_state.active_tool = EditTool::Eraser;
+                }
+                if i.key_pressed(Key::L)
+                    && !has_cmd_or_ctrl
+                    && !i.modifiers.alt
+                    && !i.modifiers.shift
+                {
+                    self.transport_state.loop_enabled = !self.transport_state.loop_enabled;
+                }
+                if i.key_pressed(Key::S)
+                    && !has_cmd_or_ctrl
+                    && !i.modifiers.alt
+                    && !i.modifiers.shift
+                {
+                    self.transport_state.preview_selection_only =
+                        !self.transport_state.preview_selection_only;
                 }
                 if has_cmd_or_ctrl && i.modifiers.shift && i.key_pressed(Key::L) {
                     self.lyrics_dialog_state.is_open = true;
@@ -194,14 +228,6 @@ impl KamafeuStudioApp {
                 }
                 if i.key_pressed(Key::Delete) || i.key_pressed(Key::Backspace) {
                     do_delete = true;
-                }
-
-                let step = if i.modifiers.shift { 12 } else { 1 };
-                if i.key_pressed(Key::ArrowUp) {
-                    transpose_semitones += step;
-                }
-                if i.key_pressed(Key::ArrowDown) {
-                    transpose_semitones -= step;
                 }
 
                 if i.modifiers.shift {

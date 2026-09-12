@@ -1,10 +1,50 @@
 use serde::{Deserialize, Serialize};
+use std::collections::HashMap;
 use std::fs;
 use std::io::Write;
 use std::path::PathBuf;
 
 fn default_true() -> bool {
     true
+}
+
+fn default_editor_zoom() -> f32 {
+    0.25
+}
+fn default_row_height() -> f32 {
+    22.0
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EditorLayoutConfig {
+    #[serde(default)]
+    pub show_arrangement_view: bool,
+    #[serde(default)]
+    pub show_parameters_drawer: bool,
+    #[serde(default)]
+    pub show_phoneme_ruler: bool,
+    #[serde(default)]
+    pub show_inspector: bool,
+    #[serde(default)]
+    pub is_maximized: bool,
+    #[serde(default = "default_editor_zoom")]
+    pub px_per_ms: f32,
+    #[serde(default = "default_row_height")]
+    pub row_height: f32,
+}
+
+impl Default for EditorLayoutConfig {
+    fn default() -> Self {
+        Self {
+            show_arrangement_view: false,
+            show_parameters_drawer: false,
+            show_phoneme_ruler: false,
+            show_inspector: false,
+            is_maximized: false,
+            px_per_ms: default_editor_zoom(),
+            row_height: default_row_height(),
+        }
+    }
 }
 
 fn default_scale() -> f32 {
@@ -118,6 +158,10 @@ fn default_render_chunk_bars() -> u32 {
     4
 }
 
+fn default_resampler_instances() -> u32 {
+    2
+}
+
 fn default_f0_method() -> String {
     "YIN (Pitch Fundamental Adaptativo)".to_string()
 }
@@ -142,6 +186,11 @@ fn default_formant_mode() -> String {
 pub struct DspEngineConfig {
     #[serde(default)]
     pub render_threads: u32,
+    /// Maximum concurrent resampler jobs. This is deliberately separate from
+    /// DSP threads: external UTAU engines are processes with their own memory
+    /// and cache behaviour.
+    #[serde(default = "default_resampler_instances")]
+    pub resampler_instances: u32,
     #[serde(default = "default_thread_priority")]
     pub thread_priority: String,
     #[serde(default = "default_resampler_str")]
@@ -188,6 +237,7 @@ impl Default for DspEngineConfig {
     fn default() -> Self {
         Self {
             render_threads: 0,
+            resampler_instances: default_resampler_instances(),
             thread_priority: default_thread_priority(),
             default_resampler: default_resampler_str(),
             default_wavtool: default_wavtool_str(),
@@ -391,6 +441,8 @@ pub struct EditorWorkflowConfig {
     pub default_auto_scroll: String,
     #[serde(default = "default_true")]
     pub confirm_on_exit_dirty: bool,
+    #[serde(default)]
+    pub allow_overlapping_notes: bool,
 }
 
 impl Default for EditorWorkflowConfig {
@@ -406,6 +458,7 @@ impl Default for EditorWorkflowConfig {
             default_grid_snap: default_grid_snap_str(),
             default_auto_scroll: default_autoscroll_str(),
             confirm_on_exit_dirty: true,
+            allow_overlapping_notes: false,
         }
     }
 }
@@ -552,6 +605,7 @@ impl AppLanguage {
 pub struct KamafeuConfig {
     #[serde(default)]
     pub language: AppLanguage,
+    #[serde(default)]
     pub last_voicebank: Option<PathBuf>,
     #[serde(default)]
     pub recent_voicebanks: Vec<PathBuf>,
@@ -576,9 +630,14 @@ pub struct KamafeuConfig {
     #[serde(default)]
     pub workflow: EditorWorkflowConfig,
     #[serde(default)]
+    pub layout: EditorLayoutConfig,
+    #[serde(default)]
     pub voicebank_tuning: VoicebankTuningConfig,
     #[serde(default)]
     pub experimental: ExperimentalConfig,
+    /// User-editable phonemizer rules, keyed by the phonemizer mode name.
+    #[serde(default)]
+    pub phonemizer_rules: HashMap<String, String>,
 }
 
 impl Default for KamafeuConfig {
@@ -599,8 +658,10 @@ impl Default for KamafeuConfig {
             memory: MemoryCacheConfig::default(),
             export: ExportDefaultsConfig::default(),
             workflow: EditorWorkflowConfig::default(),
+            layout: EditorLayoutConfig::default(),
             voicebank_tuning: VoicebankTuningConfig::default(),
             experimental: ExperimentalConfig::default(),
+            phonemizer_rules: HashMap::new(),
         }
     }
 }

@@ -313,7 +313,11 @@ impl Voicebank {
                                         let full_wav = rel_sub_dir.join(&entry.wav_filename);
                                         entry.wav_filename = full_wav.to_string_lossy().to_string();
                                     }
-                                    entries.insert(alias, entry);
+                                    // When a bank contains Voice Colors/subdirectories, the
+                                    // root `oto.ini` is the principal voice.  Keep the first
+                                    // definition for duplicate aliases instead of letting a
+                                    // colour directory selected by filesystem order replace it.
+                                    entries.entry(alias).or_insert(entry);
                                 }
                             }
                         }

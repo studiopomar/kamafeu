@@ -264,7 +264,6 @@ impl KamafeuStudioApp {
         let wave = crate::project::model::UWavePart::new(file_name, file_path_str, new_idx);
         self.project.wave_parts.push(wave);
         self.active_track_index = new_idx;
-        self.transport_state.status_message =
-            "Faixa de áudio adicionada com sucesso!".to_string();
+        self.transport_state.status_message = "Faixa de áudio adicionada com sucesso!".to_string();
     }
 }

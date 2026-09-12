@@ -57,18 +57,21 @@ impl KamafeuStudioApp {
                                         ui.end_row();
                                         ui.label("V / 1");
                                         ui.label(lang.tr(
-                                            "Ferramenta Ponteiro (Seleção / Mover / Redimensionar)",
-                                            "Pointer Tool (Select / Move / Resize)",
+                                            "Ponteiro / Seleção (1 novamente: alterna Loop e Tocar Seleção)",
+                                            "Pointer / Select (press 1 again: cycle Loop and Selection playback)",
                                         ));
                                         ui.end_row();
                                         ui.label("N / 2");
-                                        ui.label(lang.tr("Ferramenta Lápis (Desenhar Notas)", "Pencil Tool (Draw Notes)"));
+                                        ui.label(lang.tr("Lápis (2 novamente: volta para Ponteiro)", "Pencil (press 2 again: toggle back to Pointer)"));
                                         ui.end_row();
                                         ui.label("P / 3");
-                                        ui.label(lang.tr("Ferramenta Pitch (Livre / Reta / Vibrato / Suave)", "Pitch Tool (Free / Line / Vibrato / Smooth)"));
+                                        ui.label(lang.tr("Pitch (3 novamente: cicla Livre / Reta / Vibrato / Suave)", "Pitch Tool (press 3 again: cycle Free / Line / Vibrato / Smooth)"));
                                         ui.end_row();
-                                        ui.label("Shift + P");
-                                        ui.label(lang.tr("Alternar Submodo de Pitch (Livre / Reta / Vibrato / Suave)", "Toggle Pitch Submode (Free / Line / Vibrato / Smooth)"));
+                                        ui.label("L");
+                                        ui.label(lang.tr("Alternar Reprodução em Loop (ON/OFF)", "Toggle Loop Playback (ON/OFF)"));
+                                        ui.end_row();
+                                        ui.label("S");
+                                        ui.label(lang.tr("Alternar Tocar Apenas Seleção (ON/OFF)", "Toggle Play Selection Only (ON/OFF)"));
                                         ui.end_row();
                                         ui.label("Ctrl+Alt+P / Cmd+Alt+P");
                                         ui.label(lang.tr("Abrir Pre-tunning (Afinador Orgânico)", "Open Pre-tunning (Organic Tuner)"));
@@ -156,6 +159,9 @@ impl KamafeuStudioApp {
                                         ui.end_row();
                                         ui.label("Ctrl+- / Cmd+-");
                                         ui.label(lang.tr("Diminuir Zoom Horizontal", "Zoom Out Horizontal"));
+                                        ui.end_row();
+                                        ui.label(lang.tr("Botão do Meio (Arrastar)", "Middle Mouse (Drag)"));
+                                        ui.label(lang.tr("Navegar / Pan pelo Piano Roll (Horizontal e Vertical)", "Pan / Scroll Piano Roll (Horizontal & Vertical)"));
                                         ui.end_row();
                                         ui.label("Ctrl+0 / Cmd+0");
                                         ui.label(lang.tr("Redefinir Zoom Padrão", "Reset Default Zoom"));

@@ -13,7 +13,11 @@ impl KamafeuStudioApp {
                     .with_min_inner_size([700.0, 450.0]),
                 |ctx, _class| {
                     egui::CentralPanel::default().show(ctx, |ui| {
-                        crate::copaiba::gui::draw_copaiba_toolkit_ui(&mut self.copaiba_app, ui);
+                        crate::copaiba::gui::draw_copaiba_toolkit_ui(
+                            &mut self.copaiba_app,
+                            &mut self.audio_player,
+                            ui,
+                        );
                     });
                     if ctx.input(|i| i.viewport().close_requested()) {
                         is_open = false;

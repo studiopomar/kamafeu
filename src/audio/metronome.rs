@@ -1,5 +1,18 @@
 use std::f32::consts::PI;
 
+fn soft_limit(sample: f32) -> f32 {
+    let threshold = 0.82;
+    let ceiling = 0.96;
+    let magnitude = sample.abs();
+    if magnitude <= threshold {
+        sample
+    } else {
+        sample.signum()
+            * (threshold
+                + (ceiling - threshold) * ((magnitude - threshold) / (ceiling - threshold)).tanh())
+    }
+}
+
 /// Synthesizes and overlays tempo-accurate metronome clicks directly onto an audio buffer.
 /// - Downbeat (Beat 1 of measure in 4/4): High pitch (1600 Hz), accented volume.
 /// - Secondary beats (Beats 2, 3, 4): Standard pitch (1000 Hz), medium volume.
@@ -42,7 +55,10 @@ pub fn apply_metronome_clicks(
             for c in 0..ch {
                 let sample_idx = frame_idx * ch + c;
                 if sample_idx < samples.len() {
-                    samples[sample_idx] = (samples[sample_idx] + click).clamp(-1.0, 1.0);
+                    // A hard clamp turns a metronome hit over vocal audio
+                    // into a digital click. Keep the beat audible while
+                    // applying a continuous output ceiling.
+                    samples[sample_idx] = soft_limit(samples[sample_idx] + click);
                 }
             }
         }
@@ -77,5 +93,13 @@ mod tests {
             has_click_at_beat2,
             "Beat 2 click should be present at 500ms"
         );
+    }
+
+    #[test]
+    fn metronome_never_hard_clips_an_already_hot_preview() {
+        let mut samples = vec![0.95f32; 44_100 * 2 / 10];
+        apply_metronome_clicks(&mut samples, 44_100, 2, 0.0, 120.0);
+        assert!(samples.iter().all(|sample| sample.abs() < 0.96));
+        assert!(samples.iter().any(|sample| sample.abs() > 0.95));
     }
 }

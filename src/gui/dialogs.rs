@@ -31,6 +31,7 @@ impl KamafeuStudioApp {
         self.show_lyrics_dialog(ctx);
         self.show_humanize_dialog(ctx);
         self.show_copaiba(ctx);
+        self.show_packages_window(ctx);
         self.show_shortcuts_guide(ctx);
         self.show_batch_lyrics(ctx);
         self.show_singers_gallery(ctx);

@@ -41,7 +41,7 @@ impl KamafeuStudioApp {
                             lang.tr("Nenhum projeto recente", "No recent projects"),
                         )
                         .size(11.0)
-                        .color(MelodyneTheme::TEXT_MUTED),
+                        .color(self.config.theme.text_muted_c32()),
                     );
                 } else {
                     let mut to_open: Option<PathBuf> = None;

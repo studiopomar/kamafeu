@@ -268,7 +268,7 @@ fn classic_arguments(
             args.flags.clone().into()
         },
         format!("{:.1}", args.offset_ms).into(),
-        format!("{duration_ms:.1}").into(),
+        format!("{:.0}", duration_ms.round()).into(),
         format!("{:.1}", args.source_consonant_ms).into(),
         format!("{:.1}", args.cutoff_ms).into(),
         format!("{:.0}", args.volume).into(),
@@ -401,7 +401,10 @@ impl ResamplerDriver for NativeVenusResamplerDriver {
     }
 
     fn cache_identity(&self) -> String {
-        format!("{}:venus-v5", self.name())
+        // Venus v10 preserves the requested absolute F0 even for a short VC
+        // fragment that cannot yield a confident source-pitch estimate.
+        // Keep every earlier fragment out of the cache.
+        format!("{}:venus-v10-absolute-vc-pitch", self.name())
     }
 
     fn render_sample(
@@ -843,14 +846,32 @@ impl ResamplerDriver for ExternalResamplerDriver {
         ));
 
         let output =
-            crate::drivers::process::run_with_timeout(&mut cmd, Duration::from_secs(15), cancel)?;
+            crate::drivers::process::run_with_timeout(&mut cmd, Duration::from_secs(45), cancel)?;
 
         if !output.status.success() {
-            return Err(format!(
-                "Resampler {} falhou: {}",
-                self.name(),
-                String::from_utf8_lossy(&output.stderr).trim()
-            ));
+            let stderr_msg = String::from_utf8_lossy(&output.stderr).trim().to_string();
+            let stdout_msg = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            let detail = if !stderr_msg.is_empty() {
+                stderr_msg
+            } else if !stdout_msg.is_empty() {
+                stdout_msg
+            } else {
+                format!("código de saída {}", output.status)
+            };
+            return Err(format!("Resampler {} falhou: {}", self.name(), detail));
+        }
+
+        if !args.output_wav.is_file() {
+            let stdout_str = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            let stderr_str = String::from_utf8_lossy(&output.stderr).trim().to_string();
+            let msg = if !stderr_str.is_empty() {
+                format!("o resampler não criou o WAV de saída: {stderr_str}")
+            } else if !stdout_str.is_empty() {
+                format!("o resampler não criou o WAV de saída (stdout: {stdout_str})")
+            } else {
+                "o resampler não criou o WAV de saída".to_string()
+            };
+            return Err(msg);
         }
 
         load_resampler_output(args, sample_rate)
@@ -897,6 +918,7 @@ mod tests {
     fn classic_arguments_use_utau_tempo_and_pitch_defaults() {
         let args = classic_arguments(Path::new("source.wav"), &sample_args(), "-", 500.0, false);
         assert_eq!(args[4], OsString::from("-"));
+        assert_eq!(args[6], OsString::from("500"));
         assert_eq!(args[11], OsString::from("!135.0"));
         assert_eq!(args[12], OsString::from("AA"));
     }

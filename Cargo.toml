@@ -1,6 +1,6 @@
 [package]
 name = "kamafeu"
-version = "1.0.0-A"
+version = "1.0.1-A.DEV.RC"
 edition = "2021"
 rust-version = "1.82"
 description = "Kamafeu Studio - OpenUTAU-style voice synthesizer and DAW in Rust with UTAU voicebank support"

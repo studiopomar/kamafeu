@@ -12,6 +12,47 @@ pub use portuguese::PortuguesePhonemizer;
 
 use crate::oto::Voicebank;
 use crate::project::model::UNote;
+use std::collections::HashMap;
+use std::sync::{OnceLock, RwLock};
+
+static CUSTOM_RULES: OnceLock<RwLock<HashMap<String, String>>> = OnceLock::new();
+
+pub fn set_custom_rules(rules: HashMap<String, String>) {
+    let store = CUSTOM_RULES.get_or_init(|| RwLock::new(HashMap::new()));
+    if let Ok(mut current) = store.write() {
+        *current = rules;
+    }
+}
+
+fn apply_custom_rules(notes: &mut [UNote], mode: PhonemizerMode) {
+    let Some(store) = CUSTOM_RULES.get() else {
+        return;
+    };
+    let Ok(rules) = store.read() else { return };
+    let key = format!("{mode:?}");
+    let Some(script) = rules.get(&key) else {
+        return;
+    };
+    for line in script.lines() {
+        let line = line.trim();
+        if line.is_empty() || line.starts_with('#') {
+            continue;
+        }
+        let Some((from, to)) = line.split_once("=>") else {
+            continue;
+        };
+        let from = from.trim();
+        let to = to.trim();
+        if from.is_empty() {
+            continue;
+        }
+        for note in notes.iter_mut() {
+            if note.lyric.trim() == from {
+                note.lyric = to.to_string();
+            }
+        }
+    }
+}
 
 #[derive(
     Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize, Default,
@@ -32,13 +73,33 @@ pub enum PhonemizerMode {
     PortugueseG2P,       // PT: Português G2P (Palavras / Texto em Português -> Fonemas)
 }
 
+impl PhonemizerMode {
+    pub fn from_name(name: &str) -> Option<Self> {
+        Self::ALL
+            .iter()
+            .copied()
+            .find(|mode| format!("{mode:?}") == name)
+    }
+
+    pub const ALL: [Self; 7] = [
+        Self::BasicCV,
+        Self::VCV,
+        Self::CVVC,
+        Self::EnglishArpasing,
+        Self::EnglishVCCV,
+        Self::PortugueseBrapaVCCV,
+        Self::PortugueseBrapaCVC,
+    ];
+}
+
 pub fn consonant_velocity_time_scale(velocity: f64) -> f64 {
     let velocity = if velocity.is_finite() {
         velocity
     } else {
         100.0
     };
-    2.0f64.powf(1.0 - velocity.clamp(0.0, 200.0) / 100.0)
+    // Negative values are useful for deliberately lengthening consonants.
+    2.0f64.powf(1.0 - velocity.clamp(-100.0, 200.0) / 100.0)
 }
 
 pub struct RenderPhone {
@@ -97,6 +158,25 @@ impl JapanesePhonemizer {
         vb: &Voicebank,
         mode: PhonemizerMode,
     ) -> Vec<RenderPhone> {
+        if notes.iter().any(|note| note.phonemizer_override.is_some()) {
+            let mut mixed = Vec::new();
+            for (index, note) in notes.iter().enumerate() {
+                let note_mode = note
+                    .phonemizer_override
+                    .as_deref()
+                    .and_then(PhonemizerMode::from_name)
+                    .unwrap_or(mode);
+                let mut isolated = note.clone();
+                isolated.phonemizer_override = None;
+                for mut phone in Self::apply_phonemizer(&[isolated], vb, note_mode) {
+                    phone.note_index = index;
+                    mixed.push(phone);
+                }
+            }
+            if !mixed.is_empty() {
+                return mixed;
+            }
+        }
         let mut normalized_notes: Vec<(usize, UNote)> = Vec::new();
         for (orig_idx, note) in notes.iter().enumerate() {
             let lyric_trimmed = note.lyric.trim();
@@ -115,7 +195,8 @@ impl JapanesePhonemizer {
             normalized_notes.push((orig_idx, note.clone()));
         }
 
-        let temp_notes: Vec<UNote> = normalized_notes.iter().map(|(_, n)| n.clone()).collect();
+        let mut temp_notes: Vec<UNote> = normalized_notes.iter().map(|(_, n)| n.clone()).collect();
+        apply_custom_rules(&mut temp_notes, mode);
         let orig_indices: Vec<usize> = normalized_notes.iter().map(|(idx, _)| *idx).collect();
 
         let mut phones = match mode {

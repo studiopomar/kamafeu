@@ -113,6 +113,10 @@ impl KamafeuStudioApp {
                 }
 
                 if note_changed || self.piano_roll_state.continuous_edit_dirty {
+                    self.ensure_default_portamento();
+                    if !self.config.workflow.allow_overlapping_notes {
+                        self.resolve_note_overlaps();
+                    }
                     self.is_dirty = true;
                 }
 

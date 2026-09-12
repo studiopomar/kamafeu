@@ -13,10 +13,11 @@ impl KamafeuStudioApp {
                 egui::ViewportId::from_hash_of("export_options_native_viewport"),
                 egui::ViewportBuilder::default()
                     .with_title(lang.tr("Opções de Exportação WAV - Kamafeu Studio", "WAV Export Options - Kamafeu Studio"))
-                    .with_inner_size([500.0, 300.0])
-                    .with_min_inner_size([440.0, 240.0]),
+                    .with_inner_size([520.0, 460.0])
+                    .with_min_inner_size([460.0, 360.0]),
                 |ctx, _class| {
                     egui::CentralPanel::default().show(ctx, |ui| {
+                        egui::ScrollArea::vertical().show(ui, |ui| {
                         ui.add_space(4.0);
                         ui.heading(
                             egui::RichText::new(lang.tr("Opções e Configurações de Exportação", "Export Options & Settings"))
@@ -169,6 +170,7 @@ impl KamafeuStudioApp {
                                     trigger_close = true;
                                 }
                             });
+                        });
                         });
                     });
                     if ctx.input(|i| i.viewport().close_requested()) {

@@ -52,11 +52,13 @@ pub fn draw_unified_panel(
             .stroke(theme.card_stroke())
             .inner_margin(egui::Margin::symmetric(3.0, 3.0))
             .show(ui, |ui| {
-                ui.columns(4, |cols| {
+                ui.columns(3, |cols| {
                     let tabs = [
                         (RightSidebarTab::SingerTrack, lang.tr("Cantor", "Singer")),
-                        (RightSidebarTab::Note, lang.tr("Nota", "Note")),
-                        (RightSidebarTab::Phonemes, lang.tr("Fonemas", "Phonemes")),
+                        (
+                            RightSidebarTab::Phonemes,
+                            lang.tr("Nota & Transição", "Note & Transition"),
+                        ),
                         (RightSidebarTab::Engine, lang.tr("Motor", "Engine")),
                     ];
 
@@ -112,9 +114,9 @@ pub fn draw_unified_panel(
             }
 
             // ==========================================
-            // ABA 2: INSPETOR DE NOTA / GRUPO DE NOTAS
+            // ABA 2: EDITOR DE NOTA, EXPRESSÃO E TRANSIÇÃO
             // ==========================================
-            RightSidebarTab::Note => {
+            RightSidebarTab::Note | RightSidebarTab::Phonemes => {
                 note::draw(
                     ui,
                     theme,
@@ -131,23 +133,7 @@ pub fn draw_unified_panel(
             }
 
             // ==========================================
-            // ABA 3: PALETA DE FONEMAS
-            // ==========================================
-            RightSidebarTab::Phonemes => {
-                phonemes::draw(
-                    ui,
-                    theme,
-                    lang,
-                    voicebank,
-                    phoneme_state,
-                    on_preview_phoneme,
-                    on_insert_phoneme,
-                    on_edit_phoneme,
-                );
-            }
-
-            // ==========================================
-            // ABA 4: CONFIGURAÇÕES DE MOTOR & ÁUDIO
+            // ABA 3: CONFIGURAÇÕES DE MOTOR & ÁUDIO
             // ==========================================
             RightSidebarTab::Engine => {
                 engine::draw(

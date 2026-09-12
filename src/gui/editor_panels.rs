@@ -15,7 +15,7 @@ impl KamafeuStudioApp {
         self.render_menu_bar(ctx);
 
         TopBottomPanel::top("top_unified_control_panel")
-            .exact_height(68.0)
+            .exact_height(36.0)
             .frame(Frame::none().fill(self.config.theme.bg_panel_c32()))
             .show(ctx, |ui| {
                 let transport_active = self.audio_player.is_playing() || self.render_rx.is_some();
@@ -114,15 +114,6 @@ impl KamafeuStudioApp {
                 }
             });
 
-        if !self.piano_roll_state.is_maximized {
-            TopBottomPanel::top("top_led_marquee_panel")
-                .exact_height(24.0)
-                .frame(Frame::none().fill(self.config.theme.bg_panel_c32()))
-                .show(ctx, |ui| {
-                    self.draw_led_marquee(ui);
-                });
-        }
-
         let vocal_mode_params_before = self.vocal_mode_params.clone();
         if self.piano_roll_state.show_inspector && !self.piano_roll_state.is_maximized {
             SidePanel::right("right_inspector_panel")
@@ -133,7 +124,17 @@ impl KamafeuStudioApp {
                 .frame(Frame::none().fill(self.config.theme.bg_panel_c32()))
                 .show(ctx, |ui| {
                     let selected_indices = self.piano_roll_state.selected_note_indices.clone();
-                    let selected_idx = self.piano_roll_state.selected_note_index;
+                    // Marquee/multi-selection may populate the set without
+                    // assigning a primary index. Use a stable selected note
+                    // as the inspector target so the panel never appears
+                    // empty while notes are visibly highlighted.
+                    let selected_idx = self.piano_roll_state.selected_note_index.or_else(|| {
+                        self.piano_roll_state
+                            .selected_note_indices
+                            .iter()
+                            .copied()
+                            .min()
+                    });
                     let active_track = self.active_track_index;
                     if self.project.parts.is_empty() {
                         self.project

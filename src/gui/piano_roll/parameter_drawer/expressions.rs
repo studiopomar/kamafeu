@@ -327,6 +327,21 @@ pub(super) fn draw(
                         };
                         let norm_clamped = norm.clamp(-1.0, 1.0);
 
+                        // DYN is a note-level continuous expression. Do not
+                        // split it into phoneme keyframes; that creates the
+                        // staircase shown by the old drawer implementation.
+                        if state.selected_parameter == ParameterTab::Dynamics {
+                            keyframes.push(PhonemeKeyframe {
+                                note_index,
+                                start_ms: note.position_ms,
+                                end_ms: note.position_ms + note.duration_ms,
+                                norm_val: norm_clamped,
+                                lyric: note.lyric.clone(),
+                                alias: note.lyric.clone(),
+                            });
+                            continue;
+                        }
+
                         if let Some(cached) = state.note_phonemes_cache.get(note_index) {
                             if !cached.is_empty() {
                                 let count = cached.len();
@@ -444,6 +459,7 @@ pub(super) fn draw(
                                         match state.selected_parameter {
                                             ParameterTab::Dynamics => {
                                                 note.expressions.dynamics = 0.0;
+                                                note.expressions.dynamics_curve.clear();
                                             }
                                             ParameterTab::PitchDelta => {
                                                 note.pitch_bend.points.clear();
@@ -514,6 +530,17 @@ pub(super) fn draw(
                                             ParameterTab::Dynamics => {
                                                 note.expressions.dynamics =
                                                     (norm * 120.0).clamp(-240.0, 120.0);
+                                                let value = note.expressions.dynamics;
+                                                note.expressions.dynamics_curve.retain(|point| {
+                                                    (point.time_offset_ms - (click_t - note.position_ms)).abs() >= 8.0
+                                                });
+                                                note.expressions.dynamics_curve.push(
+                                                    crate::project::model::UExpressionPoint {
+                                                        time_offset_ms: (click_t - note.position_ms).max(0.0),
+                                                        value,
+                                                    },
+                                                );
+                                                note.expressions.dynamics_curve.sort_by(|a, b| a.time_offset_ms.partial_cmp(&b.time_offset_ms).unwrap_or(std::cmp::Ordering::Equal));
                                             }
                                             ParameterTab::PitchDelta => {
                                                 let rel_t = click_t - note.position_ms;
@@ -539,8 +566,8 @@ pub(super) fn draw(
                                                     (norm * 100.0).clamp(-100.0, 100.0);
                                             }
                                             ParameterTab::Velocity => {
-                                                note.expressions.consonant_velocity =
-                                                    (100.0 + norm * 100.0).clamp(0.0, 200.0);
+                                                    note.expressions.consonant_velocity =
+                                                    (100.0 + norm * 100.0).clamp(-100.0, 200.0);
                                             }
                                             ParameterTab::Breathiness => {
                                                 note.expressions.breathiness =
@@ -605,6 +632,32 @@ pub(super) fn draw(
                                         .clamp(-1200.0, 1200.0);
                                     return total_cents / 1200.0;
                                 }
+                            }
+                            return 0.0;
+                        }
+
+                        if state.selected_parameter == ParameterTab::Dynamics {
+                            for note in notes.iter() {
+                                if t < note.position_ms || t > note.position_ms + note.duration_ms {
+                                    continue;
+                                }
+                                let rel_t = t - note.position_ms;
+                                let points = &note.expressions.dynamics_curve;
+                                if points.is_empty() {
+                                    return (note.expressions.dynamics / 120.0).clamp(-1.0, 1.0);
+                                }
+                                if let Some(first) = points.first() {
+                                    if rel_t <= first.time_offset_ms { return (first.value / 120.0).clamp(-1.0, 1.0); }
+                                }
+                                for pair in points.windows(2) {
+                                    if rel_t <= pair[1].time_offset_ms {
+                                        let span = (pair[1].time_offset_ms - pair[0].time_offset_ms).max(1e-6);
+                                        let u = ((rel_t - pair[0].time_offset_ms) / span).clamp(0.0, 1.0);
+                                        let value = pair[0].value + (pair[1].value - pair[0].value) * u;
+                                        return (value / 120.0).clamp(-1.0, 1.0);
+                                    }
+                                }
+                                return (points.last().map(|p| p.value).unwrap_or(note.expressions.dynamics) / 120.0).clamp(-1.0, 1.0);
                             }
                             return 0.0;
                         }

@@ -71,6 +71,7 @@ fn taller_drawer_reveals_more_tabs_and_keeps_graph_visible() {
         let ctx = egui::Context::default();
         let mut state = PianoRollState {
             drawer_height: height,
+            show_parameters_drawer: true,
             ..Default::default()
         };
         frame(&ctx, &mut state, vec![], 0.0);
@@ -92,6 +93,7 @@ fn dragging_resize_handle_expands_list_and_persists_height() {
     let ctx = egui::Context::default();
     let mut state = PianoRollState {
         drawer_height: 100.0,
+        show_parameters_drawer: true,
         ..Default::default()
     };
     frame(&ctx, &mut state, vec![], 0.0);
@@ -142,6 +144,7 @@ fn clicking_each_parameter_selects_it_without_hiding_graph() {
     let ctx = egui::Context::default();
     let mut state = PianoRollState {
         drawer_height: 400.0,
+        show_parameters_drawer: true,
         ..Default::default()
     };
     frame(&ctx, &mut state, vec![], 0.0);

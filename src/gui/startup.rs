@@ -23,12 +23,13 @@ impl KamafeuStudioApp {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
         setup_custom_fonts(&cc.egui_ctx);
 
-        let (mut config, config_error) = match KamafeuConfig::load() {
+        let (config, config_error) = match KamafeuConfig::load() {
             Ok(config) => (config, None),
             Err(error) => (KamafeuConfig::default(), Some(error)),
         };
 
         cc.egui_ctx.set_visuals(config.theme.create_egui_visuals());
+        crate::phonemizer::set_custom_rules(config.phonemizer_rules.clone());
 
         if let Some(ref wine_path) = config.dsp.custom_wine_path {
             crate::drivers::process::set_custom_wine_path(Some(wine_path.clone()));
@@ -49,10 +50,6 @@ impl KamafeuStudioApp {
             voicebank = Voicebank::new("demo_vb")
                 .or_else(|_| Voicebank::new("sample_vb"))
                 .ok();
-        }
-
-        if let Some(ref vb) = voicebank {
-            config.add_recent_voicebank(vb.root_path.clone());
         }
 
         let mut transport_state = TransportState {
@@ -76,7 +73,17 @@ impl KamafeuStudioApp {
             voicebank,
             voicebank_oto_signature,
             last_voicebank_oto_check: Instant::now(),
-            piano_roll_state: PianoRollState::default(),
+            piano_roll_state: {
+                let mut state = PianoRollState::default();
+                state.show_arrangement_view = config.layout.show_arrangement_view;
+                state.show_parameters_drawer = config.layout.show_parameters_drawer;
+                state.show_phoneme_ruler = config.layout.show_phoneme_ruler;
+                state.show_inspector = config.layout.show_inspector;
+                state.is_maximized = config.layout.is_maximized;
+                state.px_per_ms = config.layout.px_per_ms;
+                state.row_height = config.layout.row_height;
+                state
+            },
             transport_state,
             right_sidebar_tab: RightSidebarTab::default(),
             vocal_mode_params: VocalModeParams::default(),
@@ -86,9 +93,13 @@ impl KamafeuStudioApp {
             clipboard: Vec::new(),
             audio_player: AudioPlayer::new(),
             sample_rate: 44100,
-            render_threads: 4,
-            selected_resampler: "straycat-rs (UtaUtaUtau) [Padrão Recomendado]".to_string(),
-            selected_wavtool: "Andromeda (Nativo)".to_string(),
+            render_threads: if config.dsp.render_threads == 0 {
+                4
+            } else {
+                config.dsp.render_threads
+            },
+            selected_resampler: config.dsp.default_resampler.clone(),
+            selected_wavtool: config.dsp.default_wavtool.clone(),
             custom_resampler_path: None,
             custom_wavtool_path: None,
 
@@ -117,6 +128,9 @@ impl KamafeuStudioApp {
             discord_rpc: crate::discord_rpc::DiscordRpcManager::new(),
             copaiba_app: crate::copaiba::gui::CopaibaToolkitApp::default(),
             copaiba_window_open: false,
+            packages_window_open: false,
+            packages_target_os: 0,
+            packages_search: String::new(),
             preferences_window_open: false,
             preferences_tab: 7,
             preferences_state: crate::gui::preferences_dialog::PreferencesDialogState::default(),
@@ -167,6 +181,7 @@ impl KamafeuStudioApp {
             frame_time_ema_ms: 16.67,
             last_frame_instant: Instant::now(),
             is_dirty: false,
+            panel_tips_created_at: Some(Instant::now()),
             preview_waveform_cache_hash: 0,
             preview_waveform_rx: None,
             preview_waveform_cancel: None,

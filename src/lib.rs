@@ -52,7 +52,7 @@ fn android_main(app: AndroidApp) {
     }));
 
     if let Err(error) = eframe::run_native(
-        "Kamafeu Studio v1.0.0-A (Âmbar)",
+        "Kamafeu Studio v1.0.1-A_DEV_RC (Âmbar) — build de teste para testers, QA e Grupo Pomar",
         options,
         Box::new(|cc| Ok(Box::new(gui::KamafeuStudioApp::new(cc)))),
     ) {

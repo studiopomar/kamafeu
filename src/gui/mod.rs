@@ -122,6 +122,9 @@ pub struct KamafeuStudioApp {
     discord_rpc: crate::discord_rpc::DiscordRpcManager,
     copaiba_app: crate::copaiba::gui::CopaibaToolkitApp,
     copaiba_window_open: bool,
+    pub packages_window_open: bool,
+    pub packages_target_os: usize,
+    pub packages_search: String,
     pub preferences_window_open: bool,
     pub preferences_tab: usize,
     pub preferences_state: crate::gui::preferences_dialog::PreferencesDialogState,
@@ -160,6 +163,7 @@ pub struct KamafeuStudioApp {
     frame_time_ema_ms: f32,
     last_frame_instant: Instant,
     pub is_dirty: bool,
+    pub panel_tips_created_at: Option<Instant>,
     preview_waveform_cache_hash: u64,
     preview_waveform_rx: Option<std::sync::mpsc::Receiver<(u64, Vec<(f32, f32, f32)>)>>,
     preview_waveform_cancel: Option<Arc<AtomicBool>>,
@@ -167,6 +171,7 @@ pub struct KamafeuStudioApp {
 
 impl Drop for KamafeuStudioApp {
     fn drop(&mut self) {
+        self.persist_config();
         if self.config.memory.clear_cache_on_exit {
             let _ = crate::renderer::resampler_cache::clear_disk_cache();
         }

@@ -8,12 +8,6 @@ static PLAIN_VOWELS: &[&str] = &[
     "あ", "い", "う", "え", "お", "を", "ん", "ン", "a", "i", "u", "e", "o", "n", "N",
 ];
 
-static NON_VOWELS: &[&str] = &[
-    "息", "吸", "R", "-", "k", "ky", "g", "gy", "s", "sh", "z", "j", "t", "ch", "ty", "ts", "d",
-    "dy", "n", "ny", "h", "hy", "f", "b", "by", "p", "py", "m", "my", "y", "r", "4", "ry", "w",
-    "v", "ng", "l", "・", "B", "H",
-];
-
 static VOWEL_TABLE: &[(&str, &[&str])] = &[
     (
         "a",
@@ -586,8 +580,11 @@ impl JapanesePhonemizer {
                 }
 
                 PhonemizerMode::CVVC => {
-                    let is_plain_vowel =
-                        PLAIN_VOWELS.contains(&exp.lyric) || NON_VOWELS.contains(&exp.lyric);
+                    // CVVC distinguishes vowel nuclei from consonant onsets.
+                    // Treating every known consonant as a "plain vowel" made
+                    // the renderer search for V-V aliases (for example
+                    // `a k`) instead of the required CV alias (`ka`).
+                    let is_plain_vowel = PLAIN_VOWELS.contains(&exp.lyric);
                     let mut current_lyric = exp.lyric.to_string();
 
                     if is_phrase_start {

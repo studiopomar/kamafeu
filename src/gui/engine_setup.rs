@@ -13,6 +13,16 @@ use std::path::PathBuf;
 
 impl KamafeuStudioApp {
     pub(super) fn persist_config(&mut self) {
+        self.config.layout.show_arrangement_view = self.piano_roll_state.show_arrangement_view;
+        self.config.layout.show_parameters_drawer = self.piano_roll_state.show_parameters_drawer;
+        self.config.layout.show_phoneme_ruler = self.piano_roll_state.show_phoneme_ruler;
+        self.config.layout.show_inspector = self.piano_roll_state.show_inspector;
+        self.config.layout.is_maximized = self.piano_roll_state.is_maximized;
+        self.config.layout.px_per_ms = self.piano_roll_state.px_per_ms;
+        self.config.layout.row_height = self.piano_roll_state.row_height;
+        self.config.dsp.render_threads = self.render_threads;
+        self.config.dsp.default_resampler = self.selected_resampler.clone();
+        self.config.dsp.default_wavtool = self.selected_wavtool.clone();
         if let Err(error) = self.config.save() {
             self.transport_state.status_message = error;
         }

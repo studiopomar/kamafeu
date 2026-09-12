@@ -1,9 +1,36 @@
-use super::TrackRenderer;
+use super::{ResamplerSlots, TrackRenderer};
 use crate::drivers::{NativeResamplerDriver, NativeWavtoolDriver};
 use crate::oto::Voicebank;
 use crate::phonemizer::PhonemizerMode;
 use crate::project::model::UNote;
 use crate::renderer::RenderOptions;
+use std::sync::atomic::{AtomicUsize, Ordering};
+use std::sync::Arc;
+use std::time::Duration;
+
+#[test]
+fn resampler_instances_cap_concurrent_synthesis() {
+    let slots = Arc::new(ResamplerSlots::new(2));
+    let active = Arc::new(AtomicUsize::new(0));
+    let peak = Arc::new(AtomicUsize::new(0));
+
+    std::thread::scope(|scope| {
+        for _ in 0..8 {
+            let slots = Arc::clone(&slots);
+            let active = Arc::clone(&active);
+            let peak = Arc::clone(&peak);
+            scope.spawn(move || {
+                let _slot = slots.acquire(None).unwrap();
+                let now = active.fetch_add(1, Ordering::SeqCst) + 1;
+                peak.fetch_max(now, Ordering::SeqCst);
+                std::thread::sleep(Duration::from_millis(5));
+                active.fetch_sub(1, Ordering::SeqCst);
+            });
+        }
+    });
+
+    assert_eq!(peak.load(Ordering::SeqCst), 2);
+}
 
 #[test]
 fn unavailable_phonemes_are_silent_without_muting_valid_notes() {
@@ -116,7 +143,7 @@ fn mixer_adds_pre_enveloped_segments_without_a_second_fade() {
         *sample = index as f32 / 4.0;
     }
 
-    let end = TrackRenderer::mix_phase_aligned(&mut track, &next, 5, 10, 0, 261.63, 44_100, false);
+    let end = TrackRenderer::mix_phase_aligned(&mut track, &next, 5, 10, 0, 261.63, 44_100);
 
     assert_eq!(end, 15);
     assert!((track[5] - 1.0).abs() < 1e-6);
@@ -151,7 +178,7 @@ fn adjacent_notes_crossfade_smoothly_without_discontinuities() {
         note2[i] = carrier * gain;
     }
 
-    TrackRenderer::mix_phase_aligned(&mut track, &note2, 400, 600, 200, 220.0, sample_rate, false);
+    TrackRenderer::mix_phase_aligned(&mut track, &note2, 400, 600, 200, 220.0, sample_rate);
 
     // Verify that across the entire transition 400..600 there are no pops/spikes
     let max_jump = track[390..610]
@@ -162,6 +189,28 @@ fn adjacent_notes_crossfade_smoothly_without_discontinuities() {
         max_jump < 0.15,
         "Discontinuity / pop detected at transition: max jump was {max_jump}"
     );
+}
+
+#[test]
+fn oto_enveloped_vc_overlap_is_not_faded_twice() {
+    // The wavtool has already made these gains complementary. Reapplying an
+    // equal-power crossfade in the mixer made the middle of a VC transition
+    // dip to ~0.707, which is heard as a chopped consonant boundary.
+    let mut track = vec![0.0f32; 160];
+    let mut incoming = vec![0.0f32; 100];
+    for index in 0..100 {
+        track[30 + index] = 1.0 - index as f32 / 100.0;
+        incoming[index] = index as f32 / 100.0;
+    }
+
+    TrackRenderer::mix_phase_aligned(&mut track, &incoming, 30, 130, 100, 220.0, 44_100);
+
+    for (index, sample) in track[30..130].iter().enumerate() {
+        assert!(
+            (sample - 1.0).abs() < 1e-5,
+            "double fade caused a VC energy dip at sample {index}: {sample}"
+        );
+    }
 }
 
 #[test]

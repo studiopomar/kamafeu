@@ -58,21 +58,45 @@ pub fn draw_piano_roll(
     });
     let is_mod_zoom = ctrl_pressed || alt_pressed || cmd_pressed;
 
-    if is_mod_zoom {
+    let (is_middle_down, mouse_delta) = ui.input(|i| {
+        (
+            i.pointer.middle_down() || i.pointer.button_down(egui::PointerButton::Middle),
+            i.pointer.delta(),
+        )
+    });
+
+    let available_viewport = ui.available_rect_before_wrap();
+    let is_hovering_piano_roll = ui.input(|i| {
+        i.pointer
+            .hover_pos()
+            .or(i.pointer.latest_pos())
+            .map(|pos| available_viewport.contains(pos))
+            .unwrap_or(false)
+    });
+
+    let mut is_middle_panning = false;
+    if is_middle_down && (is_hovering_piano_roll || state.is_middle_panning) {
+        state.is_middle_panning = true;
+        is_middle_panning = true;
+        if mouse_delta.length_sq() > 0.0 {
+            state.horizontal_scroll_offset =
+                (state.horizontal_scroll_offset - mouse_delta.x).max(0.0);
+            state.vertical_scroll_offset = (state.vertical_scroll_offset - mouse_delta.y).max(0.0);
+        }
+        ui.output_mut(|o| o.cursor_icon = egui::CursorIcon::Grabbing);
+    } else {
+        state.is_middle_panning = false;
+    }
+
+    // Consume Ctrl/Alt zoom input only while the pointer is actually over the
+    // piano-roll viewport.  Reading and clearing global scroll deltas here
+    // otherwise steals wheel events from the inspector and other windows.
+    if is_mod_zoom && is_hovering_piano_roll {
         let wheel_delta = ui.input(|i| {
-            let mut dy = i.smooth_scroll_delta.y;
-            if dy.abs() < 1e-3 {
-                dy = i.raw_scroll_delta.y;
-            }
-            if dy.abs() < 1e-3 {
-                dy = i.smooth_scroll_delta.x;
-                if dy.abs() < 1e-3 {
-                    dy = i.raw_scroll_delta.x;
-                }
-            }
-            if dy.abs() < 1e-3 && (i.zoom_delta() - 1.0).abs() > 1e-3 {
-                dy = (i.zoom_delta() - 1.0) * 80.0;
-            }
+            // Only consume a scroll/zoom event that belongs to this frame.
+            // Reading the accumulated scroll delta while Ctrl is merely
+            // pressed makes playback jump to an apparently random position.
+            let mut dy: f32 = 0.0;
             for ev in &i.events {
                 if let egui::Event::MouseWheel { delta, .. } = ev {
                     if delta.y.abs() > dy.abs() {
@@ -84,6 +108,9 @@ pub fn draw_piano_roll(
                         dy = derived;
                     }
                 }
+            }
+            if dy.abs() < 1e-3 {
+                dy = (i.zoom_delta() - 1.0) * 80.0;
             }
             dy
         });
@@ -544,7 +571,7 @@ pub fn draw_piano_roll(
         scroll_area = scroll_area.horizontal_scroll_offset(state.horizontal_scroll_offset);
     }
 
-    if is_mod_zoom || state.is_scrubbing_ruler {
+    if is_mod_zoom || state.is_scrubbing_ruler || is_middle_panning {
         scroll_area = scroll_area
             .horizontal_scroll_offset(state.horizontal_scroll_offset)
             .vertical_scroll_offset(state.vertical_scroll_offset);
@@ -687,6 +714,7 @@ pub fn draw_piano_roll(
         let mut interacted_with_note_or_ui = vibrato_interaction;
         let mut pending_lyric_tags: Vec<(Rect, Color32, String, Color32)> = Vec::new();
         let mut pending_phoneme_badges: Vec<(Rect, String)> = Vec::new();
+        let mut pending_mode_badges: Vec<(Rect, String)> = Vec::new();
 
         for (idx, note) in notes.iter_mut().enumerate() {
             let note_midi = note.midi_key();
@@ -832,6 +860,13 @@ pub fn draw_piano_roll(
             }
 
             let lyric_trimmed = note.lyric.trim();
+            if let Some(mode) = note.phonemizer_override.as_deref() {
+                let badge_rect = Rect::from_min_size(
+                    Pos2::new(x_start + 4.0, y_top - 17.0),
+                    Vec2::new(18.0, 13.0),
+                );
+                pending_mode_badges.push((badge_rect, mode.to_string()));
+            }
             if lyric_trimmed != "+" && !lyric_trimmed.starts_with("+ ") {
                 if let Some(phoneme) = state.phoneme_cache.get(idx) {
                     if !phoneme.is_empty() && phoneme != lyric_trimmed {
@@ -1272,18 +1307,61 @@ pub fn draw_piano_roll(
                     ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
                 }
 
+                let min_pitch_t = pitch_curve
+                    .iter()
+                    .map(|p| p.time_offset_ms)
+                    .fold(0.0f64, f64::min);
+                let max_pitch_t = pitch_curve
+                    .iter()
+                    .map(|p| p.time_offset_ms)
+                    .fold(note.duration_ms, f64::max);
+                let min_pitch_c = pitch_curve
+                    .iter()
+                    .map(|p| p.pitch_offset_cents)
+                    .fold(0.0f64, f64::min);
+                let max_pitch_c = pitch_curve
+                    .iter()
+                    .map(|p| p.pitch_offset_cents)
+                    .fold(0.0f64, f64::max);
+
                 let pitch_draw_target_rect = Rect::from_min_max(
                     Pos2::new(
-                        x_start - (200.0 * state.px_per_ms as f64) as f32,
-                        y_top - state.row_height * 4.0,
+                        (x_start + (min_pitch_t * state.px_per_ms as f64) as f32 - 150.0)
+                            .min(x_start - 300.0),
+                        (y_center
+                            - (max_pitch_c / 100.0) as f32 * state.row_height
+                            - state.row_height * 4.0)
+                            .min(y_top - state.row_height * 6.0),
                     ),
                     Pos2::new(
-                        x_end + (200.0 * state.px_per_ms as f64) as f32,
-                        y_bottom + state.row_height * 4.0,
+                        (x_start + (max_pitch_t * state.px_per_ms as f64) as f32 + 150.0)
+                            .max(x_end + 300.0),
+                        (y_center - (min_pitch_c / 100.0) as f32 * state.row_height
+                            + state.row_height * 4.0)
+                            .max(y_bottom + state.row_height * 6.0),
                     ),
                 );
 
-                if note_rect.contains(mpos) && mpos.y > grid_start_y && mpos.y < grid_end_y {
+                // Pitch anchors have exclusive pointer ownership. Mark the
+                // canvas as consumed before note selection/marquee handling
+                // runs in this frame.
+                let pitch_anchor_hit = (state.active_tool == EditTool::PitchDraw
+                    || state.active_tool == EditTool::Pointer)
+                    && pitch_curve.iter().any(|pt| {
+                        let px_x = x_start + (pt.time_offset_ms * state.px_per_ms as f64) as f32;
+                        let px_y =
+                            y_center - (pt.pitch_offset_cents / 100.0) as f32 * state.row_height;
+                        mpos.distance(Pos2::new(px_x, px_y)) <= 16.0
+                    });
+                if pitch_anchor_hit {
+                    interacted_with_note_or_ui = true;
+                }
+
+                if note_rect.contains(mpos)
+                    && !pitch_anchor_hit
+                    && mpos.y > grid_start_y
+                    && mpos.y < grid_end_y
+                {
                     interacted_with_note_or_ui = true;
 
                     if state.active_tool == EditTool::Pointer
@@ -1319,14 +1397,15 @@ pub fn draw_piano_roll(
                         let is_over_envelope_handle = is_selected
                             && state.show_envelope_handles
                             && (state.dragging_envelope_pt.is_some() || hovered_env_pt.is_some());
-                        let is_over_pitch_anchor = state.active_tool == EditTool::PitchDraw
+                        let is_over_pitch_anchor = (state.active_tool == EditTool::PitchDraw
+                            || state.active_tool == EditTool::Pointer)
                             && (state.dragging_pitch_pt.is_some()
                                 || pitch_curve.iter().any(|pt| {
                                     let px_x = x_start
                                         + (pt.time_offset_ms * state.px_per_ms as f64) as f32;
                                     let px_y = y_center
                                         - (pt.pitch_offset_cents / 100.0) as f32 * state.row_height;
-                                    mpos.distance(Pos2::new(px_x, px_y)) <= 10.0
+                                    mpos.distance(Pos2::new(px_x, px_y)) <= 16.0
                                 }));
 
                         let just_pressed = ui.input(|i| i.pointer.primary_pressed());
@@ -1391,6 +1470,7 @@ pub fn draw_piano_roll(
                         if just_pressed
                             && !is_editing_lyric
                             && state.dragging_note_idx.is_none()
+                            && state.dragging_pitch_pt.is_none()
                             && !is_over_envelope_handle
                             && !is_over_pitch_anchor
                         {
@@ -1407,6 +1487,16 @@ pub fn draw_piano_roll(
                             state.note_original_midi = note_midi;
                             state.dragging_is_resize = resize_handle_right.contains(mpos);
                             state.dragging_is_left_resize = resize_handle_left.contains(mpos);
+
+                            state.note_original_states = state
+                                .selected_note_indices
+                                .iter()
+                                .filter_map(|&n_idx| {
+                                    note_info
+                                        .get(n_idx)
+                                        .map(|&(midi, pos, dur, _)| (n_idx, pos, dur, midi))
+                                })
+                                .collect();
                         }
 
                         if ui.input(|i| i.pointer.secondary_clicked()) {
@@ -1445,8 +1535,16 @@ pub fn draw_piano_roll(
                 let can_interact_pitch = state.active_tool == EditTool::PitchDraw
                     || state.active_tool == EditTool::Pointer;
 
+                let is_hovering_pitch_pt = pitch_curve.iter().any(|pt| {
+                    let px_x = x_start + (pt.time_offset_ms * state.px_per_ms as f64) as f32;
+                    let px_y = y_center - (pt.pitch_offset_cents / 100.0) as f32 * state.row_height;
+                    mpos.distance(Pos2::new(px_x, px_y)) <= 12.0
+                });
+
                 if can_interact_pitch
-                    && (state.dragging_pitch_pt.is_some() || pitch_draw_target_rect.contains(mpos))
+                    && (state.dragging_pitch_pt.is_some()
+                        || is_hovering_pitch_pt
+                        || pitch_draw_target_rect.contains(mpos))
                 {
                     let mut hovered_pitch_pt: Option<usize> = None;
                     for (pt_idx, pt) in pitch_curve.iter().enumerate() {
@@ -1454,7 +1552,7 @@ pub fn draw_piano_roll(
                         let px_y =
                             y_center - (pt.pitch_offset_cents / 100.0) as f32 * state.row_height;
                         let pt_pos = Pos2::new(px_x, px_y);
-                        if mpos.distance(pt_pos) <= 10.0 {
+                        if mpos.distance(pt_pos) <= 16.0 {
                             hovered_pitch_pt = Some(pt_idx);
                             ui.ctx().set_cursor_icon(egui::CursorIcon::Grab);
                             break;
@@ -1886,6 +1984,27 @@ pub fn draw_piano_roll(
             );
         }
 
+        for (badge_rect, mode) in pending_mode_badges {
+            painter.rect_filled(
+                badge_rect,
+                Rounding::same(6.0),
+                Color32::from_rgba_unmultiplied(80, 180, 220, 170),
+            );
+            painter.text(
+                badge_rect.center(),
+                egui::Align2::CENTER_CENTER,
+                "ƒ",
+                egui::FontId::proportional(10.0),
+                Color32::WHITE,
+            );
+            ui.interact(
+                badge_rect,
+                ui.make_persistent_id(("phonemizer_mode_badge", &mode)),
+                egui::Sense::hover(),
+            )
+            .on_hover_text(format!("Fonemizador: {mode}"));
+        }
+
         for (index, button_rect) in vibrato_buttons {
             if let Some(note) = notes.get_mut(index) {
                 vibrato_button::draw(
@@ -2131,6 +2250,9 @@ pub fn draw_piano_roll(
             if state.dragging_envelope_pt.is_some() {
                 state.dragging_envelope_pt = None;
             }
+            if state.dragging_pitch_pt.is_some() {
+                state.dragging_pitch_pt = None;
+            }
             if state.continuous_edit_dirty {
                 state.continuous_edit_dirty = false;
                 on_note_changed();
@@ -2246,17 +2368,32 @@ pub fn draw_piano_roll(
                         let delta_y = current_pos.y - start_pos.y;
                         let delta_ms = delta_x as f64 / state.px_per_ms as f64;
 
-                        if drag_idx < notes.len() {
+                        // A click selects a note; only an actual pointer movement
+                        // starts an edit.  This prevents selection from silently
+                        // quantizing the note onto the grid.
+                        if drag_idx < notes.len() && (delta_x.abs() > 2.0 || delta_y.abs() > 2.0) {
                             if state.dragging_is_resize {
                                 let raw_dur =
                                     (state.note_original_duration_ms + delta_ms).max(20.0);
-                                notes[drag_idx].duration_ms = apply_snap_with_zoom(
+                                let new_main_dur = apply_snap_with_zoom(
                                     raw_dur,
                                     snap_option,
                                     bpm,
                                     state.px_per_ms,
                                 )
                                 .max(20.0);
+                                let dur_diff = new_main_dur - state.note_original_duration_ms;
+
+                                if state.note_original_states.len() > 1 {
+                                    for &(n_idx, _, orig_dur, _) in &state.note_original_states {
+                                        if n_idx < notes.len() {
+                                            notes[n_idx].duration_ms =
+                                                (orig_dur + dur_diff).max(20.0);
+                                        }
+                                    }
+                                } else {
+                                    notes[drag_idx].duration_ms = new_main_dur;
+                                }
                             } else if state.dragging_is_left_resize {
                                 let original_end_ms =
                                     state.note_original_start_ms + state.note_original_duration_ms;
@@ -2270,8 +2407,24 @@ pub fn draw_piano_roll(
                                 )
                                 .max(0.0);
                                 let new_dur = (original_end_ms - new_start).max(20.0);
-                                notes[drag_idx].position_ms = new_start;
-                                notes[drag_idx].duration_ms = new_dur;
+                                let start_diff = new_start - state.note_original_start_ms;
+
+                                if state.note_original_states.len() > 1 {
+                                    for &(n_idx, orig_pos, orig_dur, _) in
+                                        &state.note_original_states
+                                    {
+                                        if n_idx < notes.len() {
+                                            let n_orig_end = orig_pos + orig_dur;
+                                            let n_new_start = (orig_pos + start_diff).max(0.0);
+                                            notes[n_idx].position_ms = n_new_start;
+                                            notes[n_idx].duration_ms =
+                                                (n_orig_end - n_new_start).max(20.0);
+                                        }
+                                    }
+                                } else {
+                                    notes[drag_idx].position_ms = new_start;
+                                    notes[drag_idx].duration_ms = new_dur;
+                                }
                             } else {
                                 // Full note move (position + pitch relative to original drag start snapshot)
                                 let delta_semitones = -(delta_y / state.row_height).round() as i32;
@@ -2283,26 +2436,65 @@ pub fn draw_piano_roll(
                                     state.px_per_ms,
                                 )
                                 .max(0.0);
-                                let new_m = (state.note_original_midi as i32 + delta_semitones)
-                                    .clamp(state.min_midi as i32, state.max_midi as i32)
-                                    as u8;
+                                let pos_diff = new_pos - state.note_original_start_ms;
 
-                                notes[drag_idx].position_ms = new_pos;
-                                notes[drag_idx].set_midi_key(new_m);
+                                if state.note_original_states.len() > 1 {
+                                    // Apply one shared, grid-snapped delta to the
+                                    // whole selection.  Clamp the delta once at
+                                    // the left edge so notes never lose their
+                                    // relative spacing when the group reaches 0.
+                                    let min_orig_pos = state
+                                        .note_original_states
+                                        .iter()
+                                        .map(|&(_, orig_pos, _, _)| orig_pos)
+                                        .fold(f64::INFINITY, f64::min);
+                                    let group_pos_diff = pos_diff.max(-min_orig_pos);
+                                    for &(n_idx, orig_pos, _, orig_midi) in
+                                        &state.note_original_states
+                                    {
+                                        if n_idx < notes.len() {
+                                            let n_new_pos = orig_pos + group_pos_diff;
+                                            let n_new_midi = (orig_midi as i32 + delta_semitones)
+                                                .clamp(state.min_midi as i32, state.max_midi as i32)
+                                                as u8;
+                                            notes[n_idx].position_ms = n_new_pos;
+                                            notes[n_idx].set_midi_key(n_new_midi);
+                                        }
+                                    }
+                                } else {
+                                    let new_m = (state.note_original_midi as i32 + delta_semitones)
+                                        .clamp(state.min_midi as i32, state.max_midi as i32)
+                                        as u8;
+                                    notes[drag_idx].position_ms = new_pos;
+                                    notes[drag_idx].set_midi_key(new_m);
+                                }
                             }
                         }
                     }
                 } else {
-                    let note_was_changed = notes.get(drag_idx).is_some_and(|note| {
-                        (note.position_ms - state.note_original_start_ms).abs() > f64::EPSILON
-                            || (note.duration_ms - state.note_original_duration_ms).abs()
-                                > f64::EPSILON
-                            || note.midi_key() != state.note_original_midi
-                    });
+                    let note_was_changed = if state.note_original_states.len() > 1 {
+                        state.note_original_states.iter().any(
+                            |&(n_idx, orig_pos, orig_dur, orig_midi)| {
+                                notes.get(n_idx).is_some_and(|note| {
+                                    (note.position_ms - orig_pos).abs() > f64::EPSILON
+                                        || (note.duration_ms - orig_dur).abs() > f64::EPSILON
+                                        || note.midi_key() != orig_midi
+                                })
+                            },
+                        )
+                    } else {
+                        notes.get(drag_idx).is_some_and(|note| {
+                            (note.position_ms - state.note_original_start_ms).abs() > f64::EPSILON
+                                || (note.duration_ms - state.note_original_duration_ms).abs()
+                                    > f64::EPSILON
+                                || note.midi_key() != state.note_original_midi
+                        })
+                    };
                     state.dragging_note_idx = None;
                     state.drag_start_pos = None;
                     state.dragging_is_left_resize = false;
                     state.dragging_is_resize = false;
+                    state.note_original_states.clear();
                     if note_was_changed {
                         on_note_changed();
                     }
@@ -2313,6 +2505,7 @@ pub fn draw_piano_roll(
             state.drag_start_pos = None;
             state.dragging_is_left_resize = false;
             state.dragging_is_resize = false;
+            state.note_original_states.clear();
         }
 
         if let Some(c_idx) = state.creating_note_idx {
@@ -2612,7 +2805,7 @@ pub fn draw_piano_roll(
             );
         }
     });
-    if !state.is_playing && !is_mod_zoom && !state.is_scrubbing_ruler {
+    if !state.is_playing && !is_mod_zoom && !state.is_scrubbing_ruler && !is_middle_panning {
         state.horizontal_scroll_offset = scroll_output.state.offset.x;
         state.vertical_scroll_offset = scroll_output.state.offset.y;
     }

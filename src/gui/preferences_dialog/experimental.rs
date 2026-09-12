@@ -353,11 +353,20 @@ impl KamafeuStudioApp {
                 });
 
                 ui.horizontal(|ui| {
-                    ui.label(lang.tr("Executável Personalizado do Wine:", "Custom Wine Executable:"));
-                    if ui.button(lang.tr("🔍 Detectar Wine", "🔍 Detect Wine")).clicked() {
+                    ui.label(lang.tr(
+                        "Executável Personalizado do Wine:",
+                        "Custom Wine Executable:",
+                    ));
+                    if ui
+                        .button(lang.tr("🔍 Detectar Wine", "🔍 Detect Wine"))
+                        .clicked()
+                    {
                         crate::drivers::process::rescan_wine_executable();
                     }
-                    if ui.button(lang.tr("Procurar Wine...", "Browse Wine...")).clicked() {
+                    if ui
+                        .button(lang.tr("Procurar Wine...", "Browse Wine..."))
+                        .clicked()
+                    {
                         if let Some(file) = crate::dialogs::FileDialog::new()
                             .set_title("Selecionar binário do Wine")
                             .pick_file()

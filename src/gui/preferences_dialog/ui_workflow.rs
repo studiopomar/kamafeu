@@ -159,6 +159,20 @@ impl KamafeuStudioApp {
                     ),
                 );
             });
+
+                ui.horizontal(|ui| {
+                    ui.checkbox(
+                        &mut self.config.workflow.allow_overlapping_notes,
+                        lang.tr("Permitir sobreposição de notas", "Allow overlapping notes"),
+                    );
+                    help_marker(
+                        ui,
+                        lang.tr(
+                            "Desativado: ao mover ou criar notas, a duração da nota anterior é ajustada para evitar sobreposição.",
+                            "Disabled: moving or creating notes adjusts the previous note to avoid overlap.",
+                        ),
+                    );
+                });
             },
         );
     }

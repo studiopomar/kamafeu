@@ -41,7 +41,8 @@ impl KamafeuStudioApp {
         };
 
         let active_vb = self.voicebank.clone().unwrap_or(dummy_vb);
-        let vocal_mode_params = self.vocal_mode_params.clone();
+        let mut vocal_mode_params = self.vocal_mode_params.clone();
+        vocal_mode_params.resampler_instances = self.config.dsp.resampler_instances.max(1);
         let render_threads = self.render_threads.clamp(1, 16) as usize;
         let mut project = self.project.clone();
         project.bpm = self.transport_state.bpm;
@@ -117,7 +118,9 @@ impl KamafeuStudioApp {
 
         let (tx, rx) = std::sync::mpsc::channel();
         self.render_log_channel_rx = Some(rx);
-        let (audio_tx, audio_rx) = std::sync::mpsc::sync_channel(2);
+        // Keep several chunks queued so a heavy editor frame (for example when
+        // Page Scroll moves to a new region) cannot starve the audio sink.
+        let (audio_tx, audio_rx) = std::sync::mpsc::sync_channel(4);
         self.render_rx = Some(audio_rx);
         let cancel = Arc::new(AtomicBool::new(false));
         self.render_cancel = Some(cancel.clone());
@@ -142,7 +145,7 @@ impl KamafeuStudioApp {
                     sample_rate,
                     playhead_ms,
                     render_end_ms,
-                    2000.0,
+                    4000.0,
                     resampler_driver.as_ref(),
                     wavtool_driver.as_ref(),
                     &vocal_mode_params,
@@ -290,7 +293,8 @@ impl KamafeuStudioApp {
         let sample_rate = self.sample_rate;
         let resampler_driver = self.create_resampler_driver();
         let wavtool_driver = self.create_wavtool_driver();
-        let vocal_mode_params = self.vocal_mode_params.clone();
+        let mut vocal_mode_params = self.vocal_mode_params.clone();
+        vocal_mode_params.resampler_instances = self.config.dsp.resampler_instances.max(1);
         let render_threads = self.render_threads.max(1) as usize;
 
         std::thread::spawn(move || {

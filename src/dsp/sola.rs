@@ -353,6 +353,10 @@ impl SolaResampler {
                             .max(0.0)
                     }),
                     effective_mode,
+                    // A VC/end fragment can be too short for a confident F0
+                    // score, but its musical pitch is still not optional.
+                    // Keep using the requested absolute pitch in that case.
+                    is_finite_transition,
                 )
             };
 
@@ -553,6 +557,7 @@ impl SolaResampler {
             None,
             None,
             SolaStretchMode::Stretch,
+            false,
         );
         let target_voiced_start =
             voiced_start as f64 * target_samples as f64 / consonant.len().max(1) as f64;
@@ -582,6 +587,7 @@ impl SolaResampler {
         loop_end_ms: Option<f64>,
         tail_start_ms: Option<f64>,
         mode: SolaStretchMode,
+        force_absolute_pitch: bool,
     ) -> Vec<f32> {
         let v_len = vowel.len();
         if v_len < 32 {
@@ -617,23 +623,39 @@ impl SolaResampler {
         });
 
         let analysis_slice = &vowel[analysis_start..analysis_end];
-        let Some(estimate) = Self::estimate_pitch(analysis_slice, sample_rate)
-            .or_else(|| Self::estimate_pitch(vowel, sample_rate))
-        else {
-            return crate::dsp::resize_preserving_pitch(vowel, target_samples, sample_rate);
+        let estimate = Self::estimate_pitch(analysis_slice, sample_rate)
+            .or_else(|| Self::estimate_pitch(vowel, sample_rate));
+        let estimate = match estimate {
+            Some(estimate) => estimate,
+            None if force_absolute_pitch => PitchEstimate {
+                // There is no reliable source F0 to analyze. Use the required
+                // musical period as a conservative mark spacing rather than
+                // silently returning an unpitched WSOLA fragment.
+                period: (sample_rate as f64 / target_pitch_freq.clamp(40.0, 1_400.0)).max(8.0),
+                periodicity: 0.0,
+            },
+            None => return crate::dsp::resize_preserving_pitch(vowel, target_samples, sample_rate),
         };
 
         // PSOLA makes noise periodic. Route genuinely unvoiced/breathy regions
         // through WSOLA, which preserves their stochastic texture and timing.
-        if estimate.periodicity < 0.15 {
+        if estimate.periodicity < 0.15 && !force_absolute_pitch {
             return crate::dsp::resize_preserving_pitch(vowel, target_samples, sample_rate);
         }
 
         let base_period = estimate.period.round().max(8.0) as usize;
         let pitch_marks = Self::find_pitch_marks(vowel, base_period);
-        if pitch_marks.len() < 2 {
+        if pitch_marks.len() < 2 && !force_absolute_pitch {
             return crate::dsp::resize_preserving_pitch(vowel, target_samples, sample_rate);
         }
+        let pitch_marks = if pitch_marks.len() < 2 {
+            // The segment can contain only a partial glottal cycle. Regular
+            // marks keep the target F0 trajectory deterministic; the envelope
+            // will still preserve the consonant's finite duration.
+            (0..v_len).step_by(base_period.max(1)).collect::<Vec<_>>()
+        } else {
+            pitch_marks
+        };
 
         let tail_start_samp = tail_start_ms
             .map(|ms| ((ms / 1000.0) * sample_rate as f64).round() as usize)
@@ -818,6 +840,52 @@ mod tests {
                 "unstable RMS {level:.3} at {target_frequency:.1} Hz"
             );
         }
+    }
+
+    #[test]
+    fn finite_vc_fragment_never_bypasses_the_absolute_pitch_target() {
+        let sample_rate = 16_000;
+        // Three milliseconds cannot provide the multiple periods required by
+        // a confident F0 analysis, matching a very short `o n`-style lead.
+        let input = voice_like_tone(sample_rate, 220.0, 0.003);
+        assert!(input.len() >= 32);
+
+        let unpitched = SolaResampler::render_vowel_psola(
+            &input,
+            sample_rate,
+            640,
+            220.0,
+            &[],
+            0.0,
+            None,
+            None,
+            None,
+            SolaStretchMode::Stretch,
+            false,
+        );
+        let pitched = SolaResampler::render_vowel_psola(
+            &input,
+            sample_rate,
+            640,
+            440.0,
+            &[],
+            0.0,
+            None,
+            None,
+            None,
+            SolaStretchMode::Stretch,
+            true,
+        );
+        let resize = crate::dsp::resize_preserving_pitch(&input, 640, sample_rate);
+
+        assert_eq!(unpitched, resize, "control must take the old fallback path");
+        assert!(
+            pitched
+                .iter()
+                .zip(&resize)
+                .any(|(left, right)| (left - right).abs() > 0.01),
+            "finite VC fragment ignored its absolute target pitch"
+        );
     }
 
     #[test]

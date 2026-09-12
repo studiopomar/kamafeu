@@ -73,7 +73,8 @@ pub(super) fn draw(
                     let mut fade_out_ms = notes[target_idx].envelope.p5;
                     let mut note_crossfade_ms = notes[target_idx].envelope.crossfade_ms;
 
-                    let mut vibrato = notes[target_idx].vibrato.clone();
+                    let original_vibrato = notes[target_idx].vibrato.clone();
+                    let mut vibrato = original_vibrato.clone();
                     let mut portamento_start =
                         notes[target_idx].pitch_bend.portamento_start_ms;
                     let mut portamento_length =
@@ -319,7 +320,7 @@ pub(super) fn draw(
                                     Vec2::new(ui.available_width(), 18.0),
                                     egui::Slider::new(
                                         &mut consonant_velocity,
-                                        0.0..=200.0,
+                                        -100.0..=200.0,
                                     )
                                     .suffix(" %"),
                                 );
@@ -512,6 +513,25 @@ pub(super) fn draw(
                             );
                             ui.separator();
 
+                            ui.horizontal_wrapped(|ui| {
+                                ui.label(RichText::new(lang.tr("Presets:", "Presets:")).size(10.0));
+                                for (label, start, length, shape, snap) in [
+                                    ("Suave", -55.0, 110.0, "io", true),
+                                    ("Natural", -40.0, 80.0, "io", true),
+                                    ("Rápido", -20.0, 45.0, "l", true),
+                                    ("Deslizante", -100.0, 220.0, "s", true),
+                                    ("Sem snap", -25.0, 60.0, "l", false),
+                                ] {
+                                    if ui.small_button(label).clicked() {
+                                        portamento_start = start;
+                                        portamento_length = length;
+                                        portamento_shape = shape.to_string();
+                                        snap_first = snap;
+                                        changed_portamento = true;
+                                    }
+                                }
+                            });
+
                             changed_portamento |= ui
                                 .checkbox(&mut snap_first, lang.tr("Ligar à nota anterior", "Snap to previous note"))
                                 .changed();
@@ -598,6 +618,24 @@ pub(super) fn draw(
                             ui.separator();
 
                             ui.horizontal(|ui| {
+                                ui.label(RichText::new(lang.tr("Presets:", "Presets:")).size(10.0));
+                                for (label, length, depth, period, fade) in [
+                                    ("Suave", 55.0, 28.0, 190.0, 30.0),
+                                    ("Natural", 70.0, 42.0, 175.0, 20.0),
+                                    ("Intenso", 85.0, 70.0, 140.0, 12.0),
+                                ] {
+                                    if ui.small_button(label).clicked() {
+                                        vibrato.length_pct = length;
+                                        vibrato.depth_cents = depth;
+                                        vibrato.period_ms = period;
+                                        vibrato.fade_in_pct = fade;
+                                        vibrato.fade_out_pct = 15.0;
+                                        changed_vibrato = true;
+                                    }
+                                }
+                            });
+
+                            ui.horizontal(|ui| {
                                 ui.label(RichText::new(lang.tr("Comprimento:", "Length:")).size(10.0));
                                 changed_vibrato |= ui
                                     .add_sized(
@@ -660,6 +698,15 @@ pub(super) fn draw(
                                     )
                                     .changed();
                             });
+
+                            changed_vibrato |= ui
+                                .add_sized(
+                                    Vec2::new(ui.available_width(), 18.0),
+                                    egui::Slider::new(&mut vibrato.volume_link_pct, -100.0..=100.0)
+                                        .text(lang.tr("Vínculo de volume", "Volume link"))
+                                        .suffix(" %"),
+                                )
+                                .changed();
 
                             ui.add_space(2.0);
                             ui.columns(2, |cols| {
@@ -898,7 +945,20 @@ pub(super) fn draw(
                                     notes[idx].envelope.crossfade_ms = note_crossfade_ms;
                                 }
                                 if changed_vibrato {
-                                    notes[idx].vibrato = vibrato.clone();
+                                    // Apply only the vibrato fields changed in
+                                    // this panel. This is important for a
+                                    // multi-note selection: editing VOL link
+                                    // must not overwrite each note's existing
+                                    // length, depth, phase or drift.
+                                    let target = &mut notes[idx].vibrato;
+                                    if (vibrato.length_pct - original_vibrato.length_pct).abs() > f64::EPSILON { target.length_pct = vibrato.length_pct; }
+                                    if (vibrato.period_ms - original_vibrato.period_ms).abs() > f64::EPSILON { target.period_ms = vibrato.period_ms; }
+                                    if (vibrato.depth_cents - original_vibrato.depth_cents).abs() > f64::EPSILON { target.depth_cents = vibrato.depth_cents; }
+                                    if (vibrato.fade_in_pct - original_vibrato.fade_in_pct).abs() > f64::EPSILON { target.fade_in_pct = vibrato.fade_in_pct; }
+                                    if (vibrato.fade_out_pct - original_vibrato.fade_out_pct).abs() > f64::EPSILON { target.fade_out_pct = vibrato.fade_out_pct; }
+                                    if (vibrato.shift_pct - original_vibrato.shift_pct).abs() > f64::EPSILON { target.shift_pct = vibrato.shift_pct; }
+                                    if (vibrato.drift_pct - original_vibrato.drift_pct).abs() > f64::EPSILON { target.drift_pct = vibrato.drift_pct; }
+                                    if (vibrato.volume_link_pct - original_vibrato.volume_link_pct).abs() > f64::EPSILON { target.volume_link_pct = vibrato.volume_link_pct; }
                                 }
                                 if changed_portamento {
                                     notes[idx].pitch_bend.snap_first = snap_first;

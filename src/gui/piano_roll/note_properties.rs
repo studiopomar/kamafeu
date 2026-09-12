@@ -68,7 +68,7 @@ pub(super) fn draw(
                                             &mut note.expressions.consonant_velocity,
                                         )
                                         .speed(1.0)
-                                        .range(0.0..=200.0)
+                                        .range(-100.0..=200.0)
                                         .suffix(" %"),
                                     )
                                     .changed()

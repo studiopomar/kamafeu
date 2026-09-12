@@ -56,7 +56,9 @@ impl KamafeuStudioApp {
 
         let mut drop_rx = false;
         if let Some(ref rx) = self.render_rx {
-            for _ in 0..2 {
+            // Drain the complete ready batch.  Limiting this to two chunks let
+            // a busy piano-roll frame leave the sink without the next block.
+            for _ in 0..4 {
                 match rx.try_recv() {
                     Ok(mut chunk) => {
                         if let Some(error) = chunk.audio.error.take() {

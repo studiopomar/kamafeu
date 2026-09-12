@@ -166,7 +166,7 @@ pub struct PianoRollState {
     pub note_original_start_ms: f64,
     pub note_original_duration_ms: f64,
     pub note_original_midi: u8,
-    pub note_original_states: Vec<(usize, f64, u8)>,
+    pub note_original_states: Vec<(usize, f64, f64, u8)>,
     pub marquee_start: Option<Pos2>,
     pub marquee_current: Option<Pos2>,
     pub creating_note_idx: Option<usize>,
@@ -233,6 +233,7 @@ pub struct PianoRollState {
     pub dragging_subphoneme_boundary: Option<(usize, usize, f32, f64)>,
     pub right_click_reset_active: bool,
     pub shift_locked_drawer_norm: Option<f64>,
+    pub is_middle_panning: bool,
 }
 
 pub fn smooth_pitch_points(raw_points: &[(f64, f64)]) -> Vec<UPitchBendPoint> {
@@ -476,13 +477,13 @@ impl Default for PianoRollState {
             loop_enabled: false,
             loop_start_ms: 0.0,
             loop_end_ms: 8000.0,
-            show_arrangement_view: true,
+            show_arrangement_view: false,
             arrangement_height: 95.0,
             is_maximized: false,
-            show_parameters_drawer: true,
+            show_parameters_drawer: false,
             drawer_height: 120.0,
-            show_phoneme_ruler: true,
-            show_inspector: true,
+            show_phoneme_ruler: false,
+            show_inspector: false,
             selected_parameter: ParameterTab::Dynamics,
             request_undo: false,
             request_redo: false,
@@ -529,6 +530,7 @@ impl Default for PianoRollState {
             dragging_subphoneme_boundary: None,
             right_click_reset_active: false,
             shift_locked_drawer_norm: None,
+            is_middle_panning: false,
         }
     }
 }

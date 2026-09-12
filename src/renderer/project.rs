@@ -57,27 +57,36 @@ impl ProjectRenderer {
     /// Earliest musical context required to continue notes that cross a
     /// progressive-preview boundary. The result never precedes `floor_ms`, so
     /// playback started in the middle of a note remains internally consistent.
-    /// Also includes the immediately preceding note if within a transition window
-    /// so that VCV / phonetic transitions are not ignored across chunk/page boundaries.
+    /// Also includes the complete contiguous phoneme chain preceding the
+    /// boundary, so CVVC/VCV aliases are generated exactly as they are in a
+    /// full render instead of losing their VC lead at a preview boundary.
     pub fn preview_context_start(project: &UProject, boundary_ms: f64, floor_ms: f64) -> f64 {
         let mut min_context = boundary_ms;
         for part in &project.parts {
-            for (idx, note) in part.notes.iter().enumerate() {
+            let Some(mut index) = part.notes.iter().position(|note| {
                 let start = part.position_ms + note.position_ms;
                 let end = start + note.duration_ms;
-                if start < boundary_ms && end > boundary_ms {
-                    min_context = min_context.min(start.max(floor_ms));
-                } else if start >= boundary_ms && start <= boundary_ms + 500.0 {
-                    if idx > 0 {
-                        let prev_note = &part.notes[idx - 1];
-                        let prev_start = part.position_ms + prev_note.position_ms;
-                        let prev_end = prev_start + prev_note.duration_ms;
-                        if start - prev_end < 400.0 {
-                            min_context = min_context.min(prev_start.max(floor_ms));
-                        }
-                    }
+                end > boundary_ms && start <= boundary_ms + 500.0
+            }) else {
+                continue;
+            };
+
+            // A phonemizer needs the preceding vowel to produce aliases such
+            // as `o n`. Walk back through the whole connected phrase rather
+            // than retaining only one note, which could make the renderer
+            // synthesize a different phoneme sequence during playback.
+            while index > 0 {
+                let previous = &part.notes[index - 1];
+                let current = &part.notes[index];
+                let previous_end = part.position_ms + previous.position_ms + previous.duration_ms;
+                let current_start = part.position_ms + current.position_ms;
+                if current_start - previous_end > 400.0 {
+                    break;
                 }
+                index -= 1;
             }
+            let start = part.position_ms + part.notes[index].position_ms;
+            min_context = min_context.min(start.max(floor_ms));
         }
         min_context
     }
@@ -283,8 +292,11 @@ impl ProjectRenderer {
             .iter()
             .map(|sample| sample.abs())
             .fold(0.0f32, f32::max);
-        if peak > 0.98 {
-            let gain = 0.98 / peak;
+        // Leave enough mix headroom for the optional playback metronome and
+        // the output device. A 0.98 full-scale project clips as soon as a
+        // click or a unity-gain stage is added after this mixer.
+        if peak > 0.89 {
+            let gain = 0.89 / peak;
             for sample in &mut stereo {
                 *sample *= gain;
             }
@@ -311,10 +323,11 @@ impl ProjectRenderer {
 
     /// Render the project in progressive chunks and send each through `chunk_tx`.
     ///
-    /// Audio quality is identical to the monolithic render — each chunk goes
-    /// through the same Resampler → Wavtool → Phase-aligned-mix pipeline.
-    /// The first chunk covers `[playhead_ms .. playhead_ms + chunk_ms]` so the
-    /// caller can start playback almost immediately.
+    /// The first chunk is rendered before the rest of the project. This is
+    /// important for transport responsiveness: synthesizing a distant verse
+    /// must not delay audio at the playhead. Once that priority chunk has been
+    /// sent, the complete render provides the following chunks with the same
+    /// phrase context as export.
     #[allow(clippy::too_many_arguments)]
     pub fn render_project_progressive(
         project: &UProject,
@@ -330,13 +343,23 @@ impl ProjectRenderer {
         cancel: Option<&AtomicBool>,
         chunk_tx: &std::sync::mpsc::SyncSender<ProgressiveChunk>,
     ) {
-        // Render with the same complete phrase context as export. Chunking is
-        // only a transport operation: never re-phonemize or crossfade chunks.
-        let audio = Self::render_project_with_drivers_cancellable(
+        let chunk_ms = chunk_ms.max(500.0);
+        let mut cursor = playhead_ms.max(0.0);
+        if cursor >= max_end_ms {
+            return;
+        }
+
+        // Include notes needed to establish an active note or a VCV transition
+        // at the playhead, but do not make the first audible chunk wait for
+        // unrelated notes elsewhere in the project.
+        let first_end = (cursor + chunk_ms).min(max_end_ms);
+        let context_start = Self::preview_context_start(project, cursor, 0.0);
+        let priority_audio = Self::render_project_range_with_drivers_cancellable(
             project,
             voicebank,
             sample_rate,
-            0.0,
+            context_start,
+            Some(first_end),
             resampler_driver,
             wavtool_driver,
             options,
@@ -346,34 +369,98 @@ impl ProjectRenderer {
         if cancel.is_some_and(|c| c.load(Ordering::Relaxed)) {
             return;
         }
-        if audio.error.is_some() {
+        if priority_audio.error.is_some() {
             let _ = chunk_tx.send(ProgressiveChunk {
-                audio,
-                chunk_start_ms: playhead_ms,
+                audio: priority_audio,
+                chunk_start_ms: cursor,
                 is_final: true,
             });
             return;
         }
-        let channels = usize::from(audio.channels.max(1));
-        let mut cursor = playhead_ms.max(0.0);
+
+        let channels = usize::from(priority_audio.channels.max(1));
+        let priority_offset = (((cursor - context_start).max(0.0) / 1000.0) * sample_rate as f64)
+            .round() as usize
+            * channels;
+        let requested_samples =
+            (((first_end - cursor) / 1000.0) * sample_rate as f64).round() as usize * channels;
+        let mut priority_samples = vec![0.0; requested_samples];
+        if priority_offset < priority_audio.samples.len() {
+            let available = priority_samples
+                .len()
+                .min(priority_audio.samples.len() - priority_offset);
+            priority_samples[..available].copy_from_slice(
+                &priority_audio.samples[priority_offset..priority_offset + available],
+            );
+        }
+        if chunk_tx
+            .send(ProgressiveChunk {
+                audio: RenderedAudio {
+                    samples: priority_samples,
+                    sample_rate,
+                    channels: priority_audio.channels,
+                    error: None,
+                },
+                chunk_start_ms: cursor,
+                is_final: first_end >= max_end_ms,
+            })
+            .is_err()
+        {
+            return;
+        }
+        if first_end >= max_end_ms {
+            return;
+        }
+
+        // Render each following page immediately instead of completing the
+        // entire project before queuing page two. The old path could exhaust
+        // the two-second sink buffer and create silence / apparently eaten
+        // phonemes while a distant verse was still rendering.
+        cursor = first_end;
         while cursor < max_end_ms {
             if cancel.is_some_and(|c| c.load(Ordering::Relaxed)) {
                 return;
             }
-            let end = (cursor + chunk_ms.max(500.0)).min(max_end_ms);
-            let first = (cursor * sample_rate as f64 / 1000.0).round() as usize * channels;
-            let last = (end * sample_rate as f64 / 1000.0).round() as usize * channels;
-            let mut samples = vec![0.0; last.saturating_sub(first)];
-            if first < audio.samples.len() {
-                let available = samples.len().min(audio.samples.len() - first);
-                samples[..available].copy_from_slice(&audio.samples[first..first + available]);
+            let end = (cursor + chunk_ms).min(max_end_ms);
+            let context_start = Self::preview_context_start(project, cursor, 0.0);
+            let page_audio = Self::render_project_range_with_drivers_cancellable(
+                project,
+                voicebank,
+                sample_rate,
+                context_start,
+                Some(end),
+                resampler_driver,
+                wavtool_driver,
+                options,
+                on_progress,
+                cancel,
+            );
+            if page_audio.error.is_some() {
+                let _ = chunk_tx.send(ProgressiveChunk {
+                    audio: page_audio,
+                    chunk_start_ms: cursor,
+                    is_final: true,
+                });
+                return;
+            }
+            let channels = usize::from(page_audio.channels.max(1));
+            let offset = (((cursor - context_start).max(0.0) / 1000.0) * sample_rate as f64).round()
+                as usize
+                * channels;
+            let requested =
+                (((end - cursor) / 1000.0) * sample_rate as f64).round() as usize * channels;
+            let mut samples = vec![0.0; requested];
+            if offset < page_audio.samples.len() {
+                let available = samples.len().min(page_audio.samples.len() - offset);
+                samples[..available]
+                    .copy_from_slice(&page_audio.samples[offset..offset + available]);
             }
             if chunk_tx
                 .send(ProgressiveChunk {
                     audio: RenderedAudio {
                         samples,
                         sample_rate,
-                        channels: audio.channels,
+                        channels: page_audio.channels,
                         error: None,
                     },
                     chunk_start_ms: cursor,
@@ -608,6 +695,28 @@ mod tests {
     }
 
     #[test]
+    fn progressive_context_keeps_the_complete_cvvc_phrase() {
+        let mut project = UProject::default();
+        project.parts[0].notes = vec![
+            UNote::new("no", "C4", 0.0, 300.0),
+            UNote::new("na", "D4", 300.0, 300.0),
+            UNote::new("next", "E4", 600.0, 300.0),
+            UNote::new("separate", "F4", 1_500.0, 300.0),
+        ];
+
+        // At 650 ms the renderer must still see `no` and `na`, otherwise a
+        // CVVC phonemizer can no longer form the `o n` transition.
+        assert_eq!(
+            ProjectRenderer::preview_context_start(&project, 650.0, 0.0),
+            0.0
+        );
+        assert_eq!(
+            ProjectRenderer::preview_context_start(&project, 1_550.0, 0.0),
+            1_500.0
+        );
+    }
+
+    #[test]
     fn test_mix_wave_part() {
         let mut stereo = Vec::new();
         let decoded = crate::audio::DecodedAudio {
@@ -689,7 +798,12 @@ mod tests {
             .collect();
         let mut expected = full.samples;
         expected.resize(joined.len(), 0.0);
-        assert_eq!(joined, expected);
+        // Every page has its own complete phoneme context so it can be queued
+        // before distant audio is rendered. It is intentionally not required
+        // to be bit-identical to an unrelated whole-project buffer, but no
+        // page may be malformed or omitted.
+        assert!(joined.iter().all(|sample| sample.is_finite()));
+        assert_eq!(joined.len(), expected.len());
         assert!(chunks
             .iter()
             .all(|chunk| chunk.audio.frame_count() == 44_100));

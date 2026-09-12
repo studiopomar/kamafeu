@@ -2,6 +2,7 @@ use crate::gui::KamafeuStudioApp;
 use eframe::egui;
 
 impl KamafeuStudioApp {
+    #[allow(dead_code)]
     pub(super) fn draw_led_marquee(&self, ui: &mut egui::Ui) {
         let theme = &self.config.theme;
         let rect = ui.available_rect_before_wrap();

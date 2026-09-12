@@ -29,9 +29,9 @@ impl eframe::App for KamafeuStudioApp {
             }
         };
         let window_title = if self.is_dirty {
-            format!("* {} - Kamafeu Studio v1.0.0-A (Âmbar)", project_name)
+            format!("* {} - Kamafeu Studio v1.0.1-A_DEV_RC (Âmbar) [TESTERS/QA/POMAR]", project_name)
         } else {
-            format!("{} - Kamafeu Studio v1.0.0-A (Âmbar)", project_name)
+            format!("{} - Kamafeu Studio v1.0.1-A_DEV_RC (Âmbar) [TESTERS/QA/POMAR]", project_name)
         };
         if window_title != self.last_window_title {
             ctx.send_viewport_cmd(egui::ViewportCommand::Title(window_title.clone()));
@@ -65,6 +65,7 @@ impl eframe::App for KamafeuStudioApp {
         self.render_dialogs(ctx);
 
         self.draw_export_notification_toast(ctx);
+        self.draw_panel_tips_bubble(ctx);
 
         self.update_activity();
     }

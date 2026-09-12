@@ -1729,7 +1729,7 @@ dependencies = [
 
 [[package]]
 name = "kamafeu"
-version = "1.0.0-A"
+version = "1.0.1-A.DEV.RC"
 dependencies = [
  "android-activity",
  "clap",

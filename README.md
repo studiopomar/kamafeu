@@ -6,7 +6,9 @@
 
 **Editor e sintetizador vocal baseado em amostragem e splicing (UTAU) em Rust.**
 
-[![Versão](https://img.shields.io/badge/vers%C3%A3o-1.0.0--A-d7ff3f?style=flat-square)](CHANGELOG.md)
+[![Versão](https://img.shields.io/badge/vers%C3%A3o-1.0.1--A__DEV__RC-d7ff3f?style=flat-square)](CHANGELOG.md)
+
+> **1.0.1-A_DEV_RC — Release Candidate de teste.** Esta versão é destinada exclusivamente a testers, QA e ao grupo Pomar. Pode conter instabilidades e não representa uma versão final de produção.
 [![Rust](https://img.shields.io/badge/Rust-1.82+-orange?style=flat-square&logo=rust)](Cargo.toml)
 [![Licença: MIT](https://img.shields.io/badge/licen%C3%A7a-MIT-yellow.svg?style=flat-square)](LICENSE)
 [![Studio Pomar](https://img.shields.io/badge/Studio-Pomar-brightgreen?style=flat-square)](https://studiopomar.github.io/pomar-lts/)

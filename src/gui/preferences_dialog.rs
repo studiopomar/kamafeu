@@ -5,6 +5,7 @@ mod experimental;
 mod export_defaults;
 mod memory_cache;
 mod presets_and_help;
+mod packages;
 mod ui_workflow;
 mod voicebank_tuning;
 
@@ -24,6 +25,7 @@ pub struct PreferencesDialogState {
     pub voicebank_audit_result: Option<String>,
     pub test_signal_type: usize,
     pub test_signal_freq: f32,
+    pub phonemizer_rule_mode: usize,
 }
 
 impl Default for PreferencesDialogState {
@@ -38,6 +40,7 @@ impl Default for PreferencesDialogState {
             voicebank_audit_result: None,
             test_signal_type: 0,
             test_signal_freq: 440.0,
+            phonemizer_rule_mode: 0,
         }
     }
 }
@@ -123,6 +126,106 @@ fn section_card<R>(
 }
 
 impl KamafeuStudioApp {
+    fn phonemizer_rule_template(key: &str) -> String {
+        format!(
+            "# Kamafeu Phonemizer Rules\n# Método: {key}\n# Linguagem: DSL de substituição do Kamafeu (não é Rust/Python).\n# Uma regra por linha: alias_original => alias_novo\n# A comparação é exata e ocorre antes da busca no oto.ini.\n# Use # para comentários; linhas inválidas são ignoradas.\n#\n# Exemplos (descomente e altere conforme seu voicebank):\n# ka => ka\n# shi => si\n# -a => - a\n#\n# Dica: mantenha o alias à direita exatamente como existe no oto.ini.\n"
+        )
+    }
+
+    fn render_phonemizer_rules_tab(&mut self, ui: &mut egui::Ui) {
+        let lang = self.config.language;
+        let modes = [
+            ("BasicCV", "Japonês CV"),
+            ("VCV", "Japonês VCV"),
+            ("CVVC", "Japonês CVVC"),
+            ("EnglishArpasing", "Inglês Arpasing"),
+            ("EnglishVCCV", "Inglês VCCV"),
+            ("PortugueseBrapaVCCV", "BRAPA VCCV"),
+            ("PortugueseBrapaCVC", "BRAPA CVC"),
+        ];
+        section_card(
+            ui,
+            lang.tr(
+                "Regras editáveis do fonemizador",
+                "Editable phonemizer rules",
+            ),
+            |ui| {
+                Frame::none()
+                    .fill(Color32::from_rgb(72, 48, 22))
+                    .stroke(Stroke::new(1.0, Color32::from_rgb(235, 165, 70)))
+                    .rounding(Rounding::same(4.0))
+                    .inner_margin(Margin::same(7.0))
+                    .show(ui, |ui| {
+                        ui.label(
+                            RichText::new(lang.tr(
+                                "AVISO — Função experimental: as regras podem não funcionar em todos os voicebanks. Regras inválidas são ignoradas ou podem gerar aliases sem correspondência no oto.ini.",
+                                "WARNING — Experimental feature: rules may not work with every voicebank. Invalid rules are ignored or may produce aliases with no oto.ini match.",
+                            ))
+                            .strong()
+                            .color(Color32::from_rgb(255, 220, 150)),
+                        );
+                    });
+                ui.add_space(6.0);
+                ui.label(lang.tr("Uma regra por linha: alias_original => alias_novo. As alterações entram em vigor imediatamente.", "One rule per line: original_alias => new_alias. Changes apply immediately."));
+                ui.label(lang.tr("Use # para comentários. O botão Restaurar remove as regras personalizadas deste método.", "Use # for comments. Restore removes custom rules for this method."));
+                ui.label(lang.tr("A regra transforma somente o lyric exato antes do fonemizador procurar o alias no oto.ini; não use sintaxe Rust, Python ou regex.", "Rules transform only the exact lyric before the phonemizer searches oto.ini; do not use Rust, Python, or regex syntax."));
+                let selected = self
+                    .preferences_state
+                    .phonemizer_rule_mode
+                    .min(modes.len() - 1);
+                self.preferences_state.phonemizer_rule_mode = selected;
+                egui::ComboBox::from_id_salt("phonemizer_rule_mode")
+                    .selected_text(modes[selected].1)
+                    .show_ui(ui, |ui| {
+                        for (idx, (_, label)) in modes.iter().enumerate() {
+                            ui.selectable_value(
+                                &mut self.preferences_state.phonemizer_rule_mode,
+                                idx,
+                                *label,
+                            );
+                        }
+                    });
+                let key = modes[self.preferences_state.phonemizer_rule_mode]
+                    .0
+                    .to_string();
+                let template = Self::phonemizer_rule_template(&key);
+                let script = self
+                    .config
+                    .phonemizer_rules
+                    .entry(key.clone())
+                    .or_insert(template);
+                let changed = ui
+                    .add(
+                        egui::TextEdit::multiline(script)
+                            .desired_rows(12)
+                            .desired_width(f32::INFINITY),
+                    )
+                    .changed();
+                ui.horizontal(|ui| {
+                    if ui
+                        .button(lang.tr(
+                            "Restaurar padrão deste fonemizador",
+                            "Restore this phonemizer default",
+                        ))
+                        .clicked()
+                    {
+                        self.config
+                            .phonemizer_rules
+                            .insert(key.clone(), Self::phonemizer_rule_template(&key));
+                        crate::phonemizer::set_custom_rules(self.config.phonemizer_rules.clone());
+                        self.piano_roll_state.phoneme_cache_hash = 0;
+                        self.persist_config();
+                    }
+                    if changed {
+                        crate::phonemizer::set_custom_rules(self.config.phonemizer_rules.clone());
+                        self.piano_roll_state.phoneme_cache_hash = 0;
+                        self.persist_config();
+                    }
+                });
+            },
+        );
+    }
+
     pub fn render_preferences_dialog(&mut self, ctx: &egui::Context) {
         if !self.preferences_window_open {
             return;
@@ -177,6 +280,8 @@ impl KamafeuStudioApp {
                             (lang.tr("Exportação", "Export"), 3),
                             (lang.tr("Cache", "Cache"), 2),
                             (lang.tr("Avançado", "Advanced"), 6),
+                            (lang.tr("Regras de Fonemização", "Phonemizer Rules"), 8),
+                            (lang.tr("Pacotes adicionais", "Additional Packages"), 9),
                         ];
 
                         ui.horizontal_wrapped(|ui| {
@@ -227,6 +332,8 @@ impl KamafeuStudioApp {
                                     5 => self.render_voicebank_tuning_tab(ui),
                                     6 => self.render_experimental_tab(ui),
                                     7 => self.render_presets_and_help_tab(ui),
+                                    8 => self.render_phonemizer_rules_tab(ui),
+                                    9 => self.render_packages_tab(ui),
                                     _ => {}
                                 }
                             });
@@ -246,6 +353,8 @@ impl KamafeuStudioApp {
                                 self.config.workflow = default_conf.workflow;
                                 self.config.voicebank_tuning = default_conf.voicebank_tuning;
                                 self.config.experimental = default_conf.experimental;
+                                self.config.phonemizer_rules = default_conf.phonemizer_rules;
+                                crate::phonemizer::set_custom_rules(self.config.phonemizer_rules.clone());
                                 self.persist_config();
                             }
 

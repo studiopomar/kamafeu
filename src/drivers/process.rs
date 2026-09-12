@@ -2,7 +2,7 @@ use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Output, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Mutex, OnceLock};
+use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 static WINE_PATH_CACHE: Mutex<Option<Option<PathBuf>>> = Mutex::new(None);
@@ -56,6 +56,57 @@ pub fn find_wine_executable() -> Option<PathBuf> {
         *guard = Some(found.clone());
     }
     found
+}
+
+static WINE_SERVER_RUNNING: Mutex<bool> = Mutex::new(false);
+
+pub fn ensure_wine_server_running() {
+    let is_running = match WINE_SERVER_RUNNING.lock() {
+        Ok(guard) => *guard,
+        Err(_) => false,
+    };
+    if is_running {
+        return;
+    }
+
+    if let Some(wine_bin) = find_wine_executable() {
+        // Find wineserver companion binary next to wine or in PATH
+        let server_bin = wine_bin
+            .parent()
+            .map(|p| p.join("wineserver"))
+            .filter(|p| p.is_file());
+        if let Some(wineserver) = server_bin {
+            // wineserver -p keeps the server persistent indefinitely
+            let _ = Command::new(wineserver)
+                .arg("-p")
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .spawn();
+        } else {
+            // Fallback: spawn a persistent background wine process
+            let _ = Command::new(&wine_bin)
+                .arg("cmd.exe")
+                .arg("/c")
+                .arg("echo prewarm")
+                .stdin(Stdio::null())
+                .stdout(Stdio::null())
+                .stderr(Stdio::null())
+                .output();
+        }
+        if let Ok(mut guard) = WINE_SERVER_RUNNING.lock() {
+            *guard = true;
+        }
+    }
+}
+
+pub fn prewarm_wine_in_background() {
+    std::thread::Builder::new()
+        .name("wine-prewarm".to_string())
+        .spawn(|| {
+            ensure_wine_server_running();
+        })
+        .ok();
 }
 
 fn find_wine_executable_uncached() -> Option<PathBuf> {
@@ -318,7 +369,10 @@ pub(crate) fn run_with_timeout(
     cancel: Option<&AtomicBool>,
 ) -> Result<Output, String> {
     const MAX_CAPTURE_BYTES: u64 = 1024 * 1024;
-    command.stdout(Stdio::piped()).stderr(Stdio::piped());
+    command
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
     let mut child = command
         .spawn()
         .map_err(|error| format!("falha ao iniciar processo externo: {error}"))?;
@@ -427,7 +481,15 @@ mod tests {
         let p = Path::new("/tmp/test_audio.wav");
         let win_path = to_wine_windows_path(p);
         let win_str = win_path.to_string_lossy();
-        assert!(win_str.starts_with("Z:\\"), "Must map root to Z:\\: {}", win_str);
-        assert!(!win_str.contains('/'), "Must not contain forward slashes: {}", win_str);
+        assert!(
+            win_str.starts_with("Z:\\"),
+            "Must map root to Z:\\: {}",
+            win_str
+        );
+        assert!(
+            !win_str.contains('/'),
+            "Must not contain forward slashes: {}",
+            win_str
+        );
     }
 }

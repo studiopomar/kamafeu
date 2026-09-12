@@ -4,6 +4,53 @@ use crate::project::model::UNote;
 use std::path::PathBuf;
 
 impl KamafeuStudioApp {
+    pub(crate) fn ensure_default_portamento(&mut self) {
+        let notes = self.current_notes_mut();
+        let mut order: Vec<usize> = (0..notes.len()).collect();
+        order.sort_by(|&a, &b| {
+            notes[a]
+                .position_ms
+                .partial_cmp(&notes[b].position_ms)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+        for (order_idx, &idx) in order.iter().enumerate() {
+            let previous = order_idx.checked_sub(1).map(|p| order[p]);
+            let (previous_midi, adjacent) = previous
+                .map(|p| {
+                    let gap =
+                        notes[idx].position_ms - (notes[p].position_ms + notes[p].duration_ms);
+                    (Some(notes[p].midi_key()), gap.abs() <= 60.0)
+                })
+                .unwrap_or((None, false));
+            let current_midi = notes[idx].midi_key();
+            notes[idx]
+                .pitch_bend
+                .ensure_portamento(previous_midi, current_midi, adjacent);
+        }
+    }
+
+    /// Keeps the default editor mode monophonic without creating a second
+    /// history entry. Explicitly enabling overlaps bypasses this pass.
+    pub(crate) fn resolve_note_overlaps(&mut self) {
+        let notes = self.current_notes_mut();
+        let mut order: Vec<usize> = (0..notes.len()).collect();
+        order.sort_by(|&a, &b| {
+            notes[a]
+                .position_ms
+                .partial_cmp(&notes[b].position_ms)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+        for pair in order.windows(2) {
+            let previous = pair[0];
+            let current = pair[1];
+            let previous_end = notes[previous].position_ms + notes[previous].duration_ms;
+            if previous_end > notes[current].position_ms {
+                notes[previous].duration_ms =
+                    (notes[current].position_ms - notes[previous].position_ms).max(20.0);
+            }
+        }
+    }
+
     pub fn apply_autopitch(&mut self) {
         self.push_history();
 

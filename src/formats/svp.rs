@@ -175,12 +175,7 @@ impl SvpFormat {
                         group_ref.get("group").and_then(|g| g.as_object())
                     {
                         let grp_val = Value::Object(group_obj.clone());
-                        collect_notes_from_group(
-                            &grp_val,
-                            offset_blicks,
-                            ms_per_blick,
-                            &mut notes,
-                        );
+                        collect_notes_from_group(&grp_val, offset_blicks, ms_per_blick, &mut notes);
                     }
                 }
             }
