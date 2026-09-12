@@ -129,7 +129,7 @@ impl UPitchBend {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct UExpressions {
-    pub dynamics: f64,    // DYN (-240 to +120, in 0.1 dB units)
+    pub dynamics: f64, // DYN (-240 to +120, in 0.1 dB units)
     #[serde(default)]
     pub dynamics_curve: Vec<UExpressionPoint>,
     pub pitch_delta: f64, // PITD (-1200 to +1200 cents, default 0)

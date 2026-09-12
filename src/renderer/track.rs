@@ -608,7 +608,8 @@ impl TrackRenderer {
                             .windows(2)
                             .find(|pair| t <= pair[1].time_offset_ms)
                             .map(|pair| {
-                                let span = (pair[1].time_offset_ms - pair[0].time_offset_ms).max(1e-6);
+                                let span =
+                                    (pair[1].time_offset_ms - pair[0].time_offset_ms).max(1e-6);
                                 let u = ((t - pair[0].time_offset_ms) / span).clamp(0.0, 1.0);
                                 pair[0].value + (pair[1].value - pair[0].value) * u
                             })

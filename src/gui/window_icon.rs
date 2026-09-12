@@ -42,7 +42,12 @@ pub fn load_window_icon() -> Result<IconData, image::ImageError> {
         }
     }
     let artwork_offset = ((size - artwork.width()) / 2, (size - artwork.height()) / 2);
-    image::imageops::overlay(&mut image, &artwork, artwork_offset.0 as i64, artwork_offset.1 as i64);
+    image::imageops::overlay(
+        &mut image,
+        &artwork,
+        artwork_offset.0 as i64,
+        artwork_offset.1 as i64,
+    );
 
     Ok(IconData {
         width: size,

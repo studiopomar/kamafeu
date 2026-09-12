@@ -532,15 +532,24 @@ pub(super) fn draw(
                                                     (norm * 120.0).clamp(-240.0, 120.0);
                                                 let value = note.expressions.dynamics;
                                                 note.expressions.dynamics_curve.retain(|point| {
-                                                    (point.time_offset_ms - (click_t - note.position_ms)).abs() >= 8.0
+                                                    (point.time_offset_ms
+                                                        - (click_t - note.position_ms))
+                                                        .abs()
+                                                        >= 8.0
                                                 });
                                                 note.expressions.dynamics_curve.push(
                                                     crate::project::model::UExpressionPoint {
-                                                        time_offset_ms: (click_t - note.position_ms).max(0.0),
+                                                        time_offset_ms: (click_t
+                                                            - note.position_ms)
+                                                            .max(0.0),
                                                         value,
                                                     },
                                                 );
-                                                note.expressions.dynamics_curve.sort_by(|a, b| a.time_offset_ms.partial_cmp(&b.time_offset_ms).unwrap_or(std::cmp::Ordering::Equal));
+                                                note.expressions.dynamics_curve.sort_by(|a, b| {
+                                                    a.time_offset_ms
+                                                        .partial_cmp(&b.time_offset_ms)
+                                                        .unwrap_or(std::cmp::Ordering::Equal)
+                                                });
                                             }
                                             ParameterTab::PitchDelta => {
                                                 let rel_t = click_t - note.position_ms;
@@ -566,7 +575,7 @@ pub(super) fn draw(
                                                     (norm * 100.0).clamp(-100.0, 100.0);
                                             }
                                             ParameterTab::Velocity => {
-                                                    note.expressions.consonant_velocity =
+                                                note.expressions.consonant_velocity =
                                                     (100.0 + norm * 100.0).clamp(-100.0, 200.0);
                                             }
                                             ParameterTab::Breathiness => {
@@ -647,17 +656,28 @@ pub(super) fn draw(
                                     return (note.expressions.dynamics / 120.0).clamp(-1.0, 1.0);
                                 }
                                 if let Some(first) = points.first() {
-                                    if rel_t <= first.time_offset_ms { return (first.value / 120.0).clamp(-1.0, 1.0); }
+                                    if rel_t <= first.time_offset_ms {
+                                        return (first.value / 120.0).clamp(-1.0, 1.0);
+                                    }
                                 }
                                 for pair in points.windows(2) {
                                     if rel_t <= pair[1].time_offset_ms {
-                                        let span = (pair[1].time_offset_ms - pair[0].time_offset_ms).max(1e-6);
-                                        let u = ((rel_t - pair[0].time_offset_ms) / span).clamp(0.0, 1.0);
-                                        let value = pair[0].value + (pair[1].value - pair[0].value) * u;
+                                        let span = (pair[1].time_offset_ms
+                                            - pair[0].time_offset_ms)
+                                            .max(1e-6);
+                                        let u = ((rel_t - pair[0].time_offset_ms) / span)
+                                            .clamp(0.0, 1.0);
+                                        let value =
+                                            pair[0].value + (pair[1].value - pair[0].value) * u;
                                         return (value / 120.0).clamp(-1.0, 1.0);
                                     }
                                 }
-                                return (points.last().map(|p| p.value).unwrap_or(note.expressions.dynamics) / 120.0).clamp(-1.0, 1.0);
+                                return (points
+                                    .last()
+                                    .map(|p| p.value)
+                                    .unwrap_or(note.expressions.dynamics)
+                                    / 120.0)
+                                    .clamp(-1.0, 1.0);
                             }
                             return 0.0;
                         }

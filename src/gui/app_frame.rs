@@ -29,9 +29,15 @@ impl eframe::App for KamafeuStudioApp {
             }
         };
         let window_title = if self.is_dirty {
-            format!("* {} - Kamafeu Studio v1.0.1-A_DEV_RC (Âmbar) [TESTERS/QA/POMAR]", project_name)
+            format!(
+                "* {} - Kamafeu Studio v1.0.1-A_DEV_RC (Âmbar) [TESTERS/QA/POMAR]",
+                project_name
+            )
         } else {
-            format!("{} - Kamafeu Studio v1.0.1-A_DEV_RC (Âmbar) [TESTERS/QA/POMAR]", project_name)
+            format!(
+                "{} - Kamafeu Studio v1.0.1-A_DEV_RC (Âmbar) [TESTERS/QA/POMAR]",
+                project_name
+            )
         };
         if window_title != self.last_window_title {
             ctx.send_viewport_cmd(egui::ViewportCommand::Title(window_title.clone()));

@@ -4,8 +4,8 @@ mod dsp_settings;
 mod experimental;
 mod export_defaults;
 mod memory_cache;
-mod presets_and_help;
 mod packages;
+mod presets_and_help;
 mod ui_workflow;
 mod voicebank_tuning;
 
