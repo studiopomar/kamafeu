@@ -13,6 +13,9 @@ jobs:
   build-apk:
     name: Build Android APK (ARM64 & ARMv7)
     runs-on: ubuntu-latest
+    env:
+      ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+      ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -45,26 +48,24 @@ jobs:
           cargo install cargo-apk --locked
 
       - name: Prepare Release Keystore
-        if: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' }}
-        env:
-          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+        if: ${{ env.ANDROID_KEYSTORE_BASE64 != '' }}
         run: |
           test -n "$ANDROID_KEYSTORE_BASE64"
           umask 077
           printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/kamafeu-release.keystore"
 
       - name: Build Android APK (Release ARM64)
-        if: ${{ secrets.ANDROID_KEYSTORE_BASE64 != '' && secrets.ANDROID_KEYSTORE_PASSWORD != '' }}
+        if: ${{ env.ANDROID_KEYSTORE_BASE64 != '' && env.ANDROID_KEYSTORE_PASSWORD != '' }}
         env:
           CARGO_APK_RELEASE_KEYSTORE: ${{ runner.temp }}/kamafeu-release.keystore
-          CARGO_APK_RELEASE_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          CARGO_APK_RELEASE_KEYSTORE_PASSWORD: ${{ env.ANDROID_KEYSTORE_PASSWORD }}
         run: |
           test -n "$CARGO_APK_RELEASE_KEYSTORE_PASSWORD"
           unset ANDROID_SDK_ROOT
           cargo apk build --lib --release --target aarch64-linux-android
 
       - name: Build Android APK (Unsigned test ARM64)
-        if: ${{ secrets.ANDROID_KEYSTORE_BASE64 == '' || secrets.ANDROID_KEYSTORE_PASSWORD == '' }}
+        if: ${{ env.ANDROID_KEYSTORE_BASE64 == '' || env.ANDROID_KEYSTORE_PASSWORD == '' }}
         run: |
           unset ANDROID_SDK_ROOT
           cargo apk build --lib --target aarch64-linux-android
