@@ -1,4 +1,5 @@
 use eframe::egui;
+use kamafeu::audio::AudioPlayer;
 use kamafeu::copaiba::gui::{draw_copaiba_toolkit_ui, CopaibaToolkitApp};
 
 fn main() -> eframe::Result<()> {
@@ -27,6 +28,7 @@ fn main() -> eframe::Result<()> {
 #[derive(Default)]
 pub struct CopaibaStandaloneApp {
     app: CopaibaToolkitApp,
+    audio_player: AudioPlayer,
 }
 
 impl eframe::App for CopaibaStandaloneApp {
@@ -37,7 +39,7 @@ impl eframe::App for CopaibaStandaloneApp {
         ctx.set_visuals(visuals);
 
         egui::CentralPanel::default().show(ctx, |ui| {
-            draw_copaiba_toolkit_ui(&mut self.app, ui);
+            draw_copaiba_toolkit_ui(&mut self.app, &mut self.audio_player, ui);
         });
     }
 }
