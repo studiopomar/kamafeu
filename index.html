@@ -104,39 +104,95 @@
       <div class="container">
         <div class="section-label">Demonstração Interativa</div>
         <h2 class="section-heading">Teclado Vocal & Síntese Formântica WebAudio</h2>
-        <p class="section-subheading">Toque no piano roll abaixo para ouvir a reconstrução formântica das vogais do motor <strong>VENUS</strong> e a modelagem de afinação em tempo real no seu navegador.</p>
+        <p class="section-subheading">Toque no piano roll para ouvir a reconstrução de formantes (vogais orais, nasais e schwa) combinadas a consoantes acústicas (oclusivas, fricativas e nasais) do motor <strong>VENUS</strong>.</p>
 
         <div class="synth-keyboard-widget">
           <!-- Top Controls -->
           <div class="synth-top-controls">
+            <!-- Consonant Selector -->
             <div class="synth-ctrl">
-              <label for="synthVowel">Vogal / Fonema:</label>
-              <select id="synthVowel" class="synth-select">
-                <option value="a">Vogal [ a ] (Ah)</option>
-                <option value="e">Vogal [ e ] (Eh)</option>
-                <option value="i">Vogal [ i ] (Ee)</option>
-                <option value="o">Vogal [ o ] (Oh)</option>
-                <option value="u">Vogal [ u ] (Oo)</option>
+              <label for="synthConsonant">Consoante (Ataque):</label>
+              <select id="synthConsonant" class="synth-select">
+                <option value="none">Nenhuma (Vogal Pura)</option>
+                <optgroup label="Oclusivas / Plosivas">
+                  <option value="b">[ b ] — bilabial sonora</option>
+                  <option value="d">[ d ] — alveolar sonora</option>
+                  <option value="g">[ g ] — velar sonora</option>
+                  <option value="p">[ p ] — bilabial surda</option>
+                  <option value="t">[ t ] — alveolar surda</option>
+                  <option value="k">[ k ] — velar surda</option>
+                </optgroup>
+                <optgroup label="Fricativas / Sibilantes">
+                  <option value="s">[ s ] — sibilante surda (5-8 kHz)</option>
+                  <option value="z">[ z ] — sibilante sonora</option>
+                  <option value="v">[ v ] — labiodental sonora</option>
+                  <option value="f">[ f ] — labiodental surda</option>
+                  <option value="sh">[ ch/sh ] — pós-alveolar [ʃ]</option>
+                </optgroup>
+                <optgroup label="Líquidas & Nasais">
+                  <option value="l">[ l ] — lateral alveolar</option>
+                  <option value="lh">[ lh ] — lateral palatal [ʎ]</option>
+                  <option value="r">[ r ] — tepe alveolar / vibrante</option>
+                  <option value="m">[ m ] — nasal bilabial (250 Hz)</option>
+                  <option value="n">[ n ] — nasal alveolar (300 Hz)</option>
+                  <option value="nh">[ nh ] — nasal palatal [ɲ]</option>
+                </optgroup>
               </select>
             </div>
 
+            <!-- Vowel Selector with Nasals, Open/Closed and Schwa -->
+            <div class="synth-ctrl">
+              <label for="synthVowel">Vogal (Sustentação):</label>
+              <select id="synthVowel" class="synth-select">
+                <optgroup label="Vogais Orais (Abertas & Fechadas)">
+                  <option value="a">[ a ] — Aberta central ("pá", "casa")</option>
+                  <option value="e_open">[ ɛ / é ] — Média-aberta ("café", "terra")</option>
+                  <option value="e_closed" selected>[ e / ê ] — Média-fechada ("você", "mesa")</option>
+                  <option value="i">[ i ] — Fechada anterior ("brilha", "aqui")</option>
+                  <option value="o_open">[ ɔ / ó ] — Média-aberta ("avó", "sol")</option>
+                  <option value="o_closed">[ o / ô ] — Média-fechada ("avô", "olho")</option>
+                  <option value="u">[ u ] — Fechada posterior ("lua", "azul")</option>
+                  <option value="schwa">[ ə ] — Schwa neutra / reduzida</option>
+                </optgroup>
+                <optgroup label="Vogais Nasais (Português Brasileiro / BRAPA)">
+                  <option value="an">[ ã / an ] — Nasal aberta ("maçã", "canto")</option>
+                  <option value="en">[ ẽ / en ] — Nasal média ("dente", "tempo")</option>
+                  <option value="in">[ ĩ / in ] — Nasal fechada ("sim", "cinto")</option>
+                  <option value="on">[ õ / on ] — Nasal média ("som", "ponte")</option>
+                  <option value="un">[ ũ / un ] — Nasal fechada ("um", "fundo")</option>
+                </optgroup>
+              </select>
+            </div>
+
+            <!-- Pitch Bend Slider -->
             <div class="synth-ctrl">
               <label for="synthPitchBend">Pitch Bend: <span id="synthPitchVal" class="val-tag">0 cents</span></label>
               <input type="range" id="synthPitchBend" min="-200" max="200" value="0" class="range-slider">
             </div>
 
+            <!-- Vibrato Button -->
             <div class="synth-ctrl">
               <label>Vibrato LFO:</label>
               <button class="synth-toggle-btn active" id="synthVibratoBtn">6.0 Hz / 45c</button>
             </div>
+          </div>
 
-            <div class="synth-ctrl">
-              <label>Frases Prontas:</label>
-              <div class="phrase-btn-group">
-                <button class="btn btn-xs btn-secondary" id="btnPlayKamafeu">▶ "Ka-ma-feu"</button>
-                <button class="btn btn-xs btn-secondary" id="btnPlayPomar">▶ "Stu-dio Po-mar"</button>
-                <button class="btn btn-xs btn-ghost" id="btnStopSynth">⏹ Parar</button>
-              </div>
+          <!-- Preset Songs / Melodies Toolbar -->
+          <div class="synth-preset-toolbar">
+            <span class="preset-title">⭐ Musiquinhas & Partituras:</span>
+            <div class="phrase-btn-group">
+              <button class="btn btn-xs btn-preset-song" id="btnPlayTwinkle">
+                ✨ ▶ "Brilha Brilha Estrelinha" (Partitura Completa)
+              </button>
+              <button class="btn btn-xs btn-secondary" id="btnPlayKamafeu">
+                🎵 ▶ "Ka-ma-feu Stu-dio"
+              </button>
+              <button class="btn btn-xs btn-secondary" id="btnPlayPomar">
+                🍊 ▶ "Stu-dio Po-mar"
+              </button>
+              <button class="btn btn-xs btn-ghost" id="btnStopSynth">
+                ⏹ Parar
+              </button>
             </div>
           </div>
 
@@ -175,7 +231,7 @@
           <div class="synth-osc-monitor">
             <div class="osc-bar">
               <span class="osc-title">&bull; Monitor de Forma de Onda em Tempo Real (Osciloscópio)</span>
-              <span class="osc-info" id="synthStatusInfo">Clique em uma tecla ou toque uma frase para sintetizar</span>
+              <span class="osc-info" id="synthStatusInfo">Clique em uma tecla ou toque uma musiquinha para cantar</span>
             </div>
             <canvas id="synthOscCanvas" width="900" height="110" class="synth-canvas"></canvas>
           </div>

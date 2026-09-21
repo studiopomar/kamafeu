@@ -1,6 +1,6 @@
 /* ===================================================================
    KAMAFEU STUDIO - WORKSTATION PORTAL JAVASCRIPT
-   WebAudio Formant Synthesizer, Piano Roll, oto.ini Calibrator & UI
+   WebAudio Formant Synthesizer with Consonants, Nasal Vowels & Songs
    =================================================================== */
 
 document.addEventListener('DOMContentLoaded', () => {
@@ -37,18 +37,32 @@ function initOsDetection() {
 /* -------------------------------------------------------------------
    2. WEBAUDIO VOCAL SYNTH & PIANO ROLL KEYBOARD
    ------------------------------------------------------------------- */
-const VOWEL_FORMANTS = {
-  a: { f1: 800, f2: 1200, f3: 2500, q1: 6, q2: 6, q3: 8 },
-  e: { f1: 500, f2: 1800, f3: 2600, q1: 6, q2: 7, q3: 8 },
-  i: { f1: 300, f2: 2200, f3: 3000, q1: 7, q2: 8, q3: 9 },
-  o: { f1: 500, f2: 850,  f3: 2400, q1: 6, q2: 6, q3: 7 },
-  u: { f1: 320, f2: 800,  f3: 2200, q1: 7, q2: 6, q3: 7 }
+
+// Comprehensive Vowel Formant Bank (F1, F2, F3 + Nasal resonator)
+const VOWEL_BANK = {
+  // Oral Open & Closed Vowels
+  a:        { f1: 820, f2: 1250, f3: 2550, q1: 6, q2: 6, q3: 8, isNasal: false },
+  e_open:   { f1: 620, f2: 1850, f3: 2650, q1: 6, q2: 7, q3: 8, isNasal: false }, // [ ɛ ] (é)
+  e_closed: { f1: 440, f2: 1950, f3: 2600, q1: 6, q2: 7, q3: 8, isNasal: false }, // [ e ] (ê)
+  i:        { f1: 300, f2: 2350, f3: 3100, q1: 7, q2: 8, q3: 9, isNasal: false },
+  o_open:   { f1: 600, f2: 1050, f3: 2450, q1: 6, q2: 6, q3: 7, isNasal: false }, // [ ɔ ] (ó)
+  o_closed: { f1: 450, f2: 900,  f3: 2400, q1: 6, q2: 6, q3: 7, isNasal: false }, // [ o ] (ô)
+  u:        { f1: 320, f2: 800,  f3: 2250, q1: 7, q2: 6, q3: 7, isNasal: false },
+  schwa:    { f1: 500, f2: 1500, f3: 2500, q1: 5, q2: 5, q3: 6, isNasal: false }, // [ ə ]
+
+  // Nasal Vowels (Português Brasileiro / BRAPA)
+  an:       { f1: 650, f2: 1300, f3: 2400, q1: 4, q2: 5, q3: 6, isNasal: true, nasalFreq: 260 },
+  en:       { f1: 450, f2: 1750, f3: 2500, q1: 4, q2: 5, q3: 6, isNasal: true, nasalFreq: 280 },
+  in:       { f1: 320, f2: 2100, f3: 2800, q1: 5, q2: 6, q3: 7, isNasal: true, nasalFreq: 300 },
+  on:       { f1: 480, f2: 950,  f3: 2300, q1: 4, q2: 5, q3: 6, isNasal: true, nasalFreq: 250 },
+  un:       { f1: 340, f2: 850,  f3: 2150, q1: 5, q2: 5, q3: 6, isNasal: true, nasalFreq: 270 }
 };
 
 let audioCtx = null;
 let activeOsc = null;
 let activeGain = null;
 let activeLfo = null;
+let activeNoiseSource = null;
 let isVibratoOn = true;
 let synthAnalyser = null;
 let synthAnimId = null;
@@ -68,12 +82,29 @@ function ensureAudioContext() {
   }
 }
 
+// Generate White/Pink Noise Buffer for Consonant Transients & Fricatives
+let noiseBuffer = null;
+function getNoiseBuffer() {
+  if (!audioCtx) ensureAudioContext();
+  if (!noiseBuffer) {
+    const bufferSize = audioCtx.sampleRate * 2;
+    noiseBuffer = audioCtx.createBuffer(1, bufferSize, audioCtx.sampleRate);
+    const output = noiseBuffer.getChannelData(0);
+    for (let i = 0; i < bufferSize; i++) {
+      output[i] = Math.random() * 2 - 1;
+    }
+  }
+  return noiseBuffer;
+}
+
 function initVocalSynthKeyboard() {
   const keys = document.querySelectorAll('.piano-keyboard .key');
+  const consonantSelect = document.getElementById('synthConsonant');
   const vowelSelect = document.getElementById('synthVowel');
   const pitchSlider = document.getElementById('synthPitchBend');
   const pitchVal = document.getElementById('synthPitchVal');
   const vibratoBtn = document.getElementById('synthVibratoBtn');
+  const playTwinkleBtn = document.getElementById('btnPlayTwinkle');
   const playKamafeuBtn = document.getElementById('btnPlayKamafeu');
   const playPomarBtn = document.getElementById('btnPlayPomar');
   const stopBtn = document.getElementById('btnStopSynth');
@@ -110,7 +141,9 @@ function initVocalSynthKeyboard() {
     const pressKey = (e) => {
       e.preventDefault();
       clearActivePhrases();
-      playSynthVoice(freq, note);
+      const c = consonantSelect ? consonantSelect.value : 'none';
+      const v = vowelSelect ? vowelSelect.value : 'e_closed';
+      playSynthVoice(freq, note, c, v);
       k.classList.add('playing');
     };
 
@@ -128,15 +161,38 @@ function initVocalSynthKeyboard() {
     k.addEventListener('touchend', releaseKey, { passive: false });
   });
 
-  // Melodies
+  // Melodies & Preset Songs
+  if (playTwinkleBtn) {
+    playTwinkleBtn.addEventListener('click', () => {
+      // "Brilha, brilha, estrelinha / Quero ver você brilhar" (Partitura completa com consoantes e vogais)
+      playVocalSequence([
+        { note: 'C4', freq: 261.63, cons: 'b',  vowel: 'i',        lyric: 'Bri-',  dur: 340 },
+        { note: 'C4', freq: 261.63, cons: 'lh', vowel: 'a',        lyric: 'lha,',  dur: 340 },
+        { note: 'G4', freq: 392.00, cons: 'b',  vowel: 'i',        lyric: 'bri-',  dur: 340 },
+        { note: 'G4', freq: 392.00, cons: 'lh', vowel: 'a',        lyric: 'lha,',  dur: 340 },
+        { note: 'A4', freq: 440.00, cons: 's',  vowel: 'e_closed', lyric: 'es-',   dur: 340 },
+        { note: 'A4', freq: 440.00, cons: 't',  vowel: 'e_open',   lyric: 'tre-',  dur: 340 },
+        { note: 'G4', freq: 392.00, cons: 'l',  vowel: 'i',        lyric: 'li-',   dur: 620 },
+        { note: 'F4', freq: 349.23, cons: 'nh', vowel: 'a',        lyric: 'nha,',  dur: 340 },
+        { note: 'F4', freq: 349.23, cons: 'k',  vowel: 'e_open',   lyric: 'que-',  dur: 340 },
+        { note: 'E4', freq: 329.63, cons: 'r',  vowel: 'o_closed', lyric: 'ro',    dur: 340 },
+        { note: 'E4', freq: 329.63, cons: 'v',  vowel: 'e_open',   lyric: 'ver',   dur: 340 },
+        { note: 'D4', freq: 293.66, cons: 'v',  vowel: 'o_closed', lyric: 'vo-',   dur: 340 },
+        { note: 'D4', freq: 293.66, cons: 's',  vowel: 'e_closed', lyric: 'cê',    dur: 340 },
+        { note: 'C4', freq: 261.63, cons: 'b',  vowel: 'i',        lyric: 'bri-',  dur: 400 },
+        { note: 'C4', freq: 261.63, cons: 'lh', vowel: 'a',        lyric: 'lhar! ✨', dur: 800 }
+      ]);
+    });
+  }
+
   if (playKamafeuBtn) {
     playKamafeuBtn.addEventListener('click', () => {
       playVocalSequence([
-        { note: 'C4', freq: 261.63, vowel: 'a', lyric: 'Ka', dur: 320 },
-        { note: 'D4', freq: 293.66, vowel: 'a', lyric: 'ma', dur: 320 },
-        { note: 'E4', freq: 329.63, vowel: 'e', lyric: 'feu', dur: 450 },
-        { note: 'G4', freq: 392.00, vowel: 'u', lyric: 'Stu-', dur: 300 },
-        { note: 'A4', freq: 440.00, vowel: 'o', lyric: 'dio', dur: 700 }
+        { note: 'C4', freq: 261.63, cons: 'k',  vowel: 'a',        lyric: 'Ka',   dur: 320 },
+        { note: 'D4', freq: 293.66, cons: 'm',  vowel: 'a',        lyric: 'ma',   dur: 320 },
+        { note: 'E4', freq: 329.63, cons: 'f',  vowel: 'e_closed', lyric: 'feu',  dur: 450 },
+        { note: 'G4', freq: 392.00, cons: 's',  vowel: 'u',        lyric: 'Stu-', dur: 300 },
+        { note: 'A4', freq: 440.00, cons: 'd',  vowel: 'i',        lyric: 'dio',  dur: 700 }
       ]);
     });
   }
@@ -144,10 +200,10 @@ function initVocalSynthKeyboard() {
   if (playPomarBtn) {
     playPomarBtn.addEventListener('click', () => {
       playVocalSequence([
-        { note: 'E4', freq: 329.63, vowel: 'u', lyric: 'Stu-', dur: 280 },
-        { note: 'G4', freq: 392.00, vowel: 'i', lyric: 'dio', dur: 280 },
-        { note: 'C5', freq: 523.25, vowel: 'o', lyric: 'Po-', dur: 380 },
-        { note: 'G4', freq: 392.00, vowel: 'a', lyric: 'mar', dur: 700 }
+        { note: 'E4', freq: 329.63, cons: 's',  vowel: 'u',        lyric: 'Stu-', dur: 280 },
+        { note: 'G4', freq: 392.00, cons: 'd',  vowel: 'i',        lyric: 'dio',  dur: 280 },
+        { note: 'C5', freq: 523.25, cons: 'p',  vowel: 'o_closed', lyric: 'Po-',  dur: 380 },
+        { note: 'G4', freq: 392.00, cons: 'm',  vowel: 'a',        lyric: 'mar 🍊', dur: 700 }
       ]);
     });
   }
@@ -165,13 +221,12 @@ function initVocalSynthKeyboard() {
   }
 }
 
-function playSynthVoice(baseFreq, noteName) {
+// Synthesize Note with Consonant Transient + Formant Filtered Vowel
+function playSynthVoice(baseFreq, noteName, cons = 'none', vowelKey = 'e_closed') {
   ensureAudioContext();
   stopSynthVoice();
 
-  const vowelSelect = document.getElementById('synthVowel');
-  const vowel = vowelSelect ? vowelSelect.value : 'a';
-  const formants = VOWEL_FORMANTS[vowel] || VOWEL_FORMANTS.a;
+  const formants = VOWEL_BANK[vowelKey] || VOWEL_BANK.a;
 
   const pitchSlider = document.getElementById('synthPitchBend');
   const cents = pitchSlider ? parseInt(pitchSlider.value, 10) : 0;
@@ -179,18 +234,20 @@ function playSynthVoice(baseFreq, noteName) {
 
   const now = audioCtx.currentTime;
 
-  // Master Gain with human vocal envelope (attack 35ms)
+  // Master Gain with envelope
   activeGain = audioCtx.createGain();
   activeGain.gain.setValueAtTime(0.0001, now);
-  activeGain.gain.exponentialRampToValueAtTime(0.45, now + 0.035);
 
-  // Glottal Sawtooth Waveform
+  // Attack duration (30ms)
+  activeGain.gain.exponentialRampToValueAtTime(0.48, now + 0.03);
+
+  // Glottal Sawtooth Waveform (vocal cord buzz)
   activeOsc = audioCtx.createOscillator();
   activeOsc.type = 'sawtooth';
   activeOsc.frequency.setValueAtTime(targetFreq, now);
   activeOsc.datasetBaseFreq = baseFreq;
 
-  // Sub warmth
+  // Sub oscillator for richness
   const subOsc = audioCtx.createOscillator();
   subOsc.type = 'square';
   subOsc.frequency.setValueAtTime(targetFreq * 0.5, now);
@@ -198,12 +255,12 @@ function playSynthVoice(baseFreq, noteName) {
   subGain.gain.setValueAtTime(0.08, now);
   subOsc.connect(subGain);
 
-  // Vibrato LFO
+  // Vibrato LFO (6.0 Hz sine)
   if (isVibratoOn) {
     activeLfo = audioCtx.createOscillator();
     activeLfo.frequency.setValueAtTime(6.0, now);
     const lfoGain = audioCtx.createGain();
-    lfoGain.gain.setValueAtTime(5.0, now);
+    lfoGain.gain.setValueAtTime(5.5, now);
     activeLfo.connect(lfoGain);
     lfoGain.connect(activeOsc.frequency);
     activeLfo.start(now);
@@ -238,7 +295,24 @@ function playSynthVoice(baseFreq, noteName) {
   f2.connect(fMix);
   f3.connect(fMix);
 
-  fMix.connect(activeGain);
+  // Add Nasal Resonator for Nasal Vowels (ã, ẽ, ĩ, õ, ũ)
+  if (formants.isNasal && formants.nasalFreq) {
+    const nasalFilter = audioCtx.createBiquadFilter();
+    nasalFilter.type = 'peaking';
+    nasalFilter.frequency.setValueAtTime(formants.nasalFreq, now);
+    nasalFilter.Q.setValueAtTime(4, now);
+    nasalFilter.gain.setValueAtTime(7, now);
+    fMix.connect(nasalFilter);
+    nasalFilter.connect(activeGain);
+  } else {
+    fMix.connect(activeGain);
+  }
+
+  // Consonant Transient & Frication Generation
+  if (cons && cons !== 'none') {
+    triggerConsonantAcoustics(cons, now, targetFreq);
+  }
+
   activeGain.connect(synthAnalyser);
   synthAnalyser.connect(audioCtx.destination);
 
@@ -248,8 +322,113 @@ function playSynthVoice(baseFreq, noteName) {
 
   const statusInfo = document.getElementById('synthStatusInfo');
   if (statusInfo) {
-    statusInfo.textContent = `Sintetizando: ${noteName} (${targetFreq.toFixed(1)} Hz) — Vogal [ ${vowel.toUpperCase()} ] — Motor VENUS`;
+    const consLabel = cons !== 'none' ? `[ ${cons.toUpperCase()} ] + ` : '';
+    statusInfo.textContent = `Sintetizando: ${noteName} (${targetFreq.toFixed(1)} Hz) — ${consLabel}Vogal [ ${vowelKey.toUpperCase()} ]`;
   }
+}
+
+// Generate Consonant Burst / Frication / Murmur
+function triggerConsonantAcoustics(consType, startTime, pitchFreq) {
+  const noiseBuf = getNoiseBuffer();
+  const noiseSource = audioCtx.createBufferSource();
+  noiseSource.buffer = noiseBuf;
+
+  const noiseGain = audioCtx.createGain();
+  const noiseFilter = audioCtx.createBiquadFilter();
+
+  switch (consType) {
+    case 's': // Sibilant Fricative (5.5 kHz sharp bandpass)
+    case 'z':
+      noiseFilter.type = 'bandpass';
+      noiseFilter.frequency.setValueAtTime(5800, startTime);
+      noiseFilter.Q.setValueAtTime(3.5, startTime);
+      noiseGain.gain.setValueAtTime(0.5, startTime);
+      noiseGain.gain.exponentialRampToValueAtTime(0.001, startTime + 0.08);
+      break;
+
+    case 'sh': // Post-alveolar fricative [ʃ] (3.2 kHz)
+    case 'ch':
+      noiseFilter.type = 'bandpass';
+      noiseFilter.frequency.setValueAtTime(3400, startTime);
+      noiseFilter.Q.setValueAtTime(2.8, startTime);
+      noiseGain.gain.setValueAtTime(0.45, startTime);
+      noiseGain.gain.exponentialRampToValueAtTime(0.001, startTime + 0.07);
+      break;
+
+    case 'f': // Labiodental fricative
+    case 'v':
+      noiseFilter.type = 'bandpass';
+      noiseFilter.frequency.setValueAtTime(2800, startTime);
+      noiseFilter.Q.setValueAtTime(1.5, startTime);
+      noiseGain.gain.setValueAtTime(0.35, startTime);
+      noiseGain.gain.exponentialRampToValueAtTime(0.001, startTime + 0.06);
+      break;
+
+    case 't': // Alveolar Plosive burst
+    case 'd':
+      noiseFilter.type = 'bandpass';
+      noiseFilter.frequency.setValueAtTime(4200, startTime);
+      noiseFilter.Q.setValueAtTime(5.0, startTime);
+      noiseGain.gain.setValueAtTime(0.65, startTime);
+      noiseGain.gain.exponentialRampToValueAtTime(0.001, startTime + 0.035);
+      break;
+
+    case 'k': // Velar Plosive burst
+    case 'g':
+      noiseFilter.type = 'bandpass';
+      noiseFilter.frequency.setValueAtTime(2200, startTime);
+      noiseFilter.Q.setValueAtTime(4.0, startTime);
+      noiseGain.gain.setValueAtTime(0.6, startTime);
+      noiseGain.gain.exponentialRampToValueAtTime(0.001, startTime + 0.04);
+      break;
+
+    case 'p': // Bilabial Plosive pop
+    case 'b':
+      noiseFilter.type = 'lowpass';
+      noiseFilter.frequency.setValueAtTime(800, startTime);
+      noiseFilter.Q.setValueAtTime(2.0, startTime);
+      noiseGain.gain.setValueAtTime(0.55, startTime);
+      noiseGain.gain.exponentialRampToValueAtTime(0.001, startTime + 0.03);
+      break;
+
+    case 'l': // Lateral liquid
+    case 'lh':
+      noiseFilter.type = 'bandpass';
+      noiseFilter.frequency.setValueAtTime(1300, startTime);
+      noiseFilter.Q.setValueAtTime(4.0, startTime);
+      noiseGain.gain.setValueAtTime(0.25, startTime);
+      noiseGain.gain.exponentialRampToValueAtTime(0.001, startTime + 0.05);
+      break;
+
+    case 'm': // Nasal murmur
+    case 'n':
+    case 'nh':
+      noiseFilter.type = 'lowpass';
+      noiseFilter.frequency.setValueAtTime(320, startTime);
+      noiseFilter.Q.setValueAtTime(3.0, startTime);
+      noiseGain.gain.setValueAtTime(0.4, startTime);
+      noiseGain.gain.exponentialRampToValueAtTime(0.001, startTime + 0.06);
+      break;
+
+    case 'r': // Alveolar tap
+      noiseFilter.type = 'bandpass';
+      noiseFilter.frequency.setValueAtTime(1600, startTime);
+      noiseFilter.Q.setValueAtTime(3.0, startTime);
+      noiseGain.gain.setValueAtTime(0.4, startTime);
+      noiseGain.gain.exponentialRampToValueAtTime(0.001, startTime + 0.03);
+      break;
+
+    default:
+      noiseGain.gain.setValueAtTime(0.0001, startTime);
+  }
+
+  noiseSource.connect(noiseFilter);
+  noiseFilter.connect(noiseGain);
+  noiseGain.connect(activeGain);
+
+  noiseSource.start(startTime);
+  noiseSource.stop(startTime + 0.12);
+  activeNoiseSource = noiseSource;
 }
 
 function stopSynthVoice() {
@@ -260,6 +439,7 @@ function stopSynthVoice() {
     activeGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.05);
 
     const oldOsc = activeOsc;
+    const oldNoise = activeNoiseSource;
     setTimeout(() => {
       try {
         if (oldOsc) {
@@ -267,11 +447,15 @@ function stopSynthVoice() {
           if (oldOsc.subOsc) oldOsc.subOsc.stop();
           if (oldOsc.lfo) oldOsc.lfo.stop();
         }
+        if (oldNoise) {
+          oldNoise.stop();
+        }
       } catch (e) {}
     }, 60);
 
     activeOsc = null;
     activeGain = null;
+    activeNoiseSource = null;
   }
 }
 
@@ -293,17 +477,20 @@ function playVocalSequence(notes) {
       const keyEl = document.querySelector(`.piano-keyboard .key[data-note="${item.note}"]`);
       if (keyEl) keyEl.classList.add('playing');
 
-      const vowelSelect = document.getElementById('synthVowel');
-      if (vowelSelect) vowelSelect.value = item.vowel;
+      const consonantSelect = document.getElementById('synthConsonant');
+      if (consonantSelect && item.cons) consonantSelect.value = item.cons;
 
-      playSynthVoice(item.freq, `${item.note} ("${item.lyric}")`);
+      const vowelSelect = document.getElementById('synthVowel');
+      if (vowelSelect && item.vowel) vowelSelect.value = item.vowel;
+
+      playSynthVoice(item.freq, `${item.note} ("${item.lyric}")`, item.cons || 'none', item.vowel || 'a');
 
       const stopT = setTimeout(() => {
         stopSynthVoice();
         if (keyEl) keyEl.classList.remove('playing');
         if (idx === notes.length - 1) {
           const statusInfo = document.getElementById('synthStatusInfo');
-          if (statusInfo) statusInfo.textContent = 'Sequência finalizada — Pronto';
+          if (statusInfo) statusInfo.textContent = 'Música finalizada ✨';
         }
       }, item.dur - 35);
       phraseTimeouts.push(stopT);
