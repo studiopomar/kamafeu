@@ -339,256 +339,272 @@ function playSynthVoice(baseFreq, noteName, cons = 'none', vowelKey = 'e_closed'
 
 function getConsonantDuration(cons) {
   switch (cons) {
-    case 's': case 'z': case 'sh': case 'ch': return 0.11; // Fricatives 110ms
-    case 'f': case 'v': return 0.09;
-    case 'm': case 'n': case 'nh': return 0.08; // Nasals 80ms
-    case 'l': case 'lh': case 'r': return 0.06; // Liquids 60ms
-    default: return 0.045; // Plosives (p, t, k, b, d, g) 45ms
+    case 's': case 'z': return 0.07;
+    case 'sh': case 'ch': return 0.08;
+    case 'f': case 'v': return 0.06;
+    case 'm': case 'n': case 'nh': return 0.07;
+    case 'l': case 'lh': return 0.05;
+    case 'r': return 0.04;
+    default: return 0.025; // Soft natural human plosive release (25ms)
   }
 }
 
-// Generate Realistic Audible Acoustic Consonant
+// Generate Realistic Human Vocal Consonants (Acoustic Articulation, formant glide & soft aspiration)
 function playAcousticConsonant(cons, t0, pitchFreq) {
   const noiseBuf = getWhiteNoiseBuffer();
   const consMasterGain = audioCtx.createGain();
+  // Keep consonant volume in a natural, organic human proportion (not loud percussive hits)
+  consMasterGain.gain.setValueAtTime(0.35, t0);
   consMasterGain.connect(synthAnalyser);
 
   activeConsonantNodes.push(consMasterGain);
 
   switch (cons) {
     // -------------------------------------------------------------
-    // PLOSIVES (p, t, k, b, d, g): Sharp pop transient + burst noise
+    // PLOSIVES (p, t, k, b, d, g): Natural vocal tract release + soft burst
+    // (No artificial drum pops; human lips/tongue release with gentle formant ramp)
     // -------------------------------------------------------------
-    case 'k':
-    case 'g': {
-      // Velar burst noise centered at 2.2 kHz
+    case 'p':
+    case 'b': {
+      // Bilabial: soft low-mid breath burst with low vocal murmur for voiced 'b'
       const noiseSource = audioCtx.createBufferSource();
       noiseSource.buffer = noiseBuf;
       const bp = audioCtx.createBiquadFilter();
       bp.type = 'bandpass';
-      bp.frequency.setValueAtTime(2200, t0);
-      bp.Q.setValueAtTime(4.0, t0);
+      bp.frequency.setValueAtTime(900, t0);
+      bp.Q.setValueAtTime(1.2, t0);
 
       const gain = audioCtx.createGain();
-      gain.gain.setValueAtTime(0.85, t0);
-      gain.gain.exponentialRampToValueAtTime(0.001, t0 + 0.045);
+      gain.gain.setValueAtTime(0.001, t0);
+      gain.gain.linearRampToValueAtTime(0.28, t0 + 0.005);
+      gain.gain.exponentialRampToValueAtTime(0.001, t0 + 0.03);
 
       noiseSource.connect(bp);
       bp.connect(gain);
       gain.connect(consMasterGain);
       noiseSource.start(t0);
-      noiseSource.stop(t0 + 0.05);
+      noiseSource.stop(t0 + 0.035);
 
-      // Transient Pop Pitch Drop
-      const popOsc = audioCtx.createOscillator();
-      popOsc.type = 'triangle';
-      popOsc.frequency.setValueAtTime(cons === 'g' ? 350 : 600, t0);
-      popOsc.frequency.exponentialRampToValueAtTime(100, t0 + 0.03);
-      const popGain = audioCtx.createGain();
-      popGain.gain.setValueAtTime(0.6, t0);
-      popGain.gain.exponentialRampToValueAtTime(0.001, t0 + 0.03);
-      popOsc.connect(popGain);
-      popGain.connect(consMasterGain);
-      popOsc.start(t0);
-      popOsc.stop(t0 + 0.035);
+      if (cons === 'b') {
+        const murmur = audioCtx.createOscillator();
+        murmur.type = 'sine';
+        murmur.frequency.setValueAtTime(pitchFreq, t0);
+        const mGain = audioCtx.createGain();
+        mGain.gain.setValueAtTime(0.25, t0);
+        mGain.gain.exponentialRampToValueAtTime(0.001, t0 + 0.03);
+        murmur.connect(mGain);
+        mGain.connect(consMasterGain);
+        murmur.start(t0);
+        murmur.stop(t0 + 0.035);
+      }
       break;
     }
 
     case 't':
     case 'd': {
-      // Alveolar high frequency click (4.2 kHz)
+      // Alveolar release: soft high-mid breath puff (3.5 kHz)
       const noiseSource = audioCtx.createBufferSource();
       noiseSource.buffer = noiseBuf;
       const bp = audioCtx.createBiquadFilter();
       bp.type = 'bandpass';
-      bp.frequency.setValueAtTime(4500, t0);
-      bp.Q.setValueAtTime(5.0, t0);
+      bp.frequency.setValueAtTime(3600, t0);
+      bp.Q.setValueAtTime(1.8, t0);
 
       const gain = audioCtx.createGain();
-      gain.gain.setValueAtTime(0.9, t0);
-      gain.gain.exponentialRampToValueAtTime(0.001, t0 + 0.04);
+      gain.gain.setValueAtTime(0.001, t0);
+      gain.gain.linearRampToValueAtTime(0.25, t0 + 0.004);
+      gain.gain.exponentialRampToValueAtTime(0.001, t0 + 0.028);
 
       noiseSource.connect(bp);
       bp.connect(gain);
       gain.connect(consMasterGain);
       noiseSource.start(t0);
-      noiseSource.stop(t0 + 0.045);
+      noiseSource.stop(t0 + 0.032);
 
-      const popOsc = audioCtx.createOscillator();
-      popOsc.type = 'sine';
-      popOsc.frequency.setValueAtTime(800, t0);
-      popOsc.frequency.exponentialRampToValueAtTime(150, t0 + 0.025);
-      const popGain = audioCtx.createGain();
-      popGain.gain.setValueAtTime(0.55, t0);
-      popGain.gain.exponentialRampToValueAtTime(0.001, t0 + 0.025);
-      popOsc.connect(popGain);
-      popGain.connect(consMasterGain);
-      popOsc.start(t0);
-      popOsc.stop(t0 + 0.03);
+      if (cons === 'd') {
+        const murmur = audioCtx.createOscillator();
+        murmur.type = 'sine';
+        murmur.frequency.setValueAtTime(pitchFreq, t0);
+        const mGain = audioCtx.createGain();
+        mGain.gain.setValueAtTime(0.22, t0);
+        mGain.gain.exponentialRampToValueAtTime(0.001, t0 + 0.028);
+        murmur.connect(mGain);
+        mGain.connect(consMasterGain);
+        murmur.start(t0);
+        murmur.stop(t0 + 0.032);
+      }
       break;
     }
 
-    case 'p':
-    case 'b': {
-      // Bilabial low pop + soft burst
-      const popOsc = audioCtx.createOscillator();
-      popOsc.type = 'sine';
-      popOsc.frequency.setValueAtTime(320, t0);
-      popOsc.frequency.exponentialRampToValueAtTime(60, t0 + 0.04);
-      const popGain = audioCtx.createGain();
-      popGain.gain.setValueAtTime(0.95, t0);
-      popGain.gain.exponentialRampToValueAtTime(0.001, t0 + 0.04);
-      popOsc.connect(popGain);
-      popGain.connect(consMasterGain);
-      popOsc.start(t0);
-      popOsc.stop(t0 + 0.045);
-
+    case 'k':
+    case 'g': {
+      // Velar release: soft oral cavity aspiration (1.8 kHz)
       const noiseSource = audioCtx.createBufferSource();
       noiseSource.buffer = noiseBuf;
-      const lp = audioCtx.createBiquadFilter();
-      lp.type = 'lowpass';
-      lp.frequency.setValueAtTime(1200, t0);
-      const noiseGain = audioCtx.createGain();
-      noiseGain.gain.setValueAtTime(0.5, t0);
-      noiseGain.gain.exponentialRampToValueAtTime(0.001, t0 + 0.035);
-      noiseSource.connect(lp);
-      lp.connect(noiseGain);
-      noiseGain.connect(consMasterGain);
-      noiseSource.start(t0);
-      noiseSource.stop(t0 + 0.04);
-      break;
-    }
-
-    // -------------------------------------------------------------
-    // FRICATIVES (s, z, sh, ch, f, v): Textured audible noise band
-    // -------------------------------------------------------------
-    case 's':
-    case 'z': {
-      // High-frequency sibilant hiss (5.5 kHz - 9 kHz)
-      const noiseSource = audioCtx.createBufferSource();
-      noiseSource.buffer = noiseBuf;
-      const hp = audioCtx.createBiquadFilter();
-      hp.type = 'highpass';
-      hp.frequency.setValueAtTime(4800, t0);
-
       const bp = audioCtx.createBiquadFilter();
       bp.type = 'bandpass';
-      bp.frequency.setValueAtTime(6500, t0);
+      bp.frequency.setValueAtTime(1850, t0);
       bp.Q.setValueAtTime(2.0, t0);
 
       const gain = audioCtx.createGain();
-      gain.gain.setValueAtTime(0.85, t0);
-      gain.gain.exponentialRampToValueAtTime(0.001, t0 + 0.11);
+      gain.gain.setValueAtTime(0.001, t0);
+      gain.gain.linearRampToValueAtTime(0.24, t0 + 0.005);
+      gain.gain.exponentialRampToValueAtTime(0.001, t0 + 0.03);
 
-      noiseSource.connect(hp);
-      hp.connect(bp);
+      noiseSource.connect(bp);
       bp.connect(gain);
       gain.connect(consMasterGain);
       noiseSource.start(t0);
-      noiseSource.stop(t0 + 0.12);
+      noiseSource.stop(t0 + 0.035);
 
-      // Voiced 'z' hum
+      if (cons === 'g') {
+        const murmur = audioCtx.createOscillator();
+        murmur.type = 'sine';
+        murmur.frequency.setValueAtTime(pitchFreq, t0);
+        const mGain = audioCtx.createGain();
+        mGain.gain.setValueAtTime(0.22, t0);
+        mGain.gain.exponentialRampToValueAtTime(0.001, t0 + 0.03);
+        murmur.connect(mGain);
+        mGain.connect(consMasterGain);
+        murmur.start(t0);
+        murmur.stop(t0 + 0.035);
+      }
+      break;
+    }
+
+    // -------------------------------------------------------------
+    // FRICATIVES (s, z, sh, ch, f, v): Soft continuous breath turbulence
+    // -------------------------------------------------------------
+    case 's':
+    case 'z': {
+      // Natural human dental hiss (soft attack, filtered)
+      const noiseSource = audioCtx.createBufferSource();
+      noiseSource.buffer = noiseBuf;
+      const bp = audioCtx.createBiquadFilter();
+      bp.type = 'bandpass';
+      bp.frequency.setValueAtTime(6200, t0);
+      bp.Q.setValueAtTime(1.5, t0);
+
+      const gain = audioCtx.createGain();
+      gain.gain.setValueAtTime(0.001, t0);
+      gain.gain.linearRampToValueAtTime(0.3, t0 + 0.015);
+      gain.gain.exponentialRampToValueAtTime(0.001, t0 + 0.07);
+
+      noiseSource.connect(bp);
+      bp.connect(gain);
+      gain.connect(consMasterGain);
+      noiseSource.start(t0);
+      noiseSource.stop(t0 + 0.075);
+
       if (cons === 'z') {
         const hum = audioCtx.createOscillator();
         hum.type = 'sawtooth';
         hum.frequency.setValueAtTime(pitchFreq, t0);
+        const lp = audioCtx.createBiquadFilter();
+        lp.type = 'lowpass';
+        lp.frequency.setValueAtTime(700, t0);
         const humGain = audioCtx.createGain();
-        humGain.gain.setValueAtTime(0.3, t0);
-        humGain.gain.exponentialRampToValueAtTime(0.001, t0 + 0.1);
-        hum.connect(humGain);
+        humGain.gain.setValueAtTime(0.18, t0);
+        humGain.gain.exponentialRampToValueAtTime(0.001, t0 + 0.065);
+        hum.connect(lp);
+        lp.connect(humGain);
         humGain.connect(consMasterGain);
         hum.start(t0);
-        hum.stop(t0 + 0.11);
+        hum.stop(t0 + 0.07);
       }
       break;
     }
 
     case 'sh':
     case 'ch': {
-      // Post-alveolar fricative [ʃ] (2.8 kHz - 4.5 kHz)
+      // Palato-alveolar soft air friction [ʃ]
       const noiseSource = audioCtx.createBufferSource();
       noiseSource.buffer = noiseBuf;
       const bp = audioCtx.createBiquadFilter();
       bp.type = 'bandpass';
-      bp.frequency.setValueAtTime(3200, t0);
-      bp.Q.setValueAtTime(1.8, t0);
+      bp.frequency.setValueAtTime(2800, t0);
+      bp.Q.setValueAtTime(1.3, t0);
 
       const gain = audioCtx.createGain();
-      gain.gain.setValueAtTime(0.85, t0);
-      gain.gain.exponentialRampToValueAtTime(0.001, t0 + 0.10);
-
-      noiseSource.connect(bp);
-      bp.connect(gain);
-      gain.connect(consMasterGain);
-      noiseSource.start(t0);
-      noiseSource.stop(t0 + 0.11);
-      break;
-    }
-
-    case 'f':
-    case 'v': {
-      // Labiodental soft turbulent air
-      const noiseSource = audioCtx.createBufferSource();
-      noiseSource.buffer = noiseBuf;
-      const bp = audioCtx.createBiquadFilter();
-      bp.type = 'bandpass';
-      bp.frequency.setValueAtTime(2400, t0);
-      bp.Q.setValueAtTime(1.2, t0);
-
-      const gain = audioCtx.createGain();
-      gain.gain.setValueAtTime(0.65, t0);
+      gain.gain.setValueAtTime(0.001, t0);
+      gain.gain.linearRampToValueAtTime(0.32, t0 + 0.018);
       gain.gain.exponentialRampToValueAtTime(0.001, t0 + 0.08);
 
       noiseSource.connect(bp);
       bp.connect(gain);
       gain.connect(consMasterGain);
       noiseSource.start(t0);
-      noiseSource.stop(t0 + 0.09);
+      noiseSource.stop(t0 + 0.085);
+      break;
+    }
+
+    case 'f':
+    case 'v': {
+      // Soft labiodental breath friction
+      const noiseSource = audioCtx.createBufferSource();
+      noiseSource.buffer = noiseBuf;
+      const bp = audioCtx.createBiquadFilter();
+      bp.type = 'bandpass';
+      bp.frequency.setValueAtTime(2100, t0);
+      bp.Q.setValueAtTime(1.0, t0);
+
+      const gain = audioCtx.createGain();
+      gain.gain.setValueAtTime(0.001, t0);
+      gain.gain.linearRampToValueAtTime(0.22, t0 + 0.012);
+      gain.gain.exponentialRampToValueAtTime(0.001, t0 + 0.06);
+
+      noiseSource.connect(bp);
+      bp.connect(gain);
+      gain.connect(consMasterGain);
+      noiseSource.start(t0);
+      noiseSource.stop(t0 + 0.065);
 
       if (cons === 'v') {
         const hum = audioCtx.createOscillator();
         hum.type = 'sine';
         hum.frequency.setValueAtTime(pitchFreq, t0);
         const humGain = audioCtx.createGain();
-        humGain.gain.setValueAtTime(0.35, t0);
-        humGain.gain.exponentialRampToValueAtTime(0.001, t0 + 0.08);
+        humGain.gain.setValueAtTime(0.2, t0);
+        humGain.gain.exponentialRampToValueAtTime(0.001, t0 + 0.055);
         hum.connect(humGain);
         humGain.connect(consMasterGain);
         hum.start(t0);
-        hum.stop(t0 + 0.09);
+        hum.stop(t0 + 0.06);
       }
       break;
     }
 
     // -------------------------------------------------------------
-    // NASALS (m, n, nh): Low nasal murmur hum
+    // NASALS (m, n, nh): Warm human nasal tract resonance
     // -------------------------------------------------------------
     case 'm':
     case 'n':
     case 'nh': {
       const murmur = audioCtx.createOscillator();
-      murmur.type = 'triangle';
+      murmur.type = 'sawtooth';
       murmur.frequency.setValueAtTime(pitchFreq, t0);
 
+      // Low pass filter to create natural muffled closed-mouth nasal sound
       const lp = audioCtx.createBiquadFilter();
       lp.type = 'lowpass';
-      lp.frequency.setValueAtTime(cons === 'nh' ? 450 : 280, t0);
-      lp.Q.setValueAtTime(3.0, t0);
+      lp.frequency.setValueAtTime(cons === 'nh' ? 480 : (cons === 'm' ? 240 : 340), t0);
+      lp.Q.setValueAtTime(2.0, t0);
 
       const gain = audioCtx.createGain();
-      gain.gain.setValueAtTime(0.7, t0);
-      gain.gain.exponentialRampToValueAtTime(0.001, t0 + 0.08);
+      gain.gain.setValueAtTime(0.001, t0);
+      gain.gain.linearRampToValueAtTime(0.35, t0 + 0.015);
+      gain.gain.exponentialRampToValueAtTime(0.001, t0 + 0.07);
 
       murmur.connect(lp);
       lp.connect(gain);
       gain.connect(consMasterGain);
       murmur.start(t0);
-      murmur.stop(t0 + 0.09);
+      murmur.stop(t0 + 0.075);
       break;
     }
 
     // -------------------------------------------------------------
-    // LIQUIDS (l, lh, r): Formant transition glide & alveolar tap
+    // LIQUIDS (l, lh, r): Vocal formant glides and tongue flap
     // -------------------------------------------------------------
     case 'l':
     case 'lh': {
@@ -598,51 +614,43 @@ function playAcousticConsonant(cons, t0, pitchFreq) {
 
       const bp = audioCtx.createBiquadFilter();
       bp.type = 'bandpass';
-      bp.frequency.setValueAtTime(cons === 'lh' ? 2200 : 1300, t0);
-      bp.Q.setValueAtTime(4.0, t0);
+      bp.frequency.setValueAtTime(cons === 'lh' ? 1900 : 1100, t0);
+      bp.Q.setValueAtTime(3.0, t0);
 
       const gain = audioCtx.createGain();
-      gain.gain.setValueAtTime(0.65, t0);
-      gain.gain.exponentialRampToValueAtTime(0.001, t0 + 0.06);
+      gain.gain.setValueAtTime(0.001, t0);
+      gain.gain.linearRampToValueAtTime(0.3, t0 + 0.01);
+      gain.gain.exponentialRampToValueAtTime(0.001, t0 + 0.05);
 
       glideOsc.connect(bp);
       bp.connect(gain);
       gain.connect(consMasterGain);
       glideOsc.start(t0);
-      glideOsc.stop(t0 + 0.07);
+      glideOsc.stop(t0 + 0.055);
       break;
     }
 
     case 'r': {
-      // Alveolar tap (rapid modulation pulse)
+      // Natural Portuguese alveolar tap (single quick tongue tap against alveolar ridge)
       const tapOsc = audioCtx.createOscillator();
       tapOsc.type = 'sawtooth';
       tapOsc.frequency.setValueAtTime(pitchFreq, t0);
 
-      const tremolo = audioCtx.createOscillator();
-      tremolo.frequency.setValueAtTime(30, t0); // 30 Hz tongue tap
-      const tremoloGain = audioCtx.createGain();
-      tremoloGain.gain.setValueAtTime(0.5, t0);
-      tremolo.connect(tremoloGain.gain);
-
       const bp = audioCtx.createBiquadFilter();
       bp.type = 'bandpass';
-      bp.frequency.setValueAtTime(1600, t0);
-      bp.Q.setValueAtTime(3.0, t0);
+      bp.frequency.setValueAtTime(1400, t0);
+      bp.Q.setValueAtTime(2.2, t0);
 
       const gain = audioCtx.createGain();
-      gain.gain.setValueAtTime(0.6, t0);
-      gain.gain.exponentialRampToValueAtTime(0.001, t0 + 0.05);
+      gain.gain.setValueAtTime(0.001, t0);
+      gain.gain.linearRampToValueAtTime(0.28, t0 + 0.008);
+      gain.gain.exponentialRampToValueAtTime(0.001, t0 + 0.04);
 
       tapOsc.connect(bp);
-      bp.connect(tremoloGain);
-      tremoloGain.connect(gain);
+      bp.connect(gain);
       gain.connect(consMasterGain);
-
       tapOsc.start(t0);
-      tremolo.start(t0);
-      tapOsc.stop(t0 + 0.06);
-      tremolo.stop(t0 + 0.06);
+      tapOsc.stop(t0 + 0.045);
       break;
     }
   }
