@@ -182,7 +182,7 @@ function initVocalSynthKeyboard() {
         { note: 'D4', freq: 293.66, cons: 'v',  vowel: 'o_closed', lyric: 'vo-',   dur: 360 },
         { note: 'D4', freq: 293.66, cons: 's',  vowel: 'e_closed', lyric: 'cê',    dur: 360 },
         { note: 'C4', freq: 261.63, cons: 'b',  vowel: 'i',        lyric: 'bri-',  dur: 420 },
-        { note: 'C4', freq: 261.63, cons: 'lh', vowel: 'a',        lyric: 'lhar! ✨', dur: 850 }
+        { note: 'C4', freq: 261.63, cons: 'lh', vowel: 'a',        lyric: 'lhar!', dur: 850 }
       ]);
     });
   }
@@ -205,7 +205,7 @@ function initVocalSynthKeyboard() {
         { note: 'E4', freq: 329.63, cons: 's',  vowel: 'u',        lyric: 'Stu-', dur: 300 },
         { note: 'G4', freq: 392.00, cons: 'd',  vowel: 'i',        lyric: 'dio',  dur: 300 },
         { note: 'C5', freq: 523.25, cons: 'p',  vowel: 'o_closed', lyric: 'Po-',  dur: 400 },
-        { note: 'G4', freq: 392.00, cons: 'm',  vowel: 'a',        lyric: 'mar 🍊', dur: 750 }
+        { note: 'G4', freq: 392.00, cons: 'm',  vowel: 'a',        lyric: 'mar',  dur: 750 }
       ]);
     });
   }
@@ -712,7 +712,7 @@ function playVocalSequence(notes) {
         if (keyEl) keyEl.classList.remove('playing');
         if (idx === notes.length - 1) {
           const statusInfo = document.getElementById('synthStatusInfo');
-          if (statusInfo) statusInfo.textContent = 'Música finalizada ✨';
+          if (statusInfo) statusInfo.textContent = 'Música finalizada';
         }
       }, item.dur - 35);
       phraseTimeouts.push(stopT);
