@@ -290,6 +290,12 @@ body {
   width: 100%;
 }
 
+.btn-xs {
+  padding: 0.3rem 0.65rem;
+  font-size: 0.78rem;
+  border-radius: 5px;
+}
+
 /* Software Frame */
 .software-frame {
   background-color: var(--bg-darker);
@@ -382,7 +388,183 @@ body {
 }
 
 /* -------------------------------------------------------------------
-   4. FEATURE ROWS (WORKFLOWS)
+   4. INTERACTIVE VOCAL SYNTH KEYBOARD WIDGET
+   ------------------------------------------------------------------- */
+.synth-keyboard-widget {
+  background-color: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius);
+  padding: 1.5rem;
+}
+
+.synth-top-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1.25rem;
+  margin-bottom: 1.25rem;
+  padding-bottom: 1.25rem;
+  border-bottom: 1px solid var(--border);
+}
+
+.synth-ctrl {
+  display: flex;
+  align-items: center;
+  gap: 0.6rem;
+}
+
+.synth-ctrl label {
+  font-size: 0.82rem;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.synth-select {
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border);
+  color: #fff;
+  padding: 0.35rem 0.75rem;
+  border-radius: 6px;
+  font-size: 0.82rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.synth-toggle-btn {
+  background-color: var(--bg-surface);
+  border: 1px solid var(--border);
+  color: var(--text-muted);
+  padding: 0.35rem 0.75rem;
+  border-radius: 6px;
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+
+.synth-toggle-btn.active {
+  background-color: var(--accent-dim);
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.phrase-btn-group {
+  display: flex;
+  gap: 0.45rem;
+}
+
+/* Piano Roll Container */
+.piano-roll-container {
+  margin-bottom: 1.25rem;
+}
+
+.piano-keyboard {
+  display: flex;
+  position: relative;
+  height: 120px;
+  background-color: #080a0f;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 3px;
+  overflow-x: auto;
+  user-select: none;
+}
+
+.key {
+  position: relative;
+  flex: 1;
+  min-width: 32px;
+  border: 1px solid rgba(0, 0, 0, 0.4);
+  border-radius: 0 0 5px 5px;
+  cursor: pointer;
+  display: flex;
+  align-items: flex-end;
+  justify-content: center;
+  padding-bottom: 6px;
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+  font-weight: 600;
+  transition: background 0.08s ease;
+}
+
+.key.white {
+  background-color: #e2e8f0;
+  color: #1e293b;
+  z-index: 1;
+  height: 100%;
+}
+
+.key.white:hover {
+  background-color: #cbd5e1;
+}
+
+.key.white:active, .key.white.playing {
+  background-color: var(--accent) !important;
+  color: #022c22 !important;
+}
+
+.key.black {
+  background-color: #0f172a;
+  color: #94a3b8;
+  height: 60%;
+  margin-left: -14px;
+  margin-right: -14px;
+  z-index: 2;
+  min-width: 24px;
+  border-radius: 0 0 4px 4px;
+}
+
+.key.black:hover {
+  background-color: #1e293b;
+}
+
+.key.black:active, .key.black.playing {
+  background-color: #059669 !important;
+  color: #fff !important;
+}
+
+.key.active-root {
+  border-bottom: 3px solid var(--accent);
+}
+
+/* Oscilloscope Monitor */
+.synth-osc-monitor {
+  background-color: var(--bg-darker);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 0.75rem;
+}
+
+.osc-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  margin-bottom: 0.45rem;
+}
+
+.osc-title {
+  color: var(--text-dim);
+}
+
+.osc-info {
+  color: var(--accent);
+  font-weight: 600;
+}
+
+.synth-canvas {
+  width: 100%;
+  height: 100px;
+  background-color: #040608;
+  border-radius: 4px;
+  display: block;
+}
+
+/* -------------------------------------------------------------------
+   5. FEATURE ROWS (WORKFLOWS)
    ------------------------------------------------------------------- */
 .feature-rows {
   display: flex;
@@ -528,7 +710,7 @@ kbd {
 }
 
 /* -------------------------------------------------------------------
-   5. AUDIO ENGINES GRID
+   6. AUDIO ENGINES GRID
    ------------------------------------------------------------------- */
 .engines-grid {
   display: grid;
@@ -586,7 +768,7 @@ kbd {
 }
 
 /* -------------------------------------------------------------------
-   6. OTO.INI CALIBRATOR WIDGET
+   7. OTO.INI CALIBRATOR WIDGET
    ------------------------------------------------------------------- */
 .calibrator-widget {
   background-color: var(--bg-card);
@@ -686,7 +868,7 @@ kbd {
 .leg-cutoff { background-color: #6b7280; }
 
 /* -------------------------------------------------------------------
-   7. FORMATS DATA TABLE
+   8. FORMATS DATA TABLE
    ------------------------------------------------------------------- */
 .table-wrap {
   overflow-x: auto;
@@ -742,7 +924,7 @@ code {
 }
 
 /* -------------------------------------------------------------------
-   8. THEME GALLERY
+   9. THEME GALLERY
    ------------------------------------------------------------------- */
 .theme-tabs {
   display: flex;
@@ -813,7 +995,7 @@ code {
 }
 
 /* -------------------------------------------------------------------
-   9. DOWNLOADS GRID
+   10. DOWNLOADS GRID
    ------------------------------------------------------------------- */
 .downloads-grid {
   display: grid;
@@ -865,7 +1047,7 @@ code {
 }
 
 /* -------------------------------------------------------------------
-   10. SOURCE COMPILATION TERMINAL
+   11. SOURCE COMPILATION TERMINAL
    ------------------------------------------------------------------- */
 .code-terminal {
   background-color: var(--bg-card);
@@ -954,7 +1136,7 @@ pre {
 }
 
 /* -------------------------------------------------------------------
-   11. FOOTER
+   12. FOOTER
    ------------------------------------------------------------------- */
 .site-footer {
   background-color: var(--bg-darker);
@@ -1047,7 +1229,7 @@ pre {
 }
 
 /* -------------------------------------------------------------------
-   12. RESPONSIVE QUERIES
+   13. RESPONSIVE QUERIES
    ------------------------------------------------------------------- */
 @media (max-width: 860px) {
   .hero-title {

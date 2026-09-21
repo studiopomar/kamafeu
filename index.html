@@ -32,8 +32,9 @@
 
       <nav class="nav-links" id="navLinks">
         <a href="#recursos">Recursos</a>
-        <a href="#motores">Motores de Áudio</a>
-        <a href="#oto-calibrador">oto.ini & DSP</a>
+        <a href="#teclado-synth">Teclado Vocal</a>
+        <a href="#motores">Motores DSP</a>
+        <a href="#oto-calibrador">oto.ini & Acústica</a>
         <a href="#formatos">Formatos</a>
         <a href="#temas">Temas</a>
         <a href="#downloads">Downloads</a>
@@ -71,11 +72,12 @@
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
             <span id="osDownloadText">Baixar para seu Sistema</span>
           </a>
-          <a href="https://github.com/studiopomar/kamafeu" target="_blank" rel="noopener" class="btn btn-secondary">
-            Ver Código no GitHub
+          <a href="#teclado-synth" class="btn btn-secondary">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="5" width="20" height="14" rx="2"/><line x1="6" y1="5" x2="6" y2="12"/><line x1="10" y1="5" x2="10" y2="12"/><line x1="14" y1="5" x2="14" y2="12"/><line x1="18" y1="5" x2="18" y2="12"/></svg>
+            Testar Teclado Vocal
           </a>
-          <a href="#compilacao" class="btn btn-ghost">
-            Instruções de Compilação
+          <a href="https://github.com/studiopomar/kamafeu" target="_blank" rel="noopener" class="btn btn-ghost">
+            Ver Código no GitHub
           </a>
         </div>
 
@@ -92,6 +94,90 @@
           </div>
           <div class="frame-screen">
             <img src="assets/kamafeu_banner.png" alt="Interface Principal do Kamafeu Studio" class="main-screenshot" id="mainScreenshot">
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Interactive Vocal Synth Keyboard Section -->
+    <section class="section section-dark" id="teclado-synth">
+      <div class="container">
+        <div class="section-label">Demonstração Interativa</div>
+        <h2 class="section-heading">Teclado Vocal & Síntese Formântica WebAudio</h2>
+        <p class="section-subheading">Toque no piano roll abaixo para ouvir a reconstrução formântica das vogais do motor <strong>VENUS</strong> e a modelagem de afinação em tempo real no seu navegador.</p>
+
+        <div class="synth-keyboard-widget">
+          <!-- Top Controls -->
+          <div class="synth-top-controls">
+            <div class="synth-ctrl">
+              <label for="synthVowel">Vogal / Fonema:</label>
+              <select id="synthVowel" class="synth-select">
+                <option value="a">Vogal [ a ] (Ah)</option>
+                <option value="e">Vogal [ e ] (Eh)</option>
+                <option value="i">Vogal [ i ] (Ee)</option>
+                <option value="o">Vogal [ o ] (Oh)</option>
+                <option value="u">Vogal [ u ] (Oo)</option>
+              </select>
+            </div>
+
+            <div class="synth-ctrl">
+              <label for="synthPitchBend">Pitch Bend: <span id="synthPitchVal" class="val-tag">0 cents</span></label>
+              <input type="range" id="synthPitchBend" min="-200" max="200" value="0" class="range-slider">
+            </div>
+
+            <div class="synth-ctrl">
+              <label>Vibrato LFO:</label>
+              <button class="synth-toggle-btn active" id="synthVibratoBtn">6.0 Hz / 45c</button>
+            </div>
+
+            <div class="synth-ctrl">
+              <label>Frases Prontas:</label>
+              <div class="phrase-btn-group">
+                <button class="btn btn-xs btn-secondary" id="btnPlayKamafeu">▶ "Ka-ma-feu"</button>
+                <button class="btn btn-xs btn-secondary" id="btnPlayPomar">▶ "Stu-dio Po-mar"</button>
+                <button class="btn btn-xs btn-ghost" id="btnStopSynth">⏹ Parar</button>
+              </div>
+            </div>
+          </div>
+
+          <!-- Piano Keys Component -->
+          <div class="piano-roll-container">
+            <div class="piano-keyboard" id="pianoKeyboard">
+              <button class="key white" data-note="C3" data-freq="130.81"><span>C3</span></button>
+              <button class="key black" data-note="C#3" data-freq="138.59"><span>C#3</span></button>
+              <button class="key white" data-note="D3" data-freq="146.83"><span>D3</span></button>
+              <button class="key black" data-note="D#3" data-freq="155.56"><span>D#3</span></button>
+              <button class="key white" data-note="E3" data-freq="164.81"><span>E3</span></button>
+              <button class="key white" data-note="F3" data-freq="174.61"><span>F3</span></button>
+              <button class="key black" data-note="F#3" data-freq="185.00"><span>F#3</span></button>
+              <button class="key white" data-note="G3" data-freq="196.00"><span>G3</span></button>
+              <button class="key black" data-note="G#3" data-freq="207.65"><span>G#3</span></button>
+              <button class="key white" data-note="A3" data-freq="220.00"><span>A3</span></button>
+              <button class="key black" data-note="A#3" data-freq="233.08"><span>A#3</span></button>
+              <button class="key white" data-note="B3" data-freq="246.94"><span>B3</span></button>
+              <button class="key white active-root" data-note="C4" data-freq="261.63"><span>C4</span></button>
+              <button class="key black" data-note="C#4" data-freq="277.18"><span>C#4</span></button>
+              <button class="key white" data-note="D4" data-freq="293.66"><span>D4</span></button>
+              <button class="key black" data-note="D#4" data-freq="311.13"><span>D#4</span></button>
+              <button class="key white" data-note="E4" data-freq="329.63"><span>E4</span></button>
+              <button class="key white" data-note="F4" data-freq="349.23"><span>F4</span></button>
+              <button class="key black" data-note="F#4" data-freq="369.99"><span>F#4</span></button>
+              <button class="key white" data-note="G4" data-freq="392.00"><span>G4</span></button>
+              <button class="key black" data-note="G#4" data-freq="415.30"><span>G#4</span></button>
+              <button class="key white" data-note="A4" data-freq="440.00"><span>A4</span></button>
+              <button class="key black" data-note="A#4" data-freq="466.16"><span>A#4</span></button>
+              <button class="key white" data-note="B4" data-freq="493.88"><span>B4</span></button>
+              <button class="key white" data-note="C5" data-freq="523.25"><span>C5</span></button>
+            </div>
+          </div>
+
+          <!-- Real-Time Waveform Oscilloscope Canvas -->
+          <div class="synth-osc-monitor">
+            <div class="osc-bar">
+              <span class="osc-title">&bull; Monitor de Forma de Onda em Tempo Real (Osciloscópio)</span>
+              <span class="osc-info" id="synthStatusInfo">Clique em uma tecla ou toque uma frase para sintetizar</span>
+            </div>
+            <canvas id="synthOscCanvas" width="900" height="110" class="synth-canvas"></canvas>
           </div>
         </div>
       </div>
