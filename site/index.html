@@ -1,867 +1,557 @@
 <!DOCTYPE html>
-<html lang="pt-BR" data-theme="pomar-neon">
+<html lang="pt-BR">
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Kamafeu Studio - Editor e Sintetizador Vocal UTAU em Rust</title>
-  <meta name="description" content="Kamafeu Studio é um editor e sintetizador vocal de alta precisão em Rust para UTAU e OpenUtau com síntese DSP determinística, piano roll avançado e motores nativos VENUS e Andromeda.">
-  <meta name="keywords" content="Kamafeu, UTAU, OpenUtau, Rust, Sintetizador Vocal, Piano Roll, VENUS, Andromeda, Studio Pomar, DSP, oto.ini, Resampler, Wavtool">
+  <title>Kamafeu Studio — Editor e Sintetizador Vocal UTAU em Rust</title>
+  <meta name="description" content="Editor e sintetizador vocal por amostragem e splicing em Rust para o ecossistema UTAU e OpenUtau. Motores nativos VENUS e Andromeda, calibração oto.ini e suporte multifaixa.">
+  <meta name="keywords" content="Kamafeu Studio, UTAU, OpenUtau, Rust, Sintetizador Vocal, Piano Roll, VENUS, Andromeda, Studio Pomar, DSP, oto.ini, Resampler, Wavtool">
   <meta name="author" content="Studio Pomar">
 
-  <!-- Open Graph / Social Meta -->
-  <meta property="og:type" content="website">
-  <meta property="og:url" content="https://studiopomar.github.io/kamafeu/">
-  <meta property="og:title" content="Kamafeu Studio - Editor e Sintetizador Vocal UTAU em Rust">
-  <meta property="og:description" content="Ambiente completo de edição, calibração oto.ini e síntese vocal com controle técnico direto, motores nativos VENUS e Andromeda, sem redes neurais.">
-  <meta property="og:image" content="assets/kamafeu_banner.png">
-
-  <!-- Favicon -->
   <link rel="icon" type="image/png" href="assets/icon.png">
 
-  <!-- Google Fonts -->
+  <!-- Inter & JetBrains Mono Fonts -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Outfit:wght@400;500;600;700;800;900&family=Plus+Jakarta+Sans:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
 
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
 
-  <!-- Ambient Background Glows -->
-  <div class="ambient-glow glow-top-left" aria-hidden="true"></div>
-  <div class="ambient-glow glow-top-right" aria-hidden="true"></div>
-  <div class="ambient-glow glow-bottom-center" aria-hidden="true"></div>
-  <div class="bg-grid-pattern" aria-hidden="true"></div>
-
-  <!-- Header / Navigation -->
-  <header class="header" id="mainHeader">
-    <div class="container header-container">
-      <a href="#" class="brand" id="brandLogo">
-        <div class="brand-logo-wrap">
-          <img src="assets/icon.png" alt="Logo Kamafeu Studio" class="brand-logo" width="44" height="44">
-          <div class="logo-glow" aria-hidden="true"></div>
-        </div>
-        <div class="brand-text">
-          <span class="brand-title">Kamafeu<span class="text-accent">.studio</span></span>
-          <span class="brand-sub">by Studio Pomar</span>
+  <!-- Top Navigation -->
+  <header class="site-header">
+    <div class="header-inner">
+      <a href="#" class="brand">
+        <img src="assets/icon.png" alt="Kamafeu Studio" class="brand-icon" width="32" height="32">
+        <div class="brand-names">
+          <span class="brand-title">Kamafeu Studio</span>
+          <span class="brand-tag">Studio Pomar</span>
         </div>
       </a>
 
-      <nav class="nav-menu" id="navMenu" aria-label="Navegação Principal">
-        <a href="#sobre" class="nav-link">Sobre</a>
-        <a href="#playground" class="nav-link">Playground DSP</a>
-        <a href="#recursos" class="nav-link">Recursos</a>
-        <a href="#arquitetura" class="nav-link">Arquitetura</a>
-        <a href="#formatos" class="nav-link">Formatos</a>
-        <a href="#temas" class="nav-link">Temas</a>
-        <a href="#mobile" class="nav-link">Mobile</a>
-        <a href="#atalhos" class="nav-link">Atalhos</a>
-        <a href="#compilacao" class="nav-link">Compilação</a>
+      <nav class="nav-links" id="navLinks">
+        <a href="#recursos">Recursos</a>
+        <a href="#motores">Motores de Áudio</a>
+        <a href="#oto-calibrador">oto.ini & DSP</a>
+        <a href="#formatos">Formatos</a>
+        <a href="#temas">Temas</a>
+        <a href="#downloads">Downloads</a>
+        <a href="#compilacao">Compilação</a>
       </nav>
 
-      <div class="header-right">
-        <!-- Live Theme Switcher Dropdown -->
-        <div class="theme-selector" id="themeSelector">
-          <button class="theme-btn" id="themeBtn" aria-expanded="false" aria-haspopup="true" title="Trocar Tema da Interface">
-            <span class="theme-dot" id="activeThemeDot"></span>
-            <span class="theme-name" id="activeThemeName">Pomar Neon</span>
-            <svg class="icon-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
-          </button>
-          <div class="theme-dropdown" id="themeDropdown" role="menu">
-            <button class="theme-opt active" data-theme="pomar-neon" role="menuitem">
-              <span class="theme-dot dot-pomar"></span> Pomar Neon (Esmeralda)
-            </button>
-            <button class="theme-opt" data-theme="melodyne-gold" role="menuitem">
-              <span class="theme-dot dot-melodyne"></span> Melodyne Gold (Âmbar)
-            </button>
-            <button class="theme-opt" data-theme="cyberpunk" role="menuitem">
-              <span class="theme-dot dot-cyberpunk"></span> Cyberpunk (Synthwave)
-            </button>
-            <button class="theme-opt" data-theme="nordic-slate" role="menuitem">
-              <span class="theme-dot dot-nordic"></span> Nordic Slate (Titanium)
-            </button>
-            <button class="theme-opt" data-theme="mikan-teal" role="menuitem">
-              <span class="theme-dot dot-mikan"></span> Mikan Teal (Vocaloid)
-            </button>
-          </div>
-        </div>
-
-        <a href="https://github.com/studiopomar/kamafeu" target="_blank" rel="noopener" class="btn btn-github" id="githubRepoLink">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/></svg>
-          <span class="btn-text">GitHub</span>
+      <div class="header-actions">
+        <a href="https://github.com/studiopomar/kamafeu" target="_blank" rel="noopener" class="btn-github-nav">
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="currentColor"><path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/></svg>
+          <span>GitHub</span>
         </a>
-
-        <!-- Mobile Menu Toggle -->
-        <button class="mobile-toggle" id="mobileToggle" aria-label="Abrir Menu">
-          <span></span><span></span><span></span>
-        </button>
+        <button class="mobile-menu-btn" id="mobileMenuBtn" aria-label="Abrir Menu">☰</button>
       </div>
     </div>
   </header>
 
   <!-- Hero Section -->
-  <section class="hero-section" id="sobre">
-    <div class="container hero-container">
-      <div class="hero-badge-group">
-        <span class="badge badge-accent">
-          <span class="pulse-dot"></span> Rust 1.82+ Nativo
-        </span>
-        <span class="badge">Sem Redes Neurais</span>
-        <span class="badge">UTAU & OpenUtau Compatível</span>
-        <span class="badge">Licença MIT</span>
-      </div>
+  <main>
+    <section class="hero-section">
+      <div class="container hero-content">
+        <div class="version-badge">
+          <span class="badge-dot"></span> Versão 1.0.0 &bull; Rust 1.82+ &bull; Open Source (MIT)
+        </div>
 
-      <h1 class="hero-headline">
-        Editor & Sintetizador Vocal <br>
-        <span class="text-gradient">Esculpido com Precisão em Rust</span>
-      </h1>
+        <h1 class="hero-title">
+          Editor e sintetizador vocal por amostragem e splicing em Rust.
+        </h1>
 
-      <p class="hero-description">
-        O <strong>Kamafeu Studio</strong> combina piano roll de alta precisão, modelagem contínua de afinação, ajustes fonéticos detalhados (oto.ini) e pipeline de áudio multithread com os motores nativos <strong>VENUS</strong> e <strong>Andromeda</strong>. Controle total e transparente sobre o processo clássico de amostragem e splicing acústico.
-      </p>
+        <p class="hero-lead">
+          O <strong>Kamafeu Studio</strong> é uma workstation completa voltada para bancos de voz UTAU e OpenUtau. Projetado sem redes neurais, oferece controle técnico direto sobre amostragem, calibração <code>oto.ini</code>, afinação contínua e emenda acústica de alta fidelidade com os motores nativos <strong>VENUS</strong> e <strong>Andromeda</strong>.
+        </p>
 
-      <div class="hero-cta-group">
-        <a href="https://github.com/studiopomar/kamafeu/releases" target="_blank" rel="noopener" class="btn btn-primary btn-lg" id="ctaDownloadBtn">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
-          Baixar Kamafeu Studio
-        </a>
-        <a href="#playground" class="btn btn-secondary btn-lg" id="ctaPlaygroundBtn">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="5 3 19 12 5 21 5 3"/></svg>
-          Experimentar Playground DSP
-        </a>
-        <a href="#compilacao" class="btn btn-tertiary btn-lg">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="16 18 22 12 16 6"/><polyline points="8 6 2 12 8 18"/></svg>
-          Compilar Código-Fonte
-        </a>
-      </div>
+        <div class="hero-buttons">
+          <a href="#downloads" class="btn btn-primary" id="heroDownloadBtn">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+            <span id="osDownloadText">Baixar para seu Sistema</span>
+          </a>
+          <a href="https://github.com/studiopomar/kamafeu" target="_blank" rel="noopener" class="btn btn-secondary">
+            Ver Código no GitHub
+          </a>
+          <a href="#compilacao" class="btn btn-ghost">
+            Instruções de Compilação
+          </a>
+        </div>
 
-      <!-- Hero Banner Display -->
-      <div class="hero-showcase">
-        <div class="window-frame">
-          <div class="window-header">
-            <div class="window-dots">
-              <span class="dot dot-red"></span>
-              <span class="dot dot-yellow"></span>
-              <span class="dot dot-green"></span>
+        <!-- Main Software Screenshot Frame -->
+        <div class="software-frame">
+          <div class="frame-bar">
+            <div class="frame-controls">
+              <span class="frame-btn close"></span>
+              <span class="frame-btn min"></span>
+              <span class="frame-btn max"></span>
             </div>
-            <div class="window-title">kamafeu-studio — [Projeto: Primavera.aps] — 128 BPM 4/4 — Engine: VENUS + Andromeda</div>
-            <div class="window-status"><span class="status-indicator"></span> Rayon 8 Cores</div>
+            <div class="frame-title">Kamafeu Studio — Projeto: Primavera.aps — 128 BPM 4/4 — Engine: VENUS (In-Process DSP)</div>
+            <div class="frame-meta">Tema: Pomar Neon</div>
           </div>
-          <div class="window-body">
-            <img src="assets/kamafeu_banner.png" alt="Interface do Kamafeu Studio" class="showcase-img" id="heroBannerImg">
+          <div class="frame-screen">
+            <img src="assets/kamafeu_banner.png" alt="Interface Principal do Kamafeu Studio" class="main-screenshot" id="mainScreenshot">
           </div>
         </div>
       </div>
-    </div>
-  </section>
+    </section>
 
-  <!-- Interactive DSP Playground & Formant Synth Demo -->
-  <section class="section playground-section" id="playground">
-    <div class="container">
-      <div class="section-header">
-        <span class="section-tag">Interatividade WebAudio</span>
-        <h2 class="section-title">Playground de Síntese Formântica & Piano Roll</h2>
-        <p class="section-subtitle">
-          Experimente o conceito de síntese formântica do motor nativo <strong>VENUS</strong> e a modulação de envelopes no seu navegador em tempo real.
-        </p>
-      </div>
+    <!-- Key Workflows Section -->
+    <section class="section" id="recursos">
+      <div class="container">
+        <div class="section-label">Fluxo de Trabalho</div>
+        <h2 class="section-heading">Construído para Composição e Síntese Técnica</h2>
+        <p class="section-subheading">Uma suíte completa de ferramentas que respeita os fundamentos acústicos do UTAU clássico e traz a performance multithread do Rust moderno.</p>
 
-      <div class="playground-card glass-panel">
-        <div class="playground-topbar">
-          <div class="synth-controls-group">
-            <label class="control-label" for="vowelSelect">Fonema / Vogal:</label>
-            <select id="vowelSelect" class="form-select">
-              <option value="a">Fonema [ a ] (Ah)</option>
-              <option value="e">Fonema [ e ] (Eh)</option>
-              <option value="i">Fonema [ i ] (Ee)</option>
-              <option value="o">Fonema [ o ] (Oh)</option>
-              <option value="u">Fonema [ u ] (Oo)</option>
-            </select>
-          </div>
-
-          <div class="synth-controls-group">
-            <label class="control-label" for="pitchBendSlider">Pitch Bend (Portamento):</label>
-            <input type="range" id="pitchBendSlider" min="-200" max="200" value="0" class="form-slider">
-            <span class="slider-val" id="pitchBendVal">0 cents</span>
-          </div>
-
-          <div class="synth-controls-group">
-            <label class="control-label" for="vibratoToggle">Vibrato LFO:</label>
-            <button class="btn-toggle active" id="vibratoToggle">6.0 Hz / 45c</button>
-          </div>
-
-          <div class="synth-controls-group">
-            <label class="control-label" for="resamplerModeSelect">Motor DSP:</label>
-            <select id="resamplerModeSelect" class="form-select">
-              <option value="venus">VENUS (Fase Mínima + YIN)</option>
-              <option value="straycat">straycat-rs (Preservação Consonant)</option>
-              <option value="andromeda">Andromeda (5-Point Splicing)</option>
-            </select>
-          </div>
-        </div>
-
-        <!-- Piano Roll Interactive Keys -->
-        <div class="piano-roll-demo">
-          <div class="piano-keys" id="pianoKeys">
-            <button class="piano-key white" data-note="C3" data-freq="130.81"><span>C3</span></button>
-            <button class="piano-key black" data-note="C#3" data-freq="138.59"><span>C#3</span></button>
-            <button class="piano-key white" data-note="D3" data-freq="146.83"><span>D3</span></button>
-            <button class="piano-key black" data-note="D#3" data-freq="155.56"><span>D#3</span></button>
-            <button class="piano-key white" data-note="E3" data-freq="164.81"><span>E3</span></button>
-            <button class="piano-key white" data-note="F3" data-freq="174.61"><span>F3</span></button>
-            <button class="piano-key black" data-note="F#3" data-freq="185.00"><span>F#3</span></button>
-            <button class="piano-key white" data-note="G3" data-freq="196.00"><span>G3</span></button>
-            <button class="piano-key black" data-note="G#3" data-freq="207.65"><span>G#3</span></button>
-            <button class="piano-key white" data-note="A3" data-freq="220.00"><span>A3</span></button>
-            <button class="piano-key black" data-note="A#3" data-freq="233.08"><span>A#3</span></button>
-            <button class="piano-key white" data-note="B3" data-freq="246.94"><span>B3</span></button>
-            <button class="piano-key white active-root" data-note="C4" data-freq="261.63"><span>C4</span></button>
-            <button class="piano-key black" data-note="C#4" data-freq="277.18"><span>C#4</span></button>
-            <button class="piano-key white" data-note="D4" data-freq="293.66"><span>D4</span></button>
-            <button class="piano-key black" data-note="D#4" data-freq="311.13"><span>D#4</span></button>
-            <button class="piano-key white" data-note="E4" data-freq="329.63"><span>E4</span></button>
-            <button class="piano-key white" data-note="F4" data-freq="349.23"><span>F4</span></button>
-            <button class="piano-key black" data-note="F#4" data-freq="369.99"><span>F#4</span></button>
-            <button class="piano-key white" data-note="G4" data-freq="392.00"><span>G4</span></button>
-            <button class="piano-key black" data-note="G#4" data-freq="415.30"><span>G#4</span></button>
-            <button class="piano-key white" data-note="A4" data-freq="440.00"><span>A4</span></button>
-            <button class="piano-key black" data-note="A#4" data-freq="466.16"><span>A#4</span></button>
-            <button class="piano-key white" data-note="B4" data-freq="493.88"><span>B4</span></button>
-            <button class="piano-key white" data-note="C5" data-freq="523.25"><span>C5</span></button>
-          </div>
-
-          <!-- Quick Melody Presets -->
-          <div class="melody-presets">
-            <span class="preset-label">Frases de Demonstração:</span>
-            <button class="btn btn-xs btn-preset" id="playKamafeuPhrase">▶ "Ka-ma-feu Stu-dio" (Pentatônica)</button>
-            <button class="btn btn-xs btn-preset" id="playPomarPhrase">▶ "Stu-dio Po-mar" (Arpejo)</button>
-            <button class="btn btn-xs btn-preset" id="stopPlaybackBtn">⏹ Parar</button>
-          </div>
-        </div>
-
-        <!-- Oscilloscope Waveform & Spectrum Visualizer Canvas -->
-        <div class="oscilloscope-container">
-          <div class="oscilloscope-header">
-            <span class="osc-label"><span class="osc-led"></span> Monitor de Forma de Onda DSP em Tempo Real (Osciloscópio / Frequência)</span>
-            <span class="osc-note-display" id="oscNoteDisplay">Pronto — Clique em uma tecla ou toque uma frase</span>
-          </div>
-          <canvas id="oscilloscopeCanvas" width="900" height="140" class="osc-canvas"></canvas>
-        </div>
-      </div>
-    </div>
-  </section>
-
-  <!-- Core Features Matrix -->
-  <section class="section" id="recursos">
-    <div class="container">
-      <div class="section-header">
-        <span class="section-tag">Funcionalidades Principais</span>
-        <h2 class="section-title">Controle Absoluto da Síntese Vocal</h2>
-        <p class="section-subtitle">
-          Projetado do zero em Rust para máxima velocidade, ergonomia no piano roll e fidelidade harmônica.
-        </p>
-      </div>
-
-      <div class="features-grid">
-        <!-- Card 1 -->
-        <div class="feature-card glass-panel">
-          <div class="feature-icon-wrap icon-cyan">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 18V5l12-2v13"/><circle cx="6" cy="18" r="3"/><circle cx="18" cy="16" r="3"/></svg>
-          </div>
-          <h3 class="feature-title">Piano Roll de Alta Precisão</h3>
-          <p class="feature-text">
-            Ferramentas dedicadas de Seleção (<kbd>V</kbd>), Lápis contínuo (<kbd>N</kbd>), Divisão de notas (<kbd>C</kbd>) e Borracha (<kbd>E</kbd>). Assistente tonal de escalas (Maior, Menor, Pentatônica, Blues e Modos Gregos).
-          </p>
-          <ul class="feature-list">
-            <li>Pincel livre de afinação (<kbd>P</kbd>) com curvas Bézier e S</li>
-            <li>Envelopes UTAU de amplitude em 5 pontos por nota</li>
-            <li>Repetição em loop contínuo <kbd>[A ... B]</kbd> sem engasgos</li>
-          </ul>
-        </div>
-
-        <!-- Card 2 -->
-        <div class="feature-card glass-panel">
-          <div class="feature-icon-wrap icon-emerald">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2a3 3 0 0 0-3 3v7a3 3 0 0 0 6 0V5a3 3 0 0 0-3-3z"/><path d="M19 10v2a7 7 0 0 1-14 0v-2"/><line x1="12" y1="19" x2="12" y2="23"/><line x1="8" y1="23" x2="16" y2="23"/></svg>
-          </div>
-          <h3 class="feature-title">Fonemizadores & Suporte Multilíngue</h3>
-          <p class="feature-text">
-            Mapeamento automático de sílabas para fonemas e subfonemas com suporte a dicionários fonéticos e múltiplos tons via <code>prefix.map</code>.
-          </p>
-          <ul class="feature-list">
-            <li><strong>Português Brasileiro:</strong> BRAPA VCCV, CVC, CVVC e G2P</li>
-            <li><strong>Japonês:</strong> CV (Hiragana), VCV, CVVC e Romaji auto-Kana</li>
-            <li><strong>Inglês:</strong> VCCV com encontros consonantais completos</li>
-          </ul>
-        </div>
-
-        <!-- Card 3 -->
-        <div class="feature-card glass-panel">
-          <div class="feature-icon-wrap icon-amber">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="12 2 2 7 12 12 22 7 12 2"/><polyline points="2 17 12 22 22 17"/><polyline points="2 12 12 17 22 12"/></svg>
-          </div>
-          <h3 class="feature-title">Motores Nativos VENUS & Andromeda</h3>
-          <p class="feature-text">
-            Processamento de áudio determinístico e integrado diretamente na memória sem necessidade de executáveis externos ou emuladores.
-          </p>
-          <ul class="feature-list">
-            <li><strong>VENUS:</strong> Análise de periodicidade YIN e reconstrução espectral</li>
-            <li><strong>Andromeda:</strong> Emenda e crossfade equal-power de alta performance</li>
-            <li>Renderização paralela não bloqueante com Rayon Thread Pool</li>
-          </ul>
-        </div>
-
-        <!-- Card 4 -->
-        <div class="feature-card glass-panel">
-          <div class="feature-icon-wrap icon-purple">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 21v-7"/><path d="M4 10V3"/><path d="M12 21v-9"/><path d="M12 8V3"/><path d="M20 21v-5"/><path d="M20 12V3"/><line x1="1" y1="14" x2="7" y2="14"/><line x1="9" y1="8" x2="15" y2="8"/><line x1="17" y1="16" x2="23" y2="16"/></svg>
-          </div>
-          <h3 class="feature-title">Rack DSP & Efeitos Integrados</h3>
-          <p class="feature-text">
-            Poderosa cadeia de processamento por faixa com alinhamento de fase de onda para eliminação de cancelamento de harmônicos.
-          </p>
-          <ul class="feature-list">
-            <li>Equalizador paramétrico e gráfico de 31 bandas</li>
-            <li>Compressor de dinâmica, chorus e reverb estéreo</li>
-            <li>Auto-Pitch para portamento orgânico e vibrato musical</li>
-          </ul>
-        </div>
-
-        <!-- Card 5 -->
-        <div class="feature-card glass-panel">
-          <div class="feature-icon-wrap icon-blue">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 0 0 0 1.4l1.6 1.6a1 1 0 0 0 1.4 0l3.77-3.77a6 6 0 0 1-7.94 7.94l-6.91 6.91a2.12 2.12 0 0 1-3-3l6.91-6.91a6 6 0 0 1 7.94-7.94l-3.76 3.76z"/></svg>
-          </div>
-          <h3 class="feature-title">Copaiba Voicebank Toolkit</h3>
-          <p class="feature-text">
-            Ambiente dedicado para calibração acústica e configuração detalhada dos 5 parâmetros essenciais do <code>oto.ini</code>.
-          </p>
-          <ul class="feature-list">
-            <li>Offset, Consoante Fixa, Cutoff, Preutterance e Overlap</li>
-            <li>Inspeção direta da forma de onda e marcadores visuais</li>
-            <li>Exportação de pacotes compactados <code>.kfv</code> e <code>.zip</code></li>
-          </ul>
-        </div>
-
-        <!-- Card 6 -->
-        <div class="feature-card glass-panel">
-          <div class="feature-icon-wrap icon-rose">
-            <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg>
-          </div>
-          <h3 class="feature-title">Compatibilidade Externa & Wine</h3>
-          <p class="feature-text">
-            Suporte transparente aos resamplers e wavtools da comunidade como <code>straycat-rs</code>, <code>macres</code>, <code>Hifisampler</code>, <code>moresampler</code>, <code>TIPS</code> e <code>wavtool-yawu</code>.
-          </p>
-          <ul class="feature-list">
-            <li>Execução nativa no Windows sem dependências</li>
-            <li>Ponte Wine automatizada no macOS e Linux</li>
-            <li>Detecção de cache de amostragem acelerada</li>
-          </ul>
-        </div>
-      </div>
-    </div>
-  </section>
-
-  <!-- Interactive Architecture Pipeline Explorer -->
-  <section class="section section-alt" id="arquitetura">
-    <div class="container">
-      <div class="section-header">
-        <span class="section-tag">Engenharia em Rust</span>
-        <h2 class="section-title">Arquitetura do Fluxo de Síntese Vocal</h2>
-        <p class="section-subtitle">
-          Clique nas etapas do pipeline abaixo para inspecionar os detalhes técnicos de cada camada de processamento.
-        </p>
-      </div>
-
-      <!-- Pipeline Steps Nav -->
-      <div class="pipeline-flow" id="pipelineFlow">
-        <button class="pipeline-step active" data-step="1">
-          <span class="step-num">01</span>
-          <span class="step-name">Camada de Projeto</span>
-          <span class="step-desc">.aps, .ustx, MIDI</span>
-        </button>
-        <div class="pipeline-arrow">➔</div>
-        <button class="pipeline-step" data-step="2">
-          <span class="step-num">02</span>
-          <span class="step-name">Fonética & Timing</span>
-          <span class="step-desc">oto.ini, prefix.map</span>
-        </button>
-        <div class="pipeline-arrow">➔</div>
-        <button class="pipeline-step" data-step="3">
-          <span class="step-num">03</span>
-          <span class="step-name">Resampling & Pitch</span>
-          <span class="step-desc">VENUS / straycat</span>
-        </button>
-        <div class="pipeline-arrow">➔</div>
-        <button class="pipeline-step" data-step="4">
-          <span class="step-num">04</span>
-          <span class="step-name">Wavtool & Splicing</span>
-          <span class="step-desc">Andromeda 5-Point</span>
-        </button>
-        <div class="pipeline-arrow">➔</div>
-        <button class="pipeline-step" data-step="5">
-          <span class="step-num">05</span>
-          <span class="step-name">Streaming & DSP</span>
-          <span class="step-desc">Rayon + AudioPlayer</span>
-        </button>
-      </div>
-
-      <!-- Pipeline Step Detail Cards -->
-      <div class="pipeline-detail-card glass-panel" id="pipelineDetail">
-        <div class="detail-badge" id="stepBadge">Etapa 01 de 05 — Modelo de Dados</div>
-        <h3 class="detail-title" id="stepTitle">Camada de Projeto & Modelagem Temporal</h3>
-        <p class="detail-text" id="stepText">
-          O projeto decompõe composições em faixas e partes independentes. As notas musicais contêm posições e durações absolutas em milissegundos calculadas em função do andamento (BPM) e da métrica de compasso. Armazena curvas contínuas de afinação (pontos de portamento, vibrato e glissando) e parâmetros dinâmicos de expressão (dynamics, velocity, modulação, sopro e gênero).
-        </p>
-        <div class="code-preview">
-          <div class="code-header">
-            <span>Rust Data Structure (src/project/model.rs)</span>
-            <button class="btn-copy" data-target="codeStep">Copiar</button>
-          </div>
-          <pre id="codeStep"><code class="language-rust">pub struct Note {
-    pub position_ms: f64,
-    pub duration_ms: f64,
-    pub lyric: String,
-    pub tone_number: u8, // MIDI 0..127
-    pub pitch_bends: Vec&lt;PitchPoint&gt;,
-    pub envelope: Envelope5Point,
-    pub expressions: NoteExpressions,
-}</code></pre>
-        </div>
-      </div>
-    </div>
-  </section>
-
-  <!-- Supported File Formats Table -->
-  <section class="section" id="formatos">
-    <div class="container">
-      <div class="section-header">
-        <span class="section-tag">Interoperabilidade Total</span>
-        <h2 class="section-title">Formatos de Arquivo Suportados</h2>
-        <p class="section-subtitle">
-          Migre facilmente entre UTAU, OpenUtau, Synthesizer V, VOCALOID e DAWs padrão de mercado.
-        </p>
-      </div>
-
-      <div class="table-responsive glass-panel">
-        <table class="data-table">
-          <thead>
-            <tr>
-              <th>Formato</th>
-              <th>Extensão</th>
-              <th>Importação</th>
-              <th>Exportação</th>
-              <th>Descrição Técnica</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr class="highlight-row">
-              <td>
-                <div class="format-cell">
-                  <span class="format-tag tag-native">Nativo</span>
-                  <strong>Saturno Project</strong>
+        <div class="feature-rows">
+          <!-- Item 1 -->
+          <div class="feature-item">
+            <div class="feature-text">
+              <h3>Piano Roll & Modelagem Contínua de Afinação</h3>
+              <p>Ferramentas intuitivas com atalhos de teclado ágeis: Seleção (<kbd>V</kbd>), Lápis contínuo (<kbd>N</kbd>), Divisão de notas (<kbd>C</kbd>) e Borracha (<kbd>E</kbd>). Desenho livre de afinação (<kbd>P</kbd>) com suporte a portamento suave, curvas em S e Bézier, assistente de escalas musicais (Maior, Menor, Pentatônicas, Blues e Modos Gregos) e gaveta inferior de envelopes UTAU de 5 pontos.</p>
+              <ul class="feature-bullets">
+                <li>Edição dinâmica de parâmetros: Velocity, Modulação, Sopro e Gênero</li>
+                <li>Repetição contínua em loop <kbd>[A ... B]</kbd> sem engasgos de buffer</li>
+                <li>Visualização de forma de onda renderizada em tempo real no fundo do piano roll</li>
+              </ul>
+            </div>
+            <div class="feature-graphic">
+              <div class="code-box">
+                <div class="code-box-header">Atalhos Principais de Composição</div>
+                <div class="shortcut-list">
+                  <div class="sc-row"><kbd>V</kbd><span>Ponteiro de Seleção e Mover</span></div>
+                  <div class="sc-row"><kbd>N</kbd><span>Lápis de Desenho de Notas</span></div>
+                  <div class="sc-row"><kbd>P</kbd><span>Pincel Livre de Pitch Bend</span></div>
+                  <div class="sc-row"><kbd>C</kbd><span>Dividir / Cortar Nota Musical</span></div>
+                  <div class="sc-row"><kbd>Espaço</kbd><span>Reproduzir / Pausar Síntese</span></div>
+                  <div class="sc-row"><kbd>Tab</kbd><span>Abrir Gaveta de Expressões</span></div>
                 </div>
-              </td>
-              <td><code class="ext-code">.aps</code></td>
-              <td><span class="status-yes">✓ Sim</span></td>
-              <td><span class="status-yes">✓ Sim</span></td>
-              <td>Formato JSON estruturado do Kamafeu Studio com faixas vocais, partes WAV, pitch de alta precisão, envelopes de 5 pontos e rack FX.</td>
-            </tr>
-            <tr>
-              <td>
-                <div class="format-cell">
-                  <span class="format-tag tag-openutau">OpenUtau</span>
-                  <strong>OpenUtau Project</strong>
+              </div>
+            </div>
+          </div>
+
+          <!-- Item 2 -->
+          <div class="feature-item reverse">
+            <div class="feature-text">
+              <h3>Suporte Fonético Completo & Dicionários G2P</h3>
+              <p>Resolução fonética transparente para múltiplos idiomas com particionamento silábico automático e consulta multinotas por tom (<kbd>prefix.map</kbd>).</p>
+              <ul class="feature-bullets">
+                <li><strong>Português Brasileiro:</strong> Suporte completo a BRAPA VCCV, CVC, CVVC, VCV e motor G2P ortográfico integrado.</li>
+                <li><strong>Japonês:</strong> Conversão Romaji &rarr; Hiragana/Kana, CV, VCV e CVVC.</li>
+                <li><strong>Inglês:</strong> VCCV e encontros consonantais expandidos.</li>
+                <li><strong>Modo Manual:</strong> Inserção de aliases diretos e subfonemas separados por ponto ou ponto e vírgula.</li>
+              </ul>
+            </div>
+            <div class="feature-graphic">
+              <div class="info-card">
+                <div class="card-head">Régua de Fonemas em Tempo Real</div>
+                <p class="card-desc">Exibição gráfica dos limites de corte da <code>oto.ini</code> diretamente alinhados à batida musical da nota:</p>
+                <div class="phoneme-ruler-mock">
+                  <div class="ph-block preutterance">Preutterance</div>
+                  <div class="ph-block consonant">Consoante Fixa</div>
+                  <div class="ph-block vowel">Vogal Esticada (Stretch)</div>
+                  <div class="ph-block overlap">Overlap</div>
                 </div>
-              </td>
-              <td><code class="ext-code">.ustx</code></td>
-              <td><span class="status-yes">✓ Sim</span></td>
-              <td><span class="status-yes">✓ Sim</span></td>
-              <td>Formato YAML moderno do OpenUtau. Preserva estrutura multifaixa, cantores atribuídos, expressões dinâmicas e curvas de pitch.</td>
-            </tr>
-            <tr>
-              <td>
-                <div class="format-cell">
-                  <span class="format-tag tag-utau">UTAU Clássico</span>
-                  <strong>UTAU Sequence Text</strong>
+              </div>
+            </div>
+          </div>
+
+          <!-- Item 3 -->
+          <div class="feature-item">
+            <div class="feature-text">
+              <h3>Rack de Efeitos (DSP) & Alinhamento de Fase</h3>
+              <p>Processamento de áudio por faixa com equalizador gráfico e paramétrico de 31 bandas, compressor dinâmico, delay de sincronismo e reverb estéreo. O motor de mixagem aplica alinhamento de fase de onda e equal-power crossfade entre fonemas adjacentes, eliminando cliques, descontinuidades e cancelamentos de harmônicos no buffer de saída.</p>
+            </div>
+            <div class="feature-graphic">
+              <div class="info-card">
+                <div class="card-head">Cadeia de Áudio por Faixa</div>
+                <div class="dsp-chain">
+                  <span class="chain-node">Amostra WAV</span>
+                  <span class="chain-arrow">&rarr;</span>
+                  <span class="chain-node">VENUS Pitch</span>
+                  <span class="chain-arrow">&rarr;</span>
+                  <span class="chain-node">Andromeda Splicer</span>
+                  <span class="chain-arrow">&rarr;</span>
+                  <span class="chain-node">Phase Match</span>
+                  <span class="chain-arrow">&rarr;</span>
+                  <span class="chain-node">FX Rack (EQ/Comp/Rev)</span>
                 </div>
-              </td>
-              <td><code class="ext-code">.ust</code></td>
-              <td><span class="status-yes">✓ Sim</span></td>
-              <td><span class="status-yes">✓ Sim</span></td>
-              <td>Formato clássico do UTAU estruturado em blocos <code>[#0000]</code> com notas, letras, BPM, portamentos (PBType/PBDst) e envelopes.</td>
-            </tr>
-            <tr>
-              <td>
-                <div class="format-cell">
-                  <span class="format-tag tag-midi">Padrão MIDI</span>
-                  <strong>Standard MIDI File</strong>
-                </div>
-              </td>
-              <td><code class="ext-code">.mid, .midi</code></td>
-              <td><span class="status-yes">✓ Sim</span></td>
-              <td><span class="status-yes">✓ Sim</span></td>
-              <td>Intercâmbio universal com Reaper, FL Studio, Ableton Live, Logic Pro e Cubase com notas, métrica e pitch wheel.</td>
-            </tr>
-            <tr>
-              <td>
-                <div class="format-cell">
-                  <span class="format-tag tag-ufdata">Universal</span>
-                  <strong>UtaFormatix Data</strong>
-                </div>
-              </td>
-              <td><code class="ext-code">.ufdata</code></td>
-              <td><span class="status-yes">✓ Sim</span></td>
-              <td><span class="status-yes">✓ Sim</span></td>
-              <td>Padrão aberto universal em JSON para migração fiel entre sintetizadores vocais modernos sem perda de temporização.</td>
-            </tr>
-            <tr>
-              <td>
-                <div class="format-cell">
-                  <span class="format-tag tag-synthv">Synth V</span>
-                  <strong>Synthesizer V Project</strong>
-                </div>
-              </td>
-              <td><code class="ext-code">.svp</code></td>
-              <td><span class="status-yes">✓ Sim</span></td>
-              <td><span class="status-yes">✓ Sim</span></td>
-              <td>Conversão direta de trilhas melódicas, notas, letras e divisões silábicas de projetos Synthesizer V (Dreamtonics).</td>
-            </tr>
-            <tr>
-              <td>
-                <div class="format-cell">
-                  <span class="format-tag tag-vocaloid">VOCALOID</span>
-                  <strong>VOCALOID Sequence</strong>
-                </div>
-              </td>
-              <td><code class="ext-code">.vsqx</code></td>
-              <td><span class="status-yes">✓ Sim</span></td>
-              <td><span class="status-yes">✓ Sim</span></td>
-              <td>Conversão de trilhas de canto XML do VOCALOID (Yamaha) com notas musicais, fonemas e curvas de afinação.</td>
-            </tr>
-            <tr class="highlight-row">
-              <td>
-                <div class="format-cell">
-                  <span class="format-tag tag-native">Voicebank</span>
-                  <strong>Kamafeu Voicebank</strong>
-                </div>
-              </td>
-              <td><code class="ext-code">.kfv</code></td>
-              <td><span class="status-yes">✓ Sim</span></td>
-              <td><span class="status-yes">✓ Sim</span></td>
-              <td>Pacote compacto ZIP de cantor virtual com áudios WAV, <code>oto.ini</code>, <code>character.txt</code>, <code>prefix.map</code> e metadados.</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-    </div>
-  </section>
-
-  <!-- Live Themes Showcase Gallery -->
-  <section class="section section-alt" id="temas">
-    <div class="container">
-      <div class="section-header">
-        <span class="section-tag">Personalização Visual</span>
-        <h2 class="section-title">Galeria de Temas do Kamafeu Studio</h2>
-        <p class="section-subtitle">
-          Alterne os temas abaixo para visualizar as capturas reais da interface gráfica do Kamafeu Studio (<kbd>Ctrl + Alt + T</kbd>).
-        </p>
-      </div>
-
-      <!-- Theme Tabs -->
-      <div class="theme-gallery-tabs" id="themeGalleryTabs">
-        <button class="gallery-tab active" data-theme-id="pomar_neon">
-          <span class="tab-dot dot-pomar"></span> Pomar Neon (Esmeralda)
-        </button>
-        <button class="gallery-tab" data-theme-id="melodyne_gold">
-          <span class="tab-dot dot-melodyne"></span> Melodyne Gold (Âmbar)
-        </button>
-        <button class="gallery-tab" data-theme-id="cyberpunk">
-          <span class="tab-dot dot-cyberpunk"></span> Cyberpunk (Synthwave)
-        </button>
-        <button class="gallery-tab" data-theme-id="nordic_slate">
-          <span class="tab-dot dot-nordic"></span> Nordic Slate (Clean Dark)
-        </button>
-        <button class="gallery-tab" data-theme-id="mikan_teal">
-          <span class="tab-dot dot-mikan"></span> Voz-a-loide Teal (Mikan)
-        </button>
-      </div>
-
-      <!-- Theme Preview Display -->
-      <div class="theme-preview-card glass-panel">
-        <div class="preview-info">
-          <div class="theme-title-group">
-            <h3 class="preview-name" id="themeGalleryTitle">Tema Pomar Neon (Esmeralda)</h3>
-            <p class="preview-desc" id="themeGalleryDesc">Paleta oficial do Studio Pomar com tons esmeralda de alto contraste, linhas de grade neon e piano roll legível para longas sessões de composição.</p>
-          </div>
-          <button class="btn btn-sm btn-secondary" id="applySiteThemeBtn">Aplicar neste Site</button>
-        </div>
-        <div class="preview-image-wrap">
-          <img src="assets/themes/theme_pomar_neon.png" alt="Captura do tema selecionado" class="preview-screenshot" id="themeGalleryImg">
-        </div>
-      </div>
-    </div>
-  </section>
-
-  <!-- Mobile Architecture & Cross-Platform Section -->
-  <section class="section" id="mobile">
-    <div class="container">
-      <div class="section-header">
-        <span class="section-tag">Engenharia Cross-Platform</span>
-        <h2 class="section-title">Kamafeu Mobile: Android & iOS</h2>
-        <p class="section-subtitle">
-          Construído sobre <code>winit</code> e <code>egui</code> para compilação cruzada nativa em smartphones e tablets.
-        </p>
-      </div>
-
-      <div class="grid-2">
-        <div class="mobile-info-card glass-panel">
-          <div class="mobile-badge"><span class="badge-android"></span> Desafios de Engenharia Mobile</div>
-          <h3 class="card-headline">Por que motores externos não funcionam em celulares?</h3>
-          <p class="card-p">
-            Nos sistemas desktop, resamplers como <code>straycat-rs.exe</code> ou <code>hifisampler</code> rodam via subprocessos CLI (<kbd>std::process::Command</kbd>) e Wine. No Android e iOS, o isolamento rigoroso de processos (<em>sandbox</em>) proíbe subprocessos arbitrários e binários Win32.
-          </p>
-          <div class="solution-highlight">
-            <strong>Solução no Kamafeu:</strong> O aplicativo utiliza 100% os motores nativos <strong>VENUS</strong> e <strong>Andromeda</strong>, linkados diretamente na memória do app para síntese vocal sem qualquer dependência externa.
-          </div>
-        </div>
-
-        <div class="mobile-info-card glass-panel">
-          <div class="mobile-badge"><span class="badge-perf"></span> Performance & Armazenamento</div>
-          <h3 class="card-headline">Adaptação ao Toque & Scoped Storage</h3>
-          <ul class="mobile-features-list">
-            <li><strong>Scoped Storage & SAF:</strong> Integração com <em>Storage Access Framework</em> e suporte ao formato empacotado <code>.kfv</code>.</li>
-            <li><strong>Touch & Pinch-to-Zoom:</strong> Zonas de toque ampliadas na régua e navegação temporal adaptada para telas sensíveis ao toque.</li>
-            <li><strong>Áudio de Baixa Latência:</strong> Drivers dedicados via AAudio / OpenSL ES no Android e CoreAudio nativo no iOS.</li>
-          </ul>
-
-          <div class="build-cmd-box">
-            <span class="cmd-label">Comando de build para Android APK:</span>
-            <code>cargo apk build --lib --release --target aarch64-linux-android</code>
-          </div>
-        </div>
-      </div>
-    </div>
-  </section>
-
-  <!-- Keyboard Shortcuts Cheatsheet -->
-  <section class="section section-alt" id="atalhos">
-    <div class="container">
-      <div class="section-header">
-        <span class="section-tag">Produtividade Máxima</span>
-        <h2 class="section-title">Tabela de Atalhos de Teclado</h2>
-        <p class="section-subtitle">
-          Domine a navegação ágil no piano roll e na área de trabalho do Kamafeu Studio.
-        </p>
-      </div>
-
-      <div class="shortcuts-container glass-panel">
-        <div class="shortcuts-search-bar">
-          <input type="text" id="shortcutSearch" placeholder="Filtrar atalhos (ex: lápis, pitch, exportar, zoom, tema)..." class="search-input">
-        </div>
-
-        <div class="shortcuts-grid" id="shortcutsGrid">
-          <!-- Item -->
-          <div class="shortcut-item">
-            <div class="shortcut-keys"><kbd>V</kbd></div>
-            <div class="shortcut-info">
-              <span class="shortcut-action">Ferramenta Seleção</span>
-              <span class="shortcut-cat">Edição</span>
-            </div>
-          </div>
-
-          <div class="shortcut-item">
-            <div class="shortcut-keys"><kbd>N</kbd></div>
-            <div class="shortcut-info">
-              <span class="shortcut-action">Lápis / Desenho de Notas</span>
-              <span class="shortcut-cat">Edição</span>
-            </div>
-          </div>
-
-          <div class="shortcut-item">
-            <div class="shortcut-keys"><kbd>C</kbd></div>
-            <div class="shortcut-info">
-              <span class="shortcut-action">Dividir / Cortar Nota</span>
-              <span class="shortcut-cat">Edição</span>
-            </div>
-          </div>
-
-          <div class="shortcut-item">
-            <div class="shortcut-keys"><kbd>E</kbd></div>
-            <div class="shortcut-info">
-              <span class="shortcut-action">Borracha de Notas</span>
-              <span class="shortcut-cat">Edição</span>
-            </div>
-          </div>
-
-          <div class="shortcut-item">
-            <div class="shortcut-keys"><kbd>P</kbd></div>
-            <div class="shortcut-info">
-              <span class="shortcut-action">Pincel de Pitch / Afinação</span>
-              <span class="shortcut-cat">DSP / Afinação</span>
-            </div>
-          </div>
-
-          <div class="shortcut-item">
-            <div class="shortcut-keys"><kbd>Espaço</kbd></div>
-            <div class="shortcut-info">
-              <span class="shortcut-action">Reproduzir / Pausar Áudio</span>
-              <span class="shortcut-cat">Transporte</span>
-            </div>
-          </div>
-
-          <div class="shortcut-item">
-            <div class="shortcut-keys"><kbd>Tab</kbd></div>
-            <div class="shortcut-info">
-              <span class="shortcut-action">Gaveta de Expressões</span>
-              <span class="shortcut-cat">Interface</span>
-            </div>
-          </div>
-
-          <div class="shortcut-item">
-            <div class="shortcut-keys"><kbd>Alt</kbd> + <kbd>A</kbd></div>
-            <div class="shortcut-info">
-              <span class="shortcut-action">Painel de Arranjo Multifaixa</span>
-              <span class="shortcut-cat">Interface</span>
-            </div>
-          </div>
-
-          <div class="shortcut-item">
-            <div class="shortcut-keys"><kbd>Alt</kbd> + <kbd>O</kbd></div>
-            <div class="shortcut-info">
-              <span class="shortcut-action">Exibir Régua de Fonemas</span>
-              <span class="shortcut-cat">Interface</span>
-            </div>
-          </div>
-
-          <div class="shortcut-item">
-            <div class="shortcut-keys"><kbd>Ctrl/Cmd</kbd> + <kbd>B</kbd></div>
-            <div class="shortcut-info">
-              <span class="shortcut-action">Alternar Inspetor Lateral</span>
-              <span class="shortcut-cat">Interface</span>
-            </div>
-          </div>
-
-          <div class="shortcut-item">
-            <div class="shortcut-keys"><kbd>Ctrl/Cmd</kbd> + <kbd>Alt</kbd> + <kbd>T</kbd></div>
-            <div class="shortcut-info">
-              <span class="shortcut-action">Seletor de Temas Visuais</span>
-              <span class="shortcut-cat">Personalização</span>
-            </div>
-          </div>
-
-          <div class="shortcut-item">
-            <div class="shortcut-keys"><kbd>F11</kbd></div>
-            <div class="shortcut-info">
-              <span class="shortcut-action">Alternar Tela Cheia</span>
-              <span class="shortcut-cat">Interface</span>
-            </div>
-          </div>
-
-          <div class="shortcut-item">
-            <div class="shortcut-keys"><kbd>Shift</kbd> + <kbd>Arraste Régua</kbd></div>
-            <div class="shortcut-info">
-              <span class="shortcut-action">Definir Loop de Repetição [A...B]</span>
-              <span class="shortcut-cat">Navegação</span>
-            </div>
-          </div>
-
-          <div class="shortcut-item">
-            <div class="shortcut-keys"><kbd>Ctrl/Cmd</kbd> + <kbd>E</kbd></div>
-            <div class="shortcut-info">
-              <span class="shortcut-action">Exportar Áudio Mixado (WAV)</span>
-              <span class="shortcut-cat">Arquivo</span>
+              </div>
             </div>
           </div>
         </div>
       </div>
-    </div>
-  </section>
+    </section>
 
-  <!-- Compilation & Build Instructions -->
-  <section class="section" id="compilacao">
-    <div class="container">
-      <div class="section-header">
-        <span class="section-tag">Instalação & Compilação</span>
-        <h2 class="section-title">Instruções de Compilação por Sistema</h2>
-        <p class="section-subtitle">
-          Requisitos básicos: <strong>Rust 1.82 ou superior</strong> e Cargo via <a href="https://rustup.rs" target="_blank" rel="noopener" class="inline-link">rustup.rs</a>.
-        </p>
+    <!-- Audio Engines Comparison -->
+    <section class="section section-dark" id="motores">
+      <div class="container">
+        <div class="section-label">Motores de Áudio</div>
+        <h2 class="section-heading">Pipeline Nativo em Rust & Compatibilidade Externa</h2>
+        <p class="section-subheading">O Kamafeu permite alternar livremente entre o pipeline interno de alta performance e ferramentas consagradas da comunidade.</p>
+
+        <div class="engines-grid">
+          <!-- VENUS -->
+          <div class="engine-card featured">
+            <div class="engine-type">Resampler Nativo</div>
+            <h3 class="engine-title">VENUS</h3>
+            <p class="engine-desc">Motor nativo em Rust baseado em síntese formântica pura, análise de periodicidade com algoritmo YIN e reconstrução espectral de fase mínima. Preserva a inteligibilidade das consoantes rápidas sem cortes de alias e mantém a ressonância natural da voz sem artefatos anasalados.</p>
+            <div class="engine-meta">
+              <span>&bull; Roda em processo (In-Memory)</span>
+              <span>&bull; Zero dependência externa</span>
+              <span>&bull; Suporta Desktop & Mobile</span>
+            </div>
+          </div>
+
+          <!-- Andromeda -->
+          <div class="engine-card featured">
+            <div class="engine-type">Wavtool Nativo</div>
+            <h3 class="engine-title">Andromeda</h3>
+            <p class="engine-desc">Motor de emenda e costura de fonemas interno de alta velocidade. Aplica cálculo de envelope de amplitude UTAU de 5 pontos, interpolação suave e crossfade de potência constante (equal-power crossfade) diretamente no buffer de saída.</p>
+            <div class="engine-meta">
+              <span>&bull; Processamento paralelo com Rayon</span>
+              <span>&bull; Streaming contínuo sem travamentos</span>
+              <span>&bull; Alinhamento automático de fase</span>
+            </div>
+          </div>
+
+          <!-- External CLI Resamplers -->
+          <div class="engine-card">
+            <div class="engine-type">Executáveis Externos (CLI)</div>
+            <h3 class="engine-title">straycat-rs, moresampler, hifisampler, TIPS, macres</h3>
+            <p class="engine-desc">Suporte transparente ao protocolo de linha de comando clássico do UTAU. No Windows, os binários rodam nativamente; no macOS e Linux, são executados automaticamente através da integração com Wine.</p>
+            <div class="engine-meta">
+              <span>&bull; Protocolo UTAU CLI padrão</span>
+              <span>&bull; Cache de renderização acelerado</span>
+              <span>&bull; Compatibilidade ampla de voicebanks</span>
+            </div>
+          </div>
+        </div>
       </div>
+    </section>
 
-      <div class="compilation-tabs-wrap glass-panel">
-        <div class="os-tabs" id="osTabs">
-          <button class="os-tab active" data-os="ubuntu">Ubuntu / Debian</button>
-          <button class="os-tab" data-os="fedora">Fedora / RHEL</button>
-          <button class="os-tab" data-os="arch">Arch Linux</button>
-          <button class="os-tab" data-os="freebsd">FreeBSD</button>
-          <button class="os-tab" data-os="macos">macOS (Metal/CoreAudio)</button>
-          <button class="os-tab" data-os="windows">Windows (MSVC)</button>
-          <button class="os-tab" data-os="android">Android (APK)</button>
+    <!-- Interactive oto.ini & DSP Waveform Visualizer -->
+    <section class="section" id="oto-calibrador">
+      <div class="container">
+        <div class="section-label">Fundamentos Acústicos</div>
+        <h2 class="section-heading">Como Funciona a Calibração de oto.ini no Kamafeu</h2>
+        <p class="section-subheading">Ajuste os 5 parâmetros acústicos fundamentais abaixo e veja visualmente como o Kamafeu isola a consoante fixa e estica a vogal periódica na forma de onda.</p>
+
+        <div class="calibrator-widget">
+          <div class="calibrator-controls">
+            <div class="ctrl-group">
+              <label for="paramOffset">Offset (Início útil): <span id="valOffset" class="val-tag">120 ms</span></label>
+              <input type="range" id="paramOffset" min="0" max="300" value="120" class="range-slider">
+            </div>
+            <div class="ctrl-group">
+              <label for="paramConsonant">Consonant (Consoante Fixa): <span id="valConsonant" class="val-tag">260 ms</span></label>
+              <input type="range" id="paramConsonant" min="150" max="450" value="260" class="range-slider">
+            </div>
+            <div class="ctrl-group">
+              <label for="paramPreutterance">Preutterance (Ataque): <span id="valPreutterance" class="val-tag">190 ms</span></label>
+              <input type="range" id="paramPreutterance" min="130" max="250" value="190" class="range-slider">
+            </div>
+            <div class="ctrl-group">
+              <label for="paramOverlap">Overlap (Fusão): <span id="valOverlap" class="val-tag">70 ms</span></label>
+              <input type="range" id="paramOverlap" min="0" max="150" value="70" class="range-slider">
+            </div>
+            <div class="ctrl-group">
+              <label for="paramCutoff">Cutoff (Término): <span id="valCutoff" class="val-tag">-80 ms</span></label>
+              <input type="range" id="paramCutoff" min="-300" max="0" value="-80" class="range-slider">
+            </div>
+          </div>
+
+          <!-- Waveform Canvas Diagram -->
+          <div class="calibrator-display">
+            <div class="display-header">
+              <span class="disp-title">Forma de Onda: <code>ka.wav</code> (Amostra de Voz Gravada)</span>
+              <span class="disp-status" id="calibratorStatus">Consonante Preservada &bull; Vogal Pronta para Loop</span>
+            </div>
+            <canvas id="calibratorCanvas" width="900" height="200" class="calibrator-canvas"></canvas>
+            <div class="calibrator-legend">
+              <span class="leg-item"><span class="leg-color leg-offset"></span> Offset (Início)</span>
+              <span class="leg-item"><span class="leg-color leg-consonant"></span> Consoante Fixa (Sem Stretch)</span>
+              <span class="leg-item"><span class="leg-color leg-preut"></span> Preutterance (Batida Musical)</span>
+              <span class="leg-item"><span class="leg-color leg-overlap"></span> Overlap (Crossfade)</span>
+              <span class="leg-item"><span class="leg-color leg-cutoff"></span> Cutoff (Final)</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Supported Formats Table -->
+    <section class="section section-dark" id="formatos">
+      <div class="container">
+        <div class="section-label">Intercâmbio de Dados</div>
+        <h2 class="section-heading">Formatos de Arquivo Suportados</h2>
+        <p class="section-subheading">Compatibilidade direta de importação e exportação com os principais softwares de canto e DAWs do mercado.</p>
+
+        <div class="table-wrap">
+          <table class="data-table">
+            <thead>
+              <tr>
+                <th>Formato</th>
+                <th>Extensão</th>
+                <th>Importação</th>
+                <th>Exportação</th>
+                <th>Descrição Técnica</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr class="row-highlight">
+                <td><strong>Saturno Project</strong></td>
+                <td><code>.aps</code></td>
+                <td><span class="tag-yes">Sim</span></td>
+                <td><span class="tag-yes">Sim</span></td>
+                <td>Formato nativo do Kamafeu Studio em JSON estruturado com faixas multicanal, partes WAV, curvas de pitch em alta resolução, envelopes de 5 pontos e parâmetros FX.</td>
+              </tr>
+              <tr>
+                <td><strong>OpenUtau Project</strong></td>
+                <td><code>.ustx</code></td>
+                <td><span class="tag-yes">Sim</span></td>
+                <td><span class="tag-yes">Sim</span></td>
+                <td>Formato YAML do OpenUtau. Preserva estrutura multifaixa, cantores atribuídos, expressões dinâmicas e curvas de afinação.</td>
+              </tr>
+              <tr>
+                <td><strong>UTAU Sequence Text</strong></td>
+                <td><code>.ust</code></td>
+                <td><span class="tag-yes">Sim</span></td>
+                <td><span class="tag-yes">Sim</span></td>
+                <td>Formato clássico do UTAU estruturado em seções <code>[#0000]</code> com notas, letras, andamento (BPM), portamentos e envelopes.</td>
+              </tr>
+              <tr>
+                <td><strong>Standard MIDI File</strong></td>
+                <td><code>.mid, .midi</code></td>
+                <td><span class="tag-yes">Sim</span></td>
+                <td><span class="tag-yes">Sim</span></td>
+                <td>Intercâmbio universal com DAWs como Reaper, FL Studio, Ableton Live e Logic Pro com notas, andamento e mensagens de pitch bend.</td>
+              </tr>
+              <tr>
+                <td><strong>UtaFormatix Data</strong></td>
+                <td><code>.ufdata</code></td>
+                <td><span class="tag-yes">Sim</span></td>
+                <td><span class="tag-yes">Sim</span></td>
+                <td>Padrão aberto universal em JSON para migração fiel entre sintetizadores vocais modernos sem perda de temporização.</td>
+              </tr>
+              <tr>
+                <td><strong>Synthesizer V Project</strong></td>
+                <td><code>.svp</code></td>
+                <td><span class="tag-yes">Sim</span></td>
+                <td><span class="tag-yes">Sim</span></td>
+                <td>Conversão de trilhas melódicas, notas musicais e divisão silábica do Synthesizer V (Dreamtonics).</td>
+              </tr>
+              <tr>
+                <td><strong>VOCALOID Sequence</strong></td>
+                <td><code>.vsqx</code></td>
+                <td><span class="tag-yes">Sim</span></td>
+                <td><span class="tag-yes">Sim</span></td>
+                <td>Conversão de arquivos de sequência XML do VOCALOID (Yamaha) com trilhas de canto, notas e dados de afinação.</td>
+              </tr>
+              <tr class="row-highlight">
+                <td><strong>Kamafeu Voicebank Package</strong></td>
+                <td><code>.kfv</code></td>
+                <td><span class="tag-yes">Sim</span></td>
+                <td><span class="tag-yes">Sim</span></td>
+                <td>Pacote de cantor compactado do Kamafeu contendo gravações WAV, arquivos <code>oto.ini</code>, <code>character.txt</code> e <code>prefix.map</code>.</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </div>
+    </section>
+
+    <!-- Theme Gallery -->
+    <section class="section" id="temas">
+      <div class="container">
+        <div class="section-label">Interface Gráfica</div>
+        <h2 class="section-heading">Temas Visuais Personalizáveis</h2>
+        <p class="section-subheading">O Kamafeu Studio inclui um gerenciador de temas integrado (<kbd>Ctrl/Cmd + Alt + T</kbd>) para alternar cores, densidade de grade e contraste.</p>
+
+        <!-- Theme Tabs -->
+        <div class="theme-tabs" id="themeTabs">
+          <button class="theme-tab-btn active" data-img="assets/themes/theme_pomar_neon.png" data-name="Pomar Neon (Esmeralda)" data-desc="Tema oficial do Studio Pomar com alto contraste esmeralda e linhas de grade nítidas para sessões prolongadas de edição.">
+            Pomar Neon
+          </button>
+          <button class="theme-tab-btn" data-img="assets/themes/theme_melodyne_gold.png" data-name="Melodyne Gold (Âmbar)" data-desc="Inspirado em editores clássicos de afinação manual, com tons de âmbar quente e caramelo.">
+            Melodyne Gold
+          </button>
+          <button class="theme-tab-btn" data-img="assets/themes/theme_cyberpunk.png" data-name="Cyberpunk (Synthwave)" data-desc="Paleta synthwave vibrante com notas magenta e grade ciano profunda.">
+            Cyberpunk
+          </button>
+          <button class="theme-tab-btn" data-img="assets/themes/theme_nordic_slate.png" data-name="Nordic Slate (Clean Dark)" data-desc="Estilo minimalista em tons de ardósia e titânio para máxima concentração.">
+            Nordic Slate
+          </button>
+          <button class="theme-tab-btn" data-img="assets/themes/theme_mikan_teal.png" data-name="Voz-a-loide Teal (Mikan)" data-desc="Visual clássico de cantores virtuais com detalhes em ciano e acentos alaranjados.">
+            Mikan Teal
+          </button>
         </div>
 
-        <div class="os-content-panel">
-          <div class="code-header">
-            <span id="osCodeLabel">Ubuntu / Debian / Linux Mint / Pop!_OS</span>
-            <button class="btn-copy" data-target="osCodeBlock">Copiar Comandos</button>
+        <div class="theme-viewer-card">
+          <div class="theme-meta-bar">
+            <h3 id="currentThemeName">Tema Pomar Neon (Esmeralda)</h3>
+            <p id="currentThemeDesc">Tema oficial do Studio Pomar com alto contraste esmeralda e linhas de grade nítidas para sessões prolongadas de edição.</p>
           </div>
-          <pre id="osCodeBlock"><code class="language-bash"># 1. Instalar dependências de áudio ALSA e sistema gráfico
+          <div class="theme-img-wrap">
+            <img src="assets/themes/theme_pomar_neon.png" alt="Captura do tema selecionado" class="theme-preview-img" id="themePreviewImg">
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Downloads Section -->
+    <section class="section section-dark" id="downloads">
+      <div class="container">
+        <div class="section-label">Instalação</div>
+        <h2 class="section-heading">Download do Kamafeu Studio</h2>
+        <p class="section-subheading">Binários pré-compilados disponíveis na aba de Releases do GitHub para as principais plataformas.</p>
+
+        <div class="downloads-grid">
+          <!-- macOS -->
+          <div class="download-card">
+            <div class="dl-os-icon"></div>
+            <h3>macOS</h3>
+            <p class="dl-arch">Apple Silicon (M1/M2/M3/M4) & Intel</p>
+            <ul class="dl-specs">
+              <li>&bull; Pacote DMG e binário autônomo</li>
+              <li>&bull; Backend gráfico Metal e CoreAudio</li>
+              <li>&bull; macOS 11.0 Big Sur ou superior</li>
+            </ul>
+            <a href="https://github.com/studiopomar/kamafeu/releases" target="_blank" rel="noopener" class="btn btn-primary btn-block">
+              Baixar para macOS (.dmg)
+            </a>
+          </div>
+
+          <!-- Windows -->
+          <div class="download-card">
+            <div class="dl-os-icon">⊞</div>
+            <h3>Windows</h3>
+            <p class="dl-arch">x64 (64-bit)</p>
+            <ul class="dl-specs">
+              <li>&bull; Instalador executável e versão portátil</li>
+              <li>&bull; WASAPI e DirectSound de baixa latência</li>
+              <li>&bull; Windows 10 e Windows 11</li>
+            </ul>
+            <a href="https://github.com/studiopomar/kamafeu/releases" target="_blank" rel="noopener" class="btn btn-primary btn-block">
+              Baixar para Windows (.exe)
+            </a>
+          </div>
+
+          <!-- Linux -->
+          <div class="download-card">
+            <div class="dl-os-icon">🐧</div>
+            <h3>Linux</h3>
+            <p class="dl-arch">x86_64 AppImage & .deb</p>
+            <ul class="dl-specs">
+              <li>&bull; AppImage portátil universal e pacote Debian/Ubuntu</li>
+              <li>&bull; Suporte a ALSA e PulseAudio/PipeWire</li>
+              <li>&bull; Integração automática com Wine para resamplers Win32</li>
+            </ul>
+            <a href="https://github.com/studiopomar/kamafeu/releases" target="_blank" rel="noopener" class="btn btn-primary btn-block">
+              Baixar AppImage (.AppImage)
+            </a>
+          </div>
+
+          <!-- Android -->
+          <div class="download-card">
+            <div class="dl-os-icon">🤖</div>
+            <h3>Android</h3>
+            <p class="dl-arch">ARM64 APK</p>
+            <ul class="dl-specs">
+              <li>&bull; Pacote APK com motores nativos VENUS e Andromeda</li>
+              <li>&bull; Integração SAF para importação de pacotes <code>.kfv</code></li>
+              <li>&bull; Android 8.0 (Oreo) ou superior</li>
+            </ul>
+            <a href="https://github.com/studiopomar/kamafeu/releases" target="_blank" rel="noopener" class="btn btn-secondary btn-block">
+              Baixar APK Android (.apk)
+            </a>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Source Compilation Guide -->
+    <section class="section" id="compilacao">
+      <div class="container">
+        <div class="section-label">Desenvolvimento</div>
+        <h2 class="section-heading">Compilação a Partir do Código-Fonte</h2>
+        <p class="section-subheading">Requisitos: <strong>Rust 1.82 ou superior</strong> e o gerenciador de pacotes <strong>Cargo</strong> instalados via <a href="https://rustup.rs" target="_blank" rel="noopener" class="inline-link">rustup.rs</a>.</p>
+
+        <div class="code-terminal">
+          <div class="terminal-tabs" id="terminalTabs">
+            <button class="t-tab active" data-os="ubuntu">Ubuntu / Debian</button>
+            <button class="t-tab" data-os="fedora">Fedora</button>
+            <button class="t-tab" data-os="arch">Arch Linux</button>
+            <button class="t-tab" data-os="macos">macOS</button>
+            <button class="t-tab" data-os="windows">Windows</button>
+            <button class="t-tab" data-os="android">Android APK</button>
+          </div>
+
+          <div class="terminal-body">
+            <div class="terminal-header">
+              <span id="terminalOsTitle">Ubuntu / Debian / Linux Mint / Pop!_OS</span>
+              <button class="btn-copy-terminal" id="copyTerminalBtn">Copiar</button>
+            </div>
+            <pre id="terminalCode"><code class="language-bash"># Instalar dependências do ALSA e bibliotecas gráficas
 sudo apt-get update
-sudo apt-get install -y \
-  build-essential \
-  pkg-config \
-  libasound2-dev \
-  libxcb-render0-dev \
-  libxcb-shape0-dev \
-  libxcb-xfixes0-dev \
-  libxkbcommon-dev \
-  libfontconfig1-dev
+sudo apt-get install -y build-essential pkg-config libasound2-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev libfontconfig1-dev
 
-# 2. Clonar o repositório
+# Clonar o repositório
 git clone https://github.com/studiopomar/kamafeu.git
 cd kamafeu
 
-# 3. Compilar em modo Release com otimização máxima
+# Compilar em modo release com otimização total
 cargo build --release
 
-# Executar o Kamafeu Studio
+# Executar o binário
 ./target/release/kamafeu</code></pre>
+          </div>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- Clean Footer -->
+  <footer class="site-footer">
+    <div class="container footer-inner">
+      <div class="footer-col-main">
+        <div class="footer-brand">
+          <img src="assets/icon.png" alt="Kamafeu Studio" width="28" height="28">
+          <span class="footer-title">Kamafeu Studio</span>
+        </div>
+        <p class="footer-desc">
+          Editor e sintetizador vocal por amostragem e splicing em Rust.<br>
+          Desenvolvido com dedicação pelo <strong>Studio Pomar</strong>.
+        </p>
+        <div class="team-credits">
+          <span><strong>Programação:</strong> xiao</span> &bull; 
+          <span><strong>Direção de Arte:</strong> mori-p</span> &bull; 
+          <span><strong>QA & Testes:</strong> makki, zoneryth, xiao</span>
+        </div>
+      </div>
+
+      <div class="footer-col-links">
+        <div class="links-group">
+          <h4>Projeto</h4>
+          <a href="https://github.com/studiopomar/kamafeu" target="_blank" rel="noopener">GitHub</a>
+          <a href="https://github.com/studiopomar/kamafeu/releases" target="_blank" rel="noopener">Releases & Downloads</a>
+          <a href="https://github.com/studiopomar/kamafeu/blob/main/CHANGELOG.md" target="_blank" rel="noopener">Histórico de Alterações</a>
+          <a href="https://github.com/studiopomar/kamafeu/blob/main/LICENSE" target="_blank" rel="noopener">Licença MIT</a>
+        </div>
+
+        <div class="links-group">
+          <h4>Studio Pomar</h4>
+          <a href="https://studiopomar.github.io/pomar-lts/" target="_blank" rel="noopener">Studio Pomar LTS</a>
+          <a href="https://github.com/studiopomar" target="_blank" rel="noopener">Organização GitHub</a>
         </div>
       </div>
     </div>
-  </section>
 
-  <!-- Footer -->
-  <footer class="footer">
-    <div class="container footer-container">
-      <div class="footer-top">
-        <div class="footer-brand">
-          <div class="brand-logo-wrap">
-            <img src="assets/icon.png" alt="Kamafeu Studio" width="40" height="40">
-          </div>
-          <div class="brand-text">
-            <span class="brand-title">Kamafeu Studio</span>
-            <span class="brand-sub">Projeto open-source desenvolvido pelo <strong>Studio Pomar</strong></span>
-          </div>
-        </div>
-
-        <div class="footer-credits">
-          <p class="credits-line"><strong>Programador:</strong> xiao | <strong>Direção de Arte:</strong> mori-p</p>
-          <p class="credits-line"><strong>QA & Testes:</strong> makki (Linux), zoneryth (Windows/Linux), xiao (macOS)</p>
-        </div>
-      </div>
-
-      <div class="footer-bottom">
-        <div class="footer-copy">
-          &copy; 2026 Studio Pomar. Licenciado sob a <a href="https://github.com/studiopomar/kamafeu/blob/main/LICENSE" target="_blank" rel="noopener">Licença MIT</a>.
-        </div>
-        <div class="footer-links">
-          <a href="https://github.com/studiopomar/kamafeu" target="_blank" rel="noopener">GitHub</a>
-          <a href="https://github.com/studiopomar/kamafeu/releases" target="_blank" rel="noopener">Downloads</a>
-          <a href="https://github.com/studiopomar/kamafeu/blob/main/CHANGELOG.md" target="_blank" rel="noopener">Changelog</a>
-          <a href="https://studiopomar.github.io/pomar-lts/" target="_blank" rel="noopener">Studio Pomar LTS</a>
-          <a href="#sobre" class="back-to-top" title="Voltar ao topo">↑ Topo</a>
-        </div>
+    <div class="footer-bottom-bar">
+      <div class="container bottom-bar-inner">
+        <span>&copy; 2026 Studio Pomar &bull; Código livre sob Licença MIT.</span>
+        <a href="#" class="back-top">Voltar ao topo &uarr;</a>
       </div>
     </div>
   </footer>
