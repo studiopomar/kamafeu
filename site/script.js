@@ -1,10 +1,11 @@
 /* ===================================================================
    KAMAFEU STUDIO - WORKSTATION PORTAL JAVASCRIPT
-   Clean, authentic interactive logic
+   WebAudio Formant Synthesizer, Piano Roll, oto.ini Calibrator & UI
    =================================================================== */
 
 document.addEventListener('DOMContentLoaded', () => {
   initOsDetection();
+  initVocalSynthKeyboard();
   initOtoCalibrator();
   initThemeGallery();
   initCompilationTabs();
@@ -34,7 +35,342 @@ function initOsDetection() {
 }
 
 /* -------------------------------------------------------------------
-   2. INTERACTIVE OTO.INI WAVEFORM CALIBRATOR (CANVAS)
+   2. WEBAUDIO VOCAL SYNTH & PIANO ROLL KEYBOARD
+   ------------------------------------------------------------------- */
+const VOWEL_FORMANTS = {
+  a: { f1: 800, f2: 1200, f3: 2500, q1: 6, q2: 6, q3: 8 },
+  e: { f1: 500, f2: 1800, f3: 2600, q1: 6, q2: 7, q3: 8 },
+  i: { f1: 300, f2: 2200, f3: 3000, q1: 7, q2: 8, q3: 9 },
+  o: { f1: 500, f2: 850,  f3: 2400, q1: 6, q2: 6, q3: 7 },
+  u: { f1: 320, f2: 800,  f3: 2200, q1: 7, q2: 6, q3: 7 }
+};
+
+let audioCtx = null;
+let activeOsc = null;
+let activeGain = null;
+let activeLfo = null;
+let isVibratoOn = true;
+let synthAnalyser = null;
+let synthAnimId = null;
+let phraseTimeouts = [];
+
+function ensureAudioContext() {
+  if (!audioCtx) {
+    const AudioContextClass = window.AudioContext || window.webkitAudioContext;
+    audioCtx = new AudioContextClass();
+  }
+  if (audioCtx.state === 'suspended') {
+    audioCtx.resume();
+  }
+  if (!synthAnalyser) {
+    synthAnalyser = audioCtx.createAnalyser();
+    synthAnalyser.fftSize = 512;
+  }
+}
+
+function initVocalSynthKeyboard() {
+  const keys = document.querySelectorAll('.piano-keyboard .key');
+  const vowelSelect = document.getElementById('synthVowel');
+  const pitchSlider = document.getElementById('synthPitchBend');
+  const pitchVal = document.getElementById('synthPitchVal');
+  const vibratoBtn = document.getElementById('synthVibratoBtn');
+  const playKamafeuBtn = document.getElementById('btnPlayKamafeu');
+  const playPomarBtn = document.getElementById('btnPlayPomar');
+  const stopBtn = document.getElementById('btnStopSynth');
+  const statusInfo = document.getElementById('synthStatusInfo');
+  const canvas = document.getElementById('synthOscCanvas');
+
+  // Pitch Bend Slider
+  if (pitchSlider && pitchVal) {
+    pitchSlider.addEventListener('input', (e) => {
+      const cents = parseInt(e.target.value, 10);
+      pitchVal.textContent = `${cents > 0 ? '+' : ''}${cents} cents`;
+      if (activeOsc && audioCtx) {
+        const baseFreq = parseFloat(activeOsc.datasetBaseFreq || 261.63);
+        const targetFreq = baseFreq * Math.pow(2, cents / 1200);
+        activeOsc.frequency.setTargetAtTime(targetFreq, audioCtx.currentTime, 0.02);
+      }
+    });
+  }
+
+  // Vibrato Toggle
+  if (vibratoBtn) {
+    vibratoBtn.addEventListener('click', () => {
+      isVibratoOn = !isVibratoOn;
+      vibratoBtn.classList.toggle('active', isVibratoOn);
+      vibratoBtn.textContent = isVibratoOn ? '6.0 Hz / 45c' : 'Desativado';
+    });
+  }
+
+  // Piano Key Press Events
+  keys.forEach(k => {
+    const note = k.getAttribute('data-note');
+    const freq = parseFloat(k.getAttribute('data-freq'));
+
+    const pressKey = (e) => {
+      e.preventDefault();
+      clearActivePhrases();
+      playSynthVoice(freq, note);
+      k.classList.add('playing');
+    };
+
+    const releaseKey = (e) => {
+      e.preventDefault();
+      stopSynthVoice();
+      k.classList.remove('playing');
+    };
+
+    k.addEventListener('mousedown', pressKey);
+    k.addEventListener('mouseup', releaseKey);
+    k.addEventListener('mouseleave', releaseKey);
+
+    k.addEventListener('touchstart', pressKey, { passive: false });
+    k.addEventListener('touchend', releaseKey, { passive: false });
+  });
+
+  // Melodies
+  if (playKamafeuBtn) {
+    playKamafeuBtn.addEventListener('click', () => {
+      playVocalSequence([
+        { note: 'C4', freq: 261.63, vowel: 'a', lyric: 'Ka', dur: 320 },
+        { note: 'D4', freq: 293.66, vowel: 'a', lyric: 'ma', dur: 320 },
+        { note: 'E4', freq: 329.63, vowel: 'e', lyric: 'feu', dur: 450 },
+        { note: 'G4', freq: 392.00, vowel: 'u', lyric: 'Stu-', dur: 300 },
+        { note: 'A4', freq: 440.00, vowel: 'o', lyric: 'dio', dur: 700 }
+      ]);
+    });
+  }
+
+  if (playPomarBtn) {
+    playPomarBtn.addEventListener('click', () => {
+      playVocalSequence([
+        { note: 'E4', freq: 329.63, vowel: 'u', lyric: 'Stu-', dur: 280 },
+        { note: 'G4', freq: 392.00, vowel: 'i', lyric: 'dio', dur: 280 },
+        { note: 'C5', freq: 523.25, vowel: 'o', lyric: 'Po-', dur: 380 },
+        { note: 'G4', freq: 392.00, vowel: 'a', lyric: 'mar', dur: 700 }
+      ]);
+    });
+  }
+
+  if (stopBtn) {
+    stopBtn.addEventListener('click', () => {
+      clearActivePhrases();
+      stopSynthVoice();
+      if (statusInfo) statusInfo.textContent = 'Parado';
+    });
+  }
+
+  if (canvas) {
+    setupSynthOscilloscope(canvas);
+  }
+}
+
+function playSynthVoice(baseFreq, noteName) {
+  ensureAudioContext();
+  stopSynthVoice();
+
+  const vowelSelect = document.getElementById('synthVowel');
+  const vowel = vowelSelect ? vowelSelect.value : 'a';
+  const formants = VOWEL_FORMANTS[vowel] || VOWEL_FORMANTS.a;
+
+  const pitchSlider = document.getElementById('synthPitchBend');
+  const cents = pitchSlider ? parseInt(pitchSlider.value, 10) : 0;
+  const targetFreq = baseFreq * Math.pow(2, cents / 1200);
+
+  const now = audioCtx.currentTime;
+
+  // Master Gain with human vocal envelope (attack 35ms)
+  activeGain = audioCtx.createGain();
+  activeGain.gain.setValueAtTime(0.0001, now);
+  activeGain.gain.exponentialRampToValueAtTime(0.45, now + 0.035);
+
+  // Glottal Sawtooth Waveform
+  activeOsc = audioCtx.createOscillator();
+  activeOsc.type = 'sawtooth';
+  activeOsc.frequency.setValueAtTime(targetFreq, now);
+  activeOsc.datasetBaseFreq = baseFreq;
+
+  // Sub warmth
+  const subOsc = audioCtx.createOscillator();
+  subOsc.type = 'square';
+  subOsc.frequency.setValueAtTime(targetFreq * 0.5, now);
+  const subGain = audioCtx.createGain();
+  subGain.gain.setValueAtTime(0.08, now);
+  subOsc.connect(subGain);
+
+  // Vibrato LFO
+  if (isVibratoOn) {
+    activeLfo = audioCtx.createOscillator();
+    activeLfo.frequency.setValueAtTime(6.0, now);
+    const lfoGain = audioCtx.createGain();
+    lfoGain.gain.setValueAtTime(5.0, now);
+    activeLfo.connect(lfoGain);
+    lfoGain.connect(activeOsc.frequency);
+    activeLfo.start(now);
+    activeOsc.lfo = activeLfo;
+  }
+
+  // Formant Filter Bank (F1, F2, F3 parallel bandpasses)
+  const fMix = audioCtx.createGain();
+  fMix.gain.setValueAtTime(0.85, now);
+
+  const f1 = audioCtx.createBiquadFilter();
+  f1.type = 'bandpass';
+  f1.frequency.setValueAtTime(formants.f1, now);
+  f1.Q.setValueAtTime(formants.q1, now);
+
+  const f2 = audioCtx.createBiquadFilter();
+  f2.type = 'bandpass';
+  f2.frequency.setValueAtTime(formants.f2, now);
+  f2.Q.setValueAtTime(formants.q2, now);
+
+  const f3 = audioCtx.createBiquadFilter();
+  f3.type = 'bandpass';
+  f3.frequency.setValueAtTime(formants.f3, now);
+  f3.Q.setValueAtTime(formants.q3, now);
+
+  activeOsc.connect(f1);
+  activeOsc.connect(f2);
+  activeOsc.connect(f3);
+  subGain.connect(f1);
+
+  f1.connect(fMix);
+  f2.connect(fMix);
+  f3.connect(fMix);
+
+  fMix.connect(activeGain);
+  activeGain.connect(synthAnalyser);
+  synthAnalyser.connect(audioCtx.destination);
+
+  activeOsc.start(now);
+  subOsc.start(now);
+  activeOsc.subOsc = subOsc;
+
+  const statusInfo = document.getElementById('synthStatusInfo');
+  if (statusInfo) {
+    statusInfo.textContent = `Sintetizando: ${noteName} (${targetFreq.toFixed(1)} Hz) — Vogal [ ${vowel.toUpperCase()} ] — Motor VENUS`;
+  }
+}
+
+function stopSynthVoice() {
+  if (activeGain && audioCtx) {
+    const now = audioCtx.currentTime;
+    activeGain.gain.cancelScheduledValues(now);
+    activeGain.gain.setValueAtTime(activeGain.gain.value, now);
+    activeGain.gain.exponentialRampToValueAtTime(0.0001, now + 0.05);
+
+    const oldOsc = activeOsc;
+    setTimeout(() => {
+      try {
+        if (oldOsc) {
+          oldOsc.stop();
+          if (oldOsc.subOsc) oldOsc.subOsc.stop();
+          if (oldOsc.lfo) oldOsc.lfo.stop();
+        }
+      } catch (e) {}
+    }, 60);
+
+    activeOsc = null;
+    activeGain = null;
+  }
+}
+
+function clearActivePhrases() {
+  phraseTimeouts.forEach(t => clearTimeout(t));
+  phraseTimeouts = [];
+  document.querySelectorAll('.piano-keyboard .key').forEach(k => k.classList.remove('playing'));
+}
+
+function playVocalSequence(notes) {
+  ensureAudioContext();
+  clearActivePhrases();
+  stopSynthVoice();
+
+  let delay = 0;
+  notes.forEach((item, idx) => {
+    const t = setTimeout(() => {
+      document.querySelectorAll('.piano-keyboard .key').forEach(k => k.classList.remove('playing'));
+      const keyEl = document.querySelector(`.piano-keyboard .key[data-note="${item.note}"]`);
+      if (keyEl) keyEl.classList.add('playing');
+
+      const vowelSelect = document.getElementById('synthVowel');
+      if (vowelSelect) vowelSelect.value = item.vowel;
+
+      playSynthVoice(item.freq, `${item.note} ("${item.lyric}")`);
+
+      const stopT = setTimeout(() => {
+        stopSynthVoice();
+        if (keyEl) keyEl.classList.remove('playing');
+        if (idx === notes.length - 1) {
+          const statusInfo = document.getElementById('synthStatusInfo');
+          if (statusInfo) statusInfo.textContent = 'Sequência finalizada — Pronto';
+        }
+      }, item.dur - 35);
+      phraseTimeouts.push(stopT);
+    }, delay);
+
+    phraseTimeouts.push(t);
+    delay += item.dur;
+  });
+}
+
+function setupSynthOscilloscope(canvas) {
+  const ctx = canvas.getContext('2d');
+  const bufferLen = 256;
+  const dataArray = new Uint8Array(bufferLen);
+
+  function draw() {
+    synthAnimId = requestAnimationFrame(draw);
+    const w = canvas.width;
+    const h = canvas.height;
+
+    ctx.fillStyle = '#040608';
+    ctx.fillRect(0, 0, w, h);
+
+    // Subtle grid line
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.06)';
+    ctx.lineWidth = 1;
+    ctx.beginPath();
+    ctx.moveTo(0, h / 2);
+    ctx.lineTo(w, h / 2);
+    ctx.stroke();
+
+    if (synthAnalyser && activeGain) {
+      synthAnalyser.getByteTimeDomainData(dataArray);
+
+      ctx.lineWidth = 2;
+      ctx.strokeStyle = '#10b981';
+      ctx.beginPath();
+
+      const sliceW = (w * 1.0) / bufferLen;
+      let x = 0;
+
+      for (let i = 0; i < bufferLen; i++) {
+        const v = dataArray[i] / 128.0;
+        const y = v * (h / 2);
+        if (i === 0) ctx.moveTo(x, y);
+        else ctx.lineTo(x, y);
+        x += sliceW;
+      }
+
+      ctx.lineTo(w, h / 2);
+      ctx.stroke();
+    } else {
+      // Idle Flat Line
+      ctx.lineWidth = 1;
+      ctx.strokeStyle = 'rgba(16, 185, 129, 0.3)';
+      ctx.beginPath();
+      ctx.moveTo(0, h / 2);
+      ctx.lineTo(w, h / 2);
+      ctx.stroke();
+    }
+  }
+
+  draw();
+}
+
+/* -------------------------------------------------------------------
+   3. INTERACTIVE OTO.INI WAVEFORM CALIBRATOR (CANVAS)
    ------------------------------------------------------------------- */
 function initOtoCalibrator() {
   const canvas = document.getElementById('calibratorCanvas');
@@ -52,7 +388,6 @@ function initOtoCalibrator() {
   const vPreut = document.getElementById('valPreutterance');
   const vOverlap = document.getElementById('valOverlap');
   const vCutoff = document.getElementById('valCutoff');
-  const statusEl = document.getElementById('calibratorStatus');
 
   function update() {
     const offset = parseInt(pOffset.value, 10);
@@ -73,12 +408,11 @@ function initOtoCalibrator() {
   function drawWaveform(offsetMs, consonantMs, preutMs, overlapMs, cutoffMs) {
     const w = canvas.width;
     const h = canvas.height;
-    const totalMs = 600; // total viewport ms
+    const totalMs = 600;
 
     ctx.fillStyle = '#06080c';
     ctx.fillRect(0, 0, w, h);
 
-    // Coordinate conversion
     const msToX = (ms) => (ms / totalMs) * w;
 
     const xOffset = msToX(offsetMs);
@@ -87,19 +421,19 @@ function initOtoCalibrator() {
     const xOverlap = msToX(offsetMs + overlapMs);
     const xCutoff = msToX(totalMs + cutoffMs);
 
-    // 1. Draw Offset Blanking Zone (Left cut)
+    // 1. Offset blanking
     ctx.fillStyle = 'rgba(239, 68, 68, 0.15)';
     ctx.fillRect(0, 0, xOffset, h);
 
-    // 2. Draw Consonant Fixed Zone (Unstretched pink)
+    // 2. Consonant fixed
     ctx.fillStyle = 'rgba(245, 158, 11, 0.18)';
     ctx.fillRect(xOffset, 0, Math.max(0, xConsonant - xOffset), h);
 
-    // 3. Draw Overlap Blend Zone
+    // 3. Overlap blend
     ctx.fillStyle = 'rgba(139, 92, 246, 0.18)';
     ctx.fillRect(xOffset, 0, Math.max(0, xOverlap - xOffset), h);
 
-    // 4. Draw Cutoff Blanking Zone (Right cut)
+    // 4. Cutoff blanking
     ctx.fillStyle = 'rgba(107, 114, 128, 0.25)';
     ctx.fillRect(xCutoff, 0, Math.max(0, w - xCutoff), h);
 
@@ -111,7 +445,7 @@ function initOtoCalibrator() {
     ctx.lineTo(w, h / 2);
     ctx.stroke();
 
-    // Draw Realistic Vocal Waveform (Consonant attack noise + Harmonic vowel periodic wave)
+    // Waveform
     ctx.strokeStyle = '#34d399';
     ctx.lineWidth = 1.5;
     ctx.beginPath();
@@ -122,15 +456,13 @@ function initOtoCalibrator() {
       let amp = 0;
 
       if (ms < offsetMs || ms > (totalMs + cutoffMs)) {
-        amp = (Math.random() - 0.5) * 4; // silence / noise floor
+        amp = (Math.random() - 0.5) * 4;
       } else if (ms < consonantMs) {
-        // Consonant transient "K" burst + noise
         const env = Math.sin(((ms - offsetMs) / (consonantMs - offsetMs)) * Math.PI);
         const noise = (Math.random() - 0.5) * 45;
         const transient = Math.sin(ms * 0.4) * 35;
         amp = (noise + transient) * env;
       } else {
-        // Periodic Vowel "A" waveform (Fundamental F0 + Formants F1/F2)
         const t = (ms - consonantMs) * 0.15;
         const f0 = Math.sin(t * 1.5) * 30;
         const f1 = Math.sin(t * 4.5) * 20;
@@ -144,7 +476,7 @@ function initOtoCalibrator() {
     }
     ctx.stroke();
 
-    // Draw Vertical Parameter Marker Lines
+    // Markers
     function drawMarker(x, color, label) {
       ctx.strokeStyle = color;
       ctx.lineWidth = 2;
@@ -173,7 +505,7 @@ function initOtoCalibrator() {
 }
 
 /* -------------------------------------------------------------------
-   3. THEME GALLERY TABS
+   4. THEME GALLERY TABS
    ------------------------------------------------------------------- */
 function initThemeGallery() {
   const tabs = document.querySelectorAll('.theme-tab-btn');
@@ -198,7 +530,7 @@ function initThemeGallery() {
 }
 
 /* -------------------------------------------------------------------
-   4. SOURCE COMPILATION TABS & COPY
+   5. SOURCE COMPILATION TABS & COPY
    ------------------------------------------------------------------- */
 const OS_BUILD_COMMANDS = {
   ubuntu: {
@@ -318,7 +650,7 @@ function initCompilationTabs() {
 }
 
 /* -------------------------------------------------------------------
-   5. MOBILE NAV MENU
+   6. MOBILE NAV MENU
    ------------------------------------------------------------------- */
 function initMobileNav() {
   const btn = document.getElementById('mobileMenuBtn');
