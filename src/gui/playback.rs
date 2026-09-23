@@ -17,6 +17,12 @@ fn progressive_chunk_ms(lookahead_ms: f32, render_chunk_bars: u32, bpm: f64) -> 
 
 impl KamafeuStudioApp {
     pub fn play_current_track(&mut self) {
+        if let Err(error) = self.audio_player.prepare_for_playback() {
+            self.transport_state.status_message = format!("Erro de áudio: {error}");
+            self.render_log_messages.push(error);
+            return;
+        }
+
         if self.render_rx.is_some() {
             self.transport_state.status_message = "A prévia já está sendo renderizada".to_string();
             return;

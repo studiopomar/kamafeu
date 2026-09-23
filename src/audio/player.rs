@@ -174,6 +174,15 @@ impl AudioPlayer {
         }
     }
 
+    /// Web Audio must be resumed from the user gesture that requested
+    /// playback. Calling this before rendering prevents autoplay policies
+    /// from rejecting the first scheduled buffer after an async render.
+    pub fn prepare_for_playback(&mut self) -> Result<(), String> {
+        self.get_or_create_context().map(|_| ()).ok_or_else(|| {
+            "O navegador não conseguiu inicializar o dispositivo de áudio Web Audio.".to_string()
+        })
+    }
+
     fn get_or_create_context(&mut self) -> Option<&web_sys::AudioContext> {
         if self.ctx.is_none() {
             if let Ok(ctx) = web_sys::AudioContext::new() {
@@ -337,6 +346,19 @@ impl AudioPlayer {
             ctx.current_time() < self.next_play_time
         } else {
             false
+        }
+    }
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+impl AudioPlayer {
+    /// Desktop output is initialized by `new`; this keeps the playback call
+    /// site identical across native and WebAssembly targets.
+    pub fn prepare_for_playback(&mut self) -> Result<(), String> {
+        if self.stream_handle.is_some() {
+            Ok(())
+        } else {
+            Err("Nenhum dispositivo de saída de áudio está disponível.".to_string())
         }
     }
 }
