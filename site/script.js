@@ -54,6 +54,53 @@ const SITE_TRANSLATIONS = {
   'Ver Downloads Disponíveis': 'View Available Downloads'
 };
 
+Object.assign(SITE_TRANSLATIONS, {
+  'Oclusivas / Plosivas': 'Stops / Plosives', 'Fricativas / Sibilantes': 'Fricatives / Sibilants',
+  'Líquidas & Nasais': 'Liquids & Nasals', 'bilabial sonora': 'voiced bilabial',
+  'alveolar sonora': 'voiced alveolar', 'velar sonora': 'voiced velar',
+  'bilabial surda': 'voiceless bilabial', 'alveolar surda': 'voiceless alveolar',
+  'velar surda': 'voiceless velar', 'sibilante surda': 'voiceless sibilant',
+  'sibilante sonora': 'voiced sibilant', 'labiodental sonora': 'voiced labiodental',
+  'labiodental surda': 'voiceless labiodental', 'pós-alveolar': 'postalveolar',
+  'lateral alveolar': 'alveolar lateral', 'lateral palatal': 'palatal lateral',
+  'tepe alveolar / vibrante': 'alveolar tap / trill', 'nasal bilabial': 'bilabial nasal',
+  'nasal alveolar': 'alveolar nasal', 'nasal palatal': 'palatal nasal',
+  'Aberta central': 'Open central', 'Média-aberta': 'Open-mid', 'Média-fechada': 'Close-mid',
+  'Fechada anterior': 'Close front', 'Fechada posterior': 'Close back',
+  'Schwa neutra / reduzida': 'Neutral / reduced schwa', 'Nasal aberta': 'Open nasal',
+  'Nasal média': 'Mid nasal', 'Nasal fechada': 'Close nasal', 'Partitura Completa': 'Full Score',
+  'Toque no piano roll para ouvir a reconstrução de formantes (vogais orais, nasais e schwa) combinadas a consoantes acústicas (oclusivas, fricativas e nasais) do motor ': 'Play the piano roll to hear formant reconstruction (oral, nasal, and schwa vowels) combined with acoustic consonants (stops, fricatives, and nasals) from the ',
+  'Uma suíte completa de ferramentas que respeita os fundamentos acústicos do UTAU clássico e traz a performance multithread do Rust moderno.': 'A complete tool suite that respects the acoustic foundations of classic UTAU while bringing modern Rust multithreaded performance.',
+  'Piano Roll & Modelagem Contínua de Afinação': 'Piano Roll & Continuous Pitch Modeling',
+  'Edição dinâmica de parâmetros:': 'Dynamic parameter editing:', 'Sopro': 'Breathiness', 'Gênero': 'Gender',
+  'sem engasgos de buffer': 'without buffer dropouts', 'Atalhos Principais de Composição': 'Main Composition Shortcuts',
+  'Ponteiro de Seleção e Mover': 'Selection and Move Pointer', 'Lápis de Desenho de Notas': 'Note Drawing Pencil',
+  'Pincel Livre de Pitch Bend': 'Freehand Pitch Bend Brush', 'Dividir / Cortar Nota Musical': 'Split / Cut Musical Note',
+  'Reproduzir / Pausar Síntese': 'Play / Pause Synthesis', 'Abrir Gaveta de Expressões': 'Open Expression Drawer',
+  'Suporte Fonético Completo & Dicionários G2P': 'Complete Phonetic Support & G2P Dictionaries',
+  'Português Brasileiro:': 'Brazilian Portuguese:', 'Japonês:': 'Japanese:', 'Inglês:': 'English:',
+  'Modo Manual:': 'Manual Mode:', 'Régua de Fonemas em Tempo Real': 'Real-time Phoneme Ruler',
+  'Consoante Fixa': 'Fixed Consonant', 'Vogal Esticada (Stretch)': 'Stretched Vowel',
+  'Rack de Efeitos (DSP) & Alinhamento de Fase': 'Effects Rack (DSP) & Phase Alignment',
+  'Cadeia de Áudio por Faixa': 'Per-Track Audio Chain', 'Amostra WAV': 'WAV Sample',
+  'Motores de Áudio': 'Audio Engines', 'Pipeline Nativo em Rust & Compatibilidade Externa': 'Native Rust Pipeline & External Compatibility',
+  'Resampler Nativo': 'Native Resampler', 'Wavtool Nativo': 'Native Wavtool',
+  'Executáveis Externos (CLI)': 'External Executables (CLI)', 'Fundamentos Acústicos': 'Acoustic Foundations',
+  'Como Funciona a Calibração de oto.ini no Kamafeu': 'How oto.ini Calibration Works in Kamafeu',
+  'Intercâmbio de Dados': 'Data Exchange', 'Formatos de Arquivo Suportados': 'Supported File Formats',
+  'Importação': 'Import', 'Exportação': 'Export', 'Descrição Técnica': 'Technical Description', 'Sim': 'Yes',
+  'Interface Gráfica': 'User Interface', 'Temas Visuais Personalizáveis': 'Customizable Visual Themes', 'Tema ': 'Theme ',
+  'Instalação': 'Installation', 'Download do Kamafeu Studio': 'Download Kamafeu Studio',
+  'Desenvolvimento': 'Development', 'Copiado!': 'Copied!'
+});
+
+function translateString(value) {
+  return Object.entries(SITE_TRANSLATIONS).reduce(
+    (result, [from, to]) => result.split(from).join(to),
+    value,
+  );
+}
+
 function translateSiteToEnglish() {
   const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
   const nodes = [];
@@ -64,6 +111,15 @@ function translateSiteToEnglish() {
       value = value.split(from).join(to);
     });
     node.nodeValue = value;
+  });
+  document.querySelectorAll('[aria-label], [alt], [title], [placeholder], [data-name], [data-desc]').forEach((element) => {
+    ['aria-label', 'alt', 'title', 'placeholder', 'data-name', 'data-desc'].forEach((attribute) => {
+      const original = element.getAttribute(attribute);
+      if (!original) return;
+      let translated = original;
+      translated = translateString(translated);
+      element.setAttribute(attribute, translated);
+    });
   });
   document.documentElement.lang = 'en';
   document.title = 'Kamafeu Studio — UTAU Vocal Editor and Synthesizer in Rust';
@@ -1002,8 +1058,9 @@ function initThemeGallery() {
       const desc = tab.getAttribute('data-desc');
 
       if (img) img.src = src;
-      if (nameEl) nameEl.textContent = `Tema ${name}`;
-      if (descEl) descEl.textContent = desc;
+      const english = document.documentElement.lang === 'en';
+      if (nameEl) nameEl.textContent = `${english ? 'Theme' : 'Tema'} ${english ? translateString(name) : name}`;
+      if (descEl) descEl.textContent = english ? translateString(desc) : desc;
     });
   });
 }
@@ -1110,8 +1167,9 @@ function initCompilationTabs() {
       const osKey = tab.getAttribute('data-os');
       const data = OS_BUILD_COMMANDS[osKey];
       if (data) {
-        if (titleEl) titleEl.textContent = data.title;
-        if (codeEl) codeEl.textContent = data.code;
+        const english = document.documentElement.lang === 'en';
+        if (titleEl) titleEl.textContent = english ? translateString(data.title) : data.title;
+        if (codeEl) codeEl.textContent = english ? translateString(data.code) : data.code;
       }
     });
   });
