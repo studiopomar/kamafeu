@@ -65,7 +65,7 @@ body {
   backdrop-filter: blur(12px);
   -webkit-backdrop-filter: blur(12px);
   border-bottom: 1px solid var(--border);
-  height: 60px;
+  min-height: 60px;
   display: flex;
   align-items: center;
 }
@@ -78,6 +78,7 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 1rem;
 }
 
 .brand {
@@ -116,6 +117,10 @@ body {
   display: flex;
   align-items: center;
   gap: 1.5rem;
+  flex: 1 1 auto;
+  justify-content: center;
+  flex-wrap: wrap;
+  row-gap: 0.25rem;
 }
 
 .nav-links a {
@@ -165,6 +170,30 @@ body {
   padding: 0.3rem 0.6rem;
   font-size: 1.1rem;
   cursor: pointer;
+}
+
+@media (max-width: 1180px) and (min-width: 861px) {
+  .header-inner {
+    padding: 0.55rem 1rem;
+    align-items: flex-start;
+  }
+
+  .brand,
+  .header-actions {
+    flex: 0 0 auto;
+    margin-top: 0.15rem;
+  }
+
+  .nav-links {
+    gap: 0.35rem 0.85rem;
+    max-width: 620px;
+    font-size: 0.8rem;
+  }
+
+  .nav-links a {
+    font-size: 0.8rem;
+    white-space: nowrap;
+  }
 }
 
 /* -------------------------------------------------------------------
