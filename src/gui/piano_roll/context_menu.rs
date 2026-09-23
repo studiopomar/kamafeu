@@ -434,6 +434,94 @@ pub(super) fn draw(
                                                 close_menu = true;
                                             }
                                             ui.separator();
+                                            ui.label(
+                                                egui::RichText::new(lang.tr("Conversão japonesa das notas", "Japanese note conversion"))
+                                                    .size(10.0)
+                                                    .color(Color32::from_rgb(180, 180, 200)),
+                                            );
+                                            let target_indices: Vec<usize> = if !state.selected_note_indices.is_empty() {
+                                                state.selected_note_indices.iter().copied().collect()
+                                            } else if let Some(idx) = menu_idx_opt {
+                                                vec![idx]
+                                            } else {
+                                                Vec::new()
+                                            };
+
+                                            if ui.button(lang.tr("Converter VCV → CV", "Convert VCV → CV")).clicked() {
+                                                let replacements: Vec<(usize, String)> = target_indices
+                                                    .iter()
+                                                    .filter_map(|&idx| {
+                                                        notes.get(idx).map(|note| {
+                                                            (
+                                                                idx,
+                                                                crate::phonemizer::japanese::vcv_to_cv_lyric(&note.lyric),
+                                                            )
+                                                        })
+                                                    })
+                                                    .filter(|(idx, lyric)| notes[*idx].lyric != *lyric)
+                                                    .collect();
+                                                if !replacements.is_empty() {
+                                                    on_before_change();
+                                                    for (idx, lyric) in replacements {
+                                                        notes[idx].lyric = lyric;
+                                                    }
+                                                    state.phoneme_cache_hash = 0;
+                                                    trigger_note_changed = true;
+                                                }
+                                                close_menu = true;
+                                            }
+                                            if ui.button(lang.tr("Converter CV → VCV", "Convert CV → VCV")).clicked() {
+                                                let original_lyrics: Vec<String> = notes.iter().map(|note| note.lyric.clone()).collect();
+                                                let replacements: Vec<(usize, String)> = target_indices
+                                                    .iter()
+                                                    .filter_map(|&idx| {
+                                                        original_lyrics.get(idx).map(|lyric| {
+                                                            let previous = idx.checked_sub(1).and_then(|prev| original_lyrics.get(prev));
+                                                            (
+                                                                idx,
+                                                                crate::phonemizer::japanese::cv_to_vcv_lyric(
+                                                                    lyric,
+                                                                    previous.map(String::as_str),
+                                                                ),
+                                                            )
+                                                        })
+                                                    })
+                                                    .filter(|(idx, lyric)| notes[*idx].lyric != *lyric)
+                                                    .collect();
+                                                if !replacements.is_empty() {
+                                                    on_before_change();
+                                                    for (idx, lyric) in replacements {
+                                                        notes[idx].lyric = lyric;
+                                                    }
+                                                    state.phoneme_cache_hash = 0;
+                                                    trigger_note_changed = true;
+                                                }
+                                                close_menu = true;
+                                            }
+                                            if ui.button(lang.tr("Remover caracteres não-Hiragana", "Remove non-Hiragana characters")).clicked() {
+                                                let replacements: Vec<(usize, String)> = target_indices
+                                                    .iter()
+                                                    .filter_map(|&idx| {
+                                                        notes.get(idx).map(|note| {
+                                                            (
+                                                                idx,
+                                                                crate::phonemizer::japanese::remove_non_hiragana(&note.lyric),
+                                                            )
+                                                        })
+                                                    })
+                                                    .filter(|(idx, lyric)| notes[*idx].lyric != *lyric)
+                                                    .collect();
+                                                if !replacements.is_empty() {
+                                                    on_before_change();
+                                                    for (idx, lyric) in replacements {
+                                                        notes[idx].lyric = lyric;
+                                                    }
+                                                    state.phoneme_cache_hash = 0;
+                                                    trigger_note_changed = true;
+                                                }
+                                                close_menu = true;
+                                            }
+                                            ui.separator();
                                             if ui.button(
                                                 egui::RichText::new(lang.tr("Resetar Tempos dos Fonemas", "Reset Phoneme Timings"))
                                                     .color(Color32::from_rgb(255, 205, 70)),

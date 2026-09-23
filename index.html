@@ -8,7 +8,9 @@
   <link rel="icon" type="image/png" href="assets/icon.png">
   <link data-trunk rel="copy-file" href="assets/icon.png" />
   <link data-trunk rel="copy-file" href="assets/kamafeu_banner.png" />
-  <link data-trunk rel="rust" data-wasm-opt="z" />
+  <!-- O deploy WebAssembly compila apenas a biblioteca; os binários desktop
+       são protegidos pela feature `desktop` no Cargo.toml. -->
+  <link data-trunk rel="rust" data-wasm-opt="z" data-cargo-no-default-features />
 
   <style>
     :root {

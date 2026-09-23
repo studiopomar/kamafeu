@@ -6,8 +6,32 @@ rust-version = "1.82"
 description = "Kamafeu Studio - OpenUTAU-style voice synthesizer and DAW in Rust with UTAU voicebank support"
 default-run = "kamafeu"
 
+[features]
+default = ["desktop"]
+desktop = []
+
 [lib]
 crate-type = ["lib", "cdylib"]
+
+[[bin]]
+name = "kamafeu"
+path = "src/main.rs"
+required-features = ["desktop"]
+
+[[bin]]
+name = "copaiba"
+path = "src/bin/copaiba.rs"
+required-features = ["desktop"]
+
+[[bin]]
+name = "venus-editor"
+path = "src/bin/venus-editor.rs"
+required-features = ["desktop"]
+
+[[bin]]
+name = "venus-corpus"
+path = "src/bin/venus-corpus.rs"
+required-features = ["desktop"]
 
 [package.metadata.android]
 package = "com.studiopomar.kamafeu"

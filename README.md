@@ -58,16 +58,23 @@ O nome **Kamafeu** faz referência à tradicional joia em camafeu, esculpida man
 - **Ferramentas de edição:** Ponteiro de seleção e movimentação (`V`), lápis de desenho contínuo (`N`), divisão de notas (`C`) e borracha (`E`).
 - **Desenho e modelagem de afinação:** Pincel livre de pitch (`P`), glissando em linha reta, pincel gerador de vibrato e suavizador de curvas. Suporte completo a pontos de portamento e envelopes com curvas S, lineares e Bézier.
 - **Suporte a escalas musicais e guia tonal:** Assistente de escalas (Maior, Menor Natural, Harmônica, Melódica, Pentatônicas, Blues, Dórico e Mixolídio) com destaque visual das notas dentro do tom e marcação da tônica.
+- **Indicação visual da tonalidade:** As linhas do piano roll mudam de cor conforme a escala e a tônica escolhidas, facilitando a criação de harmonias; também é possível selecionar notas fora da escala ativa.
 - **Expressões por nota:** Painel inferior retrátil para edição de dinâmica, modulação, velocidade de consoante, sopro (*breathiness*), formante de gênero (*gender*) e envelopes UTAU de amplitude em 5 pontos.
+- **Navegação sincronizada:** Playhead compartilhada entre arranjo, RADAR e piano roll, com acompanhamento horizontal durante a reprodução e opção de acompanhamento vertical das notas.
+- **RADAR interativo:** Mini mapa com notas e janela de viewport arrastável para navegar rapidamente por projetos longos, inclusive quando o ponteiro sai dos limites do radar.
+- **Navegação por mouse e trackpad:** Scroll vertical no arranjo, `Shift + scroll` para deslocamento horizontal e suporte a gestos de dois eixos de trackpads.
+- **Waveforms em camadas:** Forma de onda do áudio instrumental permanece na faixa de arranjo; a forma de onda vocal processada é exibida separadamente no rodapé do piano roll, sem interferir nas notas de outras faixas.
 - **Ferramenta de repetição de loop:** Delimitação de região de repetição `[A ... B]` diretamente na régua com `Shift + Clique / Arraste`, além de controles numéricos com recomeço contínuo e sem engasgos.
 - **Metrônomo sincronizado:** Síntese de cliques no andamento do projeto com acentuação tonal no primeiro tempo de cada compasso.
 - **Exportação rápida de seleção:** Opção de menu e atalho de clique direito para exportar exclusivamente as notas selecionadas no formato `[Projeto] - [Voicebank] - wip.wav`.
+- **Menu contextual de notas:** Ações em lote para converter aliases japoneses VCV→CV ou CV→VCV, remover caracteres não-Hiragana, limpar parâmetros, resetar tempos de fonemas e forçar a atualização fonética, com suporte a Undo/Redo.
 - **Área de trabalho otimizada:** Painéis recolhíveis de arranjo multifaixa (`Alt + A`), expressões (`Tab`), fonemas (`Alt + O`), inspetor lateral (`Cmd/Ctrl + B`) e modo de tela cheia (`F11`).
 
 ### Bancos de voz e suporte fonético
 - **Compatibilidade UTAU e OpenUtau:** Leitura e gravação de arquivos `oto.ini` em codificações UTF-8 e Shift-JIS com suporte a múltiplos tons via `prefix.map`.
 - **Fonemizadores integrados:**
-  - Japonês: CV (Hiragana), VCV e CVVC com conversão automática Romaji para Kana.
+- Japonês: CV (Hiragana), VCV e CVVC com conversão automática Romaji para Kana.
+- Conversão de letras japonesas: limpeza de caracteres não-Hiragana com normalização de Katakana e conversão contextual de aliases CV/VCV pelo menu da nota.
   - Português: BRAPA VCCV, CVC, CVVC e VCV, além de conversão ortográfica G2P.
   - Inglês: VCCV com suporte completo ao inventário fonético de encontros consonantais.
   - Modo manual: Inserção direta de aliases e subfonemas separados por ponto ou ponto e vírgula.
@@ -76,6 +83,7 @@ O nome **Kamafeu** faz referência à tradicional joia em camafeu, esculpida man
 
 ### Processamento e efeitos (DSP)
 - **Rack de efeitos integrado:** Equalizador paramétrico e gráfico de 31 bandas, compressor de dinâmica, chorus, delay de sincronismo e reverb estéreo aplicáveis por faixa.
+- **Visualização de áudio otimizada:** Waveforms processadas em cache, com atualização em segundo plano e invalidação por alteração, reduzindo trabalho repetido durante edição e reprodução.
 - **Alinhamento de fase e equal-power crossfade:** Junção suave entre notas adjacentes na mixagem de saída, eliminando estalos de fase e picos de distorção no somatório do buffer.
 - **Auto-Pitch:** Sistema de afinação orgânica para aplicação de portamentos de entrada, quedas de final de frase e vibratos proporcionais ao andamento musical.
 
@@ -393,6 +401,10 @@ No macOS, utilize a tecla `Cmd` no lugar de `Ctrl`.
 | `Ctrl + =` / `Cmd + =` | Aumentar zoom horizontal da timeline |
 | `Ctrl + -` / `Cmd + -` | Diminuir zoom horizontal da timeline |
 | `Ctrl + 0` / `Cmd + 0` | Redefinir zoom padrão da timeline |
+| `Shift + Scroll` | Deslocar horizontalmente a timeline/arranjo |
+| `Scroll vertical` | Navegar verticalmente pelas faixas do arranjo |
+| `Trackpad de dois eixos` | Navegar horizontal e verticalmente conforme o eixo do gesto |
+| `Arrastar a janela do RADAR` | Navegar diretamente para outra região do piano roll |
 
 ### Edição de notas e manipulação
 
@@ -411,6 +423,13 @@ No macOS, utilize a tecla `Cmd` no lugar de `Ctrl`.
 | `Shift + ↑` / `Shift + ↓` | Transpor notas em oitavas (+12 / -12 semitons) |
 | `←` / `→` | Deslocar posição das notas no tempo (-50 ms / +50 ms) |
 | `Shift + ←` / `Shift + →` | Alterar duração das notas (-50 ms / +50 ms) |
+| `Botão direito em notas selecionadas` | Abrir conversões VCV/CV e limpeza de caracteres não-Hiragana em lote |
+
+### Snap e subdivisões
+
+Além das divisões binárias e ternárias, o editor oferece subdivisões quíntuplas
+(`1/5`, `1/10`, `1/20`, `1/40` e `1/80`) no controle de grade da barra de
+ferramentas, úteis para fraseados e ritmos não binários.
 
 ### Arquivo, janelas e painéis
 

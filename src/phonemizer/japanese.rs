@@ -336,6 +336,40 @@ static SUBSTITUTE_LOOKUP: LazyLock<HashMap<&'static str, &'static str>> = LazyLo
 
 pub struct JapanesePhonemizer;
 
+/// Converts a note lyric written as a Japanese VCV alias to its CV lyric.
+///
+/// VCV aliases are represented by the previous vowel followed by the note
+/// lyric (for example `a か` or `- あ`).  Keeping the last token also makes
+/// this safe for aliases that contain extra spacing.
+pub fn vcv_to_cv_lyric(lyric: &str) -> String {
+    lyric.split_whitespace().last().unwrap_or(lyric).to_string()
+}
+
+/// Converts a CV lyric to a VCV lyric using the vowel of the preceding note.
+/// The caller supplies the preceding lyric from the original, unmodified
+/// note list so converting a selection does not depend on iteration order.
+pub fn cv_to_vcv_lyric(lyric: &str, previous_lyric: Option<&str>) -> String {
+    let cv = vcv_to_cv_lyric(lyric);
+    if cv.trim().is_empty() || lyric.split_whitespace().count() > 1 {
+        return lyric.to_string();
+    }
+
+    let previous_vowel = previous_lyric
+        .and_then(JapanesePhonemizer::extract_vowel)
+        .unwrap_or("-");
+    format!("{previous_vowel} {cv}")
+}
+
+/// Converts katakana to hiragana and removes every remaining non-hiragana
+/// character, preserving whitespace so VCV separators remain readable.
+pub fn remove_non_hiragana(lyric: &str) -> String {
+    let normalized = romaji::katakana_to_hiragana(lyric);
+    normalized
+        .chars()
+        .filter(|c| ('\u{3040}'..='\u{309F}').contains(c) || c.is_whitespace())
+        .collect()
+}
+
 impl JapanesePhonemizer {
     pub fn extract_vowel(lyric: &str) -> Option<&'static str> {
         let trimmed = lyric.trim();
@@ -759,6 +793,16 @@ mod tests {
     use super::*;
     use crate::oto::OtoEntry;
     use std::path::PathBuf;
+
+    #[test]
+    fn note_lyric_conversions_handle_vcv_and_hiragana_cleanup() {
+        assert_eq!(vcv_to_cv_lyric("a か"), "か");
+        assert_eq!(vcv_to_cv_lyric("- あ"), "あ");
+        assert_eq!(cv_to_vcv_lyric("さ", Some("か")), "a さ");
+        assert_eq!(cv_to_vcv_lyric("あ", None), "- あ");
+        assert_eq!(cv_to_vcv_lyric("a さ", Some("か")), "a さ");
+        assert_eq!(remove_non_hiragana("KA カ か!"), " か か");
+    }
 
     fn build_test_voicebank() -> Voicebank {
         let mut entries = HashMap::new();
