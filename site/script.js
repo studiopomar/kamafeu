@@ -18,6 +18,7 @@ document.addEventListener('DOMContentLoaded', () => {
    ------------------------------------------------------------------- */
 const SITE_TRANSLATIONS = {
   'Recursos': 'Features', 'Teclado Vocal': 'Vocal Keyboard', 'Motores DSP': 'DSP Engines',
+  'Kamafeu Web': 'Kamafeu Web', 'Kamafeu Web — abrir no navegador': 'Kamafeu Web — open in browser',
   'oto.ini & Acústica': 'oto.ini & Acoustics', 'Formatos': 'Formats', 'Temas': 'Themes',
   'Downloads': 'Downloads', 'Compilação': 'Build', 'Abrir Menu': 'Open menu',
   'Versão 1.0.0 • Rust 1.82+ • Open Source (MIT)': 'Version 1.0.0 • Rust 1.82+ • Open Source (MIT)',
