@@ -4,6 +4,7 @@
    =================================================================== */
 
 document.addEventListener('DOMContentLoaded', () => {
+  initLanguageSwitcher();
   initOsDetection();
   initVocalSynthKeyboard();
   initOtoCalibrator();
@@ -11,6 +12,73 @@ document.addEventListener('DOMContentLoaded', () => {
   initCompilationTabs();
   initMobileNav();
 });
+
+/* -------------------------------------------------------------------
+   0. LANGUAGE SWITCHER
+   ------------------------------------------------------------------- */
+const SITE_TRANSLATIONS = {
+  'Recursos': 'Features', 'Teclado Vocal': 'Vocal Keyboard', 'Motores DSP': 'DSP Engines',
+  'oto.ini & Acústica': 'oto.ini & Acoustics', 'Formatos': 'Formats', 'Temas': 'Themes',
+  'Downloads': 'Downloads', 'Compilação': 'Build', 'Abrir Menu': 'Open menu',
+  'Versão 1.0.0 • Rust 1.82+ • Open Source (MIT)': 'Version 1.0.0 • Rust 1.82+ • Open Source (MIT)',
+  'Editor e sintetizador vocal por amostragem e splicing em Rust.': 'A sample-based vocal editor and synthesizer with splicing, built in Rust.',
+  'Baixar Desktop': 'Download Desktop', 'Teclado Vocal': 'Vocal Keyboard',
+  'Demonstração Interativa': 'Interactive Demo',
+  'Teclado Vocal & Síntese Formântica WebAudio': 'Vocal Keyboard & WebAudio Formant Synthesis',
+  'Consoante (Ataque):': 'Consonant (Attack):', 'Vogal (Sustentação):': 'Vowel (Sustain):',
+  'Vibrato LFO:': 'LFO Vibrato:', 'Desativado': 'Disabled', 'Parar': 'Stop',
+  'Monitor de Forma de Onda em Tempo Real (Osciloscópio)': 'Real-time Waveform Monitor (Oscilloscope)',
+  'Clique em uma tecla ou toque uma musiquinha para cantar': 'Click a key or play a short song to sing',
+  'Fluxo de Trabalho': 'Workflow', 'Construído para Composição e Síntese Técnica': 'Built for Composition and Technical Synthesis',
+  'Piano Roll & Modelagem Contínua de Afinação': 'Piano Roll & Continuous Pitch Modeling',
+  'Motores Nativos e DSP de Alta Fidelidade': 'Native Engines and High-Fidelity DSP',
+  'Calibração de Voicebank & Acústica': 'Voicebank Calibration & Acoustics',
+  'Formatos Universais de Projeto': 'Universal Project Formats',
+  'Temas Visuais': 'Visual Themes', 'Downloads & Plataformas': 'Downloads & Platforms',
+  'Compilação a Partir do Código-Fonte': 'Build from Source', 'Desenvolvimento': 'Development',
+  'Projeto': 'Project', 'Histórico de Alterações': 'Changelog', 'Licença MIT': 'MIT License',
+  'Voltar ao topo ↑': 'Back to top ↑', 'Código livre sob Licença MIT.': 'Open source under the MIT License.',
+  'Desenvolvido com dedicação pelo': 'Made with care by', 'Programação:': 'Programming:',
+  'Direção de Arte:': 'Art Direction:', 'QA & Testes:': 'QA & Testing:',
+  'Copiar': 'Copy', 'Nenhuma (Vogal Pura)': 'None (Pure Vowel)',
+  'Vogais Orais (Abertas & Fechadas)': 'Oral Vowels (Open & Closed)',
+  'Vogais Nasais (Português Brasileiro / BRAPA)': 'Nasal Vowels (Brazilian Portuguese / BRAPA)',
+  'Musiquinhas & Partituras:': 'Songs & Scores:', 'Parado': 'Stopped',
+  'Instruções de Compilação': 'Build Instructions', 'Requisitos:': 'Requirements:',
+  'Baixar AppImage (.AppImage)': 'Download AppImage (.AppImage)',
+  'Baixar APK Android (.apk)': 'Download Android APK (.apk)',
+  'Baixar para macOS (.dmg)': 'Download for macOS (.dmg)',
+  'Baixar para Windows (.exe)': 'Download for Windows (.exe)',
+  'Baixar para Linux (.AppImage)': 'Download for Linux (.AppImage)',
+  'Ver Downloads Disponíveis': 'View Available Downloads'
+};
+
+function translateSiteToEnglish() {
+  const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+  const nodes = [];
+  while (walker.nextNode()) nodes.push(walker.currentNode);
+  nodes.forEach((node) => {
+    let value = node.nodeValue;
+    Object.entries(SITE_TRANSLATIONS).forEach(([from, to]) => {
+      value = value.split(from).join(to);
+    });
+    node.nodeValue = value;
+  });
+  document.documentElement.lang = 'en';
+  document.title = 'Kamafeu Studio — UTAU Vocal Editor and Synthesizer in Rust';
+}
+
+function initLanguageSwitcher() {
+  const select = document.getElementById('languageSelect');
+  if (!select) return;
+  const saved = localStorage.getItem('kamafeu-site-language') || 'pt-BR';
+  select.value = saved;
+  if (saved === 'en') translateSiteToEnglish();
+  select.addEventListener('change', () => {
+    localStorage.setItem('kamafeu-site-language', select.value);
+    window.location.reload();
+  });
+}
 
 /* -------------------------------------------------------------------
    1. OS DETECTION FOR HERO DOWNLOAD
@@ -21,16 +89,17 @@ function initOsDetection() {
   if (!downloadText || !heroBtn) return;
 
   const ua = navigator.userAgent.toLowerCase();
+  const english = document.documentElement.lang === 'en';
   if (ua.includes('mac')) {
-    downloadText.textContent = 'Baixar para macOS (.dmg)';
+    downloadText.textContent = english ? 'Download for macOS (.dmg)' : 'Baixar para macOS (.dmg)';
   } else if (ua.includes('win')) {
-    downloadText.textContent = 'Baixar para Windows (.exe)';
+    downloadText.textContent = english ? 'Download for Windows (.exe)' : 'Baixar para Windows (.exe)';
   } else if (ua.includes('android')) {
-    downloadText.textContent = 'Baixar APK (.apk)';
+    downloadText.textContent = english ? 'Download APK (.apk)' : 'Baixar APK (.apk)';
   } else if (ua.includes('linux')) {
-    downloadText.textContent = 'Baixar para Linux (.AppImage)';
+    downloadText.textContent = english ? 'Download for Linux (.AppImage)' : 'Baixar para Linux (.AppImage)';
   } else {
-    downloadText.textContent = 'Ver Downloads Disponíveis';
+    downloadText.textContent = english ? 'View Available Downloads' : 'Ver Downloads Disponíveis';
   }
 }
 
