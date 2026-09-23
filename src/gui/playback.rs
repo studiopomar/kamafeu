@@ -131,18 +131,22 @@ impl KamafeuStudioApp {
 
         let (tx, rx) = std::sync::mpsc::channel();
         self.render_log_channel_rx = Some(rx);
-        // Keep several chunks queued so a heavy editor frame (for example when
-        // Page Scroll moves to a new region) cannot starve the audio sink.
+        #[cfg(not(target_arch = "wasm32"))]
         let (audio_tx, audio_rx) = std::sync::mpsc::sync_channel(4);
+        #[cfg(target_arch = "wasm32")]
+        let (audio_tx, audio_rx) = std::sync::mpsc::sync_channel(512);
         self.render_rx = Some(audio_rx);
         let cancel = Arc::new(AtomicBool::new(false));
         self.render_cancel = Some(cancel.clone());
         self.playback_start_offset_ms = playhead_ms;
+        self.piano_roll_state.horizontal_follow_user_override = false;
+        self.piano_roll_state.vertical_follow_user_override = false;
         self.piano_roll_state.is_playing = false;
         self.playback_start_instant = None;
         self.progressive_playback_started = false;
         let tx = Arc::new(std::sync::Mutex::new(tx));
         let tx_cb = tx.clone();
+        #[cfg(not(target_arch = "wasm32"))]
         std::thread::spawn(move || {
             let report_progress = move |progress, message: &str| {
                 if let Ok(guard) = tx_cb.lock() {
@@ -175,6 +179,30 @@ impl KamafeuStudioApp {
                 Err(_) => render(),
             };
         });
+
+        #[cfg(target_arch = "wasm32")]
+        {
+            let report_progress = move |progress, message: &str| {
+                if let Ok(guard) = tx_cb.lock() {
+                    let _ = guard.send((progress, message.to_string()));
+                }
+            };
+
+            ProjectRenderer::render_project_progressive(
+                &project,
+                &active_vb,
+                sample_rate,
+                playhead_ms,
+                render_end_ms,
+                progressive_chunk_ms,
+                resampler_driver.as_ref(),
+                wavtool_driver.as_ref(),
+                &vocal_mode_params,
+                Some(&report_progress),
+                Some(cancel.as_ref()),
+                &audio_tx,
+            );
+        }
     }
 
     pub fn pause_audio(&mut self) {
@@ -229,7 +257,13 @@ impl KamafeuStudioApp {
             vb.prefix_map.selected_color().hash(&mut hasher);
             vb.entries.len().hash(&mut hasher);
         }
-        for (p_idx, part) in self.project.parts.iter().enumerate() {
+        for (p_idx, part) in self
+            .project
+            .parts
+            .iter()
+            .filter(|part| part.track_index == self.active_track_index)
+            .enumerate()
+        {
             p_idx.hash(&mut hasher);
             part.track_index.hash(&mut hasher);
             (part.position_ms * 10.0)
@@ -252,12 +286,6 @@ impl KamafeuStudioApp {
                 }
             }
         }
-        for w in &self.project.wave_parts {
-            w.track_index.hash(&mut hasher);
-            w.file_path.hash(&mut hasher);
-            (w.position_ms * 10.0).round().to_bits().hash(&mut hasher);
-            (w.duration_ms * 10.0).round().to_bits().hash(&mut hasher);
-        }
         hasher.finish()
     }
 
@@ -267,9 +295,12 @@ impl KamafeuStudioApp {
             return;
         }
 
-        let has_notes = self.project.parts.iter().any(|p| !p.notes.is_empty());
-        let has_waves = !self.project.wave_parts.is_empty();
-        if !has_notes && !has_waves {
+        let has_notes = self
+            .project
+            .parts
+            .iter()
+            .any(|part| part.track_index == self.active_track_index && !part.notes.is_empty());
+        if !has_notes {
             if !self.piano_roll_state.rendered_waveform_peaks.is_empty() {
                 self.piano_roll_state.rendered_waveform_peaks.clear();
             }
@@ -289,6 +320,9 @@ impl KamafeuStudioApp {
             cancel.store(true, Ordering::Relaxed);
         }
 
+        // Never keep the previous track's waveform visible while the new
+        // vocal-only preview is being rendered.
+        self.piano_roll_state.rendered_waveform_peaks.clear();
         self.preview_waveform_cache_hash = current_hash;
         let cancel = Arc::new(AtomicBool::new(false));
         self.preview_waveform_cancel = Some(cancel.clone());
@@ -296,7 +330,17 @@ impl KamafeuStudioApp {
         let (tx, rx) = std::sync::mpsc::channel();
         self.preview_waveform_rx = Some(rx);
 
-        let project = self.project.clone();
+        // The piano-roll waveform is vocal-only. Instrumental/audio clips are
+        // owned by the arrangement and must never bleed into the note editor.
+        let mut project = self.project.clone();
+        project
+            .parts
+            .retain(|part| part.track_index == self.active_track_index);
+        project.wave_parts.clear();
+        for (track_index, track) in project.tracks.iter_mut().enumerate() {
+            track.mute = track_index != self.active_track_index;
+            track.solo = false;
+        }
         let active_vb = self.voicebank.clone().unwrap_or_else(|| Voicebank {
             root_path: PathBuf::from("."),
             name: "Synthetic Fallback".to_string(),
@@ -317,6 +361,7 @@ impl KamafeuStudioApp {
         vocal_mode_params.resampler_instances = self.config.dsp.resampler_instances.max(1);
         let render_threads = self.render_threads.max(1) as usize;
 
+        #[cfg(not(target_arch = "wasm32"))]
         std::thread::spawn(move || {
             let render = || {
                 ProjectRenderer::render_project_with_drivers_cancellable(
@@ -357,6 +402,32 @@ impl KamafeuStudioApp {
                 let _ = tx.send((current_hash, temp_state.rendered_waveform_peaks));
             }
         });
+
+        #[cfg(target_arch = "wasm32")]
+        {
+            let rendered_audio = ProjectRenderer::render_project_with_drivers_cancellable(
+                &project,
+                &active_vb,
+                sample_rate,
+                0.0,
+                resampler_driver.as_ref(),
+                wavtool_driver.as_ref(),
+                &vocal_mode_params,
+                None,
+                Some(cancel.as_ref()),
+            );
+
+            if !cancel.load(Ordering::Relaxed) && !rendered_audio.samples.is_empty() {
+                let mut temp_state = PianoRollState::default();
+                temp_state.update_rendered_waveform(
+                    &rendered_audio.samples,
+                    rendered_audio.sample_rate,
+                    rendered_audio.channels,
+                    0.0,
+                );
+                let _ = tx.send((current_hash, temp_state.rendered_waveform_peaks));
+            }
+        }
     }
 }
 

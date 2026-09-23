@@ -41,10 +41,10 @@ impl Default for EditorLayoutConfig {
     fn default() -> Self {
         Self {
             modular_workspace: false,
-            show_arrangement_view: false,
+            show_arrangement_view: true,
             show_parameters_drawer: false,
-            show_phoneme_ruler: false,
-            show_inspector: false,
+            show_phoneme_ruler: true,
+            show_inspector: true,
             is_maximized: false,
             px_per_ms: default_editor_zoom(),
             row_height: default_row_height(),
@@ -128,7 +128,14 @@ impl Default for AudioDeviceConfig {
 }
 
 fn default_resampler_str() -> String {
-    "VENUS (WORLD)".to_string()
+    #[cfg(any(target_arch = "wasm32", target_os = "android"))]
+    {
+        "VENUS (WORLD)".to_string()
+    }
+    #[cfg(not(any(target_arch = "wasm32", target_os = "android")))]
+    {
+        "straycat-rs (UtaUtaUtau)".to_string()
+    }
 }
 
 fn default_wavtool_str() -> String {
@@ -716,35 +723,49 @@ impl KamafeuConfig {
     }
 
     pub fn load() -> Result<Self, String> {
-        let path = Self::config_path();
-        if !path.exists() {
+        #[cfg(target_arch = "wasm32")]
+        {
             return Ok(Self::default());
         }
-        let content = fs::read_to_string(&path)
-            .map_err(|e| format!("Falha ao ler {}: {e}", path.display()))?;
-        serde_json::from_str::<KamafeuConfig>(&content)
-            .map_err(|e| format!("Configuração inválida em {}: {e}", path.display()))
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let path = Self::config_path();
+            if !path.exists() {
+                return Ok(Self::default());
+            }
+            let content = fs::read_to_string(&path)
+                .map_err(|e| format!("Falha ao ler {}: {e}", path.display()))?;
+            serde_json::from_str::<KamafeuConfig>(&content)
+                .map_err(|e| format!("Configuração inválida em {}: {e}", path.display()))
+        }
     }
 
     pub fn save(&self) -> Result<(), String> {
-        let path = Self::config_path();
-        let content = serde_json::to_string_pretty(self)
-            .map_err(|e| format!("Falha ao serializar configuração: {e}"))?;
-        let parent = path
-            .parent()
-            .ok_or_else(|| "Caminho de configuração inválido".to_string())?;
-        fs::create_dir_all(parent)
-            .map_err(|e| format!("Falha ao criar {}: {e}", parent.display()))?;
-        let mut temporary = tempfile::NamedTempFile::new_in(parent)
-            .map_err(|e| format!("Falha ao criar arquivo temporário: {e}"))?;
-        temporary
-            .write_all(content.as_bytes())
-            .and_then(|()| temporary.as_file().sync_all())
-            .map_err(|e| format!("Falha ao gravar configuração: {e}"))?;
-        temporary
-            .persist(&path)
-            .map_err(|e| format!("Falha ao substituir {}: {}", path.display(), e.error))?;
-        Ok(())
+        #[cfg(target_arch = "wasm32")]
+        {
+            return Ok(());
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            let path = Self::config_path();
+            let content = serde_json::to_string_pretty(self)
+                .map_err(|e| format!("Falha ao serializar configuração: {e}"))?;
+            let parent = path
+                .parent()
+                .ok_or_else(|| "Caminho de configuração inválido".to_string())?;
+            fs::create_dir_all(parent)
+                .map_err(|e| format!("Falha ao criar {}: {e}", parent.display()))?;
+            let mut temporary = tempfile::NamedTempFile::new_in(parent)
+                .map_err(|e| format!("Falha ao criar arquivo temporário: {e}"))?;
+            temporary
+                .write_all(content.as_bytes())
+                .and_then(|()| temporary.as_file().sync_all())
+                .map_err(|e| format!("Falha ao gravar configuração: {e}"))?;
+            temporary
+                .persist(&path)
+                .map_err(|e| format!("Falha ao substituir {}: {}", path.display(), e.error))?;
+            Ok(())
+        }
     }
 
     pub fn add_recent_voicebank(&mut self, path: PathBuf) {

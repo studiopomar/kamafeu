@@ -324,85 +324,56 @@ impl KamafeuStudioApp {
             });
 
             ui.separator();
-            ui.menu_button(
-                lang.tr(
-                    "Envelopes & Crossfade (UTAU)",
-                    "Envelopes & Crossfade (UTAU)",
-                ),
-                |ui| {
-                    if ui
-                        .button(lang.tr(
-                            "ACPT: Ajustar ao Overlap (Auto Crossfade)",
-                            "ACPT: Auto Crossfade to Overlap",
-                        ))
-                        .clicked()
-                    {
-                        self.apply_envelope_acpt();
-                        ui.close_menu();
-                    }
-                    if ui
-                        .button(lang.tr(
-                            "P2P3: Suavizar Transição de Overlap (P2-P3)",
-                            "P2P3: Smooth Overlap Transition (P2-P3)",
-                        ))
-                        .clicked()
-                    {
-                        self.apply_envelope_p2p3();
-                        ui.close_menu();
-                    }
-                    if ui
-                        .button(lang.tr(
-                            "P1P4: Ajustar Margens (p1=0, p4=0)",
-                            "P1P4: Zero Boundary Margins (p1=0, p4=0)",
-                        ))
-                        .clicked()
-                    {
-                        self.apply_envelope_p1p4();
-                        ui.close_menu();
-                    }
-                    if ui
-                        .button(lang.tr(
-                            "P1P2: Alinhar Ataque ao Onset (P1-P2)",
-                            "P1P2: Align Attack to Onset (P1-P2)",
-                        ))
-                        .clicked()
-                    {
-                        self.apply_envelope_p1p2();
-                        ui.close_menu();
-                    }
-                    if ui
-                        .button(lang.tr(
-                            "P2P4: Ajustar Ataque e Sustain (P2-P4)",
-                            "P2P4: Fit Attack & Sustain (P2-P4)",
-                        ))
-                        .clicked()
-                    {
-                        self.apply_envelope_p2p4();
-                        ui.close_menu();
-                    }
-                    if ui
-                        .button(lang.tr(
-                            "OPT: Otimizar Envelopes Proporcionalmente",
-                            "OPT: Optimize Envelopes Proportionally",
-                        ))
-                        .clicked()
-                    {
-                        self.apply_envelope_opt();
-                        ui.close_menu();
-                    }
-                    ui.separator();
-                    if ui
-                        .button(lang.tr(
-                            "RESET: Restaurar Envelopes para Padrão (5/35/0/35)",
-                            "RESET: Reset Envelopes to Default (5/35/0/35)",
-                        ))
-                        .clicked()
-                    {
-                        self.apply_envelope_reset();
-                        ui.close_menu();
-                    }
-                },
-            );
+            ui.menu_button(lang.tr("Envelopes de Volume", "Volume Envelopes"), |ui| {
+                let is_env_open = self.piano_roll_state.show_envelope_handles;
+                let toggle_label = if is_env_open {
+                    lang.tr(
+                        "Ocultar Envelopes de Volume (O)",
+                        "Hide Volume Envelopes (O)",
+                    )
+                } else {
+                    lang.tr(
+                        "Exibir Envelopes de Volume (O)",
+                        "Show Volume Envelopes (O)",
+                    )
+                };
+                if ui.button(toggle_label).clicked() {
+                    self.piano_roll_state.show_envelope_handles = !is_env_open;
+                    ui.close_menu();
+                }
+                ui.separator();
+                if ui
+                    .button(lang.tr(
+                        "Ajustar Envelopes ao Overlap (Auto Crossfade)",
+                        "Auto Crossfade Envelopes to Overlap",
+                    ))
+                    .clicked()
+                {
+                    self.apply_envelope_acpt();
+                    ui.close_menu();
+                }
+                if ui
+                    .button(lang.tr(
+                        "Otimizar Transições Proporcionalmente",
+                        "Optimize Transitions Proportionally",
+                    ))
+                    .clicked()
+                {
+                    self.apply_envelope_opt();
+                    ui.close_menu();
+                }
+                ui.separator();
+                if ui
+                    .button(lang.tr(
+                        "Restaurar Envelopes Selecionados para o Padrão",
+                        "Reset Selected Envelopes to Default",
+                    ))
+                    .clicked()
+                {
+                    self.apply_envelope_reset();
+                    ui.close_menu();
+                }
+            });
 
             ui.separator();
             if ui

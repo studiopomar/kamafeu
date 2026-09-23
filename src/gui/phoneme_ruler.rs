@@ -62,7 +62,8 @@ pub fn draw_phoneme_ruler(
                 let is_primary_down = ui.input(|i| i.pointer.primary_down());
                 let is_secondary_down = ui.input(|i| i.pointer.secondary_down());
                 let drag_active = state.dragging_phoneme_handle.is_some()
-                    || state.dragging_subphoneme_boundary.is_some();
+                    || state.dragging_subphoneme_boundary.is_some()
+                    || state.dragging_envelope_pt.is_some();
                 let pointer_pos = ui.input(|i| {
                     let pos = i.pointer.latest_pos()?;
                     let started_in_ruler = i
@@ -80,7 +81,8 @@ pub fn draw_phoneme_ruler(
 
                 if is_primary_down
                     && (state.dragging_phoneme_handle.is_some()
-                        || state.dragging_subphoneme_boundary.is_some())
+                        || state.dragging_subphoneme_boundary.is_some()
+                        || state.dragging_envelope_pt.is_some())
                 {
                     if let Some(pos) = pointer_pos {
                         let edge_margin = 40.0f32;
@@ -109,9 +111,11 @@ pub fn draw_phoneme_ruler(
                     state.is_edge_autoscrolling = false;
                     if state.dragging_phoneme_handle.is_some()
                         || state.dragging_subphoneme_boundary.is_some()
+                        || state.dragging_envelope_pt.is_some()
                     {
                         state.dragging_phoneme_handle = None;
                         state.dragging_subphoneme_boundary = None;
+                        state.dragging_envelope_pt = None;
                         state.continuous_edit_dirty = true;
                         on_note_changed();
                     }
@@ -207,8 +211,8 @@ pub fn draw_phoneme_ruler(
                         if let Some(cached) = state.note_phonemes_cache.get(note_index) {
                             if !cached.is_empty() {
                                 let count = cached.len();
-                                let mut cur_offset = if cached[0].1.is_finite() {
-                                    cached[0].1.max(0.0)
+                                let mut cur_offset = if cached[0].relative_position_ms.is_finite() {
+                                    cached[0].relative_position_ms.max(0.0)
                                 } else {
                                     0.0
                                 };
@@ -230,7 +234,7 @@ pub fn draw_phoneme_ruler(
                                 cached
                                     .iter()
                                     .enumerate()
-                                    .map(|(idx, (lyric, _rel_pos, default_dur))| {
+                                    .map(|(idx, phone)| {
                                         let dur = if has_custom {
                                             (if note.phoneme_durations_ms[idx].is_finite() {
                                                 note.phoneme_durations_ms[idx].max(0.0)
@@ -238,20 +242,20 @@ pub fn draw_phoneme_ruler(
                                                 0.0
                                             }) * scale
                                         } else {
-                                            if default_dur.is_finite() {
-                                                default_dur.max(0.0)
+                                            if phone.duration_ms.is_finite() {
+                                                phone.duration_ms.max(0.0)
                                             } else {
                                                 0.0
                                             }
                                         };
                                         let pos = cur_offset;
                                         cur_offset += dur;
-                                        (lyric.clone(), pos, dur)
+                                        (phone.alias.clone(), pos, dur)
                                     })
                                     .collect()
                             } else {
                                 let manual_parts: Vec<&str> = lyric_trimmed
-                                    .split(['.', ';', ','])
+                                    .split(['.', ';', ',', '|', '/'])
                                     .map(str::trim)
                                     .filter(|part| !part.is_empty())
                                     .collect();
@@ -273,7 +277,7 @@ pub fn draw_phoneme_ruler(
                             }
                         } else {
                             let manual_parts: Vec<&str> = lyric_trimmed
-                                .split(['.', ';', ','])
+                                .split(['.', ';', ',', '|', '/'])
                                 .map(str::trim)
                                 .filter(|part| !part.is_empty())
                                 .collect();
@@ -385,23 +389,148 @@ pub fn draw_phoneme_ruler(
 
                     let attack_start_x = preutter_x;
                     let attack_end_x = overlap_x.max(preutter_x);
-                    let active_fadeout_ms = note.envelope.p5.max(0.0).min(note_duration_ms);
-                    let fadeout_x =
-                        (x_end - (active_fadeout_ms * px_per_ms) as f32).max(attack_end_x);
-                    let cutoff_end_x = x_end;
+
+                    let calc_points = note.envelope.phoneme_points(
+                        active_preutter_ms,
+                        note_duration_ms,
+                        if has_previous_adjacent {
+                            active_preutter_ms
+                        } else {
+                            0.0
+                        },
+                        if has_previous_adjacent {
+                            active_overlap_ms.max(0.0)
+                        } else {
+                            0.0
+                        },
+                        active_overlap_ms.max(0.0),
+                        note.expressions.volume,
+                        note.expressions.attack,
+                        note.expressions.decay,
+                    );
+
+                    let env_pts = [
+                        Pos2::new(
+                            x_start + (calc_points[0].0 * px_per_ms) as f32,
+                            y_bottom
+                                - (calc_points[0].1.clamp(0.0, 2.0) as f32) * (y_bottom - y_top),
+                        ),
+                        Pos2::new(
+                            x_start + (calc_points[1].0 * px_per_ms) as f32,
+                            y_bottom
+                                - (calc_points[1].1.clamp(0.0, 2.0) as f32) * (y_bottom - y_top),
+                        ),
+                        Pos2::new(
+                            x_start + (calc_points[2].0 * px_per_ms) as f32,
+                            y_bottom
+                                - (calc_points[2].1.clamp(0.0, 2.0) as f32) * (y_bottom - y_top),
+                        ),
+                        Pos2::new(
+                            x_start + (calc_points[3].0 * px_per_ms) as f32,
+                            y_bottom
+                                - (calc_points[3].1.clamp(0.0, 2.0) as f32) * (y_bottom - y_top),
+                        ),
+                        Pos2::new(
+                            x_start + (calc_points[4].0 * px_per_ms) as f32,
+                            y_bottom
+                                - (calc_points[4].1.clamp(0.0, 2.0) as f32) * (y_bottom - y_top),
+                        ),
+                    ];
+
+                    let start_base_x = preutter_x.min(env_pts[0].x);
+                    let end_base_x = x_end.max(env_pts[4].x);
 
                     let poly_points = vec![
-                        Pos2::new(attack_start_x, y_bottom),
-                        Pos2::new(attack_end_x, y_top),
-                        Pos2::new(fadeout_x, y_top),
-                        Pos2::new(cutoff_end_x, y_bottom),
+                        Pos2::new(start_base_x, y_bottom),
+                        env_pts[0],
+                        env_pts[1],
+                        env_pts[2],
+                        env_pts[3],
+                        env_pts[4],
+                        Pos2::new(end_base_x, y_bottom),
                     ];
 
                     painter.add(egui::Shape::convex_polygon(
                         poly_points,
                         fill_color,
-                        Stroke::new(if is_selected { 1.6_f32 } else { 1.0_f32 }, stroke_color),
+                        Stroke::NONE,
                     ));
+
+                    painter.line_segment(
+                        [Pos2::new(start_base_x, y_bottom), env_pts[0]],
+                        Stroke::new(if is_selected { 1.6_f32 } else { 1.0_f32 }, stroke_color),
+                    );
+                    for pair in env_pts.windows(2) {
+                        painter.line_segment(
+                            [pair[0], pair[1]],
+                            Stroke::new(if is_selected { 1.6_f32 } else { 1.0_f32 }, stroke_color),
+                        );
+                    }
+                    painter.line_segment(
+                        [env_pts[4], Pos2::new(end_base_x, y_bottom)],
+                        Stroke::new(if is_selected { 1.6_f32 } else { 1.0_f32 }, stroke_color),
+                    );
+
+                    // A VCV note normally has one alias, but CVVC/VCCV, G2P
+                    // and BRAPA can expand into several aliases.  Draw the
+                    // exact envelope of every expanded phone instead of
+                    // stretching the first `oto.ini` entry across the full note.
+                    // This is the same resolved timing the renderer consumes.
+                    if let Some(cached) = state.note_phonemes_cache.get(note_index) {
+                        if cached.len() > 1 {
+                            for phone in cached {
+                                let phone_start_x =
+                                    x_start + (phone.relative_position_ms * px_per_ms) as f32;
+                                let phone_points = note.envelope.phoneme_points(
+                                    phone.preutter_ms,
+                                    phone.duration_ms,
+                                    phone.tail_intrude_ms,
+                                    phone.tail_overlap_ms,
+                                    phone.overlap_ms.max(0.0),
+                                    note.expressions.volume,
+                                    note.expressions.attack,
+                                    note.expressions.decay,
+                                );
+                                let points: Vec<Pos2> = phone_points
+                                    .iter()
+                                    .map(|(time, level)| {
+                                        Pos2::new(
+                                            phone_start_x + (time * px_per_ms) as f32,
+                                            y_bottom
+                                                - (level.clamp(0.0, 2.0) as f32)
+                                                    * (y_bottom - y_top),
+                                        )
+                                    })
+                                    .collect();
+                                let base_start =
+                                    phone_start_x + (phone_points[0].0.min(0.0) * px_per_ms) as f32;
+                                let base_end = phone_start_x
+                                    + ((phone.duration_ms.max(0.0).max(phone_points[4].0))
+                                        * px_per_ms) as f32;
+                                let mut polygon = Vec::with_capacity(points.len() + 2);
+                                polygon.push(Pos2::new(base_start, y_bottom));
+                                polygon.extend(points.iter().copied());
+                                polygon.push(Pos2::new(base_end, y_bottom));
+                                painter.add(egui::Shape::convex_polygon(
+                                    polygon,
+                                    theme.c32_alpha(
+                                        theme.accent_color,
+                                        if is_selected { 0.23 } else { 0.13 },
+                                    ),
+                                    Stroke::NONE,
+                                ));
+                                for pair in points.windows(2) {
+                                    painter.line_segment(
+                                        [pair[0], pair[1]],
+                                        Stroke::new(
+                                            if is_selected { 1.5_f32 } else { 1.0_f32 },
+                                            stroke_color,
+                                        ),
+                                    );
+                                }
+                            }
+                        }
+                    }
 
                     if !is_plus && consonant_x > x_start + 1.0 && consonant_x < x_end {
                         let c_rect = Rect::from_min_max(
@@ -598,10 +727,10 @@ pub fn draw_phoneme_ruler(
 
                     // 5. Ponto de Fade-Out (Release / Início da Queda Final)
                     draw_anchor_handle(
-                        Pos2::new(fadeout_x, y_top),
+                        Pos2::new(env_pts[3].x, y_top),
                         4,
                         Color32::from_rgb(255, 175, 50),
-                        &format!("Fade-Out: {:.1}ms", active_fadeout_ms),
+                        &format!("Fade-Out: {:.1}ms", note.envelope.p5),
                     );
 
                     // 6. Ponto de Fim da Nota / Cutoff
@@ -611,6 +740,197 @@ pub fn draw_phoneme_ruler(
                         Color32::from_rgb(255, 215, 80),
                         &format!("Fim / Cutoff: {:.0}ms", note.duration_ms),
                     );
+
+                    // Draggable Envelope Handles on the Ruler when active/selected
+                    if state.show_envelope_handles || is_selected {
+                        let env_labels = [
+                            (
+                                "P1",
+                                format!("P1: {:.1}ms | {:.0}%", note.envelope.p1, note.envelope.v1),
+                            ),
+                            (
+                                "P2",
+                                format!("P2: {:.1}ms | {:.0}%", note.envelope.p2, note.envelope.v2),
+                            ),
+                            (
+                                "P3",
+                                format!("P3: {:.1}ms | {:.0}%", note.envelope.p3, note.envelope.v3),
+                            ),
+                            (
+                                "P4",
+                                format!("P4: {:.1}ms | {:.0}%", note.envelope.p4, note.envelope.v4),
+                            ),
+                            (
+                                "P5",
+                                format!("P5: {:.1}ms | {:.0}%", note.envelope.p5, note.envelope.v5),
+                            ),
+                        ];
+
+                        for (pt_i, (pos, (_lbl, tooltip))) in
+                            env_pts.iter().zip(env_labels.iter()).enumerate()
+                        {
+                            if pos.x >= strip_rect.min.x - 10.0 && pos.x <= strip_rect.max.x + 10.0
+                            {
+                                let clamped_x = pos.x.clamp(strip_rect.min.x, strip_rect.max.x);
+                                let draw_pos = Pos2::new(clamped_x, pos.y);
+                                let is_dragging_this =
+                                    state.dragging_envelope_pt == Some((note_index, pt_i));
+                                let mut is_hover = false;
+                                if let Some(cursor_pos) = pointer_pos {
+                                    is_hover = (cursor_pos.x - clamped_x).abs() <= 10.0
+                                        && (cursor_pos.y - pos.y).abs() <= 10.0;
+                                }
+                                let active = is_hover || is_dragging_this;
+                                let color = Color32::from_rgb(0, 225, 255);
+                                let node_stroke_color = if active { Color32::WHITE } else { color };
+                                let node_fill = if active {
+                                    color
+                                } else {
+                                    Color32::from_rgb(20, 16, 32)
+                                };
+                                painter.circle(
+                                    draw_pos,
+                                    if active {
+                                        circle_radius + 1.8
+                                    } else {
+                                        circle_radius
+                                    },
+                                    node_fill,
+                                    Stroke::new(
+                                        if active { 2.0_f32 } else { 1.3_f32 },
+                                        node_stroke_color,
+                                    ),
+                                );
+                                if active {
+                                    ui.ctx().set_cursor_icon(egui::CursorIcon::Grab);
+                                    let text_shape = painter.layout_no_wrap(
+                                        tooltip.to_string(),
+                                        egui::FontId::proportional(10.0),
+                                        Color32::WHITE,
+                                    );
+                                    let pill_rect = Rect::from_center_size(
+                                        Pos2::new(clamped_x, strip_rect.min.y + 10.0),
+                                        Vec2::new(text_shape.size().x + 12.0, 16.0),
+                                    );
+                                    painter.rect_filled(
+                                        pill_rect,
+                                        Rounding::same(4.0),
+                                        Color32::from_rgba_unmultiplied(15, 20, 35, 230),
+                                    );
+                                    painter.rect_stroke(
+                                        pill_rect,
+                                        Rounding::same(4.0),
+                                        Stroke::new(1.0_f32, color),
+                                    );
+                                    painter.galley(
+                                        Pos2::new(
+                                            pill_rect.center().x - text_shape.size().x * 0.5,
+                                            pill_rect.center().y - text_shape.size().y * 0.5,
+                                        ),
+                                        text_shape,
+                                        Color32::WHITE,
+                                    );
+                                    if is_primary_down
+                                        && state.dragging_envelope_pt.is_none()
+                                        && state.dragging_phoneme_handle.is_none()
+                                        && state.dragging_subphoneme_boundary.is_none()
+                                    {
+                                        on_before_change();
+                                        state.dragging_envelope_pt = Some((note_index, pt_i));
+                                        state.selected_note_index = Some(note_index);
+                                    }
+                                    if ui.input(|i| i.pointer.secondary_clicked()) {
+                                        on_before_change();
+                                        note.envelope =
+                                            crate::dsp::envelope::UtauEnvelope::default();
+                                        state.continuous_edit_dirty = true;
+                                        on_note_changed();
+                                    }
+                                }
+                            }
+                        }
+
+                        if note.envelope.crossfade_ms > 0.0 {
+                            let xfade_x = x_start - (note.envelope.crossfade_ms * px_per_ms) as f32;
+                            let xfade_pos = Pos2::new(xfade_x, y_top + (y_bottom - y_top) * 0.5);
+                            if xfade_pos.x >= strip_rect.min.x - 10.0
+                                && xfade_pos.x <= strip_rect.max.x + 10.0
+                            {
+                                let clamped_x =
+                                    xfade_pos.x.clamp(strip_rect.min.x, strip_rect.max.x);
+                                let draw_pos = Pos2::new(clamped_x, xfade_pos.y);
+                                let is_dragging_this =
+                                    state.dragging_envelope_pt == Some((note_index, 5));
+                                let mut is_hover = false;
+                                if let Some(cursor_pos) = pointer_pos {
+                                    is_hover = (cursor_pos.x - clamped_x).abs() <= 10.0
+                                        && (cursor_pos.y - draw_pos.y).abs() <= 10.0;
+                                }
+                                let active = is_hover || is_dragging_this;
+                                let color = Color32::from_rgb(120, 240, 200);
+                                let node_stroke_color = if active { Color32::WHITE } else { color };
+                                let node_fill = if active {
+                                    color
+                                } else {
+                                    Color32::from_rgb(20, 16, 32)
+                                };
+                                painter.circle(
+                                    draw_pos,
+                                    if active {
+                                        circle_radius + 1.8
+                                    } else {
+                                        circle_radius
+                                    },
+                                    node_fill,
+                                    Stroke::new(
+                                        if active { 2.0_f32 } else { 1.3_f32 },
+                                        node_stroke_color,
+                                    ),
+                                );
+                                if active {
+                                    ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
+                                    let tooltip =
+                                        format!("Crossfade: {:.1}ms", note.envelope.crossfade_ms);
+                                    let text_shape = painter.layout_no_wrap(
+                                        tooltip,
+                                        egui::FontId::proportional(10.0),
+                                        Color32::WHITE,
+                                    );
+                                    let pill_rect = Rect::from_center_size(
+                                        Pos2::new(clamped_x, strip_rect.min.y + 10.0),
+                                        Vec2::new(text_shape.size().x + 12.0, 16.0),
+                                    );
+                                    painter.rect_filled(
+                                        pill_rect,
+                                        Rounding::same(4.0),
+                                        Color32::from_rgba_unmultiplied(15, 20, 35, 230),
+                                    );
+                                    painter.rect_stroke(
+                                        pill_rect,
+                                        Rounding::same(4.0),
+                                        Stroke::new(1.0_f32, color),
+                                    );
+                                    painter.galley(
+                                        Pos2::new(
+                                            pill_rect.center().x - text_shape.size().x * 0.5,
+                                            pill_rect.center().y - text_shape.size().y * 0.5,
+                                        ),
+                                        text_shape,
+                                        Color32::WHITE,
+                                    );
+                                    if is_primary_down
+                                        && state.dragging_envelope_pt.is_none()
+                                        && state.dragging_phoneme_handle.is_none()
+                                        && state.dragging_subphoneme_boundary.is_none()
+                                    {
+                                        on_before_change();
+                                        state.dragging_envelope_pt = Some((note_index, 5));
+                                        state.selected_note_index = Some(note_index);
+                                    }
+                                }
+                            }
+                        }
+                    }
 
                     if subphonemes.len() > 1 {
                         for (index, (label, rel_pos, duration)) in subphonemes.iter().enumerate() {
@@ -1341,6 +1661,55 @@ pub fn draw_phoneme_ruler(
                         }
                     }
 
+                    if let Some((drag_idx, pt_idx)) = state.dragging_envelope_pt {
+                        if drag_idx == note_index {
+                            if let Some(pos) = pointer_pos {
+                                let duration = note_duration_ms.max(1.0);
+                                let time = ((pos.x - x_start) as f64 / px_per_ms).max(0.0);
+                                let volume = (((y_bottom - pos.y) / (y_bottom - y_top))
+                                    .clamp(0.0, 1.0)
+                                    as f64)
+                                    * 100.0;
+                                match pt_idx {
+                                    0 => {
+                                        note.envelope.p1 = time.clamp(0.0, duration);
+                                        note.envelope.v1 = volume.clamp(0.0, 100.0);
+                                    }
+                                    1 => {
+                                        let p2_time = time.max(note.envelope.p1);
+                                        note.envelope.p2 = (p2_time - note.envelope.p1).max(0.0);
+                                        note.envelope.v2 = volume.clamp(0.0, 100.0);
+                                    }
+                                    2 => {
+                                        let p3_time = time.max(note.envelope.p1 + note.envelope.p2);
+                                        note.envelope.p3 =
+                                            (p3_time - note.envelope.p1 - note.envelope.p2)
+                                                .max(0.0);
+                                        note.envelope.v3 = volume.clamp(0.0, 100.0);
+                                    }
+                                    3 => {
+                                        let p4_pos = time.clamp(0.0, duration + 200.0);
+                                        note.envelope.p4 = (duration - p4_pos).max(0.0);
+                                        note.envelope.v4 = volume.clamp(0.0, 100.0);
+                                    }
+                                    4 => {
+                                        let p4_pos = (duration - note.envelope.p4).max(0.0);
+                                        let p5_pos = time.max(p4_pos);
+                                        note.envelope.p5 = (p5_pos - p4_pos).max(0.0);
+                                        note.envelope.v5 = volume.clamp(0.0, 100.0);
+                                    }
+                                    5 => {
+                                        note.envelope.crossfade_ms = (((x_start - pos.x) as f64)
+                                            / px_per_ms)
+                                            .clamp(0.0, 600.0);
+                                    }
+                                    _ => {}
+                                }
+                                state.continuous_edit_dirty = true;
+                            }
+                        }
+                    }
+
                     if let Some((drag_idx, boundary, init_x, init_left_dur)) =
                         state.dragging_subphoneme_boundary
                     {
@@ -1375,6 +1744,10 @@ pub fn draw_phoneme_ruler(
                             Some(';')
                         } else if note.lyric.contains(',') {
                             Some(',')
+                        } else if note.lyric.contains('|') {
+                            Some('|')
+                        } else if note.lyric.contains('/') {
+                            Some('/')
                         } else {
                             None
                         };
@@ -1396,7 +1769,7 @@ pub fn draw_phoneme_ruler(
                             if let Some(cached) = state.note_phonemes_cache.get(note_idx) {
                                 if cached.len() > 1 && sub_idx < cached.len() {
                                     let mut parts: Vec<String> =
-                                        cached.iter().map(|s| s.0.clone()).collect();
+                                        cached.iter().map(|s| s.alias.clone()).collect();
                                     parts[sub_idx] = new_text;
                                     note.lyric = parts.join(".");
                                 } else {

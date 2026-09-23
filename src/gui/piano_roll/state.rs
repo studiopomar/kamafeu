@@ -3,7 +3,21 @@ use crate::project::model::{UNote, UPitchBendPoint};
 use eframe::egui::Pos2;
 use std::collections::HashSet;
 
-pub const PHONEME_SEPARATORS: [char; 3] = ['.', ',', ';'];
+pub const PHONEME_SEPARATORS: [char; 5] = ['.', ',', ';', '|', '/'];
+
+/// Render-time `oto.ini` geometry cached for one phoneme in the ruler.  A note can
+/// expand into several aliases, so a note-level `oto.ini` cache is not enough to
+/// show (or edit around) its real crossfades.
+#[derive(Debug, Clone, Default)]
+pub struct CachedPhoneme {
+    pub alias: String,
+    pub relative_position_ms: f64,
+    pub duration_ms: f64,
+    pub preutter_ms: f64,
+    pub overlap_ms: f64,
+    pub tail_intrude_ms: f64,
+    pub tail_overlap_ms: f64,
+}
 
 pub fn active_phoneme_query(lyric: &str) -> &str {
     lyric
@@ -179,11 +193,13 @@ pub struct PianoRollState {
     pub creating_note_idx: Option<usize>,
     pub active_tool: EditTool,
     pub pitch_sub_tool: PitchSubTool,
-    pub pitch_line_start: Option<(usize, f64, f64)>, // (note_idx, time_offset_ms, pitch_offset_cents)
+    pub pitch_line_start: Option<(f64, f64)>, // (abs_time_ms, abs_midi)
     /// Anchor captured when a vibrato brush stroke starts. The vertical
     /// position chooses the centre pitch, never an accidental depth.
-    pub vibrato_brush_center: Option<(usize, f64)>,
+    pub vibrato_brush_center: Option<f64>, // abs_midi
     pub auto_scroll_mode: AutoScrollMode,
+    pub vertical_pitch_follow: bool,
+    pub pitch_follow_smoothed_midi: Option<f32>,
     pub is_scrubbing_ruler: bool,
     pub loop_enabled: bool,
     pub loop_start_ms: f64,
@@ -219,6 +235,15 @@ pub struct PianoRollState {
     pub request_clear_selected_render_cache: bool,
     pub horizontal_scroll_offset: f32,
     pub vertical_scroll_offset: f32,
+    /// Arrangement is a separate viewport: playback follow in the piano roll
+    /// must never seize its timeline while the user is editing tracks.
+    pub arrangement_horizontal_scroll_offset: f32,
+    pub arrangement_vertical_scroll_offset: f32,
+    /// Horizontal offset captured when a minimap viewport drag begins.
+    pub minimap_drag_scroll_origin: Option<f32>,
+    pub minimap_navigation_active: bool,
+    pub horizontal_follow_user_override: bool,
+    pub vertical_follow_user_override: bool,
     pub initial_scrolled: bool,
     pub properties_window_for_note: Option<usize>,
     pub context_menu_note_idx: Option<usize>,
@@ -234,12 +259,12 @@ pub struct PianoRollState {
     pub show_envelope_handles: bool,
     pub vibrato_popover_note_idx: Option<usize>,
     pub phoneme_cache: Vec<String>,
-    pub note_phonemes_cache: Vec<Vec<(String, f64, f64)>>,
+    pub note_phonemes_cache: Vec<Vec<CachedPhoneme>>,
     pub oto_consonant_cache: Vec<f64>,
     pub oto_preutter_cache: Vec<f64>,
     pub oto_overlap_cache: Vec<f64>,
     pub phoneme_cache_hash: u64,
-    pub pitch_brush_raw_stroke: Vec<(usize, f64, f64)>,
+    pub pitch_brush_raw_stroke: Vec<(f64, f64)>, // (abs_time_ms, abs_midi)
     pub dragging_phoneme_handle: Option<(usize, u8, f32, f64)>,
     pub dragging_subphoneme_boundary: Option<(usize, usize, f32, f64)>,
     pub right_click_reset_active: bool,
@@ -247,6 +272,8 @@ pub struct PianoRollState {
     pub is_middle_panning: bool,
     pub show_waveform_area: bool,
     pub is_edge_autoscrolling: bool,
+    pub is_dragging_in_drawer: bool,
+    pub auto_cut: bool,
 }
 
 pub fn smooth_pitch_points(raw_points: &[(f64, f64)]) -> Vec<UPitchBendPoint> {
@@ -452,6 +479,42 @@ impl PianoRollState {
         Some((min_v, max_v))
     }
 
+    /// Peak envelope covering the complete time interval represented by one
+    /// screen pixel. Sampling only the center point loses transients whenever
+    /// the timeline is zoomed out.
+    pub fn waveform_min_max_between(&self, start_ms: f32, end_ms: f32) -> Option<(f32, f32)> {
+        if self.rendered_waveform_peaks.is_empty() || end_ms < start_ms {
+            return None;
+        }
+        let waveform_start = self.rendered_waveform_peaks.first()?.0;
+        let waveform_end = self.rendered_waveform_peaks.last()?.0;
+        if end_ms < waveform_start || start_ms > waveform_end {
+            return None;
+        }
+        let first = self
+            .rendered_waveform_peaks
+            .partition_point(|(time, _, _)| *time < start_ms)
+            .saturating_sub(1);
+        let end = self
+            .rendered_waveform_peaks
+            .partition_point(|(time, _, _)| *time <= end_ms)
+            .max(first + 1)
+            .min(self.rendered_waveform_peaks.len());
+        let (mut min_value, mut max_value) = (1.0f32, -1.0f32);
+        for &(_, min, max) in &self.rendered_waveform_peaks[first..end] {
+            min_value = min_value.min(min);
+            max_value = max_value.max(max);
+        }
+        (max_value >= min_value).then_some((min_value, max_value))
+    }
+
+    pub fn waveform_display_peak(&self) -> f32 {
+        self.rendered_waveform_peaks
+            .iter()
+            .map(|(_, min, max)| min.abs().max(max.abs()))
+            .fold(0.0f32, f32::max)
+    }
+
     pub fn waveform_amplitude_at(&self, time_ms: f32) -> Option<f32> {
         self.waveform_min_max_at(time_ms)
             .map(|(min_v, max_v)| min_v.abs().max(max_v.abs()))
@@ -502,6 +565,8 @@ impl Default for PianoRollState {
             pitch_line_start: None,
             vibrato_brush_center: None,
             auto_scroll_mode: AutoScrollMode::PageScroll,
+            vertical_pitch_follow: false,
+            pitch_follow_smoothed_midi: None,
             is_scrubbing_ruler: false,
             loop_enabled: false,
             loop_start_ms: 0.0,
@@ -537,6 +602,12 @@ impl Default for PianoRollState {
             request_clear_selected_render_cache: false,
             horizontal_scroll_offset: 0.0,
             vertical_scroll_offset: 0.0,
+            arrangement_horizontal_scroll_offset: 0.0,
+            arrangement_vertical_scroll_offset: 0.0,
+            minimap_drag_scroll_origin: None,
+            minimap_navigation_active: false,
+            horizontal_follow_user_override: false,
+            vertical_follow_user_override: false,
             initial_scrolled: false,
             properties_window_for_note: None,
             context_menu_note_idx: None,
@@ -563,6 +634,8 @@ impl Default for PianoRollState {
             is_middle_panning: false,
             show_waveform_area: true,
             is_edge_autoscrolling: false,
+            is_dragging_in_drawer: false,
+            auto_cut: true,
         }
     }
 }

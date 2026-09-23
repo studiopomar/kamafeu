@@ -883,7 +883,7 @@ impl KamafeuStudioApp {
                             .button(lang.tr("Importar Tema (.json)...", "Import Theme (.json)..."))
                             .clicked()
                         {
-                            if let Some(path) = rfd::FileDialog::new()
+                            if let Some(path) = crate::dialogs::FileDialog::new()
                                 .add_filter(
                                     lang.tr("Tema JSON (*.json)", "Theme JSON (*.json)"),
                                     &["json"],
@@ -917,7 +917,7 @@ impl KamafeuStudioApp {
                             .button(lang.tr("Exportar Tema (.json)...", "Export Theme (.json)..."))
                             .clicked()
                         {
-                            if let Some(path) = rfd::FileDialog::new()
+                            if let Some(path) = crate::dialogs::FileDialog::new()
                                 .add_filter(
                                     lang.tr("Tema JSON (*.json)", "Theme JSON (*.json)"),
                                     &["json"],

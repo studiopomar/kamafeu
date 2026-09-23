@@ -82,7 +82,16 @@ pub fn apply_humanize(
     params: &HumanizeParams,
     seed_base: u64,
 ) {
-    for (_i, &idx) in target_indices.iter().enumerate() {
+    let mut sorted_targets = target_indices.to_vec();
+    sorted_targets.sort_by_key(|&idx| notes.get(idx).map(|n| n.position_ms as i64).unwrap_or(0));
+
+    // Record original note end times to preserve legato transitions
+    let orig_ends: std::collections::HashMap<usize, f64> = sorted_targets
+        .iter()
+        .filter_map(|&idx| notes.get(idx).map(|n| (idx, n.position_ms + n.duration_ms)))
+        .collect();
+
+    for &idx in &sorted_targets {
         if idx < notes.len() {
             let s = seed_base.wrapping_add((idx as u64).wrapping_mul(1013));
             let r_time = pseudo_rand(s);
@@ -90,8 +99,16 @@ pub fn apply_humanize(
             let r_vol = pseudo_rand(s.wrapping_add(67));
             let r_breath = pseudo_rand(s.wrapping_add(109));
 
-            let delta_ms = r_time * params.timing_jitter_ms;
-            notes[idx].position_ms = (notes[idx].position_ms + delta_ms).max(0.0);
+            if params.timing_jitter_ms > 0.0 {
+                let delta_ms = r_time * params.timing_jitter_ms;
+                let old_pos = notes[idx].position_ms;
+                let new_pos = (old_pos + delta_ms).max(0.0);
+                notes[idx].position_ms = new_pos;
+                // Preserve duration unless connected to the previous note
+                if let Some(&orig_end) = orig_ends.get(&idx) {
+                    notes[idx].duration_ms = (orig_end - new_pos).max(20.0);
+                }
+            }
 
             let delta_pitch = r_pitch * params.pitch_cents_jitter;
             notes[idx].expressions.pitch_delta =
@@ -105,6 +122,10 @@ pub fn apply_humanize(
             notes[idx].expressions.breathiness =
                 (notes[idx].expressions.breathiness + delta_breath).clamp(0.0, 100.0);
         }
+    }
+
+    if params.timing_jitter_ms > 0.0 {
+        crate::gui::note_actions::resolve_monophonic_overlaps(notes);
     }
 }
 
@@ -426,8 +447,8 @@ pub fn draw_humanize_dialog(
                 }
             });
 
-            let seed = std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
+            let seed = web_time::SystemTime::now()
+                .duration_since(web_time::UNIX_EPOCH)
                 .map(|d| d.as_millis() as u64)
                 .unwrap_or(42);
 

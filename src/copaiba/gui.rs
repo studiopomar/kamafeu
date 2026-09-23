@@ -18,6 +18,8 @@ pub struct CopaibaToolkitApp {
     pub filter_mode: ListFilterMode,
     pub loaded_waveform: Option<(Vec<f32>, u32)>, // samples, sample_rate
     pub loaded_wav_filename: Option<String>,
+    pub venus_analysis: Option<crate::dsp::venus_analysis::VenusAnalysis>,
+    pub venus_analysis_path: Option<PathBuf>,
     pub previous_waveform: Option<(String, Vec<f32>, u32)>,
     pub next_waveform: Option<(String, Vec<f32>, u32)>,
     pub avatar_texture: Option<egui::TextureHandle>,
@@ -39,6 +41,8 @@ impl Default for CopaibaToolkitApp {
             filter_mode: ListFilterMode::ByAlias,
             loaded_waveform: None,
             loaded_wav_filename: None,
+            venus_analysis: None,
+            venus_analysis_path: None,
             previous_waveform: None,
             next_waveform: None,
             avatar_texture: None,
@@ -217,15 +221,27 @@ impl CopaibaToolkitApp {
             if let Ok(waveform) =
                 crate::renderer::TrackRenderer::load_wav_samples(dir.join(wav_name))
             {
+                let wav_path = dir.join(wav_name);
+                self.venus_analysis =
+                    crate::dsp::venus_analysis::load_or_analyze(&wav_path, &waveform.0, waveform.1)
+                        .ok();
+                self.venus_analysis_path = self
+                    .venus_analysis
+                    .as_ref()
+                    .map(|_| crate::dsp::venus_analysis::sidecar_path(&wav_path));
                 self.loaded_waveform = Some(waveform);
                 self.loaded_wav_filename = Some(wav_name.clone());
             } else {
                 self.loaded_waveform = None;
                 self.loaded_wav_filename = None;
+                self.venus_analysis = None;
+                self.venus_analysis_path = None;
             }
         } else {
             self.loaded_waveform = None;
             self.loaded_wav_filename = None;
+            self.venus_analysis = None;
+            self.venus_analysis_path = None;
         }
 
         self.previous_waveform = self
@@ -1089,6 +1105,86 @@ pub fn draw_copaiba_toolkit_ui(
                                 ui.add_space(4.0);
                                 ui.label(RichText::new("Arquivo WAV:").size(10.0).color(Color32::from_rgb(160, 150, 180)));
                                 ui.label(RichText::new(&entry.wav_filename).size(11.0).color(Color32::WHITE));
+
+                                ui.add_space(8.0);
+                                ui.separator();
+                                ui.add_space(6.0);
+
+                                ui.label(
+                                    RichText::new("Análise VENUS (.venus)")
+                                        .strong()
+                                        .size(12.0)
+                                        .color(Color32::from_rgb(80, 190, 255)),
+                                );
+                                let mut venus_changed = false;
+                                if let Some(analysis) = app.venus_analysis.as_mut() {
+                                    let voiced = analysis.frames.iter().filter(|frame| frame.voiced).count();
+                                    ui.label(
+                                        RichText::new(format!(
+                                            "{} frames · {} vozeados · {} marcas",
+                                            analysis.frames.len(),
+                                            voiced,
+                                            analysis.pitch_marks.len()
+                                        ))
+                                        .size(10.0)
+                                        .color(Color32::from_rgb(160, 180, 205)),
+                                    );
+                                    venus_changed |= ui
+                                        .add(
+                                            egui::Slider::new(&mut analysis.gain_db, -24.0..=24.0)
+                                                .text("Ganho por alias")
+                                                .suffix(" dB"),
+                                        )
+                                        .changed();
+                                    venus_changed |= ui
+                                        .add(
+                                            egui::Slider::new(
+                                                &mut analysis.formant_shift_cents,
+                                                -2_400.0..=2_400.0,
+                                            )
+                                            .text("Correção de formante")
+                                            .suffix(" cents"),
+                                        )
+                                        .changed();
+                                    venus_changed |= ui
+                                        .add(
+                                            egui::Slider::new(&mut analysis.breathiness, 0.0..=100.0)
+                                                .text("Respiração adicional"),
+                                        )
+                                        .changed();
+                                    venus_changed |= ui
+                                        .add(
+                                            egui::TextEdit::multiline(&mut analysis.notes)
+                                                .hint_text("Notas para este alias")
+                                                .desired_rows(2),
+                                        )
+                                        .changed();
+                                    if ui.button("Reanalisar WAV").clicked() {
+                                        if let Some((samples, sample_rate)) = app.loaded_waveform.as_ref() {
+                                            let mut refreshed = crate::dsp::venus_analysis::analyze_samples(samples, *sample_rate);
+                                            refreshed.gain_db = analysis.gain_db;
+                                            refreshed.formant_shift_cents = analysis.formant_shift_cents;
+                                            refreshed.breathiness = analysis.breathiness;
+                                            refreshed.notes.clone_from(&analysis.notes);
+                                            *analysis = refreshed;
+                                            venus_changed = true;
+                                        }
+                                    }
+                                } else {
+                                    ui.label(
+                                        RichText::new("Não foi possível criar a análise deste WAV.")
+                                            .size(10.0)
+                                            .color(Color32::from_rgb(255, 140, 100)),
+                                    );
+                                }
+                                if venus_changed {
+                                    if let (Some(analysis), Some(path)) = (
+                                        app.venus_analysis.as_ref(),
+                                        app.venus_analysis_path.as_ref(),
+                                    ) {
+                                        let _ = crate::dsp::venus_analysis::save(path, analysis);
+                                    }
+                                }
 
                                 ui.add_space(8.0);
                                 ui.separator();

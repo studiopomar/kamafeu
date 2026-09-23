@@ -17,7 +17,7 @@ pub(super) fn draw(
         return;
     }
 
-    let strip_h = 44.0f32;
+    let strip_h = 72.0f32;
 
     egui::TopBottomPanel::bottom("bottom_processed_waveform_strip")
         .resizable(false)
@@ -143,34 +143,34 @@ pub(super) fn draw(
 
                 // Render High-Resolution Waveform Peak Envelope
                 if has_waveform {
-                    let half_h = strip_h * 0.44;
+                    let half_h = strip_h * 0.43;
                     let step_px = 1.0f32;
                     let num_steps = ((strip_rect.width() / step_px).ceil() as usize).max(1);
+                    let display_peak = state.waveform_display_peak();
+                    let display_gain = if display_peak > 1e-5 {
+                        (0.92 / display_peak).clamp(1.0, 12.0)
+                    } else {
+                        1.0
+                    };
 
                     for step in 0..num_steps {
                         let x_pos = strip_rect.min.x + step as f32 * step_px;
-                        let t_ms = ((x_pos - timeline_origin_x) as f64 / px_per_ms) as f32;
+                        let next_x = (x_pos + step_px).min(strip_rect.max.x);
+                        let t_start_ms = ((x_pos - timeline_origin_x) as f64 / px_per_ms) as f32;
+                        let t_end_ms = ((next_x - timeline_origin_x) as f64 / px_per_ms) as f32;
 
-                        if let Some((min_val, max_val)) = state.waveform_min_max_at(t_ms) {
-                            let top_amp = max_val.clamp(0.0, 1.5);
-                            let bot_amp = min_val.clamp(-1.5, 0.0);
+                        if let Some((min_val, max_val)) =
+                            state.waveform_min_max_between(t_start_ms, t_end_ms)
+                        {
+                            let top_amp = (max_val * display_gain).clamp(0.0, 1.0);
+                            let bot_amp = (min_val * display_gain).clamp(-1.0, 0.0);
                             let y_top = mid_y - top_amp * half_h;
                             let y_bot = mid_y - bot_amp * half_h;
 
-                            if (y_bot - y_top).abs() > 0.5 {
-                                let amp_mag = (top_amp - bot_amp) * 0.5;
-                                // Dynamic neon gradient: deep cyan -> bright electric mint -> amber transients
-                                let wave_color = if amp_mag > 0.85 {
-                                    Color32::from_rgb(255, 195, 60)
-                                } else if amp_mag > 0.4 {
-                                    Color32::from_rgb(0, 245, 185)
-                                } else {
-                                    Color32::from_rgb(0, 175, 235)
-                                };
-
+                            if (y_bot - y_top).abs() > 0.25 {
                                 painter.line_segment(
                                     [Pos2::new(x_pos, y_top), Pos2::new(x_pos, y_bot)],
-                                    Stroke::new(1.0, wave_color),
+                                    Stroke::new(1.0, Color32::from_rgb(0, 210, 255)),
                                 );
                             }
                         }

@@ -37,6 +37,12 @@ pub use phonemizer::*;
 pub use project::*;
 pub use renderer::*;
 
+/// Public application version used by the native window, Android activity and
+/// in-app version badge. Cargo remains the single source of truth.
+pub const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
+/// Internal lineage codename, intentionally kept out of the primary branding.
+pub const APP_CODENAME: &str = "projeto_saturno";
+
 #[cfg(target_os = "android")]
 use android_activity::AndroidApp;
 
@@ -52,10 +58,47 @@ fn android_main(app: AndroidApp) {
     }));
 
     if let Err(error) = eframe::run_native(
-        "Kamafeu Studio v1.0.1-A_DEV_RC (Âmbar) — build de teste para testers, QA e Grupo Pomar",
+        concat!(
+            "Kamafeu Studio v",
+            env!("CARGO_PKG_VERSION"),
+            " (Bariloche)"
+        ),
         options,
         Box::new(|cc| Ok(Box::new(gui::KamafeuStudioApp::new(cc)))),
     ) {
         eprintln!("Falha ao iniciar Kamafeu Studio no Android: {error}");
     }
+}
+
+#[cfg(target_arch = "wasm32")]
+use wasm_bindgen::prelude::*;
+
+#[cfg(target_arch = "wasm32")]
+#[wasm_bindgen(start)]
+pub async fn start() -> Result<(), JsValue> {
+    // Redirect log messages to console.log and panic messages to console.error
+    console_error_panic_hook::set_once();
+    let _ = console_log::init_with_level(log::Level::Info);
+
+    let web_options = eframe::WebOptions::default();
+
+    let document = web_sys::window()
+        .and_then(|win| win.document())
+        .ok_or_else(|| JsValue::from_str("No document found"))?;
+    let canvas = document
+        .get_element_by_id("kamafeu_canvas")
+        .ok_or_else(|| JsValue::from_str("Canvas 'kamafeu_canvas' not found in HTML"))?
+        .dyn_into::<web_sys::HtmlCanvasElement>()
+        .map_err(|_| JsValue::from_str("Element is not a canvas"))?;
+
+    eframe::WebRunner::new()
+        .start(
+            canvas,
+            web_options,
+            Box::new(|cc| Ok(Box::new(gui::KamafeuStudioApp::new(cc)))),
+        )
+        .await
+        .map_err(|e| JsValue::from_str(&format!("Failed to start eframe: {e:?}")))?;
+
+    Ok(())
 }

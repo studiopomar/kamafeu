@@ -39,7 +39,7 @@ impl KamafeuStudioApp {
                 .button(lang.tr("Mostrar Dica dos Painéis (10s)", "Show Panel Tips (10s)"))
                 .clicked()
             {
-                self.panel_tips_created_at = Some(std::time::Instant::now());
+                self.panel_tips_created_at = Some(web_time::Instant::now());
                 ui.close_menu();
             }
             if ui
@@ -50,13 +50,12 @@ impl KamafeuStudioApp {
                 .clicked()
             {
                 self.persist_config();
-                ui.close_menu();
             }
             ui.separator();
             ui.label(
                 egui::RichText::new(lang.tr(
-                    "Kamafeu Studio v1.0.0-A (Âmbar)",
-                    "Kamafeu Studio v1.0.0-A (Amber)",
+                    &format!("Kamafeu Studio v{} (Bariloche)", crate::APP_VERSION),
+                    &format!("Kamafeu Studio v{} (Bariloche)", crate::APP_VERSION),
                 ))
                 .strong()
                 .size(11.5)
@@ -68,6 +67,15 @@ impl KamafeuStudioApp {
                     "OpenUTAU / UTAU Vocal Engine in Rust",
                 ))
                 .size(9.5)
+                .color(self.config.theme.text_muted_c32()),
+            );
+            ui.label(
+                egui::RichText::new(lang.tr(
+                    "Codinome interno: projeto_saturno",
+                    "Internal codename: projeto_saturno",
+                ))
+                .size(9.0)
+                .italics()
                 .color(self.config.theme.text_muted_c32()),
             );
         });

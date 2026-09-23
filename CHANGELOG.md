@@ -7,6 +7,18 @@ e este projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR
 
 ---
 
+## [1.0.2-rc.1] - 2026-09-19
+
+### Pré-lançamento
+- Versão de release unificada em `1.0.2-rc.1`; a versão aparece no título da janela, no Android, no menu e no log do motor.
+- Pipeline de release passou a exigir formatação, testes, Clippy e auditoria de dependências antes de compilar os artefatos.
+- Pacote macOS passou a conter um bundle `Kamafeu.app` com `Info.plist`; assinatura e notarização continuam dependentes das credenciais do distribuidor.
+- Régua de fonemas passou a desenhar o timing resolvido de cada alias expandido, e transições internas sem overlap do `oto.ini` recebem um crossfade curto de segurança.
+
+### Pendências conhecidas
+- A validação perceptiva final ainda deve ser feita com voicebanks reais e cache de render limpo.
+- Os avisos de manutenção das crates `paste` e `ttf-parser` permanecem no `cargo audit` e não representam vulnerabilidades exploráveis conhecidas.
+
 ## [Não lançado] - 2026-09-17
 
 ### Transições VC/VCCV/CVVC

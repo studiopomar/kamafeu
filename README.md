@@ -14,6 +14,10 @@
 
 [Downloads](https://github.com/studiopomar/kamafeu/releases) | [Primeiros passos](#primeiros-passos) | [Compilação](#instruções-de-compilação) | [Histórico de alterações](CHANGELOG.md)
 
+> **Estado atual:** `1.0.2-rc.1` (release candidate). O núcleo do editor e os formatos principais estão maduros; motores externos, voicebanks e drivers de áudio devem ser validados na máquina do usuário.
+
+O formato nativo `.aps` preserva discretamente a linhagem do antigo Projeto Saturno, antecessor espiritual do Kamafeu Studio.
+
 <img src="assets/kamafeu_banner.png" alt="Kamafeu Studio" width="1200" />
 
 </div>
@@ -36,7 +40,7 @@ O nome **Kamafeu** faz referência à tradicional joia em camafeu, esculpida man
   - [Motores de junção e emenda de fonemas (Wavtools)](#motores-de-junção-e-emenda-de-fonemas-wavtools)
 - [Copaiba Voicebank Toolkit (Experimental)](#copaiba-voicebank-toolkit-experimental)
 - [Primeiros passos](#primeiros-passos)
-- [Versão mobile (Android e iOS)](#versão-mobile-android-e-ios)
+- [Versão mobile (Android; iOS em avaliação)](#versão-mobile-android-ios-em-avaliação)
 - [Instruções de compilação](#instruções-de-compilação)
   - [Linux](#linux)
   - [FreeBSD](#freebsd)
@@ -45,6 +49,7 @@ O nome **Kamafeu** faz referência à tradicional joia em camafeu, esculpida man
 - [Interface de linha de comando](#interface-de-linha-de-comando)
 - [Tabela de atalhos de teclado](#tabela-de-atalhos-de-teclado)
 - [Estrutura do código-fonte](#estrutura-do-código-fonte)
+- [Guia detalhado dos arquivos](docs/GUIA_DO_CODIGO.md)
 - [Licença](#licença)
 
 ## Recursos do sistema
@@ -81,8 +86,8 @@ O Kamafeu Studio conta com um motor completo de temas e customização de interf
 #### Pomar Neon (Esmeralda)
 <img src="assets/themes/theme_pomar_neon.png" alt="Tema Pomar Neon (Esmeralda)" width="100%" />
 
-#### Melodyne Classic (Âmbar)
-<img src="assets/themes/theme_melodyne_gold.png" alt="Tema Melodyne Classic (Âmbar)" width="100%" />
+#### Melodyne Classic (Bariloche)
+<img src="assets/themes/theme_melodyne_gold.png" alt="Tema Melodyne Classic (Bariloche)" width="100%" />
 
 #### Cyberpunk (Synthwave)
 <img src="assets/themes/theme_cyberpunk.png" alt="Tema Cyberpunk (Synthwave)" width="100%" />
@@ -190,9 +195,9 @@ O **Copaiba** foi projetado para calibragem, teste e organização de bancos de 
 5. **Modele a afinação:** Utilize a ferramenta de pitch (`P`) para criar curvas de transição, portamentos e vibratos.
 6. **Reproduza e exporte:** Pressione `Espaço` para ouvir a prévia e utilize o menu **Arquivo -> Exportar Áudio** para gerar o arquivo final em WAV ou FLAC.
 
-## Versão mobile (Android e iOS)
+## Versão mobile (Android; iOS em avaliação)
 
-O Kamafeu Studio conta com infraestrutura de código baseada em `winit` e `egui`, permitindo a compilação cruzada para dispositivos móveis (smartphones e tablets). No entanto, o ecossistema mobile impõe desafios arquiteturais e restrições técnicas significativas:
+O Kamafeu Studio conta com infraestrutura baseada em `winit` e `egui`, permitindo a compilação para Android. O suporte a iOS permanece em avaliação e não faz parte dos artefatos oficiais desta release candidate. O ecossistema mobile impõe desafios arquiteturais e restrições técnicas significativas:
 
 ### Desafios de adaptação e build
 
@@ -219,6 +224,8 @@ A compilação do APK do Kamafeu utiliza a ferramenta `cargo-apk` e o Android ND
 # Compilar APK em modo release para arquitetura ARM64
 cargo apk build --lib --release --target aarch64-linux-android
 ```
+
+Os binários Android não são publicados pelo workflow desktop; a assinatura exige um keystore configurado conforme [docs/android-signing.md](docs/android-signing.md).
 
 Para instruções detalhadas sobre assinatura criptográfica de APKs e variáveis de ambiente de keystore, consulte [docs/android-signing.md](docs/android-signing.md).
 
@@ -317,6 +324,17 @@ cargo build --release --bins
 Os executáveis gerados estarão localizados em `target/release/`:
 - `kamafeu` (ou `kamafeu.exe` no Windows): Editor principal e sintetizador multifaixa.
 - `copaiba` (ou `copaiba.exe` no Windows): Utilitário de calibração de voicebanks (`oto.ini`).
+
+### Limitações conhecidas da RC
+
+- O aplicativo não instala automaticamente resamplers de terceiros. O pacote oficial inclui apenas os motores externos cuja compilação foi concluída no workflow; outros executáveis devem ser instalados pelo usuário.
+- No macOS, o artefato é um `Kamafeu.app` dentro do `.dmg`, mas assinatura e notarização dependem do processo de distribuição do mantenedor.
+- A qualidade final depende do `oto.ini`, dos WAVs e do resampler/wavtool escolhidos. Um voicebank com aliases ausentes pode exigir correção manual no Copaiba.
+- A reprodução com motores externos no Linux/macOS pode exigir Wine e bibliotecas de áudio/gráficas do sistema.
+
+### Checklist rápido para reportar problemas
+
+Inclua sempre a versão exibida na janela, sistema operacional, resampler, wavtool, voicebank, alias problemático e um projeto mínimo que reproduza o defeito. Para problemas de transição, envie também o WAV renderizado e informe se o cache foi limpo.
 
 Para executar diretamente:
 
@@ -432,17 +450,20 @@ kamafeu/
     ├── dialogs.rs      # Gerenciador unificado de caixas de diálogo e mensagens modais
     │
     ├── audio/          # Motor de áudio (Rodio/CoreAudio/ALSA), metrônomo e rack FX (EQ, Reverb, Comp)
-    ├── bin/            # Executáveis autônomos (`kamafeu.rs` e `copaiba.rs`)
+    ├── bin/            # Ferramentas autônomas (Copaiba e análise/corpus VENUS)
     ├── copaiba/        # Calibrador interativo de oto.ini, visualizador de onda e empacotador de voicebanks
     ├── drivers/        # Drivers de comunicação com resamplers (VENUS, straycat-rs, Wine) e wavtools (Andromeda, Yawu)
-    ├── dsp/            # Processamento digital de sinais: VENUS, YIN pitch detection, envelopes UTAU e resample
+    ├── dsp/            # Processamento digital de sinais: VENUS, análise, pitch, envelopes UTAU e resample
     ├── formats/        # Parsers e conversores universais (.aps, .ustx, .ust, .mid, .ufdata, .svp, .vsqx, .kfv)
-    ├── gui/            # Interface egui: piano roll, arranjo multifaixa, inspetor, régua de fonemas e diálogos
+    ├── gui/            # Interface egui: piano roll, RADAR, arranjo multifaixa, inspetor e diálogos
     ├── oto/            # Leitura/escrita de oto.ini (UTF-8/Shift-JIS), prefix.map e scanner de cantores
     ├── phonemizer/     # Motores fonéticos (Japonês CV/VCV/CVVC, Português BRAPA VCCV/G2P, Inglês VCCV)
     ├── project/        # Modelagem de dados: faixas, notas, curvas de pitch, envelopes e histórico (Undo/Redo)
     └── renderer/       # Pipeline multithread (Rayon), síntese paralela, alinhamento de fase e mixagem de faixas
 ```
+
+Para a descrição dos arquivos centrais, do fluxo entre camadas e dos novos
+utilitários VENUS, consulte o [Guia do código-fonte](docs/GUIA_DO_CODIGO.md).
 
 ## Licença
 

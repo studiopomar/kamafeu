@@ -64,12 +64,12 @@ impl KamafeuStudioApp {
     }
 
     pub(super) fn create_resampler_driver(&self) -> Box<dyn ResamplerDriver> {
-        #[cfg(target_os = "android")]
+        #[cfg(any(target_os = "android", target_arch = "wasm32"))]
         {
             return Box::new(NativeVenusResamplerDriver::default());
         }
 
-        #[cfg(not(target_os = "android"))]
+        #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
         {
             if self.selected_resampler.contains("straycat") {
                 let profile = KnownResampler::StraycatRs;
@@ -173,12 +173,12 @@ impl KamafeuStudioApp {
     }
 
     pub(super) fn create_wavtool_driver(&self) -> Box<dyn WavtoolDriver> {
-        #[cfg(target_os = "android")]
+        #[cfg(any(target_os = "android", target_arch = "wasm32"))]
         {
             return Box::new(GalapagosWavtoolDriver);
         }
 
-        #[cfg(not(target_os = "android"))]
+        #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
         {
             if self.selected_wavtool.contains("Galapagos")
                 || self.selected_wavtool.contains("galapagos")

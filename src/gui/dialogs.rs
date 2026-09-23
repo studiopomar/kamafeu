@@ -77,7 +77,8 @@ pub fn open_file_in_folder<P: AsRef<std::path::Path>>(path: P) {
     #[cfg(all(
         not(target_os = "macos"),
         not(target_os = "windows"),
-        not(target_os = "android")
+        not(target_os = "android"),
+        not(target_arch = "wasm32")
     ))]
     {
         if let Some(parent) = _p.parent() {

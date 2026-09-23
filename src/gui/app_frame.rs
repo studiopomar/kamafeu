@@ -1,6 +1,6 @@
 use crate::gui::KamafeuStudioApp;
 use eframe::egui;
-use std::time::Instant;
+use web_time::Instant;
 
 impl eframe::App for KamafeuStudioApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
@@ -14,6 +14,7 @@ impl eframe::App for KamafeuStudioApp {
         // Some macOS window managers ignore `ViewportBuilder::with_maximized`
         // during native window creation. Apply it once after the first frame,
         // when the viewport already exists, without overriding later toggles.
+        #[cfg(not(target_arch = "wasm32"))]
         if self.startup_maximize_requested {
             ctx.send_viewport_cmd(egui::ViewportCommand::Maximized(true));
             self.startup_maximize_requested = false;
@@ -45,15 +46,18 @@ impl eframe::App for KamafeuStudioApp {
         };
         let window_title = if self.is_dirty {
             format!(
-                "* {} - Kamafeu Studio v1.0.1-A_DEV_RC (Âmbar) [TESTERS/QA/POMAR]",
-                project_name
+                "* {} - Kamafeu Studio v{} (Bariloche)",
+                project_name,
+                crate::APP_VERSION,
             )
         } else {
             format!(
-                "{} - Kamafeu Studio v1.0.1-A_DEV_RC (Âmbar) [TESTERS/QA/POMAR]",
-                project_name
+                "{} - Kamafeu Studio v{} (Bariloche)",
+                project_name,
+                crate::APP_VERSION
             )
         };
+        #[cfg(not(target_arch = "wasm32"))]
         if window_title != self.last_window_title {
             ctx.send_viewport_cmd(egui::ViewportCommand::Title(window_title.clone()));
             self.last_window_title = window_title;
@@ -65,11 +69,26 @@ impl eframe::App for KamafeuStudioApp {
 
         self.update_background_tasks(ctx);
 
+        #[cfg(target_arch = "wasm32")]
+        {
+            let mut pending = Vec::new();
+            if let Ok(mut queue) = crate::gui::project_files::web_file_queue().lock() {
+                if !queue.is_empty() {
+                    pending = std::mem::take(&mut *queue);
+                }
+            }
+            for (name, bytes) in pending {
+                self.open_project_from_bytes(&name, &bytes);
+            }
+        }
+
         // Process dropped files (Drag & Drop)
         let dropped = ctx.input(|i| i.raw.dropped_files.clone());
         if !dropped.is_empty() {
             for dropped_file in dropped {
-                if let Some(path) = dropped_file.path {
+                if let Some(bytes) = dropped_file.bytes {
+                    self.open_project_from_bytes(&dropped_file.name, &bytes);
+                } else if let Some(path) = dropped_file.path {
                     self.open_project_from_path(&path);
                 }
             }

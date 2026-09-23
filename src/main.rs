@@ -64,11 +64,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
 
     match cli.command {
         None | Some(Commands::Gui) => {
-            println!("Starting Kamafeu Studio v1.0.1-A_DEV_RC (Âmbar) — build de teste para testers, QA e Grupo Pomar...");
+            println!(
+                "Starting Kamafeu Studio v{} (Bariloche)...",
+                kamafeu::APP_VERSION
+            );
             kamafeu::drivers::process::prewarm_wine_in_background();
             let icon_data = kamafeu::gui::window_icon::load_window_icon().ok();
             let mut viewport = eframe::egui::ViewportBuilder::default()
-                .with_title("Kamafeu Studio v1.0.1-A_DEV_RC (Âmbar) — TEST BUILD")
+                .with_title(format!(
+                    "Kamafeu Studio v{} (Bariloche)",
+                    kamafeu::APP_VERSION
+                ))
                 .with_inner_size([1280.0, 750.0])
                 .with_min_inner_size([800.0, 500.0])
                 .with_maximized(true);
@@ -83,7 +89,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             };
 
             eframe::run_native(
-                "Kamafeu Studio v1.0.0-A (Âmbar)",
+                &format!("Kamafeu Studio v{} (Bariloche)", kamafeu::APP_VERSION),
                 options,
                 Box::new(|cc| Ok(Box::new(KamafeuStudioApp::new(cc)))),
             )?;

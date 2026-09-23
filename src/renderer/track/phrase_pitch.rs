@@ -1,5 +1,15 @@
-use super::{PhrasePitchNote, TrackRenderer};
+use super::TrackRenderer;
 use crate::project::model::UNote;
+
+pub(super) struct PhrasePitchNote {
+    pub(super) position_ms: f64,
+    pub(super) duration_ms: f64,
+    pub(super) midi: u8,
+    pub(super) curve_start_ms: f64,
+    pub(super) points: Vec<crate::project::model::UPitchBendPoint>,
+    pub(super) vibrato: crate::dsp::pitch::VibratoParam,
+    pub(super) pitch_delta: f64,
+}
 
 impl TrackRenderer {
     pub(super) fn phrase_pitch_notes(notes: &[UNote]) -> Vec<PhrasePitchNote> {

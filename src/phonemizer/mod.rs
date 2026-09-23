@@ -144,8 +144,14 @@ impl JapanesePhonemizer {
             if is_plus {
                 if let Some(last) = result.last_mut() {
                     let last_end = last.position_ms + last.duration_ms;
-                    if (note.position_ms - last_end).abs() <= 0.001 {
+                    if (note.position_ms - last_end).abs() <= 2.0 {
                         last.duration_ms += note.duration_ms;
+                        continue;
+                    } else {
+                        // Unconnected plus note: borrow lyric from preceding note
+                        let mut fallback_note = note.clone();
+                        fallback_note.lyric = last.lyric.clone();
+                        result.push(fallback_note);
                         continue;
                     }
                 }
@@ -252,8 +258,13 @@ impl JapanesePhonemizer {
             if is_plus {
                 if let Some((_last_orig_idx, last_note)) = normalized_notes.last_mut() {
                     let last_end = last_note.position_ms + last_note.duration_ms;
-                    if (note.position_ms - last_end).abs() <= 0.001 {
+                    if (note.position_ms - last_end).abs() <= 2.0 {
                         last_note.duration_ms += note.duration_ms;
+                        continue;
+                    } else {
+                        let mut fallback_note = note.clone();
+                        fallback_note.lyric = last_note.lyric.clone();
+                        normalized_notes.push((orig_idx, fallback_note));
                         continue;
                     }
                 }
@@ -405,9 +416,11 @@ impl JapanesePhonemizer {
                 continue;
             }
 
-            if raw_lyric.contains('.') || raw_lyric.contains(';') || raw_lyric.contains(',') {
+            let is_multi = raw_lyric.contains(['.', ';', ',', '|', '/']);
+
+            if is_multi {
                 let parts: Vec<&str> = raw_lyric
-                    .split(|c| c == '.' || c == ';' || c == ',')
+                    .split(['.', ';', ',', '|', '/'])
                     .map(str::trim)
                     .filter(|s| !s.is_empty() && *s != "+" && *s != "R" && *s != "r")
                     .collect();
@@ -451,17 +464,20 @@ impl JapanesePhonemizer {
                     for (part_idx, part) in parts.into_iter().enumerate() {
                         let sub_duration_ms = durations[part_idx];
                         let mut sub_envelope = note.envelope.clone();
+                        // Smooth crossfade transitions between intra-note phonemes:
+                        // Preserve user-authored attack on the first phone and release on the last phone,
+                        // while ensuring interior junctions have seamless crossfade boundaries.
                         if part_idx > 0 {
                             sub_envelope.p1 = 0.0;
-                            sub_envelope.p2 = 0.0;
-                            sub_envelope.v1 = 100.0;
+                            sub_envelope.p2 = 5.0;
+                            sub_envelope.v1 = 0.0;
                             sub_envelope.v2 = 100.0;
                         }
                         if part_idx < num_parts - 1 {
                             sub_envelope.p4 = 0.0;
-                            sub_envelope.p5 = 0.0;
+                            sub_envelope.p5 = 35.0;
                             sub_envelope.v4 = 100.0;
-                            sub_envelope.v5 = 100.0;
+                            sub_envelope.v5 = 0.0;
                         }
                         phones.push(RenderPhone {
                             note_index: i,

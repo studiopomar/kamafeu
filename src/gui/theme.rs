@@ -33,7 +33,7 @@ impl ThemePreset {
         match lang {
             crate::config::AppLanguage::PtBr => match self {
                 ThemePreset::PomarNeon => "Pomar Neon (Esmeralda)",
-                ThemePreset::MelodyneGold => "Melodyne Classic (Âmbar)",
+                ThemePreset::MelodyneGold => "Melodyne Classic (Bariloche)",
                 ThemePreset::Cyberpunk => "Cyberpunk (Synthwave)",
                 ThemePreset::NordicSlate => "Nordic Slate (Clean Dark)",
                 ThemePreset::MikanTeal => "Voz-a-loide Teal (Mikan)",
@@ -43,7 +43,7 @@ impl ThemePreset {
             },
             crate::config::AppLanguage::EnUs => match self {
                 ThemePreset::PomarNeon => "Pomar Neon (Emerald)",
-                ThemePreset::MelodyneGold => "Melodyne Classic (Amber)",
+                ThemePreset::MelodyneGold => "Melodyne Classic (Bariloche)",
                 ThemePreset::Cyberpunk => "Cyberpunk (Synthwave)",
                 ThemePreset::NordicSlate => "Nordic Slate (Clean Dark)",
                 ThemePreset::MikanTeal => "Vocaloid Teal (Mikan)",
@@ -513,11 +513,15 @@ impl ThemeConfig {
     }
 
     pub fn scale_out_of_key_tint(&self) -> Color32 {
-        Color32::from_rgba_unmultiplied(10, 8, 16, 80)
+        Color32::from_rgba_unmultiplied(7, 6, 12, 125)
+    }
+
+    pub fn scale_in_key_tint(&self) -> Color32 {
+        Color32::from_rgba_unmultiplied(45, 105, 155, 34)
     }
 
     pub fn scale_tonic_tint(&self) -> Color32 {
-        self.c32_alpha(self.accent_color, 0.08)
+        self.c32_alpha(self.accent_color, 0.22)
     }
 
     pub fn pitch_curve_c32(&self) -> Color32 {

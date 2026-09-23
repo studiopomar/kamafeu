@@ -1,87 +1,29 @@
 use crate::dsp::midi_to_freq;
 mod mixing;
+mod phone_result;
 mod phrase_pitch;
+mod slots;
 mod wav_io;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, Condvar, Mutex};
+use std::sync::Arc;
 
+#[cfg(not(target_arch = "wasm32"))]
 use rayon::prelude::*;
 
+use self::phone_result::PhoneResult;
+use self::slots::ResamplerSlots;
 use crate::drivers::{
     NativeResamplerDriver, NativeWavtoolDriver, ResamplerArgs, ResamplerDriver, WavtoolArgs,
     WavtoolDriver,
 };
 use crate::oto::Voicebank;
+use crate::phonemizer::RenderPhone;
 use crate::project::model::UNote;
 use crate::renderer::timing::resolve_phoneme_timings;
 use crate::renderer::RenderOptions;
 
 pub struct TrackRenderer;
-
-/// Limits actual synthesis work independently from the Rayon pool. This keeps
-/// external UTAU engines from spawning more concurrent processes than their
-/// voicebank caches and the host machine can sustain.
-struct ResamplerSlots {
-    available: Mutex<usize>,
-    ready: Condvar,
-}
-
-struct ResamplerSlot<'a> {
-    slots: &'a ResamplerSlots,
-}
-
-impl ResamplerSlots {
-    fn new(instances: u32) -> Self {
-        Self {
-            available: Mutex::new(instances.max(1) as usize),
-            ready: Condvar::new(),
-        }
-    }
-
-    fn acquire(&self, cancel: Option<&AtomicBool>) -> Result<ResamplerSlot<'_>, String> {
-        loop {
-            if cancel.is_some_and(|token| token.load(Ordering::Relaxed)) {
-                return Err("renderização cancelada".to_string());
-            }
-            let mut available = self
-                .available
-                .lock()
-                .unwrap_or_else(|error| error.into_inner());
-            if *available > 0 {
-                *available -= 1;
-                return Ok(ResamplerSlot { slots: self });
-            }
-            let (next, _) = self
-                .ready
-                .wait_timeout(available, std::time::Duration::from_millis(20))
-                .unwrap_or_else(|error| error.into_inner());
-            drop(next);
-        }
-    }
-}
-
-impl Drop for ResamplerSlot<'_> {
-    fn drop(&mut self) {
-        let mut available = self
-            .slots
-            .available
-            .lock()
-            .unwrap_or_else(|error| error.into_inner());
-        *available += 1;
-        self.slots.ready.notify_one();
-    }
-}
-
-struct PhrasePitchNote {
-    position_ms: f64,
-    duration_ms: f64,
-    midi: u8,
-    curve_start_ms: f64,
-    points: Vec<crate::project::model::UPitchBendPoint>,
-    vibrato: crate::dsp::pitch::VibratoParam,
-    pitch_delta: f64,
-}
 
 impl TrackRenderer {
     /// Render a list of UNotes to a single PCM audio buffer using custom resampler & wavtool drivers
@@ -218,16 +160,14 @@ impl TrackRenderer {
         let mut track_buffer = vec![0.0f32; total_samples];
         let mut previous_phone_end_sample = 0usize;
 
-        let temp_dir = match tempfile::Builder::new().prefix("kamafeu-render-").tempdir() {
-            Ok(directory) => directory,
-            Err(error) => {
-                log(
-                    1.0,
-                    &format!("[Render] Failed to create temporary directory: {error}"),
-                );
-                return Err(format!("Falha ao criar diretório temporário: {error}"));
-            }
-        };
+        let temp_dir = tempfile::Builder::new()
+            .prefix("kamafeu-render-")
+            .tempdir()
+            .ok();
+        let temp_dir_path = temp_dir
+            .as_ref()
+            .map(|d| d.path().to_path_buf())
+            .unwrap_or_else(|| std::path::PathBuf::from("/tmp"));
 
         let start_msg = format!(
             "[Render] Rendering {} notes, max_end={:.0}ms, buffer_len={}",
@@ -264,8 +204,18 @@ impl TrackRenderer {
 
         // Collect paths into a Vec so rayon can index them.
         let wav_paths_vec: Vec<std::path::PathBuf> = unique_wav_paths.into_iter().collect();
+        #[cfg(not(target_arch = "wasm32"))]
         let wav_cache: HashMap<std::path::PathBuf, Arc<(Vec<f32>, u32)>> = wav_paths_vec
             .into_par_iter()
+            .filter_map(|path| {
+                Self::load_wav_samples(&path)
+                    .ok()
+                    .map(|(samples, rate)| (path, Arc::new((samples, rate))))
+            })
+            .collect();
+        #[cfg(target_arch = "wasm32")]
+        let wav_cache: HashMap<std::path::PathBuf, Arc<(Vec<f32>, u32)>> = wav_paths_vec
+            .into_iter()
             .filter_map(|path| {
                 Self::load_wav_samples(&path)
                     .ok()
@@ -376,20 +326,7 @@ impl TrackRenderer {
         // before the sequential merge below.
         // ------------------------------------------------------------------
 
-        // Holds all the data needed for the sequential merge phase.
-        struct PhoneResult {
-            idx: usize,
-            note_rendered: Vec<f32>,
-            actual_start_ms: f64,
-            source_skip_ms: f64,
-            crossfade_ms: f64,
-            pitch_freq: f64,
-            logs: Vec<(f32, String)>,
-            wav_args: WavtoolArgs,
-            adjacent: bool,
-        }
-
-        let temp_dir_path = temp_dir.path().to_path_buf();
+        let temp_dir_path = temp_dir_path.clone();
         let pitch_notes_ref = &pitch_notes;
         let completed_phones = std::sync::atomic::AtomicUsize::new(0);
         let completed_ref = &completed_phones;
@@ -404,29 +341,26 @@ impl TrackRenderer {
         });
         let resampler_slots = ResamplerSlots::new(resampler_instances);
 
-        let phone_results: Result<Vec<PhoneResult>, String> = render_order
-            .into_par_iter()
-            .map(|(idx, phone)| {
-                if cancel.is_some_and(|t| t.load(Ordering::Relaxed)) {
-                    return Err("Renderização cancelada".to_string());
-                }
+        let render_phone_fn = |(idx, phone): (usize, RenderPhone)| -> Result<PhoneResult, String> {
+            if cancel.is_some_and(|t| t.load(Ordering::Relaxed)) {
+                return Err("Renderização cancelada".to_string());
+            }
 
-                let mut logs: Vec<(f32, String)> = Vec::new();
-                let progress = idx as f32 / total_phones as f32;
-                let timing = timings[idx];
+            let mut logs: Vec<(f32, String)> = Vec::new();
+            let progress = idx as f32 / total_phones as f32;
+            let timing = timings[idx];
 
-                let entry = voicebank
-                    .find_mapped_entry(&phone.lyric, &phone.pitch)
-                    .ok_or_else(|| format!("Alias indisponível: {}", phone.lyric))?;
-                let offset_ms =
-                    entry.offset + phone.expressions.start_point_ms.unwrap_or(0.0).max(0.0);
-                let consonant_ms = entry.consonant;
-                let cutoff_ms = entry.cutoff;
-                let loop_start_ms = entry.loop_start;
-                let loop_end_ms = entry.loop_end;
-                let tail_start_ms = entry.tail_start;
-                let wav_full_path = voicebank.root_path.join(&entry.wav_filename);
-                logs.push((
+            let entry = voicebank
+                .find_mapped_entry(&phone.lyric, &phone.pitch)
+                .ok_or_else(|| format!("Alias indisponível: {}", phone.lyric))?;
+            let offset_ms = entry.offset + phone.expressions.start_point_ms.unwrap_or(0.0).max(0.0);
+            let consonant_ms = entry.consonant;
+            let cutoff_ms = entry.cutoff;
+            let loop_start_ms = entry.loop_start;
+            let loop_end_ms = entry.loop_end;
+            let tail_start_ms = entry.tail_start;
+            let wav_full_path = voicebank.root_path.join(&entry.wav_filename);
+            logs.push((
                     progress,
                     format!(
                     "[Render] Phone '{}' ({}/{}) pitch={} pos={:.0}ms dur={:.0}ms wav={:?} oto.ini={}",
@@ -435,302 +369,303 @@ impl TrackRenderer {
                 ),
                 ));
 
-                // Retrieve samples from the in-memory cache (zero disk I/O).
-                let cached = wav_cache
-                    .get(&wav_full_path)
-                    .ok_or_else(|| format!("Amostra indisponível: {}", wav_full_path.display()))?;
-                let (raw_samples, src_sample_rate) = (cached.0.as_slice(), cached.1);
+            // Retrieve samples from the in-memory cache (zero disk I/O).
+            let cached = wav_cache
+                .get(&wav_full_path)
+                .ok_or_else(|| format!("Amostra indisponível: {}", wav_full_path.display()))?;
+            let (raw_samples, src_sample_rate) = (cached.0.as_slice(), cached.1);
 
-                let base_midi = phone.midi_key() as f64;
-                let target_freq = midi_to_freq(base_midi);
+            let base_midi = phone.midi_key() as f64;
+            let target_freq = midi_to_freq(base_midi);
 
-                let consonant_velocity = if phone.expressions.consonant_velocity.is_finite() {
-                    phone.expressions.consonant_velocity.clamp(-100.0, 200.0)
-                } else {
-                    100.0
-                };
-                let consonant_time_scale =
-                    crate::phonemizer::consonant_velocity_time_scale(consonant_velocity);
-                let raw_scaled_consonant = consonant_ms.max(0.0) * consonant_time_scale;
-                let active_consonant_ms =
-                    (raw_scaled_consonant + phone.expressions.consonant_timing_offset_ms).max(0.0);
+            let consonant_velocity = if phone.expressions.consonant_velocity.is_finite() {
+                phone.expressions.consonant_velocity.clamp(-100.0, 200.0)
+            } else {
+                100.0
+            };
+            let consonant_time_scale =
+                crate::phonemizer::consonant_velocity_time_scale(consonant_velocity);
+            let raw_scaled_consonant = consonant_ms.max(0.0) * consonant_time_scale;
+            let active_consonant_ms =
+                (raw_scaled_consonant + phone.expressions.consonant_timing_offset_ms).max(0.0);
 
-                let duration_correction_ms =
-                    timing.preutter_ms - timing.tail_intrude_ms + timing.tail_overlap_ms;
-                let target_render_ms =
-                    (phone.duration_ms + duration_correction_ms + timing.skip_over_ms)
-                        .max(consonant_ms.max(0.0))
-                        .max(1.0);
-                let dur_required = ((target_render_ms / 50.0 + 0.5).ceil() * 50.0).max(50.0);
-                logs.push((
-                    progress,
-                    format!(
-                        "  [Timing] consonant velocity={:.0}%, offset={:.1}ms: {:.1}ms -> {:.1}ms",
-                        consonant_velocity,
-                        phone.expressions.consonant_timing_offset_ms,
-                        consonant_ms,
-                        active_consonant_ms
-                    ),
-                ));
+            let duration_correction_ms =
+                timing.preutter_ms - timing.tail_intrude_ms + timing.tail_overlap_ms;
+            let target_render_ms =
+                (phone.duration_ms + duration_correction_ms + timing.skip_over_ms)
+                    .max(consonant_ms.max(0.0))
+                    .max(1.0);
+            let dur_required = ((target_render_ms / 50.0 + 0.5).ceil() * 50.0).max(50.0);
+            logs.push((
+                progress,
+                format!(
+                    "  [Timing] consonant velocity={:.0}%, offset={:.1}ms: {:.1}ms -> {:.1}ms",
+                    consonant_velocity,
+                    phone.expressions.consonant_timing_offset_ms,
+                    consonant_ms,
+                    active_consonant_ms
+                ),
+            ));
 
-                let combined_pitch = Self::combined_pitch_points(
-                    &phone,
-                    pitch_notes_ref,
-                    phone.position_ms - timing.pitch_leading_ms,
-                    target_render_ms,
-                    tone_shift,
-                );
-                let pitch_bend_encoded = crate::dsp::pitch_encoder::encode_utau_base64_pitch(
-                    &combined_pitch,
-                    target_render_ms,
-                    tempo_bpm,
-                );
+            let combined_pitch = Self::combined_pitch_points(
+                &phone,
+                pitch_notes_ref,
+                phone.position_ms - timing.pitch_leading_ms,
+                target_render_ms,
+                tone_shift,
+            );
+            let pitch_bend_encoded = crate::dsp::pitch_encoder::encode_utau_base64_pitch(
+                &combined_pitch,
+                target_render_ms,
+                tempo_bpm,
+            );
 
-                let total_gender = phone.expressions.gender + gender_offset;
-                let total_breathiness = phone.expressions.breathiness + breathiness_offset;
-                let flags =
-                    resampler_driver.prepare_flags(&phone.flags, total_gender, total_breathiness);
+            let total_gender = phone.expressions.gender + gender_offset;
+            let total_breathiness = phone.expressions.breathiness + breathiness_offset;
+            let flags =
+                resampler_driver.prepare_flags(&phone.flags, total_gender, total_breathiness);
 
-                let safe_lyric = phone.lyric.replace(['/', '\\', ' ', ':'], "_");
-                let res_args = ResamplerArgs {
-                    input_wav: wav_full_path.clone(),
-                    output_wav: temp_dir_path.join(format!("render_{idx}_{safe_lyric}.wav")),
-                    pitch_name: phone.pitch.clone(),
-                    pitch_freq: target_freq,
-                    velocity: consonant_velocity,
-                    flags,
-                    offset_ms,
-                    duration_ms: dur_required,
-                    source_consonant_ms: consonant_ms.max(0.0),
-                    consonant_ms: active_consonant_ms,
-                    cutoff_ms,
-                    volume: phone.expressions.volume,
-                    modulation: phone.expressions.modulation,
-                    tempo: tempo_bpm,
-                    pitch_bend_str: pitch_bend_encoded,
-                    pitch_points: combined_pitch,
-                    loop_start_ms,
-                    loop_end_ms,
-                    tail_start_ms,
-                };
+            let res_args = ResamplerArgs {
+                input_wav: wav_full_path.clone(),
+                output_wav: temp_dir_path.join(format!("render_{idx}.wav")),
+                pitch_name: phone.pitch.clone(),
+                pitch_freq: target_freq,
+                velocity: consonant_velocity,
+                flags,
+                offset_ms,
+                duration_ms: dur_required,
+                source_consonant_ms: consonant_ms.max(0.0),
+                consonant_ms: active_consonant_ms,
+                cutoff_ms,
+                volume: phone.expressions.volume,
+                modulation: phone.expressions.modulation,
+                tempo: tempo_bpm,
+                pitch_bend_str: pitch_bend_encoded,
+                pitch_points: combined_pitch,
+                loop_start_ms,
+                loop_end_ms,
+                tail_start_ms,
+            };
 
-                logs.push((
-                    progress,
-                    format!("  [Resampler] Motor: '{}'", resampler_driver.name()),
-                ));
+            logs.push((
+                progress,
+                format!("  [Resampler] Motor: '{}'", resampler_driver.name()),
+            ));
 
-                let rendered_or_cached = {
-                    let _resampler_slot = resampler_slots.acquire(cancel)?;
-                    crate::renderer::resampler_cache::render_with_cache(
-                        resampler_driver,
-                        raw_samples,
-                        src_sample_rate,
-                        &res_args,
-                        cancel,
-                    )
-                };
-                let mut note_rendered = rendered_or_cached
-                    .map(|(samples, cache_hit)| {
-                        logs.push((
-                            progress,
-                            if cache_hit {
-                                "  [Resampler Cache] hit".to_string()
-                            } else {
-                                "  [Resampler Cache] miss".to_string()
-                            },
-                        ));
-                        samples
-                    })
-                    .map_err(|error| {
-                        format!(
-                            "Fonema #{} '{}' em {:.1} ms, resampler {}: {error}",
-                            idx + 1,
-                            phone.lyric,
-                            phone.position_ms,
-                            resampler_driver.name()
-                        )
-                    })?;
-
-                if src_sample_rate != sample_rate {
-                    note_rendered =
-                        Self::convert_sample_rate(&note_rendered, src_sample_rate, sample_rate);
+            let rendered_or_cached = {
+                let _resampler_slot = resampler_slots.acquire(cancel)?;
+                crate::renderer::resampler_cache::render_with_cache(
+                    resampler_driver,
+                    raw_samples,
+                    src_sample_rate,
+                    &res_args,
+                    cancel,
+                )
+            };
+            let mut note_rendered = rendered_or_cached
+                .map(|(samples, cache_hit)| {
                     logs.push((
                         progress,
-                        format!("  [Sample Rate] Converted {src_sample_rate}Hz -> {sample_rate}Hz"),
-                    ));
-                }
-
-                // `dur_required` is intentionally longer than the musical
-                // duration: classic UTAU resamplers need that head/tail so
-                // the wavtool can discard `skip_over` and apply its envelope.
-                // Truncating here cuts synthesized grains and creates a
-                // crackling/rough tail, especially after a pitch change.
-                // OpenUtau preserves the resampler WAV intact until mixing.
-
-                let rendered_max = note_rendered.iter().map(|s| s.abs()).fold(0.0f32, f32::max);
-                logs.push((
-                    progress,
-                    format!(
-                        "  [Resampler] {} samples, max_amp={:.4}",
-                        note_rendered.len(),
-                        rendered_max
-                    ),
-                ));
-
-                let active_overlap = if timing.adjacent {
-                    timing.overlap_ms
-                } else {
-                    0.0
-                };
-                let envelope_duration_ms = (phone.duration_ms + duration_correction_ms).max(1.0);
-                let phoneme_envelope = phone.envelope.phoneme_points(
-                    timing.preutter_ms,
-                    phone.duration_ms,
-                    timing.tail_intrude_ms,
-                    timing.tail_overlap_ms,
-                    active_overlap,
-                    phone.expressions.volume,
-                    phone.expressions.attack,
-                    phone.expressions.decay,
-                );
-
-                let p2_diff = (phoneme_envelope[1].0 - phoneme_envelope[0].0).max(0.0);
-                let p3_diff = (phoneme_envelope[4].0 - phoneme_envelope[3].0).max(0.0);
-                let p5_diff = (phoneme_envelope[2].0 - phoneme_envelope[1].0).max(0.0);
-                let mut wavtool_env = phone.envelope.clone();
-                wavtool_env.p1 = 0.0;
-                wavtool_env.p2 = p2_diff;
-                wavtool_env.p3 = p3_diff;
-                wavtool_env.v1 = (phoneme_envelope[0].1 * 100.0).clamp(0.0, 200.0);
-                wavtool_env.v2 = (phoneme_envelope[1].1 * 100.0).clamp(0.0, 200.0);
-                wavtool_env.v3 = (phoneme_envelope[3].1 * 100.0).clamp(0.0, 200.0);
-                wavtool_env.v4 = (phoneme_envelope[4].1 * 100.0).clamp(0.0, 200.0);
-                wavtool_env.p4 = 0.0;
-                wavtool_env.p5 = p5_diff;
-                wavtool_env.v5 = (phoneme_envelope[2].1 * 100.0).clamp(0.0, 200.0);
-
-                let wav_args = WavtoolArgs {
-                    output_wav: temp_dir_path.join(format!("wavtool_{idx}.wav")),
-                    input_rendered_wav: res_args.output_wav.clone(),
-                    skip_over_ms: timing.skip_over_ms,
-                    duration_ms: envelope_duration_ms,
-                    envelope: wavtool_env,
-                    overlap_ms: active_overlap,
-                    phoneme_envelope,
-                    sample_time_zero_ms: -timing.pitch_leading_ms,
-                };
-
-                let external_phrase = wavtool_driver.phrase_executable().is_some();
-                let wavtool_consumed_skip = if external_phrase {
-                    false
-                } else {
-                    wavtool_driver
-                        .process_note(&mut note_rendered, sample_rate, &wav_args, cancel)
-                        .map_err(|error| {
-                            format!(
-                                "Fonema #{} '{}', wavtool {}: {error}",
-                                idx + 1,
-                                phone.lyric,
-                                wavtool_driver.name()
-                            )
-                        })?;
-                    wavtool_driver.consumes_skip_over()
-                };
-                let post_wavtool_max = note_rendered.iter().map(|s| s.abs()).fold(0.0f32, f32::max);
-                logs.push((
-                    progress,
-                    format!(
-                        "  [Wavtool] {} samples, max_amp={:.4}",
-                        note_rendered.len(),
-                        post_wavtool_max
-                    ),
-                ));
-
-                let dynamics_curve = phone.expressions.dynamics_curve.clone();
-                for (sample_index, sample) in note_rendered.iter_mut().enumerate() {
-                    let time_ms = sample_index as f64 * 1000.0 / sample_rate as f64
-                        - timing.pitch_leading_ms
-                        + if wavtool_consumed_skip {
-                            timing.skip_over_ms
+                        if cache_hit {
+                            "  [Resampler Cache] hit".to_string()
                         } else {
-                            0.0
-                        };
-                    let curve_value = if dynamics_curve.is_empty() {
-                        phone.expressions.dynamics
-                    } else {
-                        let t = time_ms.max(0.0);
-                        dynamics_curve
-                            .windows(2)
-                            .find(|pair| t <= pair[1].time_offset_ms)
-                            .map(|pair| {
-                                let span =
-                                    (pair[1].time_offset_ms - pair[0].time_offset_ms).max(1e-6);
-                                let u = ((t - pair[0].time_offset_ms) / span).clamp(0.0, 1.0);
-                                pair[0].value + (pair[1].value - pair[0].value) * u
-                            })
-                            .or_else(|| dynamics_curve.last().map(|point| point.value))
-                            .unwrap_or(phone.expressions.dynamics)
-                    };
-                    let dyn_gain = 10.0f64.powf((curve_value * 0.1 + loudness_db) / 20.0);
-                    let vibrato_volume = phone
-                        .vibrato
-                        .volume_multiplier_at(time_ms, phone.duration_ms);
-                    *sample *= (dyn_gain * vibrato_volume) as f32;
-                }
-
-                let mut source_skip_ms = if wavtool_consumed_skip {
-                    0.0
-                } else {
-                    timing.skip_over_ms
-                };
-                let unclamped_start_ms = phone.position_ms - timing.preutter_ms;
-                let mut actual_start_ms = unclamped_start_ms.max(0.0);
-                if unclamped_start_ms < 0.0 {
-                    source_skip_ms += -unclamped_start_ms;
-                }
-
-                if source_skip_ms < 0.0 {
-                    actual_start_ms += -source_skip_ms;
-                    source_skip_ms = 0.0;
-                }
-                if external_phrase {
-                    Self::save_wav_samples(
-                        &wav_args.input_rendered_wav,
-                        &note_rendered,
-                        sample_rate,
-                    )?;
-                }
-
-                let done = completed_ref.fetch_add(1, Ordering::Relaxed) + 1;
-                let cur_progress = (done as f32 / total_phones as f32).min(0.99);
-                log(
-                    cur_progress,
-                    &format!(
-                        "[{}] Fonema '{}' ({}/{})",
-                        resampler_driver.name(),
+                            "  [Resampler Cache] miss".to_string()
+                        },
+                    ));
+                    samples
+                })
+                .map_err(|error| {
+                    format!(
+                        "Fonema #{} '{}' em {:.1} ms, resampler {}: {error}",
+                        idx + 1,
                         phone.lyric,
-                        done,
-                        total_phones
-                    ),
-                );
+                        phone.position_ms,
+                        resampler_driver.name()
+                    )
+                })?;
 
-                Ok(PhoneResult {
-                    idx,
-                    wav_args,
-                    adjacent: timing.adjacent,
-                    note_rendered,
-                    actual_start_ms,
-                    source_skip_ms,
-                    crossfade_ms: if phase_alignment && timing.overlap_ms > 0.0 {
-                        active_overlap
+            if src_sample_rate != sample_rate {
+                note_rendered =
+                    Self::convert_sample_rate(&note_rendered, src_sample_rate, sample_rate);
+                logs.push((
+                    progress,
+                    format!("  [Sample Rate] Converted {src_sample_rate}Hz -> {sample_rate}Hz"),
+                ));
+            }
+
+            // `dur_required` is intentionally longer than the musical
+            // duration: classic UTAU resamplers need that head/tail so
+            // the wavtool can discard `skip_over` and apply its envelope.
+            // Truncating here cuts synthesized grains and creates a
+            // crackling/rough tail, especially after a pitch change.
+            // OpenUtau preserves the resampler WAV intact until mixing.
+
+            let rendered_max = note_rendered.iter().map(|s| s.abs()).fold(0.0f32, f32::max);
+            logs.push((
+                progress,
+                format!(
+                    "  [Resampler] {} samples, max_amp={:.4}",
+                    note_rendered.len(),
+                    rendered_max
+                ),
+            ));
+
+            let active_overlap = if timing.adjacent {
+                timing.overlap_ms
+            } else {
+                0.0
+            };
+            let envelope_duration_ms = (phone.duration_ms + duration_correction_ms).max(1.0);
+            let phoneme_envelope = phone.envelope.phoneme_points(
+                timing.preutter_ms,
+                phone.duration_ms,
+                timing.tail_intrude_ms,
+                timing.tail_overlap_ms,
+                active_overlap,
+                phone.expressions.volume,
+                phone.expressions.attack,
+                phone.expressions.decay,
+            );
+
+            let p2_diff = (phoneme_envelope[1].0 - phoneme_envelope[0].0).max(0.0);
+            let p3_diff = (phoneme_envelope[4].0 - phoneme_envelope[3].0).max(0.0);
+            let p5_diff = (phoneme_envelope[2].0 - phoneme_envelope[1].0).max(0.0);
+            let mut wavtool_env = phone.envelope.clone();
+            wavtool_env.p1 = 0.0;
+            wavtool_env.p2 = p2_diff;
+            wavtool_env.p3 = p3_diff;
+            wavtool_env.v1 = (phoneme_envelope[0].1 * 100.0).clamp(0.0, 200.0);
+            wavtool_env.v2 = (phoneme_envelope[1].1 * 100.0).clamp(0.0, 200.0);
+            wavtool_env.v3 = (phoneme_envelope[3].1 * 100.0).clamp(0.0, 200.0);
+            wavtool_env.v4 = (phoneme_envelope[4].1 * 100.0).clamp(0.0, 200.0);
+            wavtool_env.p4 = 0.0;
+            wavtool_env.p5 = p5_diff;
+            wavtool_env.v5 = (phoneme_envelope[2].1 * 100.0).clamp(0.0, 200.0);
+
+            let wav_args = WavtoolArgs {
+                output_wav: temp_dir_path.join(format!("wavtool_{idx}.wav")),
+                input_rendered_wav: res_args.output_wav.clone(),
+                skip_over_ms: timing.skip_over_ms,
+                duration_ms: envelope_duration_ms,
+                envelope: wavtool_env,
+                overlap_ms: active_overlap,
+                phoneme_envelope,
+                sample_time_zero_ms: -timing.pitch_leading_ms,
+            };
+
+            let external_phrase = wavtool_driver.phrase_executable().is_some();
+            let wavtool_consumed_skip = if external_phrase {
+                false
+            } else {
+                wavtool_driver
+                    .process_note(&mut note_rendered, sample_rate, &wav_args, cancel)
+                    .map_err(|error| {
+                        format!(
+                            "Fonema #{} '{}', wavtool {}: {error}",
+                            idx + 1,
+                            phone.lyric,
+                            wavtool_driver.name()
+                        )
+                    })?;
+                wavtool_driver.consumes_skip_over()
+            };
+            let post_wavtool_max = note_rendered.iter().map(|s| s.abs()).fold(0.0f32, f32::max);
+            logs.push((
+                progress,
+                format!(
+                    "  [Wavtool] {} samples, max_amp={:.4}",
+                    note_rendered.len(),
+                    post_wavtool_max
+                ),
+            ));
+
+            let dynamics_curve = phone.expressions.dynamics_curve.clone();
+            for (sample_index, sample) in note_rendered.iter_mut().enumerate() {
+                let time_ms = sample_index as f64 * 1000.0 / sample_rate as f64
+                    - timing.pitch_leading_ms
+                    + if wavtool_consumed_skip {
+                        timing.skip_over_ms
                     } else {
                         0.0
-                    },
-                    pitch_freq: target_freq,
-                    logs,
-                })
+                    };
+                let curve_value = if dynamics_curve.is_empty() {
+                    phone.expressions.dynamics
+                } else {
+                    let t = time_ms.max(0.0);
+                    dynamics_curve
+                        .windows(2)
+                        .find(|pair| t <= pair[1].time_offset_ms)
+                        .map(|pair| {
+                            let span = (pair[1].time_offset_ms - pair[0].time_offset_ms).max(1e-6);
+                            let u = ((t - pair[0].time_offset_ms) / span).clamp(0.0, 1.0);
+                            pair[0].value + (pair[1].value - pair[0].value) * u
+                        })
+                        .or_else(|| dynamics_curve.last().map(|point| point.value))
+                        .unwrap_or(phone.expressions.dynamics)
+                };
+                let dyn_gain = 10.0f64.powf((curve_value * 0.1 + loudness_db) / 20.0);
+                let vibrato_volume = phone
+                    .vibrato
+                    .volume_multiplier_at(time_ms, phone.duration_ms);
+                *sample *= (dyn_gain * vibrato_volume) as f32;
+            }
+
+            let mut source_skip_ms = if wavtool_consumed_skip {
+                0.0
+            } else {
+                timing.skip_over_ms
+            };
+            let unclamped_start_ms = phone.position_ms - timing.preutter_ms;
+            let mut actual_start_ms = unclamped_start_ms.max(0.0);
+            if unclamped_start_ms < 0.0 {
+                source_skip_ms += -unclamped_start_ms;
+            }
+
+            if source_skip_ms < 0.0 {
+                actual_start_ms += -source_skip_ms;
+                source_skip_ms = 0.0;
+            }
+            if external_phrase {
+                Self::save_wav_samples(&wav_args.input_rendered_wav, &note_rendered, sample_rate)?;
+            }
+
+            let done = completed_ref.fetch_add(1, Ordering::Relaxed) + 1;
+            let cur_progress = (done as f32 / total_phones as f32).min(0.99);
+            log(
+                cur_progress,
+                &format!(
+                    "[{}] Fonema '{}' ({}/{})",
+                    resampler_driver.name(),
+                    phone.lyric,
+                    done,
+                    total_phones
+                ),
+            );
+
+            Ok(PhoneResult {
+                idx,
+                wav_args,
+                adjacent: timing.adjacent,
+                note_rendered,
+                actual_start_ms,
+                source_skip_ms,
+                crossfade_ms: if phase_alignment && timing.overlap_ms > 0.0 {
+                    active_overlap
+                } else {
+                    0.0
+                },
+                pitch_freq: target_freq,
+                logs,
             })
-            .collect();
+        };
+
+        #[cfg(not(target_arch = "wasm32"))]
+        let phone_results: Result<Vec<PhoneResult>, String> =
+            render_order.into_par_iter().map(render_phone_fn).collect();
+
+        #[cfg(target_arch = "wasm32")]
+        let phone_results: Result<Vec<PhoneResult>, String> =
+            render_order.into_iter().map(render_phone_fn).collect();
 
         // ------------------------------------------------------------------
         // Phase 2: Sequential merge.
@@ -811,6 +746,8 @@ impl TrackRenderer {
             );
         }
 
+        Self::apply_soft_limiter(&mut track_buffer, 0.89);
+
         let buffer_max = track_buffer.iter().map(|s| s.abs()).fold(0.0f32, f32::max);
         log(
             0.95,
@@ -850,33 +787,6 @@ impl TrackRenderer {
             &native_wavtool,
             None,
         )
-    }
-
-    pub(crate) fn convert_sample_rate(
-        samples: &[f32],
-        source_rate: u32,
-        target_rate: u32,
-    ) -> Vec<f32> {
-        if samples.is_empty() || source_rate == 0 || target_rate == 0 {
-            return samples.to_vec();
-        }
-        if source_rate == target_rate {
-            return samples.to_vec();
-        }
-
-        let output_len = ((samples.len() as f64 * f64::from(target_rate) / f64::from(source_rate))
-            .round() as usize)
-            .max(1);
-        let ratio = f64::from(source_rate) / f64::from(target_rate);
-        let mut output = Vec::with_capacity(output_len);
-        for output_index in 0..output_len {
-            let source_position = output_index as f64 * ratio;
-            let left = source_position.floor() as usize;
-            let right = (left + 1).min(samples.len() - 1);
-            let fraction = (source_position - left as f64) as f32;
-            output.push(samples[left] * (1.0 - fraction) + samples[right] * fraction);
-        }
-        output
     }
 }
 

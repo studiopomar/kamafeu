@@ -1,3 +1,4 @@
+#[cfg(not(target_arch = "wasm32"))]
 use rodio::{Decoder, Source};
 use std::fs::File;
 use std::io::BufReader;
@@ -66,6 +67,7 @@ impl DecodedAudio {
 }
 
 /// Probes an audio file (.wav, .mp3, .ogg, .flac) to retrieve its duration, sample rate, and channels.
+#[cfg(not(target_arch = "wasm32"))]
 pub fn probe_audio_file<P: AsRef<Path>>(path: P) -> Option<AudioFileInfo> {
     let file = File::open(path).ok()?;
     let reader = BufReader::new(file);
@@ -86,7 +88,20 @@ pub fn probe_audio_file<P: AsRef<Path>>(path: P) -> Option<AudioFileInfo> {
     })
 }
 
-/// Loads and decodes an audio file (.wav, .mp3, .ogg, .flac) into raw float samples.
+#[cfg(target_arch = "wasm32")]
+pub fn probe_audio_file<P: AsRef<Path>>(path: P) -> Option<AudioFileInfo> {
+    let reader = hound::WavReader::open(path).ok()?;
+    let spec = reader.spec();
+    let duration_ms = (reader.duration() as f64 / spec.sample_rate as f64) * 1000.0;
+    Some(AudioFileInfo {
+        duration_ms,
+        sample_rate: spec.sample_rate,
+        channels: spec.channels,
+    })
+}
+
+/// Loads and decodes an audio file into raw float samples.
+#[cfg(not(target_arch = "wasm32"))]
 pub fn load_audio_file<P: AsRef<Path>>(
     path: P,
 ) -> Result<DecodedAudio, Box<dyn std::error::Error>> {
@@ -100,6 +115,35 @@ pub fn load_audio_file<P: AsRef<Path>>(
     let duration_ms = duration_from_header.unwrap_or_else(|| {
         (samples.len() as f64 / f64::from(channels.max(1)) / f64::from(sample_rate.max(1))) * 1000.0
     });
+
+    Ok(DecodedAudio {
+        samples,
+        sample_rate,
+        channels,
+        duration_ms,
+    })
+}
+
+#[cfg(target_arch = "wasm32")]
+pub fn load_audio_file<P: AsRef<Path>>(
+    path: P,
+) -> Result<DecodedAudio, Box<dyn std::error::Error>> {
+    let mut reader = hound::WavReader::open(path)?;
+    let spec = reader.spec();
+    let sample_rate = spec.sample_rate;
+    let channels = spec.channels;
+    let duration_ms = (reader.duration() as f64 / sample_rate as f64) * 1000.0;
+    let samples: Vec<f32> = match spec.sample_format {
+        hound::SampleFormat::Float => reader.samples::<f32>().filter_map(Result::ok).collect(),
+        hound::SampleFormat::Int => {
+            let max_val = (1 << (spec.bits_per_sample.saturating_sub(1))) as f32;
+            reader
+                .samples::<i32>()
+                .filter_map(Result::ok)
+                .map(|s| s as f32 / max_val)
+                .collect()
+        }
+    };
 
     Ok(DecodedAudio {
         samples,

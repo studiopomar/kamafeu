@@ -1,6 +1,113 @@
 use crate::gui::theme::ThemeConfig;
 use crate::project::model::{UTrack, UVoicePart, UWavePart};
 use eframe::egui::{self, Color32, Pos2, Rect, Rounding, Stroke, Vec2};
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex, OnceLock};
+use std::time::{Duration, Instant};
+
+#[derive(Debug)]
+struct WaveformPreview {
+    bucket_ms: f64,
+    duration_ms: f64,
+    peaks: Vec<(f32, f32)>,
+}
+
+struct CachedWaveform {
+    stamp: u128,
+    preview: Arc<WaveformPreview>,
+    checked_at: Instant,
+}
+
+type WaveformCache = HashMap<String, CachedWaveform>;
+
+fn horizontal_gesture_delta(delta: Vec2, shift: bool) -> f32 {
+    delta.x + if shift { delta.y } else { 0.0 }
+}
+
+fn move_clip_by_frame_delta(position_ms: f64, delta_x: f32, px_per_ms: f32) -> f64 {
+    (position_ms + (delta_x / px_per_ms.max(f32::EPSILON)) as f64).max(0.0)
+}
+
+fn cached_waveform(path: &str) -> Option<Arc<WaveformPreview>> {
+    static CACHE: OnceLock<Mutex<WaveformCache>> = OnceLock::new();
+    let cache = CACHE.get_or_init(|| Mutex::new(HashMap::new()));
+    let now = Instant::now();
+
+    // A waveform is painted every frame. Avoid a filesystem metadata request
+    // for every audio part at 60 FPS; checking once per second still refreshes
+    // an externally replaced file promptly without stalling the UI.
+    if let Ok(cache) = cache.lock() {
+        if let Some(cached) = cache.get(path) {
+            if now.duration_since(cached.checked_at) < Duration::from_secs(1) {
+                return Some(Arc::clone(&cached.preview));
+            }
+        }
+    }
+
+    let stamp = std::fs::metadata(path)
+        .ok()?
+        .modified()
+        .ok()?
+        .duration_since(std::time::UNIX_EPOCH)
+        .ok()?
+        .as_nanos();
+
+    if let Ok(mut cache) = cache.lock() {
+        if let Some(cached) = cache.get_mut(path) {
+            cached.checked_at = now;
+            if cached.stamp == stamp {
+                return Some(Arc::clone(&cached.preview));
+            }
+        }
+    }
+
+    let audio = crate::audio::load_audio_file(path).ok()?;
+    let channels = usize::from(audio.channels.max(1));
+    let frames = audio.samples.len() / channels;
+    if frames == 0 {
+        return None;
+    }
+    // Store one signed peak envelope per millisecond. The painter aggregates
+    // these buckets to the current pixel width, preserving transients when
+    // zoomed in and preventing aliased bars when zoomed out.
+    let bucket_ms = 1.0f64;
+    let frames_per_bucket = ((audio.sample_rate as f64 * bucket_ms) / 1000.0)
+        .round()
+        .max(1.0) as usize;
+    let bucket_count = frames.div_ceil(frames_per_bucket).max(1);
+    let mut peaks = Vec::with_capacity(bucket_count);
+    for bucket in 0..bucket_count {
+        let start = bucket * frames_per_bucket;
+        let end = (start + frames_per_bucket).min(frames);
+        let (mut min, mut max) = (1.0f32, -1.0f32);
+        for frame in start..end {
+            let sample = (0..channels)
+                .map(|channel| audio.samples[frame * channels + channel])
+                .sum::<f32>()
+                / channels as f32;
+            min = min.min(sample);
+            max = max.max(sample);
+        }
+        peaks.push((min, max));
+    }
+    if let Ok(mut guard) = cache.lock() {
+        let preview = Arc::new(WaveformPreview {
+            bucket_ms,
+            duration_ms: audio.duration_ms,
+            peaks,
+        });
+        guard.insert(
+            path.to_owned(),
+            CachedWaveform {
+                stamp,
+                preview: Arc::clone(&preview),
+                checked_at: now,
+            },
+        );
+        return Some(preview);
+    }
+    None
+}
 
 pub fn draw_arrangement_view(
     ui: &mut egui::Ui,
@@ -13,12 +120,13 @@ pub fn draw_arrangement_view(
     px_per_ms: f32,
     bpm: f64,
     horizontal_scroll_offset: &mut f32,
+    vertical_scroll_offset: &mut f32,
     fx_rack_dialog_state: &mut crate::gui::fx_rack_dialog::FxRackDialogState,
     lang: crate::config::AppLanguage,
 ) -> bool {
     let mut changed = false;
     let header_width = 220.0f32;
-    let track_height = 42.0f32;
+    let track_height = 64.0f32;
     let ruler_height = 24.0f32;
 
     ui.vertical(|ui| {
@@ -173,8 +281,32 @@ pub fn draw_arrangement_view(
         let total_canvas_ms = (max_audio_end_ms + 30_000.0).max(60_000.0);
         let timeline_width = (total_canvas_ms * px_per_ms as f64) as f32;
 
-        egui::ScrollArea::vertical()
+        let arrangement_viewport = ui.available_rect_before_wrap();
+        let vertical_delta = ui.input(|input| {
+            let hovered = input
+                .pointer
+                .hover_pos()
+                .is_some_and(|pos| arrangement_viewport.contains(pos));
+            if !hovered || input.modifiers.shift {
+                return 0.0;
+            }
+            if input.smooth_scroll_delta.y.abs() > 1e-3 {
+                input.smooth_scroll_delta.y
+            } else {
+                input.raw_scroll_delta.y
+            }
+        });
+        if vertical_delta.abs() > 1e-3 {
+            *vertical_scroll_offset = (*vertical_scroll_offset - vertical_delta).max(0.0);
+            ui.ctx().input_mut(|input| {
+                input.smooth_scroll_delta.y = 0.0;
+                input.raw_scroll_delta.y = 0.0;
+            });
+        }
+
+        let vertical_scroll_output = egui::ScrollArea::vertical()
             .id_salt("arrangement_tracks_scroll_v")
+            .vertical_scroll_offset(*vertical_scroll_offset)
             .auto_shrink([false, false])
             .show(ui, |ui| {
                 ui.horizontal(|ui| {
@@ -599,42 +731,37 @@ pub fn draw_arrangement_view(
                         }
                     }
 
-                    // Handle horizontal mouse wheel / trackpad / Shift+wheel scroll only
+                    // Handle two-axis mouse wheel / trackpad / Shift+wheel scrolling only
                     // while the pointer is over the arrangement. Reading the
                     // frame-global scroll delta here would make a gesture in
                     // the inspector move the tracks as well.
-                    let arrangement_rect = ui.max_rect();
-                    let is_hovering_arrangement = ui.rect_contains_pointer(arrangement_rect);
-                    let (scroll_dx, is_middle_drag, middle_drag_delta) = ui.input(|i| {
+                    let arrangement_rect = ui.clip_rect();
+                    let is_hovering_arrangement = ui.input(|i| {
+                        i.pointer
+                            .hover_pos()
+                            .is_some_and(|pos| arrangement_rect.contains(pos))
+                    });
+                    let (scroll_dx, consume_x, consume_shift_y, is_middle_drag, middle_drag_delta) = ui.input(|i| {
                         if !is_hovering_arrangement {
-                            return (0.0, false, Vec2::ZERO);
+                            return (0.0, false, false, false, Vec2::ZERO);
                         }
-                        let mut h_delta = 0.0f32;
-                        if i.modifiers.shift {
-                            // When Shift is held, vertical wheel becomes horizontal scroll
-                            if i.smooth_scroll_delta.y.abs() > 1e-3 {
-                                h_delta += i.smooth_scroll_delta.y;
-                            } else if i.raw_scroll_delta.y.abs() > 1e-3 {
-                                h_delta += i.raw_scroll_delta.y;
-                            }
-                        }
-                        if i.smooth_scroll_delta.x.abs() > 1e-3 {
-                            h_delta += i.smooth_scroll_delta.x;
-                        } else if i.raw_scroll_delta.x.abs() > 1e-3 {
-                            h_delta += i.raw_scroll_delta.x;
-                        }
-                        for ev in &i.events {
-                            if let egui::Event::MouseWheel { delta, modifiers, .. } = ev {
-                                if modifiers.shift && delta.y.abs() > h_delta.abs() {
-                                    h_delta = delta.y;
-                                } else if delta.x.abs() > h_delta.abs() {
-                                    h_delta = delta.x;
-                                }
-                            }
-                        }
+                        let delta = if i.smooth_scroll_delta.length_sq() > 1e-6 {
+                            i.smooth_scroll_delta
+                        } else {
+                            i.raw_scroll_delta
+                        };
+                        // Shift maps a conventional vertical wheel to the timeline;
+                        // native two-axis trackpads keep their horizontal axis.
+                        let h_delta = horizontal_gesture_delta(delta, i.modifiers.shift);
                         let is_m_drag = i.pointer.button_down(egui::PointerButton::Middle);
                         let m_delta = i.pointer.delta();
-                        (h_delta, is_m_drag, m_delta)
+                        (
+                            h_delta,
+                            delta.x.abs() > 1e-3,
+                            i.modifiers.shift && delta.y.abs() > 1e-3,
+                            is_m_drag,
+                            m_delta,
+                        )
                     });
 
                     if scroll_dx.abs() > 1e-3 {
@@ -642,6 +769,18 @@ pub fn draw_arrangement_view(
                     }
                     if is_middle_drag && middle_drag_delta.x.abs() > 1e-3 {
                         *horizontal_scroll_offset = (*horizontal_scroll_offset - middle_drag_delta.x).max(0.0);
+                    }
+                    if consume_x || consume_shift_y {
+                        ui.ctx().input_mut(|input| {
+                            if consume_x {
+                                input.smooth_scroll_delta.x = 0.0;
+                                input.raw_scroll_delta.x = 0.0;
+                            }
+                            if consume_shift_y {
+                                input.smooth_scroll_delta.y = 0.0;
+                                input.raw_scroll_delta.y = 0.0;
+                            }
+                        });
                     }
 
                     let scroll_id = egui::Id::new("arrangement_timeline_h_scroll");
@@ -781,6 +920,15 @@ pub fn draw_arrangement_view(
                                         let mut part_to_duplicate: Option<usize> = None;
                                         let mut part_to_split: Option<(usize, f64)> = None;
 
+                                        let track_pitch_bounds = parts
+                                            .iter()
+                                            .filter(|part| part.track_index == idx)
+                                            .flat_map(|part| part.notes.iter().map(|note| note.midi_key()))
+                                            .fold(None, |bounds, midi| match bounds {
+                                                None => Some((midi, midi)),
+                                                Some((min, max)) => Some((min.min(midi), max.max(midi))),
+                                            });
+
                                         for (p_idx, part) in parts.iter_mut().enumerate() {
                                             if part.track_index != idx {
                                                 continue;
@@ -819,10 +967,15 @@ pub fn draw_arrangement_view(
 
                                                 if part_resp.dragged() {
                                                     *active_track_index = idx;
-                                                    let delta_x = part_resp.drag_delta().x;
-                                                    let delta_ms = (delta_x / px_per_ms) as f64;
-                                                    part.position_ms =
-                                                        (part.position_ms + delta_ms).max(0.0);
+                                                    // Pointer delta is incremental for this frame.
+                                                    // Response::drag_delta is cumulative since the
+                                                    // press and must not be added every frame.
+                                                    let delta_x = ui.input(|input| input.pointer.delta().x);
+                                                    part.position_ms = move_clip_by_frame_delta(
+                                                        part.position_ms,
+                                                        delta_x,
+                                                        px_per_ms,
+                                                    );
                                                     changed = true;
                                                 }
 
@@ -930,6 +1083,15 @@ pub fn draw_arrangement_view(
                                                     Color32::from_rgb(0, 255, 157),
                                                 );
 
+                                                let (pitch_min, pitch_max) = track_pitch_bounds
+                                                    .unwrap_or((54, 66));
+                                                let center = (u16::from(pitch_min) + u16::from(pitch_max)) as f32 * 0.5;
+                                                let pitch_span = (pitch_max.saturating_sub(pitch_min) as f32 + 4.0)
+                                                    .max(12.0);
+                                                let display_min = center - pitch_span * 0.5;
+                                                let melody_top = part_rect.min.y + 15.0;
+                                                let melody_height = (part_rect.height() - 19.0).max(12.0);
+
                                                 for note in &part.notes {
                                                     let start_x = part_rect.min.x
                                                         + (note.position_ms * px_per_ms as f64)
@@ -938,12 +1100,15 @@ pub fn draw_arrangement_view(
                                                         * px_per_ms as f64)
                                                         as f32;
 
+                                                    let pitch_norm = ((note.midi_key() as f32 - display_min)
+                                                        / pitch_span)
+                                                        .clamp(0.0, 1.0);
+                                                    let note_y = melody_top
+                                                        + (1.0 - pitch_norm) * (melody_height - 3.0);
+
                                                     let note_rect = Rect::from_min_size(
-                                                        Pos2::new(start_x, part_rect.min.y + 14.0),
-                                                        Vec2::new(
-                                                            width.max(2.0),
-                                                            track_height - 20.0,
-                                                        ),
+                                                        Pos2::new(start_x, note_y),
+                                                        Vec2::new(width.max(2.0), 3.0),
                                                     );
 
                                                     if note_rect.max.x > part_rect.min.x
@@ -951,16 +1116,8 @@ pub fn draw_arrangement_view(
                                                     {
                                                         ui.painter().rect_filled(
                                                             note_rect,
-                                                            Rounding::same(2.0),
-                                                            color_badge.linear_multiply(0.9),
-                                                        );
-                                                        ui.painter().rect_stroke(
-                                                            note_rect,
-                                                            Rounding::same(1.0),
-                                                            Stroke::new(
-                                                                1.0_f32,
-                                                                Color32::from_rgb(0, 255, 157),
-                                                            ),
+                                                            Rounding::same(0.5),
+                                                            Color32::from_rgb(244, 246, 255),
                                                         );
                                                     }
                                                 }
@@ -1058,11 +1215,12 @@ pub fn draw_arrangement_view(
                                                 }
                                                 if wave_resp.dragged() {
                                                     *active_track_index = idx;
-                                                    let delta_ms = (wave_resp.drag_delta().x
-                                                        / px_per_ms)
-                                                        as f64;
-                                                    wave.position_ms =
-                                                        (wave.position_ms + delta_ms).max(0.0);
+                                                    let delta_x = ui.input(|input| input.pointer.delta().x);
+                                                    wave.position_ms = move_clip_by_frame_delta(
+                                                        wave.position_ms,
+                                                        delta_x,
+                                                        px_per_ms,
+                                                    );
                                                     changed = true;
                                                 }
 
@@ -1190,31 +1348,50 @@ pub fn draw_arrangement_view(
 
                                                 let inner_w = wave_rect.width() - 8.0;
                                                 if inner_w > 10.0 {
-                                                    let bar_step = 6.0f32;
-                                                    let num_bars =
-                                                        (inner_w / bar_step).floor() as usize;
-                                                    let center_y = wave_rect.center().y + 6.0;
-                                                    for b in 0..num_bars {
-                                                        let bx = wave_rect.min.x
-                                                            + 6.0
-                                                            + b as f32 * bar_step;
-                                                        let pseudo_h = 4.0
-                                                            + 8.0
-                                                                * ((b as f32 * 0.7).sin().abs()
-                                                                    * 0.6
-                                                                    + (b as f32 * 1.3).cos().abs()
-                                                                        * 0.4);
+                                                    // Use the actual clip samples, with one
+                                                    // min/max pair per display pixel. This keeps
+                                                    // transients readable at both zoom levels and
+                                                    // avoids the misleading synthetic waveform.
+                                                    if let Some(preview) = cached_waveform(&wave.file_path) {
+                                                        let center_y = wave_rect.center().y + 3.0;
+                                                        let half_h = (wave_rect.height() * 0.40).max(5.0);
                                                         ui.painter().line_segment(
                                                             [
-                                                                Pos2::new(bx, center_y - pseudo_h),
-                                                                Pos2::new(bx, center_y + pseudo_h),
+                                                                Pos2::new(wave_rect.min.x + 4.0, center_y),
+                                                                Pos2::new(wave_rect.max.x - 4.0, center_y),
                                                             ],
                                                             Stroke::new(
-                                                                2.0_f32,
-                                                                Color32::from_rgb(0, 160, 240)
-                                                                    .linear_multiply(0.6),
+                                                                0.5,
+                                                                Color32::from_rgba_unmultiplied(100, 210, 255, 70),
                                                             ),
                                                         );
+                                                        let pixels = inner_w.ceil() as usize;
+                                                        for b in 0..pixels {
+                                                            let bx = wave_rect.min.x + 4.0 + b as f32 * inner_w / pixels as f32;
+                                                            let clip_start_ms = wave_dur * b as f64 / pixels as f64;
+                                                            let clip_end_ms = wave_dur * (b + 1) as f64 / pixels as f64;
+                                                            let source_start_ms = (wave.file_offset_ms + clip_start_ms)
+                                                                .clamp(0.0, preview.duration_ms);
+                                                            let source_end_ms = (wave.file_offset_ms + clip_end_ms)
+                                                                .clamp(source_start_ms, preview.duration_ms);
+                                                            let first = (source_start_ms / preview.bucket_ms).floor() as usize;
+                                                            let last = ((source_end_ms / preview.bucket_ms).ceil() as usize)
+                                                                .max(first + 1)
+                                                                .min(preview.peaks.len());
+                                                            let (mut lo, mut hi) = (1.0f32, -1.0f32);
+                                                            for &(bucket_lo, bucket_hi) in
+                                                                &preview.peaks[first.min(preview.peaks.len() - 1)..last]
+                                                            {
+                                                                lo = lo.min(bucket_lo);
+                                                                hi = hi.max(bucket_hi);
+                                                            }
+                                                            if hi >= lo {
+                                                                ui.painter().line_segment(
+                                                                    [Pos2::new(bx, center_y - hi * half_h), Pos2::new(bx, center_y - lo * half_h)],
+                                                                    Stroke::new(1.0, Color32::from_rgb(44, 205, 255)),
+                                                                );
+                                                            }
+                                                        }
                                                     }
                                                 }
 
@@ -1298,6 +1475,28 @@ pub fn draw_arrangement_view(
                     *horizontal_scroll_offset = scroll_output.state.offset.x;
                 });
             });
+        *vertical_scroll_offset = vertical_scroll_output.state.offset.y;
     });
     changed
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{horizontal_gesture_delta, move_clip_by_frame_delta};
+    use eframe::egui::Vec2;
+
+    #[test]
+    fn clip_drag_applies_only_the_current_frame_delta() {
+        let mut position = 1_000.0;
+        for _ in 0..10 {
+            position = move_clip_by_frame_delta(position, 10.0, 0.1);
+        }
+        assert_eq!(position, 2_000.0);
+    }
+
+    #[test]
+    fn arrangement_maps_trackpad_and_shift_wheel_to_horizontal_axis() {
+        assert_eq!(horizontal_gesture_delta(Vec2::new(12.0, 40.0), false), 12.0);
+        assert_eq!(horizontal_gesture_delta(Vec2::new(12.0, 40.0), true), 52.0);
+    }
 }

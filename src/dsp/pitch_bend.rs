@@ -46,37 +46,116 @@ impl PitchBendSolver {
         // O(log n), which is especially noticeable while scrolling or zooming.
         let right = sorted.partition_point(|point| point.time_offset_ms < time_ms);
         let left = right.saturating_sub(1).min(sorted.len() - 2);
-        for window in sorted[left..=(left + 1)].windows(2) {
-            let p0 = &window[0];
-            let p1 = &window[1];
+        let p0_opt = if left > 0 {
+            Some(&sorted[left - 1])
+        } else {
+            None
+        };
+        let p1 = &sorted[left];
+        let p2 = &sorted[left + 1];
+        let p3_opt = if left + 2 < sorted.len() {
+            Some(&sorted[left + 2])
+        } else {
+            None
+        };
 
-            if time_ms >= p0.time_offset_ms && time_ms <= p1.time_offset_ms {
-                let duration = (p1.time_offset_ms - p0.time_offset_ms).max(1e-3);
-                let norm_t = ((time_ms - p0.time_offset_ms) / duration).clamp(0.0, 1.0);
+        if time_ms >= p1.time_offset_ms && time_ms <= p2.time_offset_ms {
+            let shape = p1.shape.to_lowercase();
+            match shape.as_str() {
+                "h" | "hermite" | "c" | "catmull" | "catmull-rom" | "cubic" => {
+                    return Self::hermite_interpolate(time_ms, p1, p2, p0_opt, p3_opt);
+                }
+                _ => {
+                    let duration = (p2.time_offset_ms - p1.time_offset_ms).max(1e-3);
+                    let norm_t = ((time_ms - p1.time_offset_ms) / duration).clamp(0.0, 1.0);
 
-                let shape = p0.shape.to_lowercase();
-                let factor = match shape.as_str() {
-                    // OpenUtau names followed by their UTAU Mode 2 aliases.
-                    "l" | "linear" => norm_t,
-                    "s" | "io" | "s-curve" | "smooth" => {
-                        0.5 - 0.5 * (norm_t * std::f64::consts::PI).cos()
-                    }
-                    "i" | "j" | "easein" | "ease-in" | "exponential" => {
-                        1.0 - (norm_t * std::f64::consts::FRAC_PI_2).cos()
-                    }
-                    "o" | "r" | "easeout" | "ease-out" | "logarithmic" => {
-                        (norm_t * std::f64::consts::FRAC_PI_2).sin()
-                    }
-                    "" => 0.5 - 0.5 * (norm_t * std::f64::consts::PI).cos(),
-                    _ => 0.5 - 0.5 * (norm_t * std::f64::consts::PI).cos(),
-                };
+                    let factor = match shape.as_str() {
+                        // OpenUtau names followed by their UTAU Mode 2 aliases.
+                        "l" | "linear" => norm_t,
+                        "s" | "io" | "s-curve" | "smooth" => {
+                            0.5 - 0.5 * (norm_t * std::f64::consts::PI).cos()
+                        }
+                        "i" | "j" | "easein" | "ease-in" | "exponential" => {
+                            1.0 - (norm_t * std::f64::consts::FRAC_PI_2).cos()
+                        }
+                        "o" | "r" | "easeout" | "ease-out" | "logarithmic" => {
+                            (norm_t * std::f64::consts::FRAC_PI_2).sin()
+                        }
+                        "" => 0.5 - 0.5 * (norm_t * std::f64::consts::PI).cos(),
+                        _ => 0.5 - 0.5 * (norm_t * std::f64::consts::PI).cos(),
+                    };
 
-                return p0.pitch_offset_cents
-                    + factor * (p1.pitch_offset_cents - p0.pitch_offset_cents);
+                    return p1.pitch_offset_cents
+                        + factor * (p2.pitch_offset_cents - p1.pitch_offset_cents);
+                }
             }
         }
 
         0.0
+    }
+
+    /// Continuous C^1 Hermite / Non-Uniform Catmull-Rom cubic spline interpolation.
+    /// Eliminates pitch slope discontinuities and provides organic vocal transitions.
+    pub fn hermite_interpolate(
+        time_ms: f64,
+        p1: &UPitchBendPoint,
+        p2: &UPitchBendPoint,
+        p0: Option<&UPitchBendPoint>,
+        p3: Option<&UPitchBendPoint>,
+    ) -> f64 {
+        let dt12 = (p2.time_offset_ms - p1.time_offset_ms).max(1e-3);
+        let u = ((time_ms - p1.time_offset_ms) / dt12).clamp(0.0, 1.0);
+        let dy = p2.pitch_offset_cents - p1.pitch_offset_cents;
+        let s1 = dy / dt12;
+
+        let mut m1 = match p0 {
+            Some(prev) => {
+                let dt01 = (p1.time_offset_ms - prev.time_offset_ms).max(1e-3);
+                let s0 = (p1.pitch_offset_cents - prev.pitch_offset_cents) / dt01;
+                let d1 = (dt12 * s0 + dt01 * s1) / (dt01 + dt12);
+                d1 * dt12
+            }
+            None => dy,
+        };
+
+        let mut m2 = match p3 {
+            Some(next) => {
+                let dt23 = (next.time_offset_ms - p2.time_offset_ms).max(1e-3);
+                let s2 = (next.pitch_offset_cents - p2.pitch_offset_cents) / dt23;
+                let d2 = (dt23 * s1 + dt12 * s2) / (dt12 + dt23);
+                d2 * dt12
+            }
+            None => dy,
+        };
+
+        // Monotonicity / overshoot damping (Fritsch-Carlson style)
+        if dy.abs() < 1e-4 {
+            m1 = 0.0;
+            m2 = 0.0;
+        } else {
+            if m1 * dy < 0.0 {
+                m1 = 0.0;
+            }
+            if m2 * dy < 0.0 {
+                m2 = 0.0;
+            }
+            let max_m = 3.0 * dy.abs();
+            if m1.abs() > max_m {
+                m1 = max_m * m1.signum();
+            }
+            if m2.abs() > max_m {
+                m2 = max_m * m2.signum();
+            }
+        }
+
+        let u2 = u * u;
+        let u3 = u2 * u;
+        let h00 = 2.0 * u3 - 3.0 * u2 + 1.0;
+        let h10 = u3 - 2.0 * u2 + u;
+        let h01 = -2.0 * u3 + 3.0 * u2;
+        let h11 = u3 - u2;
+
+        h00 * p1.pitch_offset_cents + h10 * m1 + h01 * p2.pitch_offset_cents + h11 * m2
     }
 
     pub fn get_legato_transition_offset_cents(
@@ -113,7 +192,7 @@ impl PitchBendSolver {
         let p_last = points.last().unwrap();
 
         for (i, p) in points.iter().enumerate().take(points.len() - 1).skip(1) {
-            let dist = Self::perpendicular_distance(p, p_first, p_last);
+            let dist = Self::pitch_deviation_from_chord(p, p_first, p_last);
             if dist > max_dist {
                 max_dist = dist;
                 max_index = i;
@@ -131,25 +210,27 @@ impl PitchBendSolver {
         }
     }
 
-    fn perpendicular_distance(
+    pub fn pitch_deviation_from_chord(
         p: &UPitchBendPoint,
         line_start: &UPitchBendPoint,
         line_end: &UPitchBendPoint,
     ) -> f64 {
-        let dx = line_end.time_offset_ms - line_start.time_offset_ms;
-        let dy = line_end.pitch_offset_cents - line_start.pitch_offset_cents;
+        let dt = (line_end.time_offset_ms - line_start.time_offset_ms).max(1e-3);
+        let norm_t = ((p.time_offset_ms - line_start.time_offset_ms) / dt).clamp(0.0, 1.0);
+        let expected_cents = line_start.pitch_offset_cents
+            + norm_t * (line_end.pitch_offset_cents - line_start.pitch_offset_cents);
+        (p.pitch_offset_cents - expected_cents).abs()
+    }
 
-        let len_sq = dx * dx + dy * dy;
-        if len_sq < 1e-6 {
-            let px = p.time_offset_ms - line_start.time_offset_ms;
-            let py = p.pitch_offset_cents - line_start.pitch_offset_cents;
-            return (px * px + py * py).sqrt();
+    pub fn next_pitch_point_shape(current: &str) -> &'static str {
+        match current.to_lowercase().as_str() {
+            "s" | "io" | "smooth" => "l",
+            "l" | "linear" => "j",
+            "j" | "i" | "easein" => "r",
+            "r" | "o" | "easeout" => "h",
+            "h" | "hermite" | "c" | "catmull" => "s",
+            _ => "s",
         }
-
-        let num = ((p.time_offset_ms - line_start.time_offset_ms) * dy
-            - (p.pitch_offset_cents - line_start.pitch_offset_cents) * dx)
-            .abs();
-        num / len_sq.sqrt()
     }
 }
 
@@ -205,6 +286,38 @@ mod tests {
 
         let p_after = PitchBendSolver::get_pitch_offset_cents(500.0, &points);
         assert_eq!(p_after, 0.0);
+    }
+
+    #[test]
+    fn test_hermite_cubic_spline_continuity() {
+        let points = vec![
+            UPitchBendPoint {
+                time_offset_ms: 0.0,
+                pitch_offset_cents: 0.0,
+                shape: "h".to_string(),
+            },
+            UPitchBendPoint {
+                time_offset_ms: 100.0,
+                pitch_offset_cents: 100.0,
+                shape: "h".to_string(),
+            },
+            UPitchBendPoint {
+                time_offset_ms: 200.0,
+                pitch_offset_cents: 200.0,
+                shape: "h".to_string(),
+            },
+        ];
+
+        let p0 = PitchBendSolver::get_pitch_offset_cents(0.0, &points);
+        assert_eq!(p0, 0.0);
+        let p50 = PitchBendSolver::get_pitch_offset_cents(50.0, &points);
+        assert!((p50 - 50.0).abs() < 5.0);
+        let p100 = PitchBendSolver::get_pitch_offset_cents(100.0, &points);
+        assert_eq!(p100, 100.0);
+        let p150 = PitchBendSolver::get_pitch_offset_cents(150.0, &points);
+        assert!((p150 - 150.0).abs() < 5.0);
+        let p200 = PitchBendSolver::get_pitch_offset_cents(200.0, &points);
+        assert_eq!(p200, 200.0);
     }
 
     #[test]

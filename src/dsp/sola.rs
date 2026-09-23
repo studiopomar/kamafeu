@@ -356,7 +356,12 @@ impl SolaResampler {
                     // A VC/end fragment can be too short for a confident F0
                     // score, but its musical pitch is still not optional.
                     // Keep using the requested absolute pitch in that case.
-                    is_finite_transition,
+                    // The piano roll is the pitch authority for every vowel.
+                    // Analysis may fail on noisy, short or unusual aliases,
+                    // but time-only resizing would expose the recording's
+                    // original pitch. Genuine unvoiced consonants never enter
+                    // this vowel path and are still preserved.
+                    true,
                 )
             };
 
@@ -382,8 +387,8 @@ impl SolaResampler {
         }
 
         let max_peak = output.iter().map(|s| s.abs()).fold(0.0f32, f32::max);
-        if max_peak > 0.99 {
-            let scale = 0.98 / max_peak;
+        if max_peak > 0.95 {
+            let scale = 0.94 / max_peak;
             for s in &mut output {
                 *s *= scale;
             }
@@ -588,7 +593,9 @@ impl SolaResampler {
             None,
             None,
             SolaStretchMode::Stretch,
-            false,
+            // Once a voiced transition has been identified, the piano roll is
+            // authoritative even if this short slice cannot be analysed again.
+            true,
         );
         let target_voiced_start =
             voiced_start as f64 * target_samples as f64 / consonant.len().max(1) as f64;
@@ -725,10 +732,16 @@ impl SolaResampler {
             );
             let (mark_0, mark_1, alpha, source_period) =
                 Self::interpolate_pitch_marks(&pitch_marks, source_position, estimate.period);
-            // Formant preservation: the extracted grain keeps the ORIGINAL source
-            // period as its window/content size, unscaled. Pitch is shifted purely
-            // by how far apart successive grains are placed in the output.
-            let grain_radius = source_period;
+            // Formant preservation: the grain reads from the source at the
+            // ORIGINAL period position so spectral envelope is maintained.
+            // The radius is capped at 1.4 × target_period: if YIN makes a
+            // sub-harmonic error the detected source_period can be ~2× the
+            // true period, making every grain cover two source cycles.  The
+            // resulting self-interference produces beating artefacts that the
+            // ear perceives as detuning or raspiness.  Clamping to
+            // 1.4 × target_period prevents this while still allowing modest
+            // formant stretching for pitch shifts within a normal singing range.
+            let grain_radius = source_period.min(target_period * 1.4);
             let first = (output_center - grain_radius).ceil() as isize;
             let last = (output_center + grain_radius).floor() as isize;
 
@@ -777,22 +790,29 @@ impl SolaResampler {
             output_center += target_period;
         }
 
-        // A restrained RMS correction compensates truncated edge grains and
-        // real-world irregular pitch marks without volume pumping.
-        let source_rms = (analysis_slice
-            .iter()
-            .map(|sample| f64::from(*sample).powi(2))
-            .sum::<f64>()
-            / analysis_slice.len().max(1) as f64)
-            .sqrt();
-        let output_rms = (output
-            .iter()
-            .map(|sample| f64::from(*sample).powi(2))
-            .sum::<f64>()
-            / output.len().max(1) as f64)
-            .sqrt();
+        // Different aliases often have very different consonant and tail
+        // levels; measuring those edges here caused audible per-alias pumping.
+        let stable_rms = |samples: &[f32]| -> f64 {
+            if samples.is_empty() {
+                return 0.0;
+            }
+            let margin = samples.len() / 10;
+            let start = margin.min(samples.len().saturating_sub(1));
+            let end = samples.len().saturating_sub(margin).max(start + 1);
+            (samples[start..end]
+                .iter()
+                .map(|sample| f64::from(*sample).powi(2))
+                .sum::<f64>()
+                / (end - start) as f64)
+                .sqrt()
+        };
+        let source_rms = stable_rms(analysis_slice);
+        let output_rms = stable_rms(&output);
         if source_rms > 1e-6 && output_rms > 1e-6 {
-            let level_gain = (source_rms / output_rms).clamp(0.7, 1.4) as f32;
+            // Tighter clamp (0.75–1.35) compared to the old 0.6–1.6.
+            // The wider range allowed per-alias gain swings of ×2.67,
+            // which contributed to volume non-uniformity across notes.
+            let level_gain = (source_rms / output_rms).clamp(0.75, 1.35) as f32;
             for sample in &mut output {
                 *sample *= level_gain;
             }

@@ -31,6 +31,13 @@ pub struct PhonemeTimingInput {
     pub overlap_delta_ms: f64,
 }
 
+/// A modest handoff keeps automatically expanded phonemes (G2P, CVVC, VCCV
+/// and BRAPA clusters) from becoming a sequence of hard cuts when an otherwise
+/// valid voicebank has no overlap recorded for those internal aliases.  It is
+/// deliberately only a fallback for phones generated *inside the same musical
+/// note*: inter-note `oto.ini` geometry remains completely authoritative.
+const INTRA_NOTE_SAFETY_CROSSFADE_MS: f64 = 12.0;
+
 pub fn plan_inputs(
     phones: &[crate::phonemizer::RenderPhone],
     voicebank: &crate::oto::Voicebank,
@@ -38,15 +45,28 @@ pub fn plan_inputs(
 ) -> Vec<PhonemeTimingInput> {
     phones
         .iter()
-        .map(|phone| {
+        .enumerate()
+        .map(|(index, phone)| {
             let oto = voicebank.find_mapped_entry(&phone.lyric, &phone.pitch);
             let raw_preutter = oto.map(|entry| entry.preutterance).unwrap_or(0.0);
             let raw_overlap = oto.map(|entry| entry.overlap).unwrap_or(0.0);
             let oto_preutter_ms = raw_preutter.max(0.0);
+            let same_note_handoff = index > 0
+                && phones[index - 1].note_index == phone.note_index
+                && (phone.position_ms
+                    - (phones[index - 1].position_ms + phones[index - 1].duration_ms))
+                    .abs()
+                    <= 0.001;
             let manual_overlap = if phone.envelope.crossfade_ms > 0.0 {
                 Some(phone.envelope.crossfade_ms)
             } else if raw_overlap.abs() <= f64::EPSILON && crossfade_ms > 0.0 {
                 Some(crossfade_ms)
+            } else if raw_overlap.abs() <= f64::EPSILON
+                && same_note_handoff
+                && phone.expressions.overlap_override_ms.is_none()
+                && phone.expressions.overlap_offset_ms.abs() <= f64::EPSILON
+            {
+                Some(INTRA_NOTE_SAFETY_CROSSFADE_MS)
             } else {
                 None
             };
@@ -159,7 +179,11 @@ pub fn resolve_phoneme_timings(inputs: &[PhonemeTimingInput]) -> Vec<PhonemeTimi
             let adjacent = input.position_ms - previous_end <= 0.001;
             result[index].adjacent = adjacent;
             if adjacent {
-                result[index - 1].tail_intrude_ms = preutter.max(preutter - overlap);
+                result[index - 1].tail_intrude_ms = if overlap >= 0.0 {
+                    preutter
+                } else {
+                    preutter - overlap
+                };
                 result[index - 1].tail_overlap_ms = overlap.max(0.0);
             }
         }
@@ -285,6 +309,71 @@ mod tests {
         };
         let cv_inputs = plan_inputs(&[cv_phone], &vb, 15.0);
         assert!((cv_inputs[0].overlap_delta_ms - 15.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn internal_phonemes_without_oto_overlap_receive_a_smooth_handoff() {
+        let phones = vec![
+            crate::phonemizer::RenderPhone {
+                note_index: 0,
+                lyric: "a".to_string(),
+                pitch: "C4".to_string(),
+                position_ms: 0.0,
+                duration_ms: 150.0,
+                envelope: crate::dsp::envelope::UtauEnvelope::default(),
+                expressions: crate::project::model::UExpressions::default(),
+                pitch_bend: crate::project::model::UPitchBend::default(),
+                vibrato: crate::dsp::pitch::VibratoParam::default(),
+                flags: String::new(),
+            },
+            crate::phonemizer::RenderPhone {
+                note_index: 0,
+                lyric: "k a".to_string(),
+                pitch: "C4".to_string(),
+                position_ms: 150.0,
+                duration_ms: 150.0,
+                envelope: crate::dsp::envelope::UtauEnvelope::default(),
+                expressions: crate::project::model::UExpressions::default(),
+                pitch_bend: crate::project::model::UPitchBend::default(),
+                vibrato: crate::dsp::pitch::VibratoParam::default(),
+                flags: String::new(),
+            },
+        ];
+        let dir = tempfile::tempdir().unwrap();
+        let vb = crate::oto::Voicebank::new(dir.path()).unwrap();
+        let timings = resolve_phoneme_timings(&plan_inputs(&phones, &vb, 0.0));
+
+        assert_eq!(timings[1].overlap_ms, INTRA_NOTE_SAFETY_CROSSFADE_MS);
+        assert_eq!(timings[0].tail_overlap_ms, INTRA_NOTE_SAFETY_CROSSFADE_MS);
+    }
+
+    #[test]
+    fn safety_handoff_never_replaces_a_recorded_oto_overlap() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("oto.ini"),
+            "sample.wav=a,0,100,-600,40,0\nsample.wav=k a,0,100,-600,50,80\n",
+        )
+        .unwrap();
+        let vb = crate::oto::Voicebank::new(dir.path()).unwrap();
+        let mut phones = Vec::new();
+        for (lyric, position_ms) in [("a", 0.0), ("k a", 150.0)] {
+            phones.push(crate::phonemizer::RenderPhone {
+                note_index: 0,
+                lyric: lyric.to_string(),
+                pitch: "C4".to_string(),
+                position_ms,
+                duration_ms: 150.0,
+                envelope: crate::dsp::envelope::UtauEnvelope::default(),
+                expressions: crate::project::model::UExpressions::default(),
+                pitch_bend: crate::project::model::UPitchBend::default(),
+                vibrato: crate::dsp::pitch::VibratoParam::default(),
+                flags: String::new(),
+            });
+        }
+
+        let timings = resolve_phoneme_timings(&plan_inputs(&phones, &vb, 0.0));
+        assert_eq!(timings[1].overlap_ms, 80.0);
     }
 
     #[test]

@@ -19,6 +19,12 @@ pub enum GridSnapOption {
     Snap1_16T,
     Snap1_32T,
     Snap1_64T,
+    // Quintinas / Quintuplets
+    Snap1_5,
+    Snap1_10,
+    Snap1_20,
+    Snap1_40,
+    Snap1_80,
 }
 
 impl GridSnapOption {
@@ -64,6 +70,11 @@ impl GridSnapOption {
             GridSnapOption::Snap1_16T => Some(beat_ms * 4.0 / 24.0),
             GridSnapOption::Snap1_32T => Some(beat_ms * 4.0 / 48.0),
             GridSnapOption::Snap1_64T => Some(beat_ms * 4.0 / 96.0),
+            GridSnapOption::Snap1_5 => Some(beat_ms * 4.0 / 5.0),
+            GridSnapOption::Snap1_10 => Some(beat_ms * 4.0 / 10.0),
+            GridSnapOption::Snap1_20 => Some(beat_ms * 4.0 / 20.0),
+            GridSnapOption::Snap1_40 => Some(beat_ms * 4.0 / 40.0),
+            GridSnapOption::Snap1_80 => Some(beat_ms * 4.0 / 80.0),
         }
     }
 
@@ -94,6 +105,11 @@ impl GridSnapOption {
             GridSnapOption::Snap1_16T => "1/16T",
             GridSnapOption::Snap1_32T => "1/32T",
             GridSnapOption::Snap1_64T => "1/64T",
+            GridSnapOption::Snap1_5 => "1/5",
+            GridSnapOption::Snap1_10 => "1/10",
+            GridSnapOption::Snap1_20 => "1/20",
+            GridSnapOption::Snap1_40 => "1/40",
+            GridSnapOption::Snap1_80 => "1/80",
         }
     }
 
@@ -229,4 +245,35 @@ pub enum ExportAudioScope {
     VocalsAndAudio,
     VocalsOnly,
     SeparateTrackStems,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+pub enum MobileViewTab {
+    #[default]
+    PianoRoll,
+    Arrangement,
+    Inspector,
+    Settings,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::GridSnapOption;
+
+    #[test]
+    fn quintuplet_grid_steps_cover_the_full_toolbar_range() {
+        let bpm = 120.0;
+        let expected = [400.0, 200.0, 100.0, 50.0, 25.0];
+        let options = [
+            GridSnapOption::Snap1_5,
+            GridSnapOption::Snap1_10,
+            GridSnapOption::Snap1_20,
+            GridSnapOption::Snap1_40,
+            GridSnapOption::Snap1_80,
+        ];
+
+        for (option, expected_ms) in options.into_iter().zip(expected) {
+            assert_eq!(option.step_ms(bpm), Some(expected_ms));
+        }
+    }
 }

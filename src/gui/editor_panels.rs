@@ -42,6 +42,7 @@ impl KamafeuStudioApp {
                 &mut self.piano_roll_state.active_tool,
                 &mut self.piano_roll_state.pitch_sub_tool,
                 &mut self.piano_roll_state.auto_scroll_mode,
+                &mut self.piano_roll_state.vertical_pitch_follow,
                 &mut self.piano_roll_state.active_scale,
                 &mut self.piano_roll_state.scale_root_key,
                 &mut self.piano_roll_state.px_per_ms,
@@ -49,6 +50,7 @@ impl KamafeuStudioApp {
                 &mut self.piano_roll_state.show_arrangement_view,
                 &mut self.piano_roll_state.show_parameters_drawer,
                 &mut self.piano_roll_state.show_phoneme_ruler,
+                &mut self.piano_roll_state.show_envelope_handles,
                 &mut self.piano_roll_state.show_inspector,
                 &mut self.piano_roll_state.is_maximized,
                 &mut || play_clicked = true,
@@ -138,6 +140,18 @@ impl KamafeuStudioApp {
                 self.export_wav();
             }
         };
+        let is_mobile = ctx.screen_rect().width() < 768.0;
+
+        if is_mobile {
+            TopBottomPanel::top("top_unified_control_panel")
+                .exact_height(38.0)
+                .frame(Frame::none().fill(toolbar_fill))
+                .show(ctx, &mut draw_toolbar);
+
+            self.render_mobile_bottom_bar(ctx);
+            return;
+        }
+
         if is_modular {
             egui::Window::new(toolbar_title)
                 .id(egui::Id::new("workspace_toolbar"))
@@ -170,240 +184,7 @@ impl KamafeuStudioApp {
             let mut inspector_snap_after = None;
 
             let mut draw_inspector = |ui: &mut egui::Ui| {
-                let mut color_changed = false;
-                if let Some(vb) = self.voicebank.as_mut() {
-                    let colors: Vec<String> = vb.prefix_map.colors().map(str::to_string).collect();
-                    if colors.len() > 1 {
-                        let mut selected = vb.prefix_map.selected_color().to_string();
-                        ui.label(self.config.language.tr("Timbre padrão", "Default timbre"));
-                        egui::ComboBox::from_id_salt("voicecolor_selector")
-                            .selected_text(if selected.is_empty() {
-                                self.config.language.tr("Neutro", "Neutral")
-                            } else {
-                                &selected
-                            })
-                            .show_ui(ui, |ui| {
-                                for color in colors {
-                                    let label = if color.is_empty() { "Default" } else { &color };
-                                    color_changed |= ui
-                                        .selectable_value(&mut selected, color.clone(), label)
-                                        .changed();
-                                }
-                            });
-                        if color_changed {
-                            vb.prefix_map.select_color(&selected);
-                        }
-                    }
-                }
-                if color_changed {
-                    self.pause_audio();
-                    self.piano_roll_state.phoneme_cache_hash = 0;
-                }
-                let selected_indices = self.piano_roll_state.selected_note_indices.clone();
-                // Marquee/multi-selection may populate the set without
-                // assigning a primary index. Use a stable selected note
-                // as the inspector target so the panel never appears
-                // empty while notes are visibly highlighted.
-                let selected_idx = self.piano_roll_state.selected_note_index.or_else(|| {
-                    self.piano_roll_state
-                        .selected_note_indices
-                        .iter()
-                        .copied()
-                        .min()
-                });
-                let active_track = self.active_track_index;
-                if self.project.parts.is_empty() {
-                    self.project
-                        .parts
-                        .push(crate::project::model::UVoicePart::new("Part 1", 0));
-                }
-                let part_idx = self
-                    .project
-                    .parts
-                    .iter()
-                    .position(|p| p.track_index == active_track)
-                    .unwrap_or(0);
-
-                let mut loaded_vb: Option<Voicebank> = None;
-                let mut preview_alias: Option<String> = None;
-                let mut insert_alias: Option<String> = None;
-                let mut palette_edit_alias: Option<String> = None;
-                let mut selected_ruler_alias_to_edit: Option<(String, String)> = None;
-                let selected_ruler_alias = self.piano_roll_state.selected_copaiba_alias.clone();
-                // The inspector is rendered every frame. A full project clone is
-                // only useful while an edit gesture can begin; cloning it while
-                // merely inspecting a note made large projects allocate at the
-                // display refresh rate.
-                let project_snapshot_before_panel = ui
-                    .input(|i| i.pointer.primary_down() || i.pointer.secondary_down())
-                    .then(|| self.project.clone());
-
-                let notes = &mut self.project.parts[part_idx].notes[..];
-
-                let mut open_singers_gallery = false;
-                let mut reload_singers_flag = false;
-                let mut add_singers_dir_flag = false;
-                let mut open_folder_picker = false;
-
-                draw_unified_panel(
-                    ui,
-                    &self.config.theme,
-                    self.config.language,
-                    self.voicebank.as_ref(),
-                    &self.config.recent_voicebanks,
-                    &self.singers_list,
-                    &mut self.singer_search_query,
-                    &mut self.config.singers_paths,
-                    &mut self.vocal_mode_params,
-                    selected_idx,
-                    notes,
-                    &selected_indices,
-                    selected_ruler_alias
-                        .as_ref()
-                        .map(|(alias, _)| alias.as_str()),
-                    &mut self.right_sidebar_tab,
-                    &mut self.phoneme_palette_state,
-                    &mut self.render_threads,
-                    &mut self.sample_rate,
-                    &mut self.selected_resampler,
-                    &mut self.selected_wavtool,
-                    &mut self.custom_resampler_path,
-                    &mut self.custom_wavtool_path,
-                    &mut self.config.discord_rpc_enabled,
-                    &mut |opt_path| {
-                        if let Some(p) = opt_path {
-                            if let Ok(vb) = Voicebank::new(&p) {
-                                loaded_vb = Some(vb);
-                            }
-                        } else {
-                            #[cfg(not(target_os = "android"))]
-                            {
-                                if let Some(folder) =
-                                    crate::dialogs::FileDialog::new().pick_folder()
-                                {
-                                    if let Ok(vb) = Voicebank::new(&folder) {
-                                        loaded_vb = Some(vb);
-                                    }
-                                } else {
-                                    open_folder_picker = true;
-                                }
-                            }
-                            #[cfg(target_os = "android")]
-                            {
-                                open_folder_picker = true;
-                            }
-                        }
-                    },
-                    &mut || add_singers_dir_flag = true,
-                    &mut || reload_singers_flag = true,
-                    &mut || open_singers_gallery = true,
-                    &mut |alias| preview_alias = Some(alias.to_string()),
-                    &mut |alias| insert_alias = Some(alias.to_string()),
-                    &mut |alias| palette_edit_alias = Some(alias.to_string()),
-                    &mut || selected_ruler_alias_to_edit = selected_ruler_alias.clone(),
-                );
-
-                if project_snapshot_before_panel
-                    .as_ref()
-                    .is_some_and(|snapshot| self.project != *snapshot)
-                {
-                    let pointer_down =
-                        ui.input(|i| i.pointer.primary_down() || i.pointer.secondary_down());
-                    if pointer_down {
-                        if self.pending_edit_snapshot.is_none() {
-                            self.pending_edit_snapshot = project_snapshot_before_panel.clone();
-                        }
-                    } else {
-                        let snapshot = self
-                            .pending_edit_snapshot
-                            .take()
-                            .or_else(|| project_snapshot_before_panel.clone())
-                            .expect("inspector edits always retain their gesture snapshot");
-                        self.undo_manager.push_state(snapshot);
-                        self.piano_roll_state.phoneme_cache.clear();
-                        self.piano_roll_state.note_phonemes_cache.clear();
-                    }
-                    self.is_dirty = true;
-                }
-
-                if open_folder_picker {
-                    self.folder_picker_open = true;
-                }
-
-                if add_singers_dir_flag {
-                    #[cfg(not(target_os = "android"))]
-                    if let Some(folder) = crate::dialogs::FileDialog::new().pick_folder() {
-                        if !self.config.singers_paths.contains(&folder) {
-                            self.config.singers_paths.push(folder);
-                            self.persist_config();
-                            self.reload_singers();
-                        }
-                    } else {
-                        self.folder_picker_open = true;
-                    }
-                    #[cfg(target_os = "android")]
-                    {
-                        self.folder_picker_open = true;
-                    }
-                }
-
-                if reload_singers_flag {
-                    self.persist_config();
-                    self.reload_singers();
-                }
-
-                if open_singers_gallery {
-                    self.singers_gallery_window_open = true;
-                }
-
-                self.persist_config();
-
-                if let Some(vb) = loaded_vb {
-                    self.activate_voicebank(vb);
-                }
-
-                if let Some(alias) = preview_alias {
-                    let mut played = false;
-                    if let Some(ref vb) = self.voicebank {
-                        if let Some(entry) = vb
-                            .find_entry(&alias, "C4")
-                            .or_else(|| vb.find_entry(&alias, "A3"))
-                        {
-                            let wav_path = vb.root_path.join(&entry.wav_filename);
-                            if let Ok((samples, sr)) = TrackRenderer::load_wav_samples(&wav_path) {
-                                let max_s = (sr as usize).min(samples.len());
-                                self.audio_player
-                                    .play_samples(samples[..max_s].to_vec(), sr);
-                                played = true;
-                            }
-                        }
-                    }
-                    if !played {
-                        self.preview_tone(440.0);
-                    }
-                }
-
-                if let Some(alias) = insert_alias {
-                    self.push_history();
-                    let playhead_ms = self.piano_roll_state.playhead_ms;
-                    let sel_idx = self.piano_roll_state.selected_note_index;
-                    let notes_mut = self.current_notes_mut();
-                    if let Some(idx) = sel_idx {
-                        if idx < notes_mut.len() {
-                            notes_mut[idx].lyric = alias;
-                        }
-                    } else {
-                        let new_note = UNote::new(&alias, "C4", playhead_ms, 400.0);
-                        notes_mut.push(new_note);
-                    }
-                }
-
-                #[cfg(not(target_os = "android"))]
-                let edit_alias = selected_ruler_alias_to_edit
-                    .or_else(|| palette_edit_alias.map(|alias| (alias, "C4".to_string())));
-                if let Some((alias, pitch)) = edit_alias {
-                    self.open_copaiba_for_alias(&alias, &pitch);
-                }
+                self.draw_inspector_inner(ui);
             };
 
             if is_modular {
@@ -455,16 +236,6 @@ impl KamafeuStudioApp {
         }
 
         if self.piano_roll_state.show_arrangement_view && !self.piano_roll_state.is_maximized {
-            // Cloning the complete project every frame made the arrangement
-            // panel increasingly expensive for larger projects. A snapshot
-            // is only needed when an edit gesture can actually begin.
-            let arrangement_snapshot_before = if self.pending_edit_snapshot.is_none()
-                && ctx.input(|i| i.pointer.primary_down() || i.pointer.secondary_down())
-            {
-                Some(self.project.clone())
-            } else {
-                None
-            };
             let is_modular = self.config.layout.modular_workspace;
             let arrangement_title = self
                 .config
@@ -475,41 +246,7 @@ impl KamafeuStudioApp {
             let default_arr_h = self.piano_roll_state.arrangement_height;
 
             let mut draw_arrangement = |ui: &mut egui::Ui| {
-                let actual_h = ui.max_rect().height().clamp(60.0, 500.0);
-                self.piano_roll_state.arrangement_height = actual_h;
-
-                let arrangement_changed = draw_arrangement_view(
-                    ui,
-                    &self.config.theme,
-                    &mut self.project.tracks,
-                    &mut self.project.parts,
-                    &mut self.project.wave_parts,
-                    &mut self.active_track_index,
-                    &mut self.piano_roll_state.playhead_ms,
-                    self.piano_roll_state.px_per_ms,
-                    self.transport_state.bpm,
-                    &mut self.piano_roll_state.horizontal_scroll_offset,
-                    &mut self.fx_rack_dialog_state,
-                    self.config.language,
-                );
-                if arrangement_changed {
-                    let pointer_down =
-                        ui.input(|i| i.pointer.primary_down() || i.pointer.secondary_down());
-                    if pointer_down {
-                        if self.pending_edit_snapshot.is_none() {
-                            if let Some(snapshot) = arrangement_snapshot_before.as_ref() {
-                                self.pending_edit_snapshot = Some(snapshot.clone());
-                            }
-                        }
-                    } else {
-                        if let Some(snapshot) = self.pending_edit_snapshot.take() {
-                            self.undo_manager.push_state(snapshot);
-                        } else if let Some(snapshot) = arrangement_snapshot_before.as_ref() {
-                            self.undo_manager.push_state(snapshot.clone());
-                        }
-                    }
-                    self.is_dirty = true;
-                }
+                self.draw_arrangement_inner(ui);
             };
             if is_modular {
                 egui::Window::new(arrangement_title)
@@ -528,5 +265,373 @@ impl KamafeuStudioApp {
                     .show(ctx, &mut draw_arrangement);
             }
         }
+    }
+
+    pub(crate) fn draw_inspector_inner(&mut self, ui: &mut egui::Ui) {
+        let mut color_changed = false;
+        if let Some(vb) = self.voicebank.as_mut() {
+            let colors: Vec<String> = vb.prefix_map.colors().map(str::to_string).collect();
+            if colors.len() > 1 {
+                let mut selected = vb.prefix_map.selected_color().to_string();
+                ui.label(self.config.language.tr("Timbre padrão", "Default timbre"));
+                egui::ComboBox::from_id_salt("voicecolor_selector")
+                    .selected_text(if selected.is_empty() {
+                        self.config.language.tr("Neutro", "Neutral")
+                    } else {
+                        &selected
+                    })
+                    .show_ui(ui, |ui| {
+                        for color in colors {
+                            let label = if color.is_empty() { "Default" } else { &color };
+                            color_changed |= ui
+                                .selectable_value(&mut selected, color.clone(), label)
+                                .changed();
+                        }
+                    });
+                if color_changed {
+                    vb.prefix_map.select_color(&selected);
+                }
+            }
+        }
+        if color_changed {
+            self.pause_audio();
+            self.piano_roll_state.phoneme_cache_hash = 0;
+        }
+        let selected_indices = self.piano_roll_state.selected_note_indices.clone();
+        let selected_idx = self.piano_roll_state.selected_note_index.or_else(|| {
+            self.piano_roll_state
+                .selected_note_indices
+                .iter()
+                .copied()
+                .min()
+        });
+        let active_track = self.active_track_index;
+        if self.project.parts.is_empty() {
+            self.project
+                .parts
+                .push(crate::project::model::UVoicePart::new("Part 1", 0));
+        }
+        let part_idx = self
+            .project
+            .parts
+            .iter()
+            .position(|p| p.track_index == active_track)
+            .unwrap_or(0);
+
+        let mut loaded_vb: Option<Voicebank> = None;
+        let mut preview_alias: Option<String> = None;
+        let mut insert_alias: Option<String> = None;
+        let mut palette_edit_alias: Option<String> = None;
+        let mut selected_ruler_alias_to_edit: Option<(String, String)> = None;
+        let selected_ruler_alias = self.piano_roll_state.selected_copaiba_alias.clone();
+        let project_snapshot_before_panel = ui
+            .input(|i| i.pointer.primary_down() || i.pointer.secondary_down())
+            .then(|| self.project.clone());
+
+        let notes = &mut self.project.parts[part_idx].notes[..];
+
+        let mut open_singers_gallery = false;
+        let mut reload_singers_flag = false;
+        let mut add_singers_dir_flag = false;
+        let mut open_folder_picker = false;
+
+        draw_unified_panel(
+            ui,
+            &self.config.theme,
+            self.config.language,
+            self.voicebank.as_ref(),
+            &self.config.recent_voicebanks,
+            &self.singers_list,
+            &mut self.singer_search_query,
+            &mut self.config.singers_paths,
+            &mut self.vocal_mode_params,
+            selected_idx,
+            notes,
+            &selected_indices,
+            selected_ruler_alias
+                .as_ref()
+                .map(|(alias, _)| alias.as_str()),
+            &mut self.right_sidebar_tab,
+            &mut self.phoneme_palette_state,
+            &mut self.render_threads,
+            &mut self.sample_rate,
+            &mut self.selected_resampler,
+            &mut self.selected_wavtool,
+            &mut self.custom_resampler_path,
+            &mut self.custom_wavtool_path,
+            &mut self.config.discord_rpc_enabled,
+            &mut |opt_path| {
+                if let Some(p) = opt_path {
+                    if let Ok(vb) = Voicebank::new(&p) {
+                        loaded_vb = Some(vb);
+                    }
+                } else {
+                    #[cfg(not(target_os = "android"))]
+                    {
+                        if let Some(folder) = crate::dialogs::FileDialog::new().pick_folder() {
+                            if let Ok(vb) = Voicebank::new(&folder) {
+                                loaded_vb = Some(vb);
+                            }
+                        } else {
+                            open_folder_picker = true;
+                        }
+                    }
+                    #[cfg(target_os = "android")]
+                    {
+                        open_folder_picker = true;
+                    }
+                }
+            },
+            &mut || add_singers_dir_flag = true,
+            &mut || reload_singers_flag = true,
+            &mut || open_singers_gallery = true,
+            &mut |alias| preview_alias = Some(alias.to_string()),
+            &mut |alias| insert_alias = Some(alias.to_string()),
+            &mut |alias| palette_edit_alias = Some(alias.to_string()),
+            &mut || selected_ruler_alias_to_edit = selected_ruler_alias.clone(),
+        );
+
+        if project_snapshot_before_panel
+            .as_ref()
+            .is_some_and(|snapshot| self.project != *snapshot)
+        {
+            let pointer_down = ui.input(|i| i.pointer.primary_down() || i.pointer.secondary_down());
+            if pointer_down {
+                if self.pending_edit_snapshot.is_none() {
+                    self.pending_edit_snapshot = project_snapshot_before_panel.clone();
+                }
+            } else {
+                let snapshot = self
+                    .pending_edit_snapshot
+                    .take()
+                    .or_else(|| project_snapshot_before_panel.clone())
+                    .expect("inspector edits always retain their gesture snapshot");
+                self.undo_manager.push_state(snapshot);
+                self.piano_roll_state.phoneme_cache.clear();
+                self.piano_roll_state.note_phonemes_cache.clear();
+            }
+            self.is_dirty = true;
+        }
+
+        if open_folder_picker {
+            self.folder_picker_open = true;
+        }
+
+        if add_singers_dir_flag {
+            #[cfg(not(target_os = "android"))]
+            if let Some(folder) = crate::dialogs::FileDialog::new().pick_folder() {
+                if !self.config.singers_paths.contains(&folder) {
+                    self.config.singers_paths.push(folder);
+                    self.persist_config();
+                    self.reload_singers();
+                }
+            } else {
+                self.folder_picker_open = true;
+            }
+            #[cfg(target_os = "android")]
+            {
+                self.folder_picker_open = true;
+            }
+        }
+
+        if reload_singers_flag {
+            self.persist_config();
+            self.reload_singers();
+        }
+
+        if open_singers_gallery {
+            self.singers_gallery_window_open = true;
+        }
+
+        self.persist_config();
+
+        if let Some(vb) = loaded_vb {
+            self.activate_voicebank(vb);
+        }
+
+        if let Some(alias) = preview_alias {
+            let mut played = false;
+            if let Some(ref vb) = self.voicebank {
+                if let Some(entry) = vb
+                    .find_entry(&alias, "C4")
+                    .or_else(|| vb.find_entry(&alias, "A3"))
+                {
+                    let wav_path = vb.root_path.join(&entry.wav_filename);
+                    if let Ok((samples, sr)) = TrackRenderer::load_wav_samples(&wav_path) {
+                        let max_s = (sr as usize).min(samples.len());
+                        self.audio_player
+                            .play_samples(samples[..max_s].to_vec(), sr);
+                        played = true;
+                    }
+                }
+            }
+            if !played {
+                self.preview_tone(440.0);
+            }
+        }
+
+        if let Some(alias) = insert_alias {
+            self.push_history();
+            let playhead_ms = self.piano_roll_state.playhead_ms;
+            let sel_idx = self.piano_roll_state.selected_note_index;
+            let notes_mut = self.current_notes_mut();
+            if let Some(idx) = sel_idx {
+                if idx < notes_mut.len() {
+                    notes_mut[idx].lyric = alias;
+                }
+            } else {
+                let new_note = UNote::new(&alias, "C4", playhead_ms, 400.0);
+                notes_mut.push(new_note);
+            }
+        }
+
+        #[cfg(not(target_os = "android"))]
+        let edit_alias = selected_ruler_alias_to_edit
+            .or_else(|| palette_edit_alias.map(|alias| (alias, "C4".to_string())));
+        #[cfg(not(target_os = "android"))]
+        if let Some((alias, pitch)) = edit_alias {
+            self.open_copaiba_for_alias(&alias, &pitch);
+        }
+    }
+
+    pub(crate) fn draw_arrangement_inner(&mut self, ui: &mut egui::Ui) {
+        // Playback has one shared clock. Keep the arrangement viewport aligned
+        // with the piano-roll viewport while it follows that clock; manual
+        // piano-roll navigation explicitly opts out through this override.
+        if self.piano_roll_state.is_playing
+            && !self.piano_roll_state.horizontal_follow_user_override
+        {
+            self.piano_roll_state.arrangement_horizontal_scroll_offset =
+                self.piano_roll_state.horizontal_scroll_offset;
+        }
+
+        // Undo preparation used to clone the entire project whenever any
+        // primary button was held anywhere in the app. Restrict it to a press
+        // that actually began over the arrangement panel.
+        let pointer_is_over_arrangement = ui.input(|input| {
+            input
+                .pointer
+                .press_origin()
+                .or(input.pointer.interact_pos())
+                .is_some_and(|pos| ui.max_rect().contains(pos))
+        });
+        let arrangement_snapshot_before = if self.pending_edit_snapshot.is_none()
+            && pointer_is_over_arrangement
+            && ui.input(|i| i.pointer.primary_down() || i.pointer.secondary_down())
+        {
+            Some(self.project.clone())
+        } else {
+            None
+        };
+
+        let actual_h = ui.max_rect().height().clamp(60.0, 500.0);
+        self.piano_roll_state.arrangement_height = actual_h;
+
+        let arrangement_changed = draw_arrangement_view(
+            ui,
+            &self.config.theme,
+            &mut self.project.tracks,
+            &mut self.project.parts,
+            &mut self.project.wave_parts,
+            &mut self.active_track_index,
+            &mut self.piano_roll_state.playhead_ms,
+            self.piano_roll_state.px_per_ms,
+            self.transport_state.bpm,
+            &mut self.piano_roll_state.arrangement_horizontal_scroll_offset,
+            &mut self.piano_roll_state.arrangement_vertical_scroll_offset,
+            &mut self.fx_rack_dialog_state,
+            self.config.language,
+        );
+        if arrangement_changed {
+            let pointer_down = ui.input(|i| i.pointer.primary_down() || i.pointer.secondary_down());
+            if pointer_down {
+                if self.pending_edit_snapshot.is_none() {
+                    if let Some(snapshot) = arrangement_snapshot_before.as_ref() {
+                        self.pending_edit_snapshot = Some(snapshot.clone());
+                    }
+                }
+            } else {
+                if let Some(snapshot) = self.pending_edit_snapshot.take() {
+                    self.undo_manager.push_state(snapshot);
+                } else if let Some(snapshot) = arrangement_snapshot_before.as_ref() {
+                    self.undo_manager.push_state(snapshot.clone());
+                }
+            }
+            self.is_dirty = true;
+        }
+    }
+
+    fn render_mobile_bottom_bar(&mut self, ctx: &egui::Context) {
+        let lang = self.config.language;
+        let theme = &self.config.theme;
+
+        TopBottomPanel::bottom("mobile_bottom_nav_bar")
+            .exact_height(46.0)
+            .frame(
+                Frame::none()
+                    .fill(theme.bg_panel_c32())
+                    .stroke(egui::Stroke::new(1.0, theme.grid_line_sub_c32())),
+            )
+            .show(ctx, |ui| {
+                ui.horizontal_centered(|ui| {
+                    let total_width = ui.available_width();
+                    let tab_width = (total_width / 4.0).max(64.0);
+
+                    let tabs = [
+                        (
+                            crate::gui::types::MobileViewTab::PianoRoll,
+                            "🎹",
+                            lang.tr("Notas", "Notes"),
+                        ),
+                        (
+                            crate::gui::types::MobileViewTab::Arrangement,
+                            "🎚️",
+                            lang.tr("Faixas", "Tracks"),
+                        ),
+                        (
+                            crate::gui::types::MobileViewTab::Inspector,
+                            "ℹ️",
+                            lang.tr("Inspetor", "Inspector"),
+                        ),
+                        (
+                            crate::gui::types::MobileViewTab::Settings,
+                            "⚙️",
+                            lang.tr("Ajustes", "Settings"),
+                        ),
+                    ];
+
+                    for (tab, icon, label) in tabs {
+                        let is_selected = self.active_mobile_tab == tab;
+                        let (bg, stroke, text_color) = if is_selected {
+                            (
+                                theme.c32_alpha(theme.accent_color, 0.25),
+                                egui::Stroke::new(1.2, theme.accent_c32()),
+                                theme.accent_c32(),
+                            )
+                        } else {
+                            (
+                                egui::Color32::TRANSPARENT,
+                                egui::Stroke::NONE,
+                                theme.text_muted_c32(),
+                            )
+                        };
+
+                        let btn = egui::Button::new(
+                            egui::RichText::new(format!("{icon} {label}"))
+                                .size(11.0)
+                                .strong()
+                                .color(text_color),
+                        )
+                        .min_size(egui::Vec2::new(tab_width - 4.0, 36.0))
+                        .fill(bg)
+                        .stroke(stroke)
+                        .rounding(egui::Rounding::same(6.0));
+
+                        if ui.add(btn).clicked() {
+                            self.active_mobile_tab = tab;
+                        }
+                    }
+                });
+            });
     }
 }

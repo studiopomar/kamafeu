@@ -2,6 +2,34 @@ use super::TrackRenderer;
 use std::path::Path;
 
 impl TrackRenderer {
+    /// Convert mono samples between rates using linear interpolation.
+    pub(crate) fn convert_sample_rate(
+        samples: &[f32],
+        source_rate: u32,
+        target_rate: u32,
+    ) -> Vec<f32> {
+        if samples.is_empty() || source_rate == 0 || target_rate == 0 {
+            return samples.to_vec();
+        }
+        if source_rate == target_rate {
+            return samples.to_vec();
+        }
+
+        let output_len = ((samples.len() as f64 * f64::from(target_rate) / f64::from(source_rate))
+            .round() as usize)
+            .max(1);
+        let ratio = f64::from(source_rate) / f64::from(target_rate);
+        let mut output = Vec::with_capacity(output_len);
+        for output_index in 0..output_len {
+            let source_position = output_index as f64 * ratio;
+            let left = source_position.floor() as usize;
+            let right = (left + 1).min(samples.len() - 1);
+            let fraction = (source_position - left as f64) as f32;
+            output.push(samples[left] * (1.0 - fraction) + samples[right] * fraction);
+        }
+        output
+    }
+
     /// Helper to read a WAV file from disk into f32 mono samples
     pub fn load_wav_samples<P: AsRef<Path>>(path: P) -> Result<(Vec<f32>, u32), String> {
         let path = path.as_ref();

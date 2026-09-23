@@ -48,6 +48,7 @@ impl KamafeuStudioApp {
             let mut do_deselect_all = false;
             let mut do_toggle_drawer = false;
             let mut do_toggle_phonemes = false;
+            let mut do_toggle_envelope = false;
             let mut do_toggle_inspector = false;
             let mut do_toggle_arrangement = false;
             let mut do_toggle_maximize = false;
@@ -207,7 +208,20 @@ impl KamafeuStudioApp {
                 if i.modifiers.alt && i.key_pressed(Key::O) {
                     do_toggle_phonemes = true;
                 }
-                if i.key_pressed(Key::F11) || (i.modifiers.shift && i.key_pressed(Key::F)) {
+                if i.key_pressed(Key::O)
+                    && !has_cmd_or_ctrl
+                    && !i.modifiers.alt
+                    && !i.modifiers.shift
+                {
+                    do_toggle_envelope = true;
+                }
+                if i.key_pressed(Key::F11) {
+                    let is_fs = i.viewport().fullscreen.unwrap_or(false);
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(!is_fs));
+                }
+                if (i.modifiers.shift && i.key_pressed(Key::F))
+                    || (i.modifiers.alt && i.key_pressed(Key::M))
+                {
                     do_toggle_maximize = true;
                 }
                 if i.key_pressed(Key::M) && !has_cmd_or_ctrl {
@@ -294,15 +308,35 @@ impl KamafeuStudioApp {
                 self.piano_roll_state.show_phoneme_ruler =
                     !self.piano_roll_state.show_phoneme_ruler;
             }
+            if do_toggle_envelope {
+                self.piano_roll_state.show_envelope_handles =
+                    !self.piano_roll_state.show_envelope_handles;
+            }
             if do_toggle_inspector {
                 self.piano_roll_state.show_inspector = !self.piano_roll_state.show_inspector;
+                if self.piano_roll_state.show_inspector && self.piano_roll_state.is_maximized {
+                    self.piano_roll_state.is_maximized = false;
+                }
             }
             if do_toggle_arrangement {
                 self.piano_roll_state.show_arrangement_view =
                     !self.piano_roll_state.show_arrangement_view;
+                if self.piano_roll_state.show_arrangement_view && self.piano_roll_state.is_maximized
+                {
+                    self.piano_roll_state.is_maximized = false;
+                }
             }
             if do_toggle_maximize {
                 self.piano_roll_state.is_maximized = !self.piano_roll_state.is_maximized;
+                if !self.piano_roll_state.is_maximized
+                    && !self.piano_roll_state.show_arrangement_view
+                    && !self.piano_roll_state.show_inspector
+                    && !self.piano_roll_state.show_phoneme_ruler
+                {
+                    self.piano_roll_state.show_arrangement_view = true;
+                    self.piano_roll_state.show_inspector = true;
+                    self.piano_roll_state.show_phoneme_ruler = true;
+                }
             }
             if do_toggle_mute {
                 if let Some(track) = self.project.tracks.get_mut(self.active_track_index) {

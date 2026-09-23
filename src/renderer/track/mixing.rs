@@ -1,6 +1,36 @@
 use super::TrackRenderer;
 
 impl TrackRenderer {
+    /// Transparent soft-knee limiter that scales peaks above `target_peak` and smooths extreme transients.
+    pub fn apply_soft_limiter(buffer: &mut [f32], target_peak: f32) {
+        if buffer.is_empty() {
+            return;
+        }
+        let max_peak = buffer.iter().map(|s| s.abs()).fold(0.0f32, f32::max);
+        if max_peak > target_peak && max_peak > 0.0 {
+            let scale = target_peak / max_peak;
+            for s in buffer.iter_mut() {
+                *s *= scale;
+            }
+        }
+        // Transparent soft-knee saturation curve to protect against any localized harmonic bursts.
+        let knee_threshold = target_peak * 0.92;
+        let head = (1.0f32 - knee_threshold).max(1e-4);
+        for s in buffer.iter_mut() {
+            if !s.is_finite() {
+                *s = 0.0;
+                continue;
+            }
+            let abs_val = s.abs();
+            if abs_val > knee_threshold {
+                let sign = s.signum();
+                let excess = abs_val - knee_threshold;
+                let compressed = knee_threshold + head * (excess / head).tanh();
+                *s = sign * compressed.min(target_peak);
+            }
+        }
+    }
+
     pub(super) fn mix_phase_aligned(
         track_buffer: &mut [f32],
         note_samples: &[f32],

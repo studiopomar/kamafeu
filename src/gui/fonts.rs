@@ -4,6 +4,12 @@ use std::fs;
 use std::path::PathBuf;
 
 pub fn setup_custom_fonts(ctx: &egui::Context) {
+    #[cfg(target_arch = "wasm32")]
+    {
+        let _ = ctx;
+        return;
+    }
+
     let mut fonts = FontDefinitions::default();
 
     let mut primary_candidates = Vec::new();

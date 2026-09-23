@@ -168,3 +168,77 @@ fn selecting_note_keeps_scroll_and_double_click_edits_lyric() {
         );
     }
 }
+
+#[test]
+fn radar_click_moves_the_full_piano_roll_while_playing() {
+    let ctx = egui::Context::default();
+    let mut state = PianoRollState {
+        is_playing: true,
+        auto_scroll_mode: crate::gui::types::AutoScrollMode::StationaryCursor,
+        playhead_ms: 30_000.0,
+        initial_scrolled: true,
+        ..Default::default()
+    };
+    let mut notes = vec![UNote::new("a", "C4", 0.0, 40_000.0)];
+    frame(&ctx, &mut state, &mut notes, 0.0, vec![]);
+
+    let radar_position = Pos2::new(800.0, 15.0);
+    frame(
+        &ctx,
+        &mut state,
+        &mut notes,
+        0.1,
+        button(radar_position, true),
+    );
+    frame(
+        &ctx,
+        &mut state,
+        &mut notes,
+        0.2,
+        button(radar_position, false),
+    );
+
+    assert_eq!(
+        state.auto_scroll_mode,
+        crate::gui::types::AutoScrollMode::Off
+    );
+    assert!(state.horizontal_follow_user_override);
+    assert!(state.horizontal_scroll_offset > 8_000.0);
+}
+
+#[test]
+fn radar_drag_keeps_control_until_the_pointer_is_released() {
+    let ctx = egui::Context::default();
+    let mut state = PianoRollState {
+        initial_scrolled: true,
+        horizontal_scroll_offset: 2_000.0,
+        ..Default::default()
+    };
+    let mut notes = vec![UNote::new("a", "C4", 0.0, 40_000.0)];
+    frame(&ctx, &mut state, &mut notes, 0.0, vec![]);
+
+    let start = Pos2::new(500.0, 15.0);
+    frame(&ctx, &mut state, &mut notes, 0.1, button(start, true));
+    frame(
+        &ctx,
+        &mut state,
+        &mut notes,
+        0.2,
+        // Deliberately leave the radar's horizontal bounds. A captured drag
+        // must still move the viewport until the button is released.
+        vec![egui::Event::PointerMoved(Pos2::new(1_400.0, 15.0))],
+    );
+    assert!(state.horizontal_scroll_offset > 2_000.0);
+    // The 70-second test canvas (40 seconds of notes plus 30 seconds of tail)
+    // at the default 0.25 px/ms scale cannot be scrolled beyond 17,500 px.
+    // The radar must clamp before ScrollArea does.
+    assert!(state.horizontal_scroll_offset <= 17_500.0);
+    frame(
+        &ctx,
+        &mut state,
+        &mut notes,
+        0.3,
+        button(Pos2::new(1_400.0, 15.0), false),
+    );
+    assert_eq!(state.minimap_drag_scroll_origin, None);
+}

@@ -73,28 +73,36 @@ pub fn set_cache_limits(max_ram_cache_mb: usize, max_disk_cache_mb: usize) {
 /// Remove arquivos persistentes que não são acessados há mais de `days` dias.
 /// A limpeza é limitada à pasta de cache atual e nunca atravessa subpastas.
 pub fn cleanup_older_than(days: u32) -> Result<usize, std::io::Error> {
-    let directory = persistent_cache_dir();
-    if !directory.is_dir() {
+    #[cfg(target_arch = "wasm32")]
+    {
+        let _ = days;
         return Ok(0);
     }
-    let cutoff = std::time::SystemTime::now()
-        .checked_sub(Duration::from_secs(u64::from(days.max(1)) * 86_400))
-        .unwrap_or(std::time::SystemTime::UNIX_EPOCH);
-    let mut deleted = 0;
-    for entry in std::fs::read_dir(directory)? {
-        let entry = entry?;
-        let metadata = entry.metadata()?;
-        if metadata.is_file()
-            && metadata
-                .modified()
-                .map(|modified| modified < cutoff)
-                .unwrap_or(false)
-            && std::fs::remove_file(entry.path()).is_ok()
-        {
-            deleted += 1;
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let directory = persistent_cache_dir();
+        if !directory.is_dir() {
+            return Ok(0);
         }
+        let cutoff = web_time::SystemTime::now()
+            .checked_sub(Duration::from_secs(u64::from(days.max(1)) * 86_400))
+            .unwrap_or(web_time::SystemTime::UNIX_EPOCH);
+        let mut deleted = 0;
+        for entry in std::fs::read_dir(directory)? {
+            let entry = entry?;
+            let metadata = entry.metadata()?;
+            if metadata.is_file()
+                && metadata
+                    .modified()
+                    .map(|modified| modified < cutoff)
+                    .unwrap_or(false)
+                && std::fs::remove_file(entry.path()).is_ok()
+            {
+                deleted += 1;
+            }
+        }
+        Ok(deleted)
     }
-    Ok(deleted)
 }
 
 /// Seleciona a pasta persistente de cache. `None` restaura o local padrão do
@@ -107,40 +115,54 @@ pub fn set_persistent_cache_dir_override(path: Option<PathBuf>) {
 }
 
 pub fn persistent_cache_dir() -> std::path::PathBuf {
-    if let Ok(override_path) = cache_directory_override().read() {
-        if let Some(path) = override_path.as_ref() {
-            return path.clone();
-        }
+    #[cfg(target_arch = "wasm32")]
+    {
+        return std::path::PathBuf::from("/tmp/kamafeu_cache");
     }
-    let base = std::env::var_os("HOME")
-        .map(std::path::PathBuf::from)
-        .unwrap_or_else(std::env::temp_dir);
-    #[cfg(target_os = "macos")]
-    let base = base.join("Library").join("Caches");
-    #[cfg(not(target_os = "macos"))]
-    let base = base.join(".cache");
-    base.join("kamafeu")
-        .join(format!("resampler-v{CACHE_SCHEMA}"))
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        if let Ok(override_path) = cache_directory_override().read() {
+            if let Some(path) = override_path.as_ref() {
+                return path.clone();
+            }
+        }
+        let base = std::env::var_os("HOME")
+            .map(std::path::PathBuf::from)
+            .unwrap_or_else(std::env::temp_dir);
+        #[cfg(target_os = "macos")]
+        let base = base.join("Library").join("Caches");
+        #[cfg(not(target_os = "macos"))]
+        let base = base.join(".cache");
+        base.join("kamafeu")
+            .join(format!("resampler-v{CACHE_SCHEMA}"))
+    }
 }
 
 pub fn get_disk_cache_stats() -> (usize, u64) {
-    let dir = persistent_cache_dir();
-    if !dir.is_dir() {
+    #[cfg(target_arch = "wasm32")]
+    {
         return (0, 0);
     }
-    let mut count = 0;
-    let mut total_bytes = 0;
-    if let Ok(entries) = std::fs::read_dir(&dir) {
-        for entry in entries.flatten() {
-            if let Ok(meta) = entry.metadata() {
-                if meta.is_file() {
-                    count += 1;
-                    total_bytes += meta.len();
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let dir = persistent_cache_dir();
+        if !dir.is_dir() {
+            return (0, 0);
+        }
+        let mut count = 0;
+        let mut total_bytes = 0;
+        if let Ok(entries) = std::fs::read_dir(&dir) {
+            for entry in entries.flatten() {
+                if let Ok(meta) = entry.metadata() {
+                    if meta.is_file() {
+                        count += 1;
+                        total_bytes += meta.len();
+                    }
                 }
             }
         }
+        (count, total_bytes)
     }
-    (count, total_bytes)
 }
 
 pub fn clear_disk_cache() -> Result<usize, std::io::Error> {
@@ -182,53 +204,68 @@ fn persistent_cache_path(key: u64) -> std::path::PathBuf {
 }
 
 fn load_persistent(key: u64, sample_rate: u32) -> Option<Vec<f32>> {
-    let path = persistent_cache_path(key);
-    let loaded = crate::renderer::TrackRenderer::load_wav_samples(&path);
-    match loaded {
-        Ok((samples, cached_rate)) if !samples.is_empty() && cached_rate == sample_rate => {
-            Some(samples)
-        }
-        Ok(_) | Err(_) => {
-            if path.is_file() {
-                let _ = std::fs::remove_file(path);
+    #[cfg(target_arch = "wasm32")]
+    {
+        let _ = (key, sample_rate);
+        None
+    }
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        let path = persistent_cache_path(key);
+        let loaded = crate::renderer::TrackRenderer::load_wav_samples(&path);
+        match loaded {
+            Ok((samples, cached_rate)) if !samples.is_empty() && cached_rate == sample_rate => {
+                Some(samples)
             }
-            None
+            Ok(_) | Err(_) => {
+                if path.is_file() {
+                    let _ = std::fs::remove_file(path);
+                }
+                None
+            }
         }
     }
 }
 
 fn store_persistent(key: u64, samples: &[f32], sample_rate: u32) {
-    if samples.is_empty() {
-        return;
+    #[cfg(target_arch = "wasm32")]
+    {
+        let _ = (key, samples, sample_rate);
     }
-    let directory = persistent_cache_dir();
-    if std::fs::create_dir_all(&directory).is_err() {
-        return;
-    }
-    let destination = persistent_cache_path(key);
-    let Ok(temporary) = tempfile::Builder::new()
-        .prefix("res-")
-        .suffix(".wav")
-        .tempfile_in(directory)
-    else {
-        return;
-    };
-    let temporary = temporary.into_temp_path();
-    let spec = hound::WavSpec {
-        channels: 1,
-        sample_rate,
-        bits_per_sample: 32,
-        sample_format: hound::SampleFormat::Float,
-    };
-    let stored = hound::WavWriter::create(&temporary, spec).and_then(|mut writer| {
-        for &sample in samples {
-            writer.write_sample(sample)?;
+    #[cfg(not(target_arch = "wasm32"))]
+    {
+        if samples.is_empty() {
+            return;
         }
-        writer.finalize()
-    });
-    if stored.is_ok() {
-        let _ = temporary.persist(destination);
-        prune_persistent_cache();
+        let directory = persistent_cache_dir();
+        if std::fs::create_dir_all(&directory).is_err() {
+            return;
+        }
+        let destination = persistent_cache_path(key);
+        let Ok(temporary) = tempfile::Builder::new()
+            .prefix("res-")
+            .suffix(".wav")
+            .tempfile_in(directory)
+        else {
+            return;
+        };
+        let temporary = temporary.into_temp_path();
+        let spec = hound::WavSpec {
+            channels: 1,
+            sample_rate,
+            bits_per_sample: 32,
+            sample_format: hound::SampleFormat::Float,
+        };
+        let stored = hound::WavWriter::create(&temporary, spec).and_then(|mut writer| {
+            for &sample in samples {
+                writer.write_sample(sample)?;
+            }
+            writer.finalize()
+        });
+        if stored.is_ok() {
+            let _ = temporary.persist(destination);
+            prune_persistent_cache();
+        }
     }
 }
 
@@ -311,6 +348,7 @@ fn source_fingerprint(args: &ResamplerArgs, hasher: &mut impl Hasher) {
         input.with_extension(format!("{extension}.frc")),
         input.with_extension(format!("{extension}.pmk")),
         input.with_extension(format!("{extension}.vs4ufrq")),
+        without_extension.with_extension("venus"),
         without_extension.with_extension("rudb"),
         without_extension.with_extension("sc.npz"),
         without_extension.with_extension("sc"),

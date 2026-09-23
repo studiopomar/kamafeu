@@ -16,7 +16,7 @@ use crate::gui::RenderLogFilter;
 use crate::oto::Voicebank;
 use crate::renderer::AudioExportFormat;
 use std::path::PathBuf;
-use std::time::Instant;
+use web_time::Instant;
 
 fn configured_export_format(export: &crate::config::ExportDefaultsConfig) -> AudioExportFormat {
     match export.format.as_str() {
@@ -215,15 +215,22 @@ impl KamafeuStudioApp {
             export_in_progress: false,
             folder_picker_open: false,
             folder_picker_current_dir: {
-                let default_dir = PathBuf::from("/sdcard/Download");
-                if default_dir.exists() {
-                    default_dir
-                } else {
-                    let sdcard = PathBuf::from("/sdcard");
-                    if sdcard.exists() {
-                        sdcard
+                #[cfg(target_arch = "wasm32")]
+                {
+                    PathBuf::from("/")
+                }
+                #[cfg(not(target_arch = "wasm32"))]
+                {
+                    let default_dir = PathBuf::from("/sdcard/Download");
+                    if default_dir.exists() {
+                        default_dir
                     } else {
-                        std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
+                        let sdcard = PathBuf::from("/sdcard");
+                        if sdcard.exists() {
+                            sdcard
+                        } else {
+                            std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."))
+                        }
                     }
                 }
             },
@@ -252,6 +259,8 @@ impl KamafeuStudioApp {
             preview_waveform_rx: None,
             preview_waveform_cancel: None,
             workspace_snap_rect: None,
+            active_mobile_tab: crate::gui::types::MobileViewTab::default(),
+            mobile_menu_open: false,
         }
     }
 }

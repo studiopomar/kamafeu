@@ -174,23 +174,45 @@ pub fn draw_right_panel(
                             let pitch_str = notes[target_idx].pitch.clone();
                             let pos_ms = notes[target_idx].position_ms;
                             let mut dur_ms = notes[target_idx].duration_ms;
-                            let mut gender = notes[target_idx].expressions.gender;
-                            let mut dynamics = notes[target_idx].expressions.dynamics;
-                            let mut pitch_delta = notes[target_idx].expressions.pitch_delta;
-                            let mut breathiness = notes[target_idx].expressions.breathiness;
-                            let mut consonant_velocity = notes[target_idx].expressions.consonant_velocity;
-                            let mut volume = notes[target_idx].expressions.volume;
-                            let mut attack = notes[target_idx].expressions.attack;
-                            let mut decay = notes[target_idx].expressions.decay;
-                            let mut vibrato = notes[target_idx].vibrato.clone();
-                            let mut portamento_start = notes[target_idx].pitch_bend.portamento_start_ms;
-                            let mut portamento_length = notes[target_idx].pitch_bend.portamento_length_ms;
-                            let mut portamento_shape = notes[target_idx].pitch_bend.portamento_shape.clone();
-                            let mut snap_first = notes[target_idx].pitch_bend.snap_first;
+                            let orig_fade_in = notes[target_idx].envelope.p2;
+                            let orig_fade_out = notes[target_idx].envelope.p5;
+                            let orig_crossfade = notes[target_idx].envelope.crossfade_ms;
+
+                            let mut fade_in_ms = orig_fade_in;
+                            let mut fade_out_ms = orig_fade_out;
+                            let mut crossfade_ms = orig_crossfade;
+
+                            let orig_gender = notes[target_idx].expressions.gender;
+                            let orig_dynamics = notes[target_idx].expressions.dynamics;
+                            let orig_pitch_delta = notes[target_idx].expressions.pitch_delta;
+                            let orig_breathiness = notes[target_idx].expressions.breathiness;
+                            let orig_consonant_velocity = notes[target_idx].expressions.consonant_velocity;
+                            let orig_volume = notes[target_idx].expressions.volume;
+                            let orig_attack = notes[target_idx].expressions.attack;
+                            let orig_decay = notes[target_idx].expressions.decay;
+
+                            let mut gender = orig_gender;
+                            let mut dynamics = orig_dynamics;
+                            let mut pitch_delta = orig_pitch_delta;
+                            let mut breathiness = orig_breathiness;
+                            let mut consonant_velocity = orig_consonant_velocity;
+                            let mut volume = orig_volume;
+                            let mut attack = orig_attack;
+                            let mut decay = orig_decay;
+
+                            let original_vibrato = notes[target_idx].vibrato.clone();
+                            let mut vibrato = original_vibrato.clone();
+
+                            let orig_portamento_start = notes[target_idx].pitch_bend.portamento_start_ms;
+                            let orig_portamento_length = notes[target_idx].pitch_bend.portamento_length_ms;
+                            let orig_portamento_shape = notes[target_idx].pitch_bend.portamento_shape.clone();
+                            let orig_snap_first = notes[target_idx].pitch_bend.snap_first;
+
+                            let mut portamento_start = orig_portamento_start;
+                            let mut portamento_length = orig_portamento_length;
+                            let mut portamento_shape = orig_portamento_shape.clone();
+                            let mut snap_first = orig_snap_first;
                             let mut phonemizer_override = notes[target_idx].phonemizer_override.clone();
-                            let mut fade_in_ms = notes[target_idx].envelope.p2;
-                            let mut fade_out_ms = notes[target_idx].envelope.p5;
-                            let mut crossfade_ms = notes[target_idx].envelope.crossfade_ms;
 
                             let mut changed_lyric = false;
                             let mut changed_dur = false;
@@ -379,9 +401,19 @@ pub fn draw_right_panel(
                                     changed_portamento |= ui.add(egui::Slider::new(&mut portamento_length, 1.0..=500.0).text("Comprimento").suffix(" ms")).changed();
                                     changed_portamento |= ui.add(egui::Slider::new(&mut portamento_start, -500.0..=500.0).text("Início").suffix(" ms")).changed();
                                     egui::ComboBox::from_label("Formato da curva")
-                                        .selected_text(&portamento_shape)
+                                        .selected_text(match portamento_shape.as_str() {
+                                            "h" | "hermite" => "Spline Hermite (Ultra-Suave)",
+                                            "io" | "s" => "S suave",
+                                            "l" => "Linear",
+                                            "i" => "Entrada",
+                                            "o" => "Saída",
+                                            "j" => "Exponencial",
+                                            "r" => "Logarítmica",
+                                            _ => &portamento_shape,
+                                        })
                                         .show_ui(ui, |ui| {
                                             for (value, label) in [
+                                                ("h", "Spline Hermite (Ultra-Suave)"),
                                                 ("io", "S suave"),
                                                 ("l", "Linear"),
                                                 ("i", "Entrada"),
@@ -431,42 +463,61 @@ pub fn draw_right_panel(
                                 if idx < notes.len() {
                                     if changed_lyric { notes[idx].lyric = lyric.clone(); }
                                     if changed_dur { notes[idx].duration_ms = dur_ms; }
-                                    if changed_gender { notes[idx].expressions.gender = gender; }
-                                    if changed_dynamics { notes[idx].expressions.dynamics = dynamics; }
-                                    if changed_pitch { notes[idx].expressions.pitch_delta = pitch_delta; }
-                                    if changed_breath { notes[idx].expressions.breathiness = breathiness; }
-                                    if changed_timing { notes[idx].expressions.consonant_velocity = consonant_velocity; }
+                                    if changed_gender && (gender - orig_gender).abs() > f64::EPSILON { notes[idx].expressions.gender = gender; }
+                                    if changed_dynamics && (dynamics - orig_dynamics).abs() > f64::EPSILON { notes[idx].expressions.dynamics = dynamics; }
+                                    if changed_pitch && (pitch_delta - orig_pitch_delta).abs() > f64::EPSILON { notes[idx].expressions.pitch_delta = pitch_delta; }
+                                    if changed_breath && (breathiness - orig_breathiness).abs() > f64::EPSILON { notes[idx].expressions.breathiness = breathiness; }
+                                    if changed_timing && (consonant_velocity - orig_consonant_velocity).abs() > f64::EPSILON { notes[idx].expressions.consonant_velocity = consonant_velocity; }
                                     if changed_amplitude {
-                                        notes[idx].expressions.volume = volume;
-                                        notes[idx].expressions.attack = attack;
-                                        notes[idx].expressions.decay = decay;
+                                        if (volume - orig_volume).abs() > f64::EPSILON { notes[idx].expressions.volume = volume; }
+                                        if (attack - orig_attack).abs() > f64::EPSILON { notes[idx].expressions.attack = attack; }
+                                        if (decay - orig_decay).abs() > f64::EPSILON { notes[idx].expressions.decay = decay; }
                                     }
                                     if changed_envelope {
-                                        notes[idx].envelope.p1 = 0.0;
-                                        notes[idx].envelope.p2 = fade_in_ms;
-                                        notes[idx].envelope.p3 = 35.0;
-                                        notes[idx].envelope.p4 = 0.0;
-                                        notes[idx].envelope.p5 = fade_out_ms;
-                                        notes[idx].envelope.crossfade_ms = crossfade_ms;
+                                        if (fade_in_ms - orig_fade_in).abs() > f64::EPSILON {
+                                            notes[idx].envelope.p2 = fade_in_ms;
+                                        }
+                                        if (fade_out_ms - orig_fade_out).abs() > f64::EPSILON {
+                                            notes[idx].envelope.p5 = fade_out_ms;
+                                        }
+                                        if (crossfade_ms - orig_crossfade).abs() > f64::EPSILON {
+                                            notes[idx].envelope.crossfade_ms = crossfade_ms;
+                                        }
                                     }
                                     if changed_phonemizer {
                                         notes[idx].phonemizer_override = phonemizer_override.clone();
                                     }
-                                    if changed_vibrato { notes[idx].vibrato = vibrato.clone(); }
+                                    if changed_vibrato {
+                                        let target = &mut notes[idx].vibrato;
+                                        if (vibrato.length_pct - original_vibrato.length_pct).abs() > f64::EPSILON { target.length_pct = vibrato.length_pct; }
+                                        if (vibrato.period_ms - original_vibrato.period_ms).abs() > f64::EPSILON { target.period_ms = vibrato.period_ms; }
+                                        if (vibrato.depth_cents - original_vibrato.depth_cents).abs() > f64::EPSILON { target.depth_cents = vibrato.depth_cents; }
+                                        if (vibrato.fade_in_pct - original_vibrato.fade_in_pct).abs() > f64::EPSILON { target.fade_in_pct = vibrato.fade_in_pct; }
+                                        if (vibrato.fade_out_pct - original_vibrato.fade_out_pct).abs() > f64::EPSILON { target.fade_out_pct = vibrato.fade_out_pct; }
+                                        if (vibrato.shift_pct - original_vibrato.shift_pct).abs() > f64::EPSILON { target.shift_pct = vibrato.shift_pct; }
+                                        if (vibrato.drift_pct - original_vibrato.drift_pct).abs() > f64::EPSILON { target.drift_pct = vibrato.drift_pct; }
+                                        if (vibrato.volume_link_pct - original_vibrato.volume_link_pct).abs() > f64::EPSILON { target.volume_link_pct = vibrato.volume_link_pct; }
+                                    }
                                     if changed_portamento {
-                                        notes[idx].pitch_bend.snap_first = snap_first;
-                                        notes[idx].pitch_bend.portamento_start_ms = portamento_start;
-                                        notes[idx].pitch_bend.portamento_length_ms = portamento_length;
-                                        notes[idx].pitch_bend.portamento_shape = portamento_shape.clone();
+                                        if snap_first != orig_snap_first {
+                                            notes[idx].pitch_bend.snap_first = snap_first;
+                                        }
+                                        if (portamento_start - orig_portamento_start).abs() > f64::EPSILON {
+                                            notes[idx].pitch_bend.portamento_start_ms = portamento_start;
+                                        }
+                                        if (portamento_length - orig_portamento_length).abs() > f64::EPSILON {
+                                            notes[idx].pitch_bend.portamento_length_ms = portamento_length;
+                                        }
+                                        if portamento_shape != orig_portamento_shape {
+                                            notes[idx].pitch_bend.portamento_shape = portamento_shape.clone();
+                                        }
                                         if notes[idx].pitch_bend.points.len() >= 2 {
-                                            notes[idx].pitch_bend.points[0].time_offset_ms = portamento_start;
-                                            notes[idx].pitch_bend.points[0].shape = portamento_shape.clone();
-                                            notes[idx].pitch_bend.points[1].time_offset_ms = portamento_start + portamento_length;
+                                            notes[idx].pitch_bend.points[0].time_offset_ms = notes[idx].pitch_bend.portamento_start_ms;
+                                            notes[idx].pitch_bend.points[0].shape = notes[idx].pitch_bend.portamento_shape.clone();
+                                            notes[idx].pitch_bend.points[1].time_offset_ms = notes[idx].pitch_bend.portamento_start_ms + notes[idx].pitch_bend.portamento_length_ms;
                                             notes[idx].pitch_bend.points.sort_by(|left, right| {
                                                 left.time_offset_ms.partial_cmp(&right.time_offset_ms).unwrap_or(std::cmp::Ordering::Equal)
                                             });
-                                        } else {
-                                            notes[idx].pitch_bend.points.clear();
                                         }
                                     }
                                 }

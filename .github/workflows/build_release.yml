@@ -10,10 +10,30 @@ permissions:
   contents: read
 
 jobs:
+  quality:
+    name: Quality gates
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.82.0
+          components: rustfmt, clippy
+      - name: Check formatting
+        run: cargo fmt --all -- --check
+      - name: Run tests
+        run: cargo test --all-targets --all-features
+      - name: Run Clippy
+        run: cargo clippy --all-targets --all-features -- -D warnings
+      - name: Audit dependencies
+        uses: rustsec/audit-check@v2
+
   build:
     name: Build ${{ matrix.job.name }}
+    needs: quality
     runs-on: ${{ matrix.job.os }}
-    continue-on-error: ${{ matrix.job.allow_failure || false }}
     strategy:
       fail-fast: false
       matrix:
@@ -77,6 +97,11 @@ jobs:
         if: matrix.job.use_cross == false
         run: cargo build --release --bins --target ${{ matrix.job.target }}
 
+      - name: Build Bundled External Resamplers (straycat-rs & organum)
+        run: |
+          cargo install --git https://github.com/UtaUtaUtau/straycat-rs.git --target ${{ matrix.job.target }} --root ./resamplers_dist straycat-rs
+          cargo install --git https://github.com/KakouLabs/Organum.git --target ${{ matrix.job.target }} --root ./resamplers_dist organum
+
       - name: Prepare Artifacts (Windows)
         if: matrix.job.os == 'windows-latest'
         shell: powershell
@@ -85,7 +110,23 @@ jobs:
           $toolkit_path = "target/${{ matrix.job.target }}/release/${{ matrix.job.toolkit_binary }}"
           if (-Not (Test-Path $bin_path)) { throw "Missing Studio binary: $bin_path" }
           if (-Not (Test-Path $toolkit_path)) { throw "Missing Copaiba binary: $toolkit_path" }
-          Compress-Archive -Path $bin_path, $toolkit_path, "README.md", "LICENSE" -DestinationPath "${{ matrix.job.archive }}"
+
+          New-Item -ItemType Directory -Force -Path "package_root/resamplers"
+          Copy-Item $bin_path -Destination "package_root/kamafeu.exe"
+          Copy-Item $toolkit_path -Destination "package_root/copaiba.exe"
+          Copy-Item "README.md", "LICENSE" -Destination "package_root/"
+
+          if (Test-Path "resamplers_dist/bin") {
+            Copy-Item "resamplers_dist/bin/*" -Destination "package_root/resamplers/" -Force
+          }
+          if (Test-Path "resamplers/README.md") {
+            Copy-Item "resamplers/README.md" -Destination "package_root/resamplers/" -Force
+          }
+          if (Test-Path "resamplers/licenses") {
+            Copy-Item "resamplers/licenses" -Destination "package_root/resamplers/" -Recurse -Force
+          }
+
+          Compress-Archive -Path "package_root/*" -DestinationPath "${{ matrix.job.archive }}" -Force
 
       - name: Prepare Artifacts (Unix / Linux / macOS)
         if: matrix.job.os != 'windows-latest'
@@ -94,21 +135,57 @@ jobs:
           TOOLKIT_PATH="target/${{ matrix.job.target }}/release/${{ matrix.job.toolkit_binary }}"
           test -f "$BIN_PATH"
           test -f "$TOOLKIT_PATH"
-          mkdir -p package_root
-          cp "$BIN_PATH" package_root/kamafeu
-          cp "$TOOLKIT_PATH" package_root/copaiba
-          cp README.md LICENSE package_root/
-          if [[ "${{ matrix.job.target }}" == "aarch64-apple-darwin" ]]; then
-            mkdir -p package_root/resamplers
-            cp resamplers/organum-resampler resamplers/straycat-rs resamplers/README.md package_root/resamplers/
-            cp -R resamplers/licenses package_root/resamplers/
-            chmod +x package_root/resamplers/organum-resampler package_root/resamplers/straycat-rs
-          elif [[ "${{ matrix.job.target }}" == "x86_64-apple-darwin" ]]; then
-            mkdir -p package_root/resamplers
-            cp resamplers/macres resamplers/README.md package_root/resamplers/
-            cp -R resamplers/licenses package_root/resamplers/
-            chmod +x package_root/resamplers/macres
+          mkdir -p package_root/resamplers
+          if [[ "${{ matrix.job.os }}" == "macos-15" || "${{ matrix.job.os }}" == "macos-15-intel" ]]; then
+            mkdir -p package_root/Kamafeu.app/Contents/MacOS package_root/Kamafeu.app/Contents/Resources
+            cp "$BIN_PATH" package_root/Kamafeu.app/Contents/MacOS/kamafeu
+            cp assets/icon.png package_root/Kamafeu.app/Contents/Resources/icon.png
+            cp "$TOOLKIT_PATH" package_root/copaiba
+            cat > package_root/Kamafeu.app/Contents/Info.plist <<'PLIST'
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0"><dict>
+            <key>CFBundleName</key><string>Kamafeu Studio</string>
+            <key>CFBundleDisplayName</key><string>Kamafeu Studio</string>
+            <key>CFBundleIdentifier</key><string>com.studiopomar.kamafeu</string>
+            <key>CFBundleVersion</key><string>${{ github.ref_name }}</string>
+            <key>CFBundleShortVersionString</key><string>${{ github.ref_name }}</string>
+            <key>CFBundleExecutable</key><string>kamafeu</string>
+            <key>CFBundleIconFile</key><string>icon.png</string>
+            <key>CFBundlePackageType</key><string>APPL</string>
+          </dict></plist>
+          PLIST
+          else
+            cp "$BIN_PATH" package_root/kamafeu
+            cp "$TOOLKIT_PATH" package_root/copaiba
           fi
+          cp README.md LICENSE package_root/
+
+          # Include compiled resamplers
+          if [ -d "resamplers_dist/bin" ]; then
+            cp resamplers_dist/bin/* package_root/resamplers/ 2>/dev/null || true
+          fi
+
+          # Include repository bundled resamplers and licenses
+          if [ -f "resamplers/README.md" ]; then
+            cp resamplers/README.md package_root/resamplers/
+          fi
+          if [ -d "resamplers/licenses" ]; then
+            cp -R resamplers/licenses package_root/resamplers/
+          fi
+          if [[ "${{ matrix.job.target }}" == "x86_64-apple-darwin" ]]; then
+            if [ -f "resamplers/macres" ]; then
+              cp resamplers/macres package_root/resamplers/
+            fi
+          fi
+
+          chmod +x package_root/copaiba
+          if [ -f package_root/kamafeu ]; then chmod +x package_root/kamafeu; fi
+          if [ -f package_root/Kamafeu.app/Contents/MacOS/kamafeu ]; then chmod +x package_root/Kamafeu.app/Contents/MacOS/kamafeu; fi
+          if [ -d "package_root/resamplers" ]; then
+            chmod +x package_root/resamplers/* 2>/dev/null || true
+          fi
+
           if [[ "${{ matrix.job.os }}" == *"macos"* ]]; then
             hdiutil create -volname "Kamafeu" -srcfolder package_root -ov -format UDZO "${{ matrix.job.archive }}"
           else

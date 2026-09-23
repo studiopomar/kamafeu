@@ -32,7 +32,7 @@ impl FileDialog {
     }
 
     pub fn pick_file(self) -> Option<PathBuf> {
-        #[cfg(not(target_os = "android"))]
+        #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
         {
             let mut dialog = rfd::FileDialog::new();
             if let Some(title) = self.title {
@@ -47,14 +47,14 @@ impl FileDialog {
             }
             dialog.pick_file()
         }
-        #[cfg(target_os = "android")]
+        #[cfg(any(target_os = "android", target_arch = "wasm32"))]
         {
             None
         }
     }
 
     pub fn save_file(self) -> Option<PathBuf> {
-        #[cfg(not(target_os = "android"))]
+        #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
         {
             let mut dialog = rfd::FileDialog::new();
             if let Some(title) = self.title {
@@ -69,14 +69,14 @@ impl FileDialog {
             }
             dialog.save_file()
         }
-        #[cfg(target_os = "android")]
+        #[cfg(any(target_os = "android", target_arch = "wasm32"))]
         {
             None
         }
     }
 
     pub fn pick_folder(self) -> Option<PathBuf> {
-        #[cfg(not(target_os = "android"))]
+        #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
         {
             let mut dialog = rfd::FileDialog::new();
             if let Some(title) = self.title {
@@ -84,7 +84,7 @@ impl FileDialog {
             }
             dialog.pick_folder()
         }
-        #[cfg(target_os = "android")]
+        #[cfg(any(target_os = "android", target_arch = "wasm32"))]
         {
             None
         }

@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <title>Kamafeu Studio Web • OpenUTAU-Style Voice Synthesizer</title>
+  <meta name="description" content="Kamafeu Studio rodando 100% no navegador via WebAssembly (WASM) com síntese de voz em Rust.">
+  <link rel="icon" type="image/png" href="assets/icon.png">
+  <link data-trunk rel="copy-file" href="assets/icon.png" />
+  <link data-trunk rel="copy-file" href="assets/kamafeu_banner.png" />
+  <link data-trunk rel="rust" data-wasm-opt="z" />
+
+  <style>
+    :root {
+      --bg-color: #121014;
+      --card-bg: #1e1b22;
+      --accent-pink: #ff6584;
+      --accent-purple: #c084fc;
+      --text-main: #f8fafc;
+      --text-muted: #94a3b8;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+      user-select: none;
+      -webkit-user-select: none;
+    }
+
+    html, body {
+      width: 100%;
+      height: 100%;
+      overflow: hidden;
+      background-color: var(--bg-color);
+      color: var(--text-main);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+    }
+
+    #canvas_container {
+      position: absolute;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      z-index: 1;
+    }
+
+    #kamafeu_canvas {
+      width: 100%;
+      height: 100%;
+      display: block;
+    }
+
+    #loading_screen {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      background: radial-gradient(circle at 50% 40%, #201a29 0%, #0d0b11 100%);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      z-index: 100;
+      transition: opacity 0.5s ease, visibility 0.5s ease;
+    }
+
+    .loader-content {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      text-align: center;
+      padding: 2rem;
+      background: rgba(30, 27, 34, 0.6);
+      border-radius: 24px;
+      border: 1px solid rgba(255, 101, 132, 0.2);
+      box-shadow: 0 20px 40px rgba(0, 0, 0, 0.6);
+      backdrop-filter: blur(12px);
+      max-width: 90vw;
+      width: 420px;
+    }
+
+    .logo-img {
+      width: 96px;
+      height: 96px;
+      border-radius: 20px;
+      box-shadow: 0 10px 25px rgba(255, 101, 132, 0.3);
+      margin-bottom: 1.5rem;
+      animation: pulse-glow 2.5s infinite ease-in-out;
+    }
+
+    h1 {
+      font-size: 1.6rem;
+      font-weight: 700;
+      margin-bottom: 0.35rem;
+      background: linear-gradient(135deg, var(--accent-pink), var(--accent-purple));
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      letter-spacing: -0.5px;
+    }
+
+    p.subtitle {
+      color: var(--text-muted);
+      font-size: 0.9rem;
+      margin-bottom: 1.75rem;
+    }
+
+    .spinner-ring {
+      width: 42px;
+      height: 42px;
+      border: 3.5px solid rgba(255, 255, 255, 0.1);
+      border-top-color: var(--accent-pink);
+      border-right-color: var(--accent-purple);
+      border-radius: 50%;
+      animation: spin 1s infinite linear;
+      margin-bottom: 1.25rem;
+    }
+
+    .loading-status {
+      font-size: 0.85rem;
+      color: var(--text-muted);
+      font-family: monospace;
+    }
+
+    @keyframes spin {
+      0% { transform: rotate(0deg); }
+      100% { transform: rotate(360deg); }
+    }
+
+    @keyframes pulse-glow {
+      0%, 100% { transform: scale(1); filter: drop-shadow(0 0 12px rgba(255, 101, 132, 0.4)); }
+      50% { transform: scale(1.04); filter: drop-shadow(0 0 22px rgba(192, 132, 252, 0.6)); }
+    }
+  </style>
+</head>
+<body>
+  <div id="loading_screen">
+    <div class="loader-content">
+      <img src="assets/icon.png" alt="Kamafeu Studio" class="logo-img" onerror="this.style.display='none'">
+      <h1>Kamafeu Studio Web</h1>
+      <p class="subtitle">Sintetizador Vocal UTAU em WebAssembly</p>
+      <div class="spinner-ring"></div>
+      <div id="status_text" class="loading_status">Carregando módulos WASM...</div>
+    </div>
+  </div>
+
+  <div id="canvas_container">
+    <canvas id="kamafeu_canvas"></canvas>
+  </div>
+
+  <script>
+    // Monitor when egui takes over canvas rendering to fade out the splash screen
+    const observer = new MutationObserver(() => {
+      const canvas = document.getElementById("kamafeu_canvas");
+      if (canvas && (canvas.getAttribute("width") || canvas.style.width)) {
+        setTimeout(() => {
+          const loader = document.getElementById("loading_screen");
+          if (loader) {
+            loader.style.opacity = "0";
+            loader.style.pointerEvents = "none";
+            setTimeout(() => loader.remove(), 500);
+          }
+        }, 300);
+        observer.disconnect();
+      }
+    });
+
+    const canvas = document.getElementById("kamafeu_canvas");
+    if (canvas) {
+      observer.observe(canvas, { attributes: true, attributeFilter: ["width", "height", "style"] });
+    }
+
+    // Fallback timer in case mutation doesn't trigger
+    window.addEventListener("load", () => {
+      setTimeout(() => {
+        const loader = document.getElementById("loading_screen");
+        if (loader && loader.style.opacity !== "0") {
+          loader.style.opacity = "0";
+          loader.style.pointerEvents = "none";
+          setTimeout(() => loader.remove(), 500);
+        }
+      }, 4000);
+    });
+  </script>
+</body>
+</html>

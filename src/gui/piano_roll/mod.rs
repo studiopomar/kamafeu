@@ -2,6 +2,7 @@ mod context_menu;
 #[cfg(test)]
 mod interaction_tests;
 mod minimap;
+mod navigation;
 mod note_properties;
 mod parameter_drawer;
 mod phoneme_cache;
@@ -47,157 +48,19 @@ pub fn draw_piano_roll(
     let was_editing_lyric = state.editing_lyric_index.is_some();
     let key_count = (state.max_midi - state.min_midi + 1) as usize;
     let ruler_height = 28.0f32;
-    let param_drawer_height = if state.show_parameters_drawer {
+    let _param_drawer_height = if state.show_parameters_drawer {
         state.drawer_height
     } else {
         0.0f32
     };
-    let _total_height = key_count as f32 * state.row_height + ruler_height + param_drawer_height;
-    let keyboard_width = 65.0f32;
-    let (ctrl_pressed, alt_pressed, cmd_pressed) = ui.input(|i| {
-        (
-            i.modifiers.ctrl,
-            i.modifiers.alt,
-            i.modifiers.command || i.modifiers.mac_cmd,
-        )
-    });
-    let is_mod_zoom = ctrl_pressed || alt_pressed || cmd_pressed;
+    let is_narrow_screen = ui.available_width() < 720.0;
+    let keyboard_width = if is_narrow_screen { 44.0f32 } else { 62.0f32 };
+    let navigation = navigation::update(ui, state, ruler_height, keyboard_width);
+    let is_mod_zoom = navigation.is_mod_zoom;
+    let is_pinch_zoom = navigation.is_pinch_zoom;
+    let is_middle_panning = navigation.is_middle_panning;
 
-    let (is_middle_down, mouse_delta) = ui.input(|i| {
-        (
-            i.pointer.middle_down() || i.pointer.button_down(egui::PointerButton::Middle),
-            i.pointer.delta(),
-        )
-    });
-
-    let available_viewport = ui.available_rect_before_wrap();
-    let is_hovering_piano_roll = ui.input(|i| {
-        i.pointer
-            .hover_pos()
-            .or(i.pointer.latest_pos())
-            .map(|pos| available_viewport.contains(pos))
-            .unwrap_or(false)
-    });
-
-    // Trackpad pinch gestures arrive as an egui Zoom event / zoom_delta,
-    // without Ctrl/Alt/Cmd. Keep them scoped to the piano-roll viewport so a
-    // pinch over the inspector cannot resize the timeline underneath it.
-    let is_pinch_zoom = ui.input(|i| {
-        i.zoom_delta() != 1.0
-            || i.events
-                .iter()
-                .any(|event| matches!(event, egui::Event::Zoom(_)))
-    });
-
-    let mut is_middle_panning = false;
-    if is_middle_down && (is_hovering_piano_roll || state.is_middle_panning) {
-        state.is_middle_panning = true;
-        is_middle_panning = true;
-        if mouse_delta.length_sq() > 0.0 {
-            state.horizontal_scroll_offset =
-                (state.horizontal_scroll_offset - mouse_delta.x).max(0.0);
-            state.vertical_scroll_offset = (state.vertical_scroll_offset - mouse_delta.y).max(0.0);
-        }
-        ui.output_mut(|o| o.cursor_icon = egui::CursorIcon::Grabbing);
-    } else {
-        state.is_middle_panning = false;
-    }
-
-    // Consume Ctrl/Alt zoom input only while the pointer is actually over the
-    // piano-roll viewport.  Reading and clearing global scroll deltas here
-    // otherwise steals wheel events from the inspector and other windows.
-    if (is_mod_zoom || is_pinch_zoom) && is_hovering_piano_roll {
-        let wheel_delta = ui.input(|i| {
-            // Only consume a scroll/zoom event that belongs to this frame.
-            // Reading the accumulated scroll delta while Ctrl is merely
-            // pressed makes playback jump to an apparently random position.
-            let mut dy: f32 = 0.0;
-            for ev in &i.events {
-                if let egui::Event::MouseWheel { delta, .. } = ev {
-                    if delta.y.abs() > dy.abs() {
-                        dy = delta.y;
-                    }
-                } else if let egui::Event::Zoom(factor) = ev {
-                    let derived = (*factor - 1.0) * 80.0;
-                    if derived.abs() > dy.abs() {
-                        dy = derived;
-                    }
-                }
-            }
-            if dy.abs() < 1e-3 {
-                dy = (i.zoom_delta() - 1.0) * 80.0;
-            }
-            dy
-        });
-
-        if wheel_delta != 0.0 {
-            let zoom_factor = 1.05f32.powf(wheel_delta * 0.05);
-
-            let mouse_pos = ui.input(|i| {
-                i.pointer
-                    .hover_pos()
-                    .or(i.pointer.interact_pos())
-                    .or(i.pointer.latest_pos())
-            });
-
-            if alt_pressed {
-                let old_row_h = state.row_height;
-                let new_row_h = (old_row_h * zoom_factor).clamp(12.0, 70.0);
-
-                if let Some(mpos) = mouse_pos {
-                    let grid_screen_top = ui.available_rect_before_wrap().min.y + ruler_height;
-                    let mouse_y_in_viewport = (mpos.y - grid_screen_top).max(0.0);
-                    let canvas_y_under_mouse = mouse_y_in_viewport + state.vertical_scroll_offset;
-                    let key_ratio_under_mouse = canvas_y_under_mouse / old_row_h;
-                    let new_canvas_y = key_ratio_under_mouse * new_row_h;
-                    state.vertical_scroll_offset = (new_canvas_y - mouse_y_in_viewport).max(0.0);
-                }
-
-                state.row_height = new_row_h;
-            } else if ctrl_pressed || cmd_pressed || is_pinch_zoom {
-                let old_px_per_ms = state.px_per_ms;
-                let new_px_per_ms = (old_px_per_ms * zoom_factor).clamp(0.04, 2.5);
-
-                if let Some(mpos) = mouse_pos {
-                    let canvas_screen_left = ui.available_rect_before_wrap().min.x + keyboard_width;
-                    let mouse_x_in_viewport = (mpos.x - canvas_screen_left).max(0.0);
-                    let time_under_mouse = (mouse_x_in_viewport + state.horizontal_scroll_offset)
-                        as f64
-                        / old_px_per_ms as f64;
-                    let new_mouse_x_in_canvas = (time_under_mouse * new_px_per_ms as f64) as f32;
-                    state.horizontal_scroll_offset =
-                        (new_mouse_x_in_canvas - mouse_x_in_viewport).max(0.0);
-                }
-
-                state.px_per_ms = new_px_per_ms;
-            }
-        }
-
-        ui.ctx().input_mut(|i| {
-            i.smooth_scroll_delta = egui::Vec2::ZERO;
-            i.raw_scroll_delta = egui::Vec2::ZERO;
-        });
-    }
-
-    if state.is_playing {
-        let playhead_x = (state.playhead_ms * state.px_per_ms as f64) as f32;
-        let visible_width = (ui.available_width() - keyboard_width).max(100.0);
-
-        match state.auto_scroll_mode {
-            AutoScrollMode::StationaryCursor => {
-                let target_x = (playhead_x - visible_width * 0.30).max(0.0);
-                state.horizontal_scroll_offset = target_x;
-            }
-            AutoScrollMode::PageScroll => {
-                let curr_offset = state.horizontal_scroll_offset;
-                if playhead_x > curr_offset + visible_width * 0.92 || playhead_x < curr_offset {
-                    let target_x = (playhead_x - visible_width * 0.08).max(0.0);
-                    state.horizontal_scroll_offset = target_x;
-                }
-            }
-            AutoScrollMode::Off => {}
-        }
-    }
+    navigation::update_playhead_scroll(ui, state, keyboard_width);
 
     let timeline_scroll_x = state.horizontal_scroll_offset;
     let max_note_end_ms = notes
@@ -395,12 +258,6 @@ pub fn draw_piano_roll(
         );
     }
 
-    let ruler_response = ui.interact(
-        ruler_rect,
-        ui.make_persistent_id("piano_roll_ruler_interaction"),
-        Sense::click_and_drag(),
-    );
-
     // Botão ícone compacto de Maximizar / Restaurar no canto da régua
     let max_btn_size = 22.0_f32;
     let max_btn_rect = Rect::from_center_size(
@@ -415,8 +272,31 @@ pub fn draw_piano_roll(
     );
     if max_btn_resp.clicked() {
         state.is_maximized = !state.is_maximized;
+        if !state.is_maximized
+            && !state.show_arrangement_view
+            && !state.show_inspector
+            && !state.show_phoneme_ruler
+        {
+            state.show_arrangement_view = true;
+            state.show_inspector = true;
+            state.show_phoneme_ruler = true;
+        }
         ui.ctx().request_repaint();
     }
+
+    let scrub_ruler_rect = Rect::from_min_max(
+        ruler_rect.min,
+        Pos2::new(
+            (ruler_rect.max.x - 32.0).max(ruler_rect.min.x),
+            ruler_rect.max.y,
+        ),
+    );
+
+    let ruler_response = ui.interact(
+        scrub_ruler_rect,
+        ui.make_persistent_id("piano_roll_ruler_interaction"),
+        Sense::click_and_drag(),
+    );
 
     let is_hovered = max_btn_resp.hovered();
     let (btn_bg, btn_stroke, text_color, icon_symbol) = if state.is_maximized {
@@ -563,6 +443,8 @@ pub fn draw_piano_roll(
         on_playhead_scrubbed,
     );
 
+    navigation::update_pitch_follow(ui, state, notes, ui.available_height().max(100.0), bpm);
+
     let grid_width = (keyboard_width as f64 + total_canvas_ms * state.px_per_ms as f64) as f32;
     let grid_width = grid_width.max(3000.0);
     let grid_height = key_count as f32 * state.row_height;
@@ -626,8 +508,14 @@ pub fn draw_piano_roll(
         }
     }
 
-    if state.is_playing && state.auto_scroll_mode != AutoScrollMode::Off {
+    if state.is_playing
+        && state.auto_scroll_mode != AutoScrollMode::Off
+        && !state.horizontal_follow_user_override
+    {
         scroll_area = scroll_area.horizontal_scroll_offset(state.horizontal_scroll_offset);
+    }
+    if state.is_playing && state.vertical_pitch_follow && !state.vertical_follow_user_override {
+        scroll_area = scroll_area.vertical_scroll_offset(state.vertical_scroll_offset);
     }
 
     if is_mod_zoom
@@ -636,6 +524,7 @@ pub fn draw_piano_roll(
         || is_middle_panning
         || state.is_edge_autoscrolling
         || is_dragging
+        || state.minimap_navigation_active
     {
         scroll_area = scroll_area
             .horizontal_scroll_offset(state.horizontal_scroll_offset)
@@ -696,6 +585,8 @@ pub fn draw_piano_roll(
                         );
                     } else if is_tonic {
                         painter.rect_filled(row_rect, Rounding::ZERO, theme.scale_tonic_tint());
+                    } else {
+                        painter.rect_filled(row_rect, Rounding::ZERO, theme.scale_in_key_tint());
                     }
                 }
 
@@ -775,11 +666,22 @@ pub fn draw_piano_roll(
         let vibrato_interaction = ui.memory(|memory| memory.any_popup_open())
             || pointer
                 .is_some_and(|pos| vibrato_buttons.iter().any(|(_, rect)| rect.contains(pos)));
-        let mouse_interact_pos = pointer.filter(|_| !vibrato_interaction);
+        let mouse_interact_pos =
+            pointer.filter(|_| !vibrato_interaction && !state.is_dragging_in_drawer);
         let mut interacted_with_note_or_ui = vibrato_interaction;
         let mut pending_lyric_tags: Vec<(Rect, Color32, String, Color32, bool, Rect)> = Vec::new();
         let mut pending_phoneme_badges: Vec<(Rect, String, bool, Rect)> = Vec::new();
         let mut pending_mode_badges: Vec<(Rect, String)> = Vec::new();
+
+        struct PendingPitchHandle {
+            note_idx: usize,
+            pt_idx: usize,
+            pos: Pos2,
+            cents: f64,
+            shape: String,
+            is_custom: bool,
+        }
+        let mut pending_pitch_handles: Vec<PendingPitchHandle> = Vec::new();
 
         for (idx, note) in notes.iter_mut().enumerate() {
             let note_midi = note.midi_key();
@@ -1024,49 +926,71 @@ pub fn draw_piano_roll(
                 env_screen_pts.push(Pos2::new(px_x, px_y));
             }
 
+            if state.show_envelope_handles {
+                let fill_color = if is_selected {
+                    Color32::from_rgba_unmultiplied(0, 220, 255, 38)
+                } else {
+                    Color32::from_rgba_unmultiplied(0, 180, 220, 15)
+                };
+                let mut poly_pts = Vec::with_capacity(env_screen_pts.len() + 2);
+                poly_pts.push(Pos2::new(x_start, y_bottom));
+                for pt in &env_screen_pts {
+                    poly_pts.push(*pt);
+                }
+                poly_pts.push(Pos2::new(x_end, y_bottom));
+                if poly_pts.len() >= 3 {
+                    painter.add(egui::Shape::convex_polygon(
+                        poly_pts,
+                        fill_color,
+                        Stroke::NONE,
+                    ));
+                }
+            }
+
             let env_color = if is_selected {
-                Color32::from_rgba_unmultiplied(0, 225, 250, 175)
+                Color32::from_rgba_unmultiplied(0, 235, 255, 220)
             } else {
-                Color32::from_rgba_unmultiplied(0, 180, 220, 50)
+                Color32::from_rgba_unmultiplied(0, 180, 220, 90)
             };
 
             if let Some(first) = env_screen_pts.first() {
                 painter.line_segment(
                     [Pos2::new(x_start, y_bottom), *first],
-                    Stroke::new(1.3_f32, env_color),
+                    Stroke::new(1.4_f32, env_color),
                 );
             }
             for i in 0..env_screen_pts.len().saturating_sub(1) {
                 painter.line_segment(
                     [env_screen_pts[i], env_screen_pts[i + 1]],
-                    Stroke::new(1.3_f32, env_color),
+                    Stroke::new(1.4_f32, env_color),
                 );
             }
             if let Some(last) = env_screen_pts.last() {
                 painter.line_segment(
                     [*last, Pos2::new(x_end, y_bottom)],
-                    Stroke::new(1.3_f32, env_color),
+                    Stroke::new(1.4_f32, env_color),
                 );
             }
 
             if is_selected && state.show_envelope_handles {
+                let handle_labels = ["p1", "p2", "p3", "p4", "p5"];
                 for (pt_i, pt) in env_screen_pts.iter().enumerate() {
                     let is_pt_hover = mouse_interact_pos.is_some_and(|m| m.distance(*pt) <= 12.0);
                     let is_pt_drag = state.dragging_envelope_pt == Some((idx, pt_i));
-                    painter.circle_filled(
-                        *pt,
-                        if is_pt_hover || is_pt_drag { 7.5 } else { 5.0 },
-                        if is_pt_drag {
-                            Color32::WHITE
-                        } else {
-                            Color32::from_rgb(0, 235, 255)
-                        },
-                    );
+                    let radius = if is_pt_drag || is_pt_hover { 6.5 } else { 4.5 };
+                    let fill = if is_pt_drag {
+                        Color32::WHITE
+                    } else if is_pt_hover {
+                        Color32::from_rgb(180, 245, 255)
+                    } else {
+                        Color32::from_rgb(0, 225, 255)
+                    };
+                    painter.circle_filled(*pt, radius, fill);
                     painter.circle_stroke(
                         *pt,
-                        if is_pt_hover || is_pt_drag { 7.5 } else { 5.0 },
+                        radius,
                         Stroke::new(
-                            1.0_f32,
+                            1.2_f32,
                             if is_pt_drag {
                                 Color32::from_rgb(0, 210, 240)
                             } else {
@@ -1074,6 +998,47 @@ pub fn draw_piano_roll(
                             },
                         ),
                     );
+
+                    if is_pt_hover || is_pt_drag {
+                        let label = handle_labels.get(pt_i).copied().unwrap_or("");
+                        let vol = match pt_i {
+                            0 => e.v1,
+                            1 => e.v2,
+                            2 => e.v3,
+                            3 => e.v4,
+                            4 => e.v5,
+                            _ => 100.0,
+                        };
+                        let text = format!("{label}: {:.0}%", vol);
+                        let label_pos = Pos2::new(pt.x, (pt.y - 14.0).max(y_top - 6.0));
+                        let text_shape = painter.layout_no_wrap(
+                            text,
+                            egui::FontId::proportional(9.0),
+                            Color32::WHITE,
+                        );
+                        let pill_rect = Rect::from_center_size(
+                            label_pos,
+                            Vec2::new(text_shape.size().x + 8.0, 14.0),
+                        );
+                        painter.rect_filled(
+                            pill_rect,
+                            Rounding::same(3.0),
+                            Color32::from_rgba_unmultiplied(15, 20, 35, 220),
+                        );
+                        painter.rect_stroke(
+                            pill_rect,
+                            Rounding::same(3.0),
+                            Stroke::new(1.0_f32, Color32::from_rgb(0, 225, 255)),
+                        );
+                        painter.galley(
+                            Pos2::new(
+                                pill_rect.center().x - text_shape.size().x * 0.5,
+                                pill_rect.center().y - text_shape.size().y * 0.5,
+                            ),
+                            text_shape,
+                            Color32::WHITE,
+                        );
+                    }
                 }
             }
 
@@ -1106,271 +1071,36 @@ pub fn draw_piano_roll(
                 }
             }
 
-            // Find chronologically previous and next connected notes in the phrase
-            let prev_connected = note_info
-                .iter()
-                .enumerate()
-                .filter(|(i, &(_, p_pos, _, _))| *i != idx && p_pos <= note.position_ms)
-                .max_by(|(_, (_, a_pos, a_dur, _)), (_, (_, b_pos, b_dur, _))| {
-                    (a_pos + a_dur)
-                        .partial_cmp(&(b_pos + b_dur))
-                        .unwrap_or(std::cmp::Ordering::Equal)
-                });
-
-            let (previous_midi, is_adjacent, prev_end_offset) =
-                if let Some((_, &(prev_m, prev_pos, prev_dur, _))) = prev_connected {
-                    let gap = note.position_ms - (prev_pos + prev_dur);
-                    let connected = gap <= 400.0 && note.position_ms >= prev_pos;
-                    (Some(prev_m), connected, -(gap.max(0.0)))
-                } else {
-                    (None, false, 0.0)
-                };
+            let (previous_midi, is_adjacent) = if idx > 0 {
+                let (prev_m, prev_pos, prev_dur, _) = note_info[idx - 1];
+                let adj = (prev_pos + prev_dur - note.position_ms).abs() <= 1.0;
+                (Some(prev_m), adj)
+            } else {
+                (None, false)
+            };
 
             let pitch_curve =
                 note.pitch_bend
-                    .effective_points(previous_midi, note.midi_key(), is_adjacent);
+                    .effective_points(previous_midi, note_midi, is_adjacent);
 
-            let first_pt_t = pitch_curve.first().map(|p| p.time_offset_ms).unwrap_or(0.0);
-            let min_t = if is_adjacent {
-                first_pt_t.min(prev_end_offset)
-            } else {
-                first_pt_t.min(0.0)
-            };
-
-            let next_connected = note_info
-                .iter()
-                .enumerate()
-                .filter(|(i, &(_, n_pos, _, _))| *i != idx && n_pos >= note.position_ms)
-                .min_by(|(_, (_, a_pos, _, _)), (_, (_, b_pos, _, _))| {
-                    a_pos
-                        .partial_cmp(b_pos)
-                        .unwrap_or(std::cmp::Ordering::Equal)
-                });
-
-            let max_t =
-                if let Some((_, &(_next_m, next_pos, _next_dur, next_first_t))) = next_connected {
-                    let next_gap = next_pos - (note.position_ms + note.duration_ms);
-                    if next_gap <= 400.0 {
-                        let next_start = next_pos + next_first_t;
-                        (next_start - note.position_ms)
-                            .max(min_t)
-                            .max(note.duration_ms)
-                    } else {
-                        note.duration_ms
-                    }
-                } else {
-                    note.duration_ms
-                };
-
-            let visible_note_start = ((visible_clip.min.x - x_start) / state.px_per_ms) as f64;
-            let visible_note_end = ((visible_clip.max.x - x_start) / state.px_per_ms) as f64;
-            let draw_min_t = min_t.max(visible_note_start);
-            let draw_max_t = max_t.min(visible_note_end);
-            let step = (2.0 / state.px_per_ms.max(0.001)) as f64;
-            let capacity = if draw_max_t > draw_min_t {
-                ((draw_max_t - draw_min_t) / step).ceil() as usize + 2
-            } else {
-                0
-            };
-            let mut spline_points = Vec::with_capacity(capacity);
-            let mut t = draw_min_t;
-            while t <= draw_max_t {
-                let mut offset_cents =
-                    PitchBendSolver::get_pitch_offset_cents_sorted(t, &pitch_curve);
-
-                if has_vibrato && t >= vib_start_t {
-                    let vib_t = t - vib_start_t;
-                    let vib_dur = (note.duration_ms - vib_start_t).max(1.0);
-                    let fade_in_dur = vib_dur * (note.vibrato.fade_in_pct / 100.0).clamp(0.0, 1.0);
-                    let fade_in = if fade_in_dur > 0.0 {
-                        (vib_t / fade_in_dur).min(1.0)
-                    } else {
-                        1.0
-                    };
-                    let fade_out_dur =
-                        vib_dur * (note.vibrato.fade_out_pct / 100.0).clamp(0.0, 1.0);
-                    let fade_out_start = vib_dur - fade_out_dur;
-                    let fade_out = if vib_t >= fade_out_start && fade_out_dur > 0.0 {
-                        ((vib_dur - vib_t) / fade_out_dur).clamp(0.0, 1.0)
-                    } else {
-                        1.0
-                    };
-                    let period_ms = note.vibrato.period_ms.clamp(40.0, 1000.0);
-                    let phase = (vib_t / period_ms) * std::f64::consts::TAU
-                        + (note.vibrato.shift_pct / 100.0) * std::f64::consts::TAU;
-                    let vib_mod = phase.sin() * note.vibrato.depth_cents * fade_in * fade_out;
-                    offset_cents += vib_mod;
-                }
-
-                let px_x = x_start + (t * state.px_per_ms as f64) as f32;
-                let px_y = y_center - (offset_cents / 100.0) as f32 * state.row_height;
-                spline_points.push(Pos2::new(px_x, px_y));
-                t += step;
-            }
-
-            let in_pitch_mode = state.active_tool == EditTool::PitchDraw;
-            if spline_points.len() >= 2 {
-                let (halo_stroke, core_stroke) = if in_pitch_mode {
-                    (
-                        Stroke::new(3.5_f32, theme.c32_alpha(theme.pitch_curve_color, 0.45)),
-                        Stroke::new(2.0_f32, theme.pitch_curve_c32()),
-                    )
-                } else {
-                    (
-                        Stroke::new(3.0_f32, theme.c32_alpha(theme.pitch_curve_color, 0.30)),
-                        Stroke::new(1.6_f32, theme.pitch_curve_c32()),
-                    )
-                };
-                painter.add(egui::Shape::line(spline_points.clone(), halo_stroke));
-                painter.add(egui::Shape::line(spline_points, core_stroke));
-            }
-
-            let show_pitch_anchors = in_pitch_mode || state.active_tool == EditTool::Pointer;
+            let is_custom_pitch = !note.pitch_bend.points.is_empty();
+            let show_pitch_anchors =
+                state.active_tool == EditTool::PitchDraw || state.active_tool == EditTool::Pointer;
             if show_pitch_anchors {
-                let mut last_rendered_x: Option<f32> = None;
                 for (pt_idx, pt) in pitch_curve.iter().enumerate() {
+                    let total_cents = pt.pitch_offset_cents + note.expressions.pitch_delta;
                     let px_x = x_start + (pt.time_offset_ms * state.px_per_ms as f64) as f32;
-                    let px_y = y_center - (pt.pitch_offset_cents / 100.0) as f32 * state.row_height;
+                    let px_y = y_center - (total_cents / 100.0) as f32 * state.row_height;
                     let pt_pos = Pos2::new(px_x, px_y);
-                    if visible_clip.contains(pt_pos)
-                        || (px_x >= visible_clip.min.x && px_x <= visible_clip.max.x)
-                    {
-                        let is_active_pt = state.dragging_pitch_pt == Some((idx, pt_idx));
-                        let is_hovered = mouse_interact_pos
-                            .map(|m| m.distance(pt_pos) <= 10.0)
-                            .unwrap_or(false);
-
-                        let is_first_or_last = pt_idx == 0 || pt_idx + 1 == pitch_curve.len();
-                        let dist_ok =
-                            last_rendered_x.map_or(true, |last_x| (px_x - last_x).abs() >= 8.0);
-
-                        if in_pitch_mode
-                            || is_active_pt
-                            || is_hovered
-                            || is_first_or_last
-                            || dist_ok
-                        {
-                            last_rendered_x = Some(px_x);
-
-                            let radius = if is_active_pt {
-                                4.5
-                            } else if is_hovered {
-                                4.0
-                            } else {
-                                2.8
-                            };
-
-                            if is_active_pt {
-                                painter.circle_filled(
-                                    pt_pos,
-                                    radius + 3.0,
-                                    Color32::from_rgba_unmultiplied(255, 215, 80, 100),
-                                );
-                                painter.circle_filled(
-                                    pt_pos,
-                                    radius,
-                                    Color32::from_rgb(255, 240, 160),
-                                );
-                                painter.circle_stroke(
-                                    pt_pos,
-                                    radius,
-                                    Stroke::new(1.2_f32, Color32::WHITE),
-                                );
-                            } else if is_hovered {
-                                painter.circle_filled(
-                                    pt_pos,
-                                    radius + 3.0,
-                                    Color32::from_rgba_unmultiplied(0, 230, 255, 120),
-                                );
-                                painter.circle_filled(
-                                    pt_pos,
-                                    radius,
-                                    Color32::from_rgb(180, 245, 255),
-                                );
-                                painter.circle_stroke(
-                                    pt_pos,
-                                    radius,
-                                    Stroke::new(1.2_f32, Color32::WHITE),
-                                );
-                            } else {
-                                painter.circle_filled(
-                                    pt_pos,
-                                    radius,
-                                    Color32::from_rgb(255, 220, 100),
-                                );
-                                painter.circle_stroke(
-                                    pt_pos,
-                                    radius,
-                                    Stroke::new(
-                                        1.0_f32,
-                                        Color32::from_rgba_unmultiplied(20, 15, 28, 220),
-                                    ),
-                                );
-                            }
-
-                            if is_hovered || is_active_pt {
-                                let shape_txt = match pt.shape.to_lowercase().as_str() {
-                                    "l" => "Linear (l)",
-                                    "j" | "i" => "J-Curve (j)",
-                                    "r" | "o" => "R-Curve (r)",
-                                    _ => "S-Curve (s)",
-                                };
-                                let cents_label = format!("{:+0.0} c", pt.pitch_offset_cents);
-                                painter.text(
-                                    Pos2::new(pt_pos.x, pt_pos.y - 12.0),
-                                    egui::Align2::CENTER_BOTTOM,
-                                    format!("{} ({})", cents_label, shape_txt),
-                                    egui::FontId::proportional(9.0),
-                                    Color32::from_rgb(220, 240, 255),
-                                );
-                            }
-                        }
-                    }
-                }
-            }
-
-            if in_pitch_mode && !state.pitch_brush_raw_stroke.is_empty() {
-                let stroke_pts: Vec<Pos2> = state
-                    .pitch_brush_raw_stroke
-                    .iter()
-                    .filter(|(n_idx, _, _)| *n_idx == idx)
-                    .map(|(_, t, c)| {
-                        let px_x = x_start + (t * state.px_per_ms as f64) as f32;
-                        let px_y = y_center - (c / 100.0) as f32 * state.row_height;
-                        Pos2::new(px_x, px_y)
-                    })
-                    .collect();
-                if stroke_pts.len() >= 2 {
-                    for pair in stroke_pts.windows(2) {
-                        painter.line_segment(
-                            [pair[0], pair[1]],
-                            Stroke::new(3.5_f32, Color32::from_rgba_unmultiplied(255, 215, 0, 160)),
-                        );
-                        painter.line_segment(
-                            [pair[0], pair[1]],
-                            Stroke::new(1.8_f32, Color32::from_rgb(255, 255, 255)),
-                        );
-                    }
-                }
-            }
-
-            if in_pitch_mode && state.pitch_sub_tool == PitchSubTool::Line {
-                if let Some((line_note_idx, l_start_t, l_start_cents)) = state.pitch_line_start {
-                    if line_note_idx == idx {
-                        if let Some(mpos) = mouse_interact_pos {
-                            let start_px_x = x_start + (l_start_t * state.px_per_ms as f64) as f32;
-                            let start_px_y =
-                                y_center - (l_start_cents / 100.0) as f32 * state.row_height;
-                            let end_px_x = mpos.x;
-                            let end_px_y = mpos.y;
-                            painter.line_segment(
-                                [
-                                    Pos2::new(start_px_x, start_px_y),
-                                    Pos2::new(end_px_x, end_px_y),
-                                ],
-                                Stroke::new(1.5_f32, Color32::from_rgb(255, 220, 100)),
-                            );
-                        }
+                    if visible_clip.expand(50.0).contains(pt_pos) {
+                        pending_pitch_handles.push(PendingPitchHandle {
+                            note_idx: idx,
+                            pt_idx,
+                            pos: pt_pos,
+                            cents: total_cents,
+                            shape: pt.shape.clone(),
+                            is_custom: is_custom_pitch,
+                        });
                     }
                 }
             }
@@ -1395,41 +1125,6 @@ pub fn draw_piano_roll(
                     ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
                 }
 
-                let min_pitch_t = pitch_curve
-                    .iter()
-                    .map(|p| p.time_offset_ms)
-                    .fold(0.0f64, f64::min);
-                let max_pitch_t = pitch_curve
-                    .iter()
-                    .map(|p| p.time_offset_ms)
-                    .fold(note.duration_ms, f64::max);
-                let min_pitch_c = pitch_curve
-                    .iter()
-                    .map(|p| p.pitch_offset_cents)
-                    .fold(0.0f64, f64::min);
-                let max_pitch_c = pitch_curve
-                    .iter()
-                    .map(|p| p.pitch_offset_cents)
-                    .fold(0.0f64, f64::max);
-
-                let pitch_draw_target_rect = Rect::from_min_max(
-                    Pos2::new(
-                        (x_start + (min_pitch_t * state.px_per_ms as f64) as f32 - 150.0)
-                            .min(x_start - 300.0),
-                        (y_center
-                            - (max_pitch_c / 100.0) as f32 * state.row_height
-                            - state.row_height * 4.0)
-                            .min(y_top - state.row_height * 6.0),
-                    ),
-                    Pos2::new(
-                        (x_start + (max_pitch_t * state.px_per_ms as f64) as f32 + 150.0)
-                            .max(x_end + 300.0),
-                        (y_center - (min_pitch_c / 100.0) as f32 * state.row_height
-                            + state.row_height * 4.0)
-                            .max(y_bottom + state.row_height * 6.0),
-                    ),
-                );
-
                 // Pitch anchors have exclusive pointer ownership. Mark the
                 // canvas as consumed before note selection/marquee handling
                 // runs in this frame.
@@ -1445,8 +1140,103 @@ pub fn draw_piano_roll(
                     interacted_with_note_or_ui = true;
                 }
 
+                let is_drag_this_env = state
+                    .dragging_envelope_pt
+                    .is_some_and(|(d_idx, _)| d_idx == idx);
+
+                let hovered_env_pt =
+                    if (is_selected || is_drag_this_env) && state.show_envelope_handles {
+                        env_screen_pts
+                            .iter()
+                            .position(|pt| mpos.distance(*pt) <= 14.0)
+                    } else {
+                        None
+                    };
+
+                let is_over_envelope_handle = is_selected
+                    && state.show_envelope_handles
+                    && (is_drag_this_env || hovered_env_pt.is_some());
+
+                if is_over_envelope_handle {
+                    interacted_with_note_or_ui = true;
+                    if state.dragging_envelope_pt.is_some() {
+                        ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
+                    } else {
+                        ui.ctx().set_cursor_icon(egui::CursorIcon::Grab);
+                    }
+                }
+
+                let just_pressed = ui.input(|i| i.pointer.primary_pressed());
+                if just_pressed && hovered_env_pt.is_some() {
+                    if let Some(pt_idx) = hovered_env_pt {
+                        on_before_change();
+                        state.dragging_envelope_pt = Some((idx, pt_idx));
+                        state.selected_note_index = Some(idx);
+                        if !state.selected_note_indices.contains(&idx) {
+                            state.selected_note_indices.clear();
+                            state.selected_note_indices.insert(idx);
+                        }
+                    }
+                }
+
+                if let Some((drag_idx, pt_idx)) = state.dragging_envelope_pt {
+                    if drag_idx == idx && ui.input(|i| i.pointer.primary_down()) {
+                        interacted_with_note_or_ui = true;
+                        ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
+                        let duration = note.duration_ms.max(1.0);
+                        let time =
+                            (f64::from(mpos.x - x_start) / f64::from(state.px_per_ms)).max(0.0);
+                        let volume = ((y_bottom - mpos.y) / (y_bottom - y_top)).clamp(0.0, 1.0)
+                            as f64
+                            * 100.0;
+                        match pt_idx {
+                            0 => {
+                                note.envelope.p1 = time.clamp(0.0, duration);
+                                note.envelope.v1 = volume.clamp(0.0, 100.0);
+                            }
+                            1 => {
+                                let p2_time = time.max(note.envelope.p1);
+                                note.envelope.p2 = (p2_time - note.envelope.p1).max(0.0);
+                                note.envelope.v2 = volume.clamp(0.0, 100.0);
+                            }
+                            2 => {
+                                let p3_time = time.max(note.envelope.p1 + note.envelope.p2);
+                                note.envelope.p3 =
+                                    (p3_time - note.envelope.p1 - note.envelope.p2).max(0.0);
+                                note.envelope.v3 = volume.clamp(0.0, 100.0);
+                            }
+                            3 => {
+                                let p4_pos = time.clamp(0.0, duration + 200.0);
+                                note.envelope.p4 = (duration - p4_pos).max(0.0);
+                                note.envelope.v4 = volume.clamp(0.0, 100.0);
+                            }
+                            4 => {
+                                let p4_pos = (duration - note.envelope.p4).max(0.0);
+                                let p5_pos = time.max(p4_pos);
+                                note.envelope.p5 = (p5_pos - p4_pos).max(0.0);
+                                note.envelope.v5 = volume.clamp(0.0, 100.0);
+                            }
+                            5 => {
+                                note.envelope.crossfade_ms = (f64::from(x_start - mpos.x)
+                                    / f64::from(state.px_per_ms))
+                                .clamp(0.0, 600.0);
+                            }
+                            _ => {}
+                        }
+                        state.continuous_edit_dirty = true;
+                    }
+                }
+
+                if hovered_env_pt.is_some() && ui.input(|i| i.pointer.secondary_clicked()) {
+                    on_before_change();
+                    note.envelope = crate::dsp::envelope::UtauEnvelope::default();
+                    state.continuous_edit_dirty = true;
+                    on_note_changed();
+                }
+
                 if note_rect.contains(mpos)
                     && !pitch_anchor_hit
+                    && !is_over_envelope_handle
                     && mpos.y > grid_start_y
                     && mpos.y < grid_end_y
                 {
@@ -1475,16 +1265,6 @@ pub fn draw_piano_roll(
                             state.selected_note_indices.insert(idx);
                         }
 
-                        let hovered_env_pt = if is_selected && state.show_envelope_handles {
-                            env_screen_pts
-                                .iter()
-                                .position(|pt| mpos.distance(*pt) <= 13.0)
-                        } else {
-                            None
-                        };
-                        let is_over_envelope_handle = is_selected
-                            && state.show_envelope_handles
-                            && (state.dragging_envelope_pt.is_some() || hovered_env_pt.is_some());
                         let is_over_pitch_anchor = (state.active_tool == EditTool::PitchDraw
                             || state.active_tool == EditTool::Pointer)
                             && (state.dragging_pitch_pt.is_some()
@@ -1496,69 +1276,13 @@ pub fn draw_piano_roll(
                                     mpos.distance(Pos2::new(px_x, px_y)) <= 16.0
                                 }));
 
-                        let just_pressed = ui.input(|i| i.pointer.primary_pressed());
-                        if just_pressed && hovered_env_pt.is_some() {
-                            if let Some(pt_idx) = hovered_env_pt {
-                                on_before_change();
-                                state.dragging_envelope_pt = Some((idx, pt_idx));
-                            }
-                        }
-
-                        if let Some((drag_idx, pt_idx)) = state.dragging_envelope_pt {
-                            if drag_idx == idx && ui.input(|i| i.pointer.primary_down()) {
-                                let duration = note.duration_ms.max(1.0);
-                                let time = (f64::from(mpos.x - x_start)
-                                    / f64::from(state.px_per_ms))
-                                .max(0.0);
-                                let volume = ((y_bottom - mpos.y) / (y_bottom - y_top))
-                                    .clamp(0.0, 1.0)
-                                    as f64
-                                    * 100.0;
-                                match pt_idx {
-                                    0 => {
-                                        note.envelope.p1 = time.clamp(0.0, duration);
-                                        note.envelope.v1 = volume.clamp(0.0, 100.0);
-                                    }
-                                    1 => {
-                                        let p2_time = time.max(note.envelope.p1);
-                                        note.envelope.p2 = (p2_time - note.envelope.p1).max(0.0);
-                                        note.envelope.v2 = volume.clamp(0.0, 100.0);
-                                    }
-                                    2 => {
-                                        let p3_time = time.max(note.envelope.p1 + note.envelope.p2);
-                                        note.envelope.p3 =
-                                            (p3_time - note.envelope.p1 - note.envelope.p2)
-                                                .max(0.0);
-                                        note.envelope.v3 = volume.clamp(0.0, 100.0);
-                                    }
-                                    3 => {
-                                        let p4_pos = time.clamp(0.0, duration + 200.0);
-                                        note.envelope.p4 = (duration - p4_pos).max(0.0);
-                                        note.envelope.v4 = volume.clamp(0.0, 100.0);
-                                    }
-                                    4 => {
-                                        let p4_pos = (duration - note.envelope.p4).max(0.0);
-                                        let p5_pos = time.max(p4_pos);
-                                        note.envelope.p5 = (p5_pos - p4_pos).max(0.0);
-                                        note.envelope.v5 = volume.clamp(0.0, 100.0);
-                                    }
-                                    5 => {
-                                        note.envelope.crossfade_ms = (f64::from(x_start - mpos.x)
-                                            / f64::from(state.px_per_ms))
-                                        .clamp(0.0, 600.0);
-                                    }
-                                    _ => {}
-                                }
-                                state.continuous_edit_dirty = true;
-                            }
-                        }
-
                         // Use primary_pressed() (not primary_clicked()) so drag starts
                         // on mouse-down, enabling click-and-drag for resize/move
                         if just_pressed
                             && !is_editing_lyric
                             && state.dragging_note_idx.is_none()
                             && state.dragging_pitch_pt.is_none()
+                            && state.dragging_envelope_pt.is_none()
                             && !is_over_envelope_handle
                             && !is_over_pitch_anchor
                         {
@@ -1620,315 +1344,19 @@ pub fn draw_piano_roll(
                         }
                     }
                 }
-
-                let can_interact_pitch = state.active_tool == EditTool::PitchDraw
-                    || state.active_tool == EditTool::Pointer;
-
-                let is_hovering_pitch_pt = pitch_curve.iter().any(|pt| {
-                    let px_x = x_start + (pt.time_offset_ms * state.px_per_ms as f64) as f32;
-                    let px_y = y_center - (pt.pitch_offset_cents / 100.0) as f32 * state.row_height;
-                    mpos.distance(Pos2::new(px_x, px_y)) <= 12.0
-                });
-
-                if can_interact_pitch
-                    && (state.dragging_pitch_pt.is_some()
-                        || is_hovering_pitch_pt
-                        || pitch_draw_target_rect.contains(mpos))
-                {
-                    let mut hovered_pitch_pt: Option<usize> = None;
-                    for (pt_idx, pt) in pitch_curve.iter().enumerate() {
-                        let px_x = x_start + (pt.time_offset_ms * state.px_per_ms as f64) as f32;
-                        let px_y =
-                            y_center - (pt.pitch_offset_cents / 100.0) as f32 * state.row_height;
-                        let pt_pos = Pos2::new(px_x, px_y);
-                        if mpos.distance(pt_pos) <= 16.0 {
-                            hovered_pitch_pt = Some(pt_idx);
-                            ui.ctx().set_cursor_icon(egui::CursorIcon::Grab);
-                            break;
-                        }
-                    }
-
-                    let rel_t = ((mpos.x - x_start) / state.px_per_ms) as f64;
-                    let delta_y = y_center - mpos.y;
-                    let cents = (((delta_y / state.row_height) * 100.0) as f64)
-                        .clamp(-MAX_MANUAL_PITCH_CENTS, MAX_MANUAL_PITCH_CENTS);
-                    let is_alt = ui.input(|i| i.modifiers.alt);
-                    let is_shift = ui.input(|i| i.modifiers.shift);
-
-                    if let Some(pt_idx) = hovered_pitch_pt {
-                        if ui.input(|i| i.pointer.primary_clicked() && i.modifiers.alt)
-                            || ui.input(|i| i.pointer.secondary_clicked())
-                        {
-                            if note.pitch_bend.points.is_empty() {
-                                note.pitch_bend.points = pitch_curve.clone();
-                            }
-                            if pt_idx < note.pitch_bend.points.len() {
-                                note.pitch_bend.points.remove(pt_idx);
-                                state.dragging_pitch_pt = None;
-                                on_note_changed();
-                            }
-                        }
-                    } else if state.active_tool == EditTool::PitchDraw
-                        && ui.input(|i| i.pointer.secondary_clicked())
-                    {
-                        note.pitch_bend.points.clear();
-                        state.dragging_pitch_pt = None;
-                        state.pitch_line_start = None;
-                        on_note_changed();
-                    }
-
-                    if state.active_tool == EditTool::PitchDraw
-                        && hovered_pitch_pt.is_none()
-                        && (ui.input(|i| {
-                            i.pointer
-                                .button_double_clicked(egui::PointerButton::Primary)
-                        }) || (ui.input(|i| i.pointer.primary_clicked()) && is_shift))
-                    {
-                        if note.pitch_bend.points.is_empty() {
-                            note.pitch_bend.points = pitch_curve.clone();
-                        }
-                        note.pitch_bend.points.push(UPitchBendPoint {
-                            time_offset_ms: rel_t,
-                            pitch_offset_cents: cents,
-                            shape: "s".to_string(),
-                        });
-                        note.pitch_bend.points.sort_by(|a, b| {
-                            a.time_offset_ms
-                                .partial_cmp(&b.time_offset_ms)
-                                .unwrap_or(std::cmp::Ordering::Equal)
-                        });
-                        on_note_changed();
-                    }
-
-                    if ui.input(|i| i.pointer.primary_pressed()) && !is_alt && !is_shift {
-                        on_before_change();
-                        if let Some(pt_idx) = hovered_pitch_pt {
-                            if note.pitch_bend.points.is_empty() {
-                                note.pitch_bend.points = pitch_curve.clone();
-                            }
-                            if pt_idx < note.pitch_bend.points.len() {
-                                state.dragging_pitch_pt = Some((idx, pt_idx));
-                            }
-                        } else if state.active_tool == EditTool::PitchDraw
-                            && state.pitch_sub_tool == PitchSubTool::Line
-                        {
-                            state.pitch_line_start = Some((idx, rel_t, cents));
-                        } else if state.active_tool == EditTool::PitchDraw
-                            && state.pitch_sub_tool == PitchSubTool::Freehand
-                        {
-                            state.pitch_brush_raw_stroke.clear();
-                            state.pitch_brush_raw_stroke.push((idx, rel_t, cents));
-                        } else if state.active_tool == EditTool::PitchDraw
-                            && state.pitch_sub_tool == PitchSubTool::Vibrato
-                        {
-                            state.vibrato_brush_center = Some((idx, cents));
-                        }
-                    }
-
-                    if ui.input(|i| i.pointer.primary_down()) && !is_alt {
-                        if let Some((d_note_idx, d_pt_idx)) = state.dragging_pitch_pt {
-                            if d_note_idx == idx {
-                                if note.pitch_bend.points.is_empty() {
-                                    note.pitch_bend.points = pitch_curve.clone();
-                                }
-                                if d_pt_idx < note.pitch_bend.points.len() {
-                                    ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
-                                    note.pitch_bend.points[d_pt_idx].time_offset_ms = rel_t;
-                                    note.pitch_bend.points[d_pt_idx].pitch_offset_cents = cents;
-                                    note.pitch_bend.snap_first = false;
-                                    state.continuous_edit_dirty = true;
-                                }
-                            }
-                        } else if state.active_tool == EditTool::PitchDraw {
-                            match state.pitch_sub_tool {
-                                PitchSubTool::Freehand => {
-                                    ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair);
-                                    let should_add = state.pitch_brush_raw_stroke.last().map_or(
-                                        true,
-                                        |&(_, last_t, last_c)| {
-                                            (last_t - rel_t).abs() >= 4.0
-                                                || (last_c - cents).abs() >= 5.0
-                                        },
-                                    );
-                                    if should_add {
-                                        state.pitch_brush_raw_stroke.push((idx, rel_t, cents));
-                                    }
-                                }
-                                PitchSubTool::Line => {
-                                    ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair);
-                                }
-                                PitchSubTool::Vibrato => {
-                                    if note.pitch_bend.points.is_empty() {
-                                        note.pitch_bend.points = pitch_curve.clone();
-                                    }
-                                    let min_dist_ms = 15.0;
-                                    let vibrato_freq = 5.5; // ~5.5 Hz
-                                                            // A vibrato brush has a stable musical
-                                                            // depth. The first vertical position sets
-                                                            // its centre, so moving the pointer up or
-                                                            // down cannot unexpectedly make it huge.
-                                    let center_cents = state
-                                        .vibrato_brush_center
-                                        .filter(|(note_idx, _)| *note_idx == idx)
-                                        .map(|(_, center)| center)
-                                        .unwrap_or(cents);
-                                    let vibrato_amp = 70.0;
-                                    let phase =
-                                        (rel_t / 1000.0) * vibrato_freq * std::f64::consts::TAU;
-                                    let vib_cents = (center_cents + phase.sin() * vibrato_amp)
-                                        .clamp(-MAX_MANUAL_PITCH_CENTS, MAX_MANUAL_PITCH_CENTS);
-
-                                    note.pitch_bend.points.retain(|pt| {
-                                        (pt.time_offset_ms - rel_t).abs() >= min_dist_ms
-                                    });
-                                    note.pitch_bend.points.push(UPitchBendPoint {
-                                        time_offset_ms: rel_t,
-                                        pitch_offset_cents: vib_cents,
-                                        shape: "s".to_string(),
-                                    });
-                                    note.pitch_bend.points.sort_by(|a, b| {
-                                        a.time_offset_ms
-                                            .partial_cmp(&b.time_offset_ms)
-                                            .unwrap_or(std::cmp::Ordering::Equal)
-                                    });
-                                    state.continuous_edit_dirty = true;
-                                }
-                                PitchSubTool::Smooth => {
-                                    if !note.pitch_bend.points.is_empty() {
-                                        let radius_ms = 60.0;
-                                        for pt_i in 0..note.pitch_bend.points.len() {
-                                            let p_time =
-                                                note.pitch_bend.points[pt_i].time_offset_ms;
-                                            if (p_time - rel_t).abs() <= radius_ms {
-                                                let prev_cents = if pt_i > 0 {
-                                                    note.pitch_bend.points[pt_i - 1]
-                                                        .pitch_offset_cents
-                                                } else {
-                                                    note.pitch_bend.points[pt_i].pitch_offset_cents
-                                                };
-                                                let next_cents = if pt_i + 1
-                                                    < note.pitch_bend.points.len()
-                                                {
-                                                    note.pitch_bend.points[pt_i + 1]
-                                                        .pitch_offset_cents
-                                                } else {
-                                                    note.pitch_bend.points[pt_i].pitch_offset_cents
-                                                };
-                                                let curr =
-                                                    note.pitch_bend.points[pt_i].pitch_offset_cents;
-                                                note.pitch_bend.points[pt_i].pitch_offset_cents =
-                                                    curr * 0.7 + (prev_cents + next_cents) * 0.15;
-                                            }
-                                        }
-                                        state.continuous_edit_dirty = true;
-                                    }
-                                }
-                            }
-                        }
-                    }
-
-                    if ui.input(|i| i.pointer.primary_released()) {
-                        state.vibrato_brush_center = None;
-                        if state.dragging_pitch_pt.is_some() {
-                            state.dragging_pitch_pt = None;
-                            note.pitch_bend.points.sort_by(|a, b| {
-                                a.time_offset_ms
-                                    .partial_cmp(&b.time_offset_ms)
-                                    .unwrap_or(std::cmp::Ordering::Equal)
-                            });
-                            state.continuous_edit_dirty = true;
-                        } else if state.pitch_sub_tool == PitchSubTool::Freehand
-                            && !state.pitch_brush_raw_stroke.is_empty()
-                        {
-                            let raw_pts: Vec<(f64, f64)> = state
-                                .pitch_brush_raw_stroke
-                                .iter()
-                                .filter(|(n_idx, _, _)| *n_idx == idx)
-                                .map(|(_, t, c)| (*t, *c))
-                                .collect();
-
-                            if !raw_pts.is_empty() {
-                                let smoothed = smooth_pitch_points(&raw_pts);
-                                if !smoothed.is_empty() {
-                                    if note.pitch_bend.points.is_empty() {
-                                        note.pitch_bend.points = pitch_curve.clone();
-                                    }
-                                    let t_min =
-                                        smoothed.first().map(|p| p.time_offset_ms).unwrap_or(0.0);
-                                    let t_max =
-                                        smoothed.last().map(|p| p.time_offset_ms).unwrap_or(0.0);
-
-                                    note.pitch_bend.points.retain(|pt| {
-                                        pt.time_offset_ms < t_min - 8.0
-                                            || pt.time_offset_ms > t_max + 8.0
-                                    });
-
-                                    note.pitch_bend.points.extend(smoothed);
-                                    note.pitch_bend.points.sort_by(|a, b| {
-                                        a.time_offset_ms
-                                            .partial_cmp(&b.time_offset_ms)
-                                            .unwrap_or(std::cmp::Ordering::Equal)
-                                    });
-                                    state.continuous_edit_dirty = true;
-                                    on_note_changed();
-                                }
-                            }
-                            state.pitch_brush_raw_stroke.clear();
-                        } else if state.pitch_sub_tool == PitchSubTool::Line {
-                            if let Some((l_note_idx, l_start_t, l_start_cents)) =
-                                state.pitch_line_start
-                            {
-                                if l_note_idx == idx {
-                                    if note.pitch_bend.points.is_empty() {
-                                        note.pitch_bend.points = pitch_curve.clone();
-                                    }
-                                    let (min_t, max_t) = if l_start_t <= rel_t {
-                                        (l_start_t, rel_t)
-                                    } else {
-                                        (rel_t, l_start_t)
-                                    };
-                                    note.pitch_bend.points.retain(|pt| {
-                                        pt.time_offset_ms < min_t || pt.time_offset_ms > max_t
-                                    });
-
-                                    note.pitch_bend.points.push(UPitchBendPoint {
-                                        time_offset_ms: l_start_t,
-                                        pitch_offset_cents: l_start_cents,
-                                        shape: "l".to_string(),
-                                    });
-                                    note.pitch_bend.points.push(UPitchBendPoint {
-                                        time_offset_ms: rel_t,
-                                        pitch_offset_cents: cents,
-                                        shape: "s".to_string(),
-                                    });
-                                    note.pitch_bend.points.sort_by(|a, b| {
-                                        a.time_offset_ms
-                                            .partial_cmp(&b.time_offset_ms)
-                                            .unwrap_or(std::cmp::Ordering::Equal)
-                                    });
-                                    state.continuous_edit_dirty = true;
-                                }
-                            }
-                            state.pitch_line_start = None;
-                        } else if note.pitch_bend.points.len() > 2 {
-                            let simplify_tol = match state.pitch_sub_tool {
-                                PitchSubTool::Vibrato => 2.0,
-                                PitchSubTool::Smooth => 3.0,
-                                _ => 4.0,
-                            };
-                            let simplified =
-                                crate::dsp::pitch_bend::PitchBendSolver::simplify_pitch_points(
-                                    &note.pitch_bend.points,
-                                    simplify_tol,
-                                );
-                            note.pitch_bend.points = simplified;
-                            state.continuous_edit_dirty = true;
-                        }
-                    }
-                }
             }
         }
 
+        // ====================================================================
+        // OPENUTAU-GRADE CANVAS-WIDE PITCH ENGINE & INTERACTION
+        // ====================================================================
+        let can_interact_pitch =
+            state.active_tool == EditTool::PitchDraw || state.active_tool == EditTool::Pointer;
+
+        let is_alt = ui.input(|i| i.modifiers.alt);
+        let is_shift = ui.input(|i| i.modifiers.shift);
+
+        // 1. Compute & Render Multi-Pass Glowing Vocal Pitch Curve
         {
             let mut global_segments: Vec<Vec<Pos2>> = Vec::new();
             let mut current_segment: Vec<Pos2> = Vec::new();
@@ -1944,8 +1372,6 @@ pub fn draw_piano_roll(
                     + (note.position_ms * state.px_per_ms as f64) as f32;
                 let x_end_note = x_start_note + (note.duration_ms * state.px_per_ms as f64) as f32;
 
-                // Skip notes completely outside visible area (with margin for
-                // portamento that starts before the note)
                 if x_end_note < visible_clip.min.x - 200.0
                     || x_start_note > visible_clip.max.x + 200.0
                 {
@@ -1963,7 +1389,6 @@ pub fn draw_piano_roll(
                     (None, false)
                 };
 
-                // Break the segment at gaps between non-adjacent notes
                 if !is_adjacent && !current_segment.is_empty() {
                     global_segments.push(std::mem::take(&mut current_segment));
                 }
@@ -1995,7 +1420,6 @@ pub fn draw_piano_roll(
                     f64::INFINITY
                 };
 
-                // Only sample within the visible pixel range for performance
                 let visible_note_start =
                     ((visible_clip.min.x - x_start_note) / state.px_per_ms) as f64;
                 let visible_note_end =
@@ -2009,7 +1433,6 @@ pub fn draw_piano_roll(
                     let mut offset_cents =
                         PitchBendSolver::get_pitch_offset_cents_sorted(t, &pitch_curve);
 
-                    // Include vibrato modulation
                     if has_vibrato && t >= vib_start_t {
                         let vib_t = t - vib_start_t;
                         let vib_dur = (note.duration_ms - vib_start_t).max(1.0);
@@ -2035,7 +1458,8 @@ pub fn draw_piano_roll(
                         offset_cents += vib_mod;
                     }
 
-                    let absolute_midi = note_midi as f64 + offset_cents / 100.0;
+                    let absolute_midi =
+                        note_midi as f64 + (offset_cents + note.expressions.pitch_delta) / 100.0;
                     let px_y = grid_start_y
                         + (state.max_midi as f64 - absolute_midi) as f32 * state.row_height
                         + state.row_height * 0.5;
@@ -2050,11 +1474,667 @@ pub fn draw_piano_roll(
                 global_segments.push(current_segment);
             }
 
-            let global_pitch_stroke =
-                Stroke::new(1.8_f32, Color32::from_rgba_unmultiplied(255, 255, 255, 175));
-            for segment in global_segments {
+            // Triple-pass glowing vocal pitch rendering
+            let bloom_stroke =
+                Stroke::new(4.2_f32, Color32::from_rgba_unmultiplied(0, 215, 255, 38));
+            let inner_glow_stroke =
+                Stroke::new(2.4_f32, Color32::from_rgba_unmultiplied(60, 235, 255, 110));
+            let core_pitch_stroke =
+                Stroke::new(1.3_f32, Color32::from_rgba_unmultiplied(255, 255, 255, 230));
+
+            for segment in &global_segments {
                 if segment.len() >= 2 {
-                    painter.add(egui::Shape::line(segment, global_pitch_stroke));
+                    painter.add(egui::Shape::line(segment.clone(), bloom_stroke));
+                    painter.add(egui::Shape::line(segment.clone(), inner_glow_stroke));
+                    painter.add(egui::Shape::line(segment.clone(), core_pitch_stroke));
+                }
+            }
+        }
+
+        // 2. Real-time Live Drawing & Tool Previews
+        if let Some(mpos) = mouse_interact_pos {
+            if state.active_tool == EditTool::PitchDraw {
+                if state.pitch_sub_tool == PitchSubTool::Freehand
+                    && !state.pitch_brush_raw_stroke.is_empty()
+                {
+                    let preview_pts: Vec<Pos2> = state
+                        .pitch_brush_raw_stroke
+                        .iter()
+                        .map(|&(abs_t, abs_m)| {
+                            let px_x = rect.min.x
+                                + keyboard_width
+                                + (abs_t * state.px_per_ms as f64) as f32;
+                            let px_y = grid_start_y
+                                + (state.max_midi as f64 - abs_m) as f32 * state.row_height
+                                + state.row_height * 0.5;
+                            Pos2::new(px_x, px_y)
+                        })
+                        .collect();
+                    if preview_pts.len() >= 2 {
+                        painter.add(egui::Shape::line(
+                            preview_pts.clone(),
+                            Stroke::new(3.5, Color32::from_rgba_unmultiplied(255, 140, 0, 70)),
+                        ));
+                        painter.add(egui::Shape::line(
+                            preview_pts,
+                            Stroke::new(1.8, Color32::from_rgba_unmultiplied(255, 210, 80, 240)),
+                        ));
+                    }
+                } else if state.pitch_sub_tool == PitchSubTool::Line {
+                    if let Some((start_t, start_m)) = state.pitch_line_start {
+                        let p1_x =
+                            rect.min.x + keyboard_width + (start_t * state.px_per_ms as f64) as f32;
+                        let p1_y = grid_start_y
+                            + (state.max_midi as f64 - start_m) as f32 * state.row_height
+                            + state.row_height * 0.5;
+                        let p1 = Pos2::new(p1_x, p1_y);
+                        let p2 = mpos;
+                        painter.line_segment(
+                            [p1, p2],
+                            Stroke::new(3.0, Color32::from_rgba_unmultiplied(0, 255, 200, 70)),
+                        );
+                        painter.line_segment(
+                            [p1, p2],
+                            Stroke::new(1.6, Color32::from_rgba_unmultiplied(100, 255, 230, 240)),
+                        );
+                        painter.circle_filled(p1, 4.0, Color32::from_rgb(100, 255, 230));
+                        painter.circle_filled(p2, 4.0, Color32::from_rgb(100, 255, 230));
+                    }
+                }
+            }
+        }
+
+        // 3. Canvas Pitch Pointer Interaction
+        if can_interact_pitch {
+            if let Some(mpos) = mouse_interact_pos {
+                let timeline_time_ms =
+                    ((mpos.x - (rect.min.x + keyboard_width)) / state.px_per_ms) as f64;
+                let timeline_abs_midi = state.max_midi as f64
+                    - ((mpos.y - grid_start_y - state.row_height * 0.5) / state.row_height) as f64;
+
+                // Find hovered pitch handle
+                let mut hovered_handle_idx: Option<usize> = None;
+                for (h_idx, handle) in pending_pitch_handles.iter().enumerate() {
+                    if mpos.distance(handle.pos) <= 13.0 {
+                        hovered_handle_idx = Some(h_idx);
+                        ui.ctx().set_cursor_icon(egui::CursorIcon::Grab);
+                        break;
+                    }
+                }
+
+                // Handle right-click / Alt+Click on point (Delete) or canvas right-click drag (Erase)
+                if let Some(h_idx) = hovered_handle_idx {
+                    let handle = &pending_pitch_handles[h_idx];
+                    if ui.input(|i| i.pointer.primary_clicked() && i.modifiers.alt)
+                        || ui.input(|i| i.pointer.secondary_clicked())
+                    {
+                        let n_idx = handle.note_idx;
+                        let pt_idx = handle.pt_idx;
+                        if n_idx < notes.len() {
+                            if notes[n_idx].pitch_bend.points.is_empty() {
+                                let (prev_m, is_adj) = if n_idx > 0 {
+                                    let (pm, pp, pd, _) = note_info[n_idx - 1];
+                                    (Some(pm), (pp + pd - notes[n_idx].position_ms).abs() <= 1.0)
+                                } else {
+                                    (None, false)
+                                };
+                                notes[n_idx].pitch_bend.points = notes[n_idx]
+                                    .pitch_bend
+                                    .effective_points(prev_m, notes[n_idx].midi_key(), is_adj);
+                            }
+                            if pt_idx < notes[n_idx].pitch_bend.points.len() {
+                                notes[n_idx].pitch_bend.points.remove(pt_idx);
+                                state.dragging_pitch_pt = None;
+                                on_note_changed();
+                            }
+                        }
+                    } else if ui.input(|i| {
+                        i.pointer
+                            .button_double_clicked(egui::PointerButton::Primary)
+                    }) {
+                        // Double clicking an existing point cycles its interpolation shape:
+                        // S -> Linear -> EaseIn/J -> EaseOut/R -> Hermite/H -> S
+                        let n_idx = handle.note_idx;
+                        let pt_idx = handle.pt_idx;
+                        if n_idx < notes.len() {
+                            if notes[n_idx].pitch_bend.points.is_empty() {
+                                let (prev_m, is_adj) = if n_idx > 0 {
+                                    let (pm, pp, pd, _) = note_info[n_idx - 1];
+                                    (Some(pm), (pp + pd - notes[n_idx].position_ms).abs() <= 1.0)
+                                } else {
+                                    (None, false)
+                                };
+                                notes[n_idx].pitch_bend.points = notes[n_idx]
+                                    .pitch_bend
+                                    .effective_points(prev_m, notes[n_idx].midi_key(), is_adj);
+                            }
+                            if pt_idx < notes[n_idx].pitch_bend.points.len() {
+                                let cur_shape =
+                                    notes[n_idx].pitch_bend.points[pt_idx].shape.clone();
+                                let nxt_shape =
+                                    crate::dsp::pitch_bend::PitchBendSolver::next_pitch_point_shape(
+                                        &cur_shape,
+                                    );
+                                notes[n_idx].pitch_bend.points[pt_idx].shape =
+                                    nxt_shape.to_string();
+                                on_note_changed();
+                            }
+                        }
+                    }
+                } else if state.active_tool == EditTool::PitchDraw
+                    && ui.input(|i| i.pointer.secondary_down())
+                {
+                    // Right-click drag in pitch mode acts as an eraser radius across all intersecting notes
+                    let erase_radius_ms = 40.0;
+                    for note in notes.iter_mut() {
+                        if !note.pitch_bend.points.is_empty() {
+                            let note_t = timeline_time_ms - note.position_ms;
+                            let before_len = note.pitch_bend.points.len();
+                            note.pitch_bend
+                                .points
+                                .retain(|pt| (pt.time_offset_ms - note_t).abs() > erase_radius_ms);
+                            if note.pitch_bend.points.len() != before_len {
+                                state.continuous_edit_dirty = true;
+                            }
+                        }
+                    }
+                }
+
+                // Insert new pitch point on Double-Click or Shift-Click in pitch mode on empty space
+                if state.active_tool == EditTool::PitchDraw
+                    && hovered_handle_idx.is_none()
+                    && (ui.input(|i| {
+                        i.pointer
+                            .button_double_clicked(egui::PointerButton::Primary)
+                    }) || (ui.input(|i| i.pointer.primary_clicked()) && is_shift))
+                {
+                    // Find note at timeline_time_ms
+                    for (n_idx, note) in notes.iter_mut().enumerate() {
+                        if timeline_time_ms >= note.position_ms - 200.0
+                            && timeline_time_ms <= note.position_ms + note.duration_ms + 100.0
+                        {
+                            if note.pitch_bend.points.is_empty() {
+                                let (prev_m, is_adj) = if n_idx > 0 {
+                                    let (pm, pp, pd, _) = note_info[n_idx - 1];
+                                    (Some(pm), (pp + pd - note.position_ms).abs() <= 1.0)
+                                } else {
+                                    (None, false)
+                                };
+                                note.pitch_bend.points = note.pitch_bend.effective_points(
+                                    prev_m,
+                                    note.midi_key(),
+                                    is_adj,
+                                );
+                            }
+                            let rel_t = timeline_time_ms - note.position_ms;
+                            let cents = ((timeline_abs_midi - note.midi_key() as f64) * 100.0
+                                - note.expressions.pitch_delta)
+                                .clamp(-MAX_MANUAL_PITCH_CENTS, MAX_MANUAL_PITCH_CENTS);
+                            note.pitch_bend.snap_first = false;
+                            note.pitch_bend.points.push(UPitchBendPoint {
+                                time_offset_ms: rel_t,
+                                pitch_offset_cents: cents,
+                                shape: "s".to_string(),
+                            });
+                            note.pitch_bend.points.sort_by(|a, b| {
+                                a.time_offset_ms
+                                    .partial_cmp(&b.time_offset_ms)
+                                    .unwrap_or(std::cmp::Ordering::Equal)
+                            });
+                            on_note_changed();
+                            break;
+                        }
+                    }
+                }
+
+                // Primary Pressed: initiate drag, line, pen, vibrato
+                if ui.input(|i| i.pointer.primary_pressed()) && !is_alt {
+                    on_before_change();
+                    if let Some(h_idx) = hovered_handle_idx {
+                        let handle = &pending_pitch_handles[h_idx];
+                        let n_idx = handle.note_idx;
+                        let pt_idx = handle.pt_idx;
+                        if n_idx < notes.len() {
+                            if notes[n_idx].pitch_bend.points.is_empty() {
+                                let (prev_m, is_adj) = if n_idx > 0 {
+                                    let (pm, pp, pd, _) = note_info[n_idx - 1];
+                                    (Some(pm), (pp + pd - notes[n_idx].position_ms).abs() <= 1.0)
+                                } else {
+                                    (None, false)
+                                };
+                                notes[n_idx].pitch_bend.points = notes[n_idx]
+                                    .pitch_bend
+                                    .effective_points(prev_m, notes[n_idx].midi_key(), is_adj);
+                                notes[n_idx].pitch_bend.snap_first = false;
+                            }
+                            if pt_idx < notes[n_idx].pitch_bend.points.len() {
+                                state.dragging_pitch_pt = Some((n_idx, pt_idx));
+                            }
+                        }
+                    } else if state.active_tool == EditTool::PitchDraw && !is_shift {
+                        match state.pitch_sub_tool {
+                            PitchSubTool::Line => {
+                                state.pitch_line_start =
+                                    Some((timeline_time_ms, timeline_abs_midi));
+                            }
+                            PitchSubTool::Freehand => {
+                                state.pitch_brush_raw_stroke.clear();
+                                state
+                                    .pitch_brush_raw_stroke
+                                    .push((timeline_time_ms, timeline_abs_midi));
+                            }
+                            PitchSubTool::Vibrato => {
+                                state.vibrato_brush_center = Some(timeline_abs_midi);
+                            }
+                            PitchSubTool::Smooth => {}
+                        }
+                    }
+                }
+
+                // Primary Down: dragging points or active brush drawing
+                if ui.input(|i| i.pointer.primary_down()) && !is_alt {
+                    if let Some((d_note_idx, d_pt_idx)) = state.dragging_pitch_pt {
+                        if d_note_idx < notes.len() {
+                            let note = &mut notes[d_note_idx];
+                            if d_pt_idx < note.pitch_bend.points.len() {
+                                ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
+                                let rel_t = timeline_time_ms - note.position_ms;
+
+                                // Fine microtonal dragging: Shift gives 100% continuous microtonal precision;
+                                // standard dragging has gentle +/-8c magnetic semitone attraction.
+                                let snapped_abs_midi = if !is_shift {
+                                    let rounded_midi = timeline_abs_midi.round();
+                                    let diff_cents = (timeline_abs_midi - rounded_midi) * 100.0;
+                                    if diff_cents.abs() <= 8.0 {
+                                        rounded_midi
+                                    } else {
+                                        timeline_abs_midi
+                                    }
+                                } else {
+                                    timeline_abs_midi
+                                };
+
+                                let cents = ((snapped_abs_midi - note.midi_key() as f64) * 100.0
+                                    - note.expressions.pitch_delta)
+                                    .clamp(-MAX_MANUAL_PITCH_CENTS, MAX_MANUAL_PITCH_CENTS);
+
+                                note.pitch_bend.points[d_pt_idx].time_offset_ms = rel_t;
+                                note.pitch_bend.points[d_pt_idx].pitch_offset_cents = cents;
+                                note.pitch_bend.snap_first = false;
+                                state.continuous_edit_dirty = true;
+                            }
+                        }
+                    } else if state.active_tool == EditTool::PitchDraw {
+                        match state.pitch_sub_tool {
+                            PitchSubTool::Freehand => {
+                                ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair);
+                                let should_add = state.pitch_brush_raw_stroke.last().map_or(
+                                    true,
+                                    |&(last_t, last_m)| {
+                                        (last_t - timeline_time_ms).abs() >= 3.0
+                                            || (last_m - timeline_abs_midi).abs() >= 0.04
+                                    },
+                                );
+                                if should_add {
+                                    state
+                                        .pitch_brush_raw_stroke
+                                        .push((timeline_time_ms, timeline_abs_midi));
+                                }
+                            }
+                            PitchSubTool::Line => {
+                                ui.ctx().set_cursor_icon(egui::CursorIcon::Crosshair);
+                            }
+                            PitchSubTool::Vibrato => {
+                                let min_dist_ms = 15.0;
+                                let vibrato_freq = 5.5;
+                                let center_m =
+                                    state.vibrato_brush_center.unwrap_or(timeline_abs_midi);
+                                let vibrato_amp_cents = 70.0;
+
+                                for (n_idx, note) in notes.iter_mut().enumerate() {
+                                    if timeline_time_ms >= note.position_ms - 50.0
+                                        && timeline_time_ms
+                                            <= note.position_ms + note.duration_ms + 50.0
+                                    {
+                                        if note.pitch_bend.points.is_empty() {
+                                            let (prev_m, is_adj) = if n_idx > 0 {
+                                                let (pm, pp, pd, _) = note_info[n_idx - 1];
+                                                (
+                                                    Some(pm),
+                                                    (pp + pd - note.position_ms).abs() <= 1.0,
+                                                )
+                                            } else {
+                                                (None, false)
+                                            };
+                                            note.pitch_bend.points = note
+                                                .pitch_bend
+                                                .effective_points(prev_m, note.midi_key(), is_adj);
+                                        }
+                                        let rel_t = timeline_time_ms - note.position_ms;
+                                        let phase =
+                                            (rel_t / 1000.0) * vibrato_freq * std::f64::consts::TAU;
+                                        let base_cents =
+                                            (center_m - note.midi_key() as f64) * 100.0;
+                                        let vib_cents = (base_cents
+                                            + phase.sin() * vibrato_amp_cents)
+                                            .clamp(-MAX_MANUAL_PITCH_CENTS, MAX_MANUAL_PITCH_CENTS);
+
+                                        note.pitch_bend.points.retain(|pt| {
+                                            (pt.time_offset_ms - rel_t).abs() >= min_dist_ms
+                                        });
+                                        note.pitch_bend.points.push(UPitchBendPoint {
+                                            time_offset_ms: rel_t,
+                                            pitch_offset_cents: vib_cents,
+                                            shape: "s".to_string(),
+                                        });
+                                        note.pitch_bend.points.sort_by(|a, b| {
+                                            a.time_offset_ms
+                                                .partial_cmp(&b.time_offset_ms)
+                                                .unwrap_or(std::cmp::Ordering::Equal)
+                                        });
+                                        state.continuous_edit_dirty = true;
+                                    }
+                                }
+                            }
+                            PitchSubTool::Smooth => {
+                                let radius_ms = 60.0;
+                                for note in notes.iter_mut() {
+                                    if !note.pitch_bend.points.is_empty() {
+                                        let rel_t = timeline_time_ms - note.position_ms;
+                                        let n_pts = note.pitch_bend.points.len();
+                                        for pt_i in 0..n_pts {
+                                            let p_time =
+                                                note.pitch_bend.points[pt_i].time_offset_ms;
+                                            if (p_time - rel_t).abs() <= radius_ms {
+                                                let prev_cents = if pt_i > 0 {
+                                                    note.pitch_bend.points[pt_i - 1]
+                                                        .pitch_offset_cents
+                                                } else {
+                                                    note.pitch_bend.points[pt_i].pitch_offset_cents
+                                                };
+                                                let next_cents = if pt_i + 1 < n_pts {
+                                                    note.pitch_bend.points[pt_i + 1]
+                                                        .pitch_offset_cents
+                                                } else {
+                                                    note.pitch_bend.points[pt_i].pitch_offset_cents
+                                                };
+                                                let curr =
+                                                    note.pitch_bend.points[pt_i].pitch_offset_cents;
+                                                note.pitch_bend.points[pt_i].pitch_offset_cents =
+                                                    curr * 0.7 + (prev_cents + next_cents) * 0.15;
+                                            }
+                                        }
+                                        state.continuous_edit_dirty = true;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+                // Primary Released: commit strokes, lines, or points
+                if ui.input(|i| i.pointer.primary_released()) {
+                    state.vibrato_brush_center = None;
+                    if let Some((d_note_idx, _)) = state.dragging_pitch_pt {
+                        state.dragging_pitch_pt = None;
+                        if d_note_idx < notes.len() {
+                            notes[d_note_idx].pitch_bend.points.sort_by(|a, b| {
+                                a.time_offset_ms
+                                    .partial_cmp(&b.time_offset_ms)
+                                    .unwrap_or(std::cmp::Ordering::Equal)
+                            });
+                            state.continuous_edit_dirty = true;
+                            on_note_changed();
+                        }
+                    } else if state.pitch_sub_tool == PitchSubTool::Freehand
+                        && !state.pitch_brush_raw_stroke.is_empty()
+                    {
+                        let stroke = state.pitch_brush_raw_stroke.clone();
+                        state.pitch_brush_raw_stroke.clear();
+
+                        if stroke.len() >= 2 {
+                            let s_min_t = stroke.first().map(|p| p.0).unwrap_or(0.0);
+                            let s_max_t = stroke.last().map(|p| p.0).unwrap_or(0.0);
+
+                            for (n_idx, note) in notes.iter_mut().enumerate() {
+                                let n_start = note.position_ms;
+                                let n_end = note.position_ms + note.duration_ms;
+
+                                if s_max_t >= n_start - 100.0 && s_min_t <= n_end + 100.0 {
+                                    if note.pitch_bend.points.is_empty() {
+                                        let (prev_m, is_adj) = if n_idx > 0 {
+                                            let (pm, pp, pd, _) = note_info[n_idx - 1];
+                                            (Some(pm), (pp + pd - note.position_ms).abs() <= 1.0)
+                                        } else {
+                                            (None, false)
+                                        };
+                                        note.pitch_bend.points = note.pitch_bend.effective_points(
+                                            prev_m,
+                                            note.midi_key(),
+                                            is_adj,
+                                        );
+                                    }
+
+                                    // Extract stroke segments that belong to this note
+                                    let note_stroke_pts: Vec<(f64, f64)> = stroke
+                                        .iter()
+                                        .filter(|&(t, _)| {
+                                            *t >= n_start - 150.0 && *t <= n_end + 150.0
+                                        })
+                                        .map(|&(t, m)| {
+                                            let rel_t = t - note.position_ms;
+                                            let cents = (m - note.midi_key() as f64) * 100.0;
+                                            (rel_t, cents)
+                                        })
+                                        .collect();
+
+                                    if !note_stroke_pts.is_empty() {
+                                        let smoothed = smooth_pitch_points(&note_stroke_pts);
+                                        if !smoothed.is_empty() {
+                                            let sub_min_t =
+                                                smoothed.first().unwrap().time_offset_ms;
+                                            let sub_max_t = smoothed.last().unwrap().time_offset_ms;
+
+                                            note.pitch_bend.points.retain(|pt| {
+                                                pt.time_offset_ms < sub_min_t - 6.0
+                                                    || pt.time_offset_ms > sub_max_t + 6.0
+                                            });
+
+                                            note.pitch_bend.points.extend(smoothed);
+                                            note.pitch_bend.points.sort_by(|a, b| {
+                                                a.time_offset_ms
+                                                    .partial_cmp(&b.time_offset_ms)
+                                                    .unwrap_or(std::cmp::Ordering::Equal)
+                                            });
+
+                                            let simplified = PitchBendSolver::simplify_pitch_points(
+                                                &note.pitch_bend.points,
+                                                3.5,
+                                            );
+                                            note.pitch_bend.points = simplified;
+                                            state.continuous_edit_dirty = true;
+                                            on_note_changed();
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    } else if state.pitch_sub_tool == PitchSubTool::Line {
+                        if let Some((start_t, start_m)) = state.pitch_line_start {
+                            let end_t = timeline_time_ms;
+                            let end_m = timeline_abs_midi;
+                            state.pitch_line_start = None;
+
+                            let (l_min_t, l_max_t) = if start_t <= end_t {
+                                (start_t, end_t)
+                            } else {
+                                (end_t, start_t)
+                            };
+
+                            for (n_idx, note) in notes.iter_mut().enumerate() {
+                                let n_start = note.position_ms;
+                                let n_end = note.position_ms + note.duration_ms;
+
+                                if l_max_t >= n_start - 50.0 && l_min_t <= n_end + 50.0 {
+                                    if note.pitch_bend.points.is_empty() {
+                                        let (prev_m, is_adj) = if n_idx > 0 {
+                                            let (pm, pp, pd, _) = note_info[n_idx - 1];
+                                            (Some(pm), (pp + pd - note.position_ms).abs() <= 1.0)
+                                        } else {
+                                            (None, false)
+                                        };
+                                        note.pitch_bend.points = note.pitch_bend.effective_points(
+                                            prev_m,
+                                            note.midi_key(),
+                                            is_adj,
+                                        );
+                                    }
+
+                                    let rel_start_t = start_t - note.position_ms;
+                                    let rel_start_cents =
+                                        (start_m - note.midi_key() as f64) * 100.0;
+                                    let rel_end_t = end_t - note.position_ms;
+                                    let rel_end_cents = (end_m - note.midi_key() as f64) * 100.0;
+
+                                    let (min_rel, max_rel) = if rel_start_t <= rel_end_t {
+                                        (rel_start_t, rel_end_t)
+                                    } else {
+                                        (rel_end_t, rel_start_t)
+                                    };
+
+                                    note.pitch_bend.points.retain(|pt| {
+                                        pt.time_offset_ms < min_rel || pt.time_offset_ms > max_rel
+                                    });
+
+                                    note.pitch_bend.points.push(UPitchBendPoint {
+                                        time_offset_ms: rel_start_t,
+                                        pitch_offset_cents: rel_start_cents,
+                                        shape: "l".to_string(),
+                                    });
+                                    note.pitch_bend.points.push(UPitchBendPoint {
+                                        time_offset_ms: rel_end_t,
+                                        pitch_offset_cents: rel_end_cents,
+                                        shape: "s".to_string(),
+                                    });
+
+                                    note.pitch_bend.points.sort_by(|a, b| {
+                                        a.time_offset_ms
+                                            .partial_cmp(&b.time_offset_ms)
+                                            .unwrap_or(std::cmp::Ordering::Equal)
+                                    });
+
+                                    let simplified = PitchBendSolver::simplify_pitch_points(
+                                        &note.pitch_bend.points,
+                                        3.0,
+                                    );
+                                    note.pitch_bend.points = simplified;
+                                    state.continuous_edit_dirty = true;
+                                    on_note_changed();
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // 4. Render OpenUtau-Grade Interactive Pitch Control Handles
+        let show_pitch_nodes =
+            state.active_tool == EditTool::PitchDraw || state.active_tool == EditTool::Pointer;
+
+        if show_pitch_nodes {
+            for (_h_idx, handle) in pending_pitch_handles.iter().enumerate() {
+                let is_hovered =
+                    mouse_interact_pos.map_or(false, |mpos| mpos.distance(handle.pos) <= 13.0);
+                let is_dragged = state.dragging_pitch_pt == Some((handle.note_idx, handle.pt_idx));
+
+                let radius = if is_dragged {
+                    6.5
+                } else if is_hovered {
+                    5.5
+                } else {
+                    4.0
+                };
+
+                let shape_char = match handle.shape.to_lowercase().as_str() {
+                    "l" => "L",
+                    "j" => "J",
+                    "r" => "R",
+                    "h" => "H",
+                    _ => "S",
+                };
+
+                let (bg_color, ring_color) = if is_dragged {
+                    (
+                        Color32::from_rgb(255, 230, 80),
+                        Color32::from_rgb(255, 255, 255),
+                    )
+                } else if is_hovered {
+                    (
+                        Color32::from_rgb(255, 170, 40),
+                        Color32::from_rgb(255, 240, 180),
+                    )
+                } else if handle.is_custom {
+                    (
+                        Color32::from_rgb(0, 225, 255),
+                        Color32::from_rgb(200, 255, 255),
+                    )
+                } else {
+                    (
+                        Color32::from_rgba_unmultiplied(80, 180, 220, 180),
+                        Color32::from_rgba_unmultiplied(200, 240, 255, 140),
+                    )
+                };
+
+                // Node outer glow when hovered or dragging
+                if is_hovered || is_dragged {
+                    painter.circle_filled(
+                        handle.pos,
+                        radius + 4.0,
+                        Color32::from_rgba_unmultiplied(0, 220, 255, 45),
+                    );
+                }
+
+                painter.circle_filled(handle.pos, radius, bg_color);
+                painter.circle_stroke(handle.pos, radius, Stroke::new(1.2, ring_color));
+
+                // Display shape badge text with exact cents if hovered or dragging
+                if is_hovered || is_dragged {
+                    let badge_text = if is_shift {
+                        format!("[{}] {:+.1}c", shape_char, handle.cents)
+                    } else {
+                        format!("[{}] {:+.0}c", shape_char, handle.cents)
+                    };
+                    let badge_font = egui::FontId::proportional(10.0);
+                    let badge_galley = painter.layout_no_wrap(
+                        badge_text.clone(),
+                        badge_font.clone(),
+                        Color32::WHITE,
+                    );
+                    let badge_pos = Pos2::new(
+                        handle.pos.x - badge_galley.size().x * 0.5,
+                        handle.pos.y - radius - 18.0,
+                    );
+                    let badge_rect =
+                        Rect::from_min_size(badge_pos, badge_galley.size()).expand(3.0);
+
+                    painter.rect_filled(
+                        badge_rect,
+                        Rounding::same(3.0),
+                        Color32::from_rgba_unmultiplied(10, 15, 22, 225),
+                    );
+                    painter.rect_stroke(
+                        badge_rect,
+                        Rounding::same(3.0),
+                        Stroke::new(1.0, Color32::from_rgba_unmultiplied(0, 220, 255, 120)),
+                    );
+                    painter.text(
+                        badge_rect.center(),
+                        egui::Align2::CENTER_CENTER,
+                        badge_text,
+                        badge_font,
+                        Color32::from_rgb(220, 245, 255),
+                    );
                 }
             }
         }
@@ -2667,6 +2747,9 @@ pub fn draw_piano_roll(
                     state.dragging_is_resize = false;
                     state.note_original_states.clear();
                     if note_was_changed {
+                        if state.auto_cut {
+                            crate::gui::note_actions::resolve_monophonic_overlaps(notes);
+                        }
                         on_note_changed();
                     }
                 }
@@ -3012,17 +3095,22 @@ pub fn draw_piano_roll(
             );
         }
     });
-    if !state.is_playing
-        && !is_mod_zoom
+    if !is_mod_zoom
         && !state.is_scrubbing_ruler
         && !is_middle_panning
         && !state.is_edge_autoscrolling
         && state.marquee_start.is_none()
         && state.dragging_note_idx.is_none()
+        && !state.minimap_navigation_active
     {
-        state.horizontal_scroll_offset = scroll_output.state.offset.x;
-        state.vertical_scroll_offset = scroll_output.state.offset.y;
+        if !state.is_playing || state.horizontal_follow_user_override {
+            state.horizontal_scroll_offset = scroll_output.state.offset.x;
+        }
+        if !state.is_playing || state.vertical_follow_user_override {
+            state.vertical_scroll_offset = scroll_output.state.offset.y;
+        }
     }
+    state.minimap_navigation_active = false;
     state.is_edge_autoscrolling = false;
 
     context_menu::draw(ui, notes, state, lang, on_before_change, on_note_changed);

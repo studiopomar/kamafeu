@@ -93,37 +93,49 @@ impl UPitchBend {
                 },
             ]
         };
-        let mut points = if self.points.is_empty() {
-            automatic_portamento()
-        } else {
-            self.points.clone()
-        };
-        points.sort_by(|left, right| {
-            left.time_offset_ms
-                .partial_cmp(&right.time_offset_ms)
-                .unwrap_or(std::cmp::Ordering::Equal)
-        });
 
-        // PitchDraw stores only points touched by the user. Preserve the
-        // automatic portamento when the first hand-drawn point occurs later;
-        // otherwise the previous note would be held until that point.
-        if points
-            .first()
-            .is_some_and(|first| first.time_offset_ms > start + 1e-6)
-        {
-            points.extend(automatic_portamento());
+        if self.points.is_empty() {
+            let mut points = automatic_portamento();
+            if self.snap_first && adjacent {
+                if let (Some(previous), Some(first)) = (previous_midi, points.first_mut()) {
+                    first.pitch_offset_cents =
+                        (f64::from(previous) - f64::from(current_midi)) * 100.0;
+                }
+            }
+            points
+        } else {
+            let mut points = self.points.clone();
             points.sort_by(|left, right| {
                 left.time_offset_ms
                     .partial_cmp(&right.time_offset_ms)
                     .unwrap_or(std::cmp::Ordering::Equal)
             });
-        }
-        if self.snap_first && adjacent {
-            if let (Some(previous), Some(first)) = (previous_midi, points.first_mut()) {
-                first.pitch_offset_cents = (f64::from(previous) - f64::from(current_midi)) * 100.0;
+
+            if self.snap_first
+                && adjacent
+                && points
+                    .first()
+                    .is_some_and(|first| first.time_offset_ms > 0.0)
+            {
+                let mut auto = automatic_portamento();
+                if let (Some(previous), Some(first)) = (previous_midi, auto.first_mut()) {
+                    first.pitch_offset_cents =
+                        (f64::from(previous) - f64::from(current_midi)) * 100.0;
+                }
+                points.extend(auto);
+                points.sort_by(|left, right| {
+                    left.time_offset_ms
+                        .partial_cmp(&right.time_offset_ms)
+                        .unwrap_or(std::cmp::Ordering::Equal)
+                });
+            } else if self.snap_first && adjacent {
+                if let (Some(previous), Some(first)) = (previous_midi, points.first_mut()) {
+                    first.pitch_offset_cents =
+                        (f64::from(previous) - f64::from(current_midi)) * 100.0;
+                }
             }
+            points
         }
-        points
     }
 }
 
@@ -906,5 +918,29 @@ mod project_tests {
         assert_eq!(note.envelope.p1, 0.0);
         assert_eq!(note.envelope.p2, 5.0);
         assert!(note.pitch_bend.points.is_empty());
+    }
+
+    #[test]
+    fn test_portamento_and_envelope_isolation() {
+        let mut note = UNote::new("ka", "C4", 0.0, 480.0);
+        note.envelope.p1 = 15.0;
+        note.envelope.p2 = 45.0;
+        note.envelope.p3 = 30.0;
+        note.envelope.p4 = 10.0;
+        note.envelope.p5 = 55.0;
+        note.envelope.v1 = 20.0;
+        note.envelope.v2 = 90.0;
+        note.envelope.crossfade_ms = 25.0;
+
+        let env_snapshot = note.envelope.clone();
+
+        // Mutating portamento / pitch bend must leave the envelope 100% untouched
+        note.pitch_bend.portamento_start_ms = -55.0;
+        note.pitch_bend.portamento_length_ms = 110.0;
+        note.pitch_bend.portamento_shape = "io".to_string();
+        note.pitch_bend.ensure_portamento(Some(58), 60, true);
+
+        assert_eq!(note.envelope, env_snapshot);
+        assert_eq!(note.pitch_bend.points.len(), 2);
     }
 }

@@ -58,7 +58,7 @@ use crate::renderer::RenderedAudio;
 use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
-use std::time::Instant;
+use web_time::Instant;
 
 #[allow(dead_code)]
 fn playback_sample_offset(audio: &RenderedAudio, start_ms: f64) -> usize {
@@ -179,6 +179,8 @@ pub struct KamafeuStudioApp {
     preview_waveform_rx: Option<std::sync::mpsc::Receiver<(u64, Vec<(f32, f32, f32)>)>>,
     preview_waveform_cancel: Option<Arc<AtomicBool>>,
     workspace_snap_rect: Option<(workspace::WorkspacePane, eframe::egui::Rect)>,
+    pub active_mobile_tab: types::MobileViewTab,
+    pub mobile_menu_open: bool,
 }
 
 impl Drop for KamafeuStudioApp {

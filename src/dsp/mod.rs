@@ -8,6 +8,7 @@ pub mod pyin;
 pub mod resampler;
 pub mod sola;
 pub mod venus;
+pub mod venus_analysis;
 pub mod windowed_sinc;
 
 /// Change the duration of a segment without changing its playback rate.

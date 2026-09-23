@@ -5,7 +5,7 @@ use crate::formats::UstFormat;
 use crate::formats::UstxFormat;
 use crate::formats::VsqxFormat;
 use crate::gui::KamafeuStudioApp;
-use std::time::Instant;
+use web_time::Instant;
 
 impl KamafeuStudioApp {
     pub fn export_midi_dialog(&mut self) {

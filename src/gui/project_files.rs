@@ -10,13 +10,21 @@ use crate::gui::KamafeuStudioApp;
 use crate::oto::Voicebank;
 use std::path::Path;
 use std::path::PathBuf;
+#[cfg(target_arch = "wasm32")]
+static WEB_FILE_QUEUE: std::sync::OnceLock<std::sync::Mutex<Vec<(String, Vec<u8>)>>> =
+    std::sync::OnceLock::new();
+
+#[cfg(target_arch = "wasm32")]
+pub fn web_file_queue() -> &'static std::sync::Mutex<Vec<(String, Vec<u8>)>> {
+    WEB_FILE_QUEUE.get_or_init(|| std::sync::Mutex::new(Vec::new()))
+}
 
 impl KamafeuStudioApp {
     pub fn create_project_snapshot(&mut self) {
         let snapshot_dir = PathBuf::from(".kamafeu_snapshots");
         let _ = std::fs::create_dir_all(&snapshot_dir);
-        let secs = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
+        let secs = web_time::SystemTime::now()
+            .duration_since(web_time::UNIX_EPOCH)
             .unwrap_or_default()
             .as_secs();
         let filename = format!("snapshot_{}.kamafeu", secs);
@@ -368,6 +376,125 @@ impl KamafeuStudioApp {
         }
     }
 
+    pub fn open_project_from_bytes(&mut self, file_name: &str, bytes: &[u8]) {
+        let extension = std::path::Path::new(file_name)
+            .extension()
+            .and_then(|s| s.to_str())
+            .unwrap_or("")
+            .to_lowercase();
+
+        if matches!(extension.as_str(), "wav" | "mp3" | "ogg" | "flac") {
+            self.transport_state.status_message =
+                format!("Arquivo de áudio carregado: {}", file_name);
+            return;
+        }
+
+        let content_str = String::from_utf8_lossy(bytes);
+        let loaded = match extension.as_str() {
+            "aps" => ApsFormat::parse_str(&content_str)
+                .or_else(|_| UstxFormat::parse_str(&content_str))
+                .or_else(|_| UfdataFormat::parse_str(&content_str)),
+            "mid" | "midi" => {
+                MidiFormat::parse_bytes(bytes).or_else(|_| VsqxFormat::parse_str(&content_str))
+            }
+            "ust" => UstFormat::parse_bytes(bytes)
+                .or_else(|_| UstFormat::parse_str(&content_str))
+                .or_else(|_| UstxFormat::parse_str(&content_str)),
+            "ustx" => UstxFormat::parse_str(&content_str)
+                .or_else(|_| ApsFormat::parse_str(&content_str))
+                .or_else(|_| UstFormat::parse_bytes(bytes)),
+            "ufdata" => UfdataFormat::parse_str(&content_str)
+                .or_else(|_| SvpFormat::parse_bytes(bytes))
+                .or_else(|_| ApsFormat::parse_str(&content_str)),
+            "svp" => SvpFormat::parse_bytes(bytes)
+                .or_else(|_| SvpFormat::parse_str(&content_str))
+                .or_else(|_| UfdataFormat::parse_str(&content_str)),
+            "vsqx" | "vsq" => {
+                VsqxFormat::parse_str(&content_str).or_else(|_| MidiFormat::parse_bytes(bytes))
+            }
+            "json" => UfdataFormat::parse_str(&content_str)
+                .or_else(|_| SvpFormat::parse_str(&content_str))
+                .or_else(|_| ApsFormat::parse_str(&content_str)),
+            _ => ApsFormat::parse_str(&content_str)
+                .or_else(|_| SvpFormat::parse_bytes(bytes))
+                .or_else(|_| UstxFormat::parse_str(&content_str))
+                .or_else(|_| UfdataFormat::parse_str(&content_str))
+                .or_else(|_| UstFormat::parse_bytes(bytes))
+                .or_else(|_| MidiFormat::parse_bytes(bytes))
+                .or_else(|_| VsqxFormat::parse_str(&content_str)),
+        };
+
+        match loaded {
+            Ok(mut proj) => {
+                proj.normalize();
+                self.audio_player.stop();
+                self.project = proj;
+                self.transport_state.bpm = self.project.bpm;
+                self.piano_roll_state.selected_note_index = None;
+                self.piano_roll_state.selected_note_indices.clear();
+                self.undo_manager = UndoManager::default();
+                self.is_dirty = false;
+                self.current_project_path = Some(PathBuf::from(file_name));
+
+                if let Some(mode) = self
+                    .project
+                    .phonemizer
+                    .or_else(|| self.project.tracks.first().and_then(|t| t.phonemizer))
+                {
+                    self.vocal_mode_params.phonemizer_mode = mode;
+                }
+
+                if let Some(ref resampler) = self.project.resampler.clone().or_else(|| {
+                    self.project
+                        .tracks
+                        .first()
+                        .and_then(|t| t.resampler.clone())
+                }) {
+                    self.selected_resampler = resampler.clone();
+                }
+
+                if let Some(ref wavtool) = self
+                    .project
+                    .wavtool
+                    .clone()
+                    .or_else(|| self.project.tracks.first().and_then(|t| t.wavtool.clone()))
+                {
+                    self.selected_wavtool = wavtool.clone();
+                }
+
+                self.restore_render_profile_for_active_context();
+
+                if let Some(sr) = self.project.sample_rate {
+                    self.sample_rate = sr;
+                }
+                if let Some(threads) = self.project.render_threads {
+                    self.render_threads = threads;
+                }
+
+                let first_pos = self
+                    .project
+                    .parts
+                    .iter()
+                    .flat_map(|p| p.notes.iter())
+                    .map(|n| n.position_ms)
+                    .fold(f64::INFINITY, f64::min);
+
+                if first_pos.is_finite() && first_pos > 0.0 {
+                    self.piano_roll_state.playhead_ms = first_pos;
+                } else {
+                    self.piano_roll_state.playhead_ms = 0.0;
+                }
+
+                self.piano_roll_state.initial_scrolled = false;
+                self.transport_state.status_message = format!("Projeto aberto: {}", file_name);
+            }
+            Err(e) => {
+                self.transport_state.status_message = format!("Erro ao abrir arquivo: {}", e);
+            }
+        }
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
     pub fn open_project_dialog(&mut self) {
         if let Some(path) = crate::dialogs::FileDialog::new()
             .set_title("Abrir Projeto / Importar Formato")
@@ -397,6 +524,63 @@ impl KamafeuStudioApp {
         {
             self.open_project_from_path(&path);
         }
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    pub fn open_project_dialog(&mut self) {
+        use wasm_bindgen::prelude::*;
+        use wasm_bindgen::JsCast;
+        use web_sys::{FileReader, HtmlInputElement};
+
+        let document = match web_sys::window().and_then(|w| w.document()) {
+            Some(d) => d,
+            None => return,
+        };
+        let input: HtmlInputElement = match document.create_element("input") {
+            Ok(el) => match el.dyn_into() {
+                Ok(input) => input,
+                Err(_) => return,
+            },
+            Err(_) => return,
+        };
+        input.set_type("file");
+        input.set_accept(
+            ".aps,.ustx,.ust,.ufdata,.svp,.vsqx,.vsq,.mid,.midi,.json,.wav,.mp3,.ogg,.flac",
+        );
+
+        let closure = Closure::wrap(Box::new(move |event: web_sys::Event| {
+            let target = event
+                .target()
+                .and_then(|t| t.dyn_into::<HtmlInputElement>().ok());
+            if let Some(target) = target {
+                if let Some(files) = target.files() {
+                    if let Some(file) = files.get(0) {
+                        let file_name = file.name();
+                        if let Ok(reader) = FileReader::new() {
+                            let reader_clone = reader.clone();
+                            let fname = file_name.clone();
+                            let onload = Closure::wrap(Box::new(move |_: web_sys::Event| {
+                                if let Ok(result) = reader_clone.result() {
+                                    let uint8_array = js_sys::Uint8Array::new(&result);
+                                    let bytes = uint8_array.to_vec();
+                                    if let Ok(mut q) = web_file_queue().lock() {
+                                        q.push((fname.clone(), bytes));
+                                    }
+                                }
+                            })
+                                as Box<dyn FnMut(_)>);
+                            reader.set_onload(Some(onload.as_ref().unchecked_ref()));
+                            onload.forget();
+                            let _ = reader.read_as_array_buffer(&file);
+                        }
+                    }
+                }
+            }
+        }) as Box<dyn FnMut(_)>);
+
+        input.set_onchange(Some(closure.as_ref().unchecked_ref()));
+        closure.forget();
+        input.click();
     }
 
     pub(super) fn sync_project_meta_before_save(&mut self) {
@@ -525,8 +709,8 @@ impl KamafeuStudioApp {
         let backup_dir = parent.join(".kamafeu_backups");
         let _ = std::fs::create_dir_all(&backup_dir);
 
-        let secs = std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
+        let secs = web_time::SystemTime::now()
+            .duration_since(web_time::UNIX_EPOCH)
             .unwrap_or_default()
             .as_secs();
         let backup_filename = format!("{}_backup_{}.aps", stem_clean, secs);

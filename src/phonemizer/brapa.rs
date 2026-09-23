@@ -233,19 +233,43 @@ impl VccvBrapaPhonemizer {
     /// BRAPA banks use more than one spelling for internal consonant
     /// transitions. Prefer the canonical C C form, but keep the explicitly
     /// recorded trailing/prefix/compact variants before falling back. This is
-    /// essential for clusters such as the `z m` in "meZmo".
+    /// essential for clusters such as the `z m` in "meZmo" or voiced sibilants.
     fn resolve_cluster_alias(vb: &Voicebank, pitch: &str, left: &str, right: &str) -> String {
-        let candidates = [
-            format!("{left} {right}"),
-            format!("{left} {right}-"),
-            format!("_{left} {right}"),
-            format!("{left}{right}"),
-        ];
-        candidates
-            .iter()
-            .find(|candidate| vb.find_mapped_entry(candidate, pitch).is_some())
-            .cloned()
-            .unwrap_or_else(|| candidates[0].clone())
+        let mut candidate_lefts = vec![left];
+        if left == "z" {
+            candidate_lefts.extend_from_slice(&["s", "j", "sh"]);
+        } else if left == "s" {
+            candidate_lefts.extend_from_slice(&["z", "sh", "j"]);
+        } else if left == "j" {
+            candidate_lefts.extend_from_slice(&["z", "sh", "s"]);
+        } else if left == "sh" {
+            candidate_lefts.extend_from_slice(&["s", "j", "z"]);
+        }
+
+        let mut candidate_rights = vec![right];
+        if right == "m" {
+            candidate_rights.extend_from_slice(&["n", "nh"]);
+        } else if right == "n" {
+            candidate_rights.extend_from_slice(&["m", "nh"]);
+        }
+
+        for &c_left in &candidate_lefts {
+            for &c_right in &candidate_rights {
+                let candidates = [
+                    format!("{c_left} {c_right}"),
+                    format!("{c_left} {c_right}-"),
+                    format!("_{c_left} {c_right}"),
+                    format!("{c_left}{c_right}"),
+                    format!("{c_left}_{c_right}"),
+                ];
+                for cand in candidates {
+                    if vb.find_mapped_entry(&cand, pitch).is_some() {
+                        return cand;
+                    }
+                }
+            }
+        }
+        format!("{left} {right}")
     }
 
     pub fn process_syllable(
@@ -710,8 +734,8 @@ impl VccvBrapaPhonemizer {
 
                         let mut main_env = note.envelope.clone();
                         main_env.p1 = 0.0;
-                        main_env.p2 = 0.0;
-                        main_env.v1 = 100.0;
+                        main_env.p2 = 5.0;
+                        main_env.v1 = 0.0;
                         main_env.v2 = 100.0;
 
                         note_phones.push(RenderPhone {
@@ -740,11 +764,11 @@ impl VccvBrapaPhonemizer {
                                 .map(|e| e.alias.clone())
                                 .unwrap_or_else(|| alias.clone());
 
-                            let mut trans_env = crate::dsp::envelope::UtauEnvelope::default();
+                            let mut trans_env = note.envelope.clone();
                             trans_env.p4 = 0.0;
-                            trans_env.p5 = 0.0;
+                            trans_env.p5 = 35.0;
                             trans_env.v4 = 100.0;
-                            trans_env.v5 = 100.0;
+                            trans_env.v5 = 0.0;
 
                             note_phones.push(RenderPhone {
                                 note_index,
@@ -769,8 +793,8 @@ impl VccvBrapaPhonemizer {
 
                         let mut main_env = note.envelope.clone();
                         main_env.p1 = 0.0;
-                        main_env.p2 = 0.0;
-                        main_env.v1 = 100.0;
+                        main_env.p2 = 5.0;
+                        main_env.v1 = 0.0;
                         main_env.v2 = 100.0;
 
                         note_phones.push(RenderPhone {

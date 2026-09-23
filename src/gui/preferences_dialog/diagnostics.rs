@@ -68,7 +68,7 @@ impl KamafeuStudioApp {
 
     pub(in crate::gui) fn run_dsp_engine_benchmark(&mut self) {
         let lang = self.config.language;
-        let start = std::time::Instant::now();
+        let start = web_time::Instant::now();
         let num_samples = 50_000;
         let mut buffer: Vec<f32> = (0..num_samples)
             .map(|i| (i as f32 * 0.05).sin() + (i as f32 * 0.12).cos())
@@ -105,7 +105,7 @@ impl KamafeuStudioApp {
 
     pub(in crate::gui) fn run_ram_stress_test(&mut self) {
         let lang = self.config.language;
-        let start = std::time::Instant::now();
+        let start = web_time::Instant::now();
         let total_floats = 16 * 1024 * 1024; // 64 MB
         let mut pool: Vec<Vec<f32>> = Vec::with_capacity(64);
         for chunk_idx in 0..64 {
@@ -134,7 +134,7 @@ impl KamafeuStudioApp {
 
     pub(in crate::gui) fn run_voicebanks_audit(&mut self) {
         let lang = self.config.language;
-        let start = std::time::Instant::now();
+        let start = web_time::Instant::now();
         let dirs = &self.config.singers_paths;
         let mut total_found = 0;
         let mut oto_found = 0;

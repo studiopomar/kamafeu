@@ -305,26 +305,6 @@ pub(super) fn draw(
                         Stroke::new(0.6_f32, Color32::from_rgba_unmultiplied(90, 110, 160, 35)),
                     );
 
-                    // Ghost waveform in background of parameter graph for visual alignment
-                    if !state.rendered_waveform_peaks.is_empty() {
-                        let step_px = 2.0f32;
-                        let num_steps = ((graph_rect.width() / step_px).ceil() as usize).max(1);
-                        for step in 0..num_steps {
-                            let x_pos = graph_rect.min.x + step as f32 * step_px;
-                            let t_ms = ((x_pos - timeline_origin_x) as f64 / state.px_per_ms as f64) as f32;
-                            if let Some((min_v, max_v)) = state.waveform_min_max_at(t_ms) {
-                                let w_top = mid_y - max_v.clamp(0.0, 1.2) * half_span_y;
-                                let w_bot = mid_y - min_v.clamp(-1.2, 0.0) * half_span_y;
-                                if (w_bot - w_top).abs() > 0.5 {
-                                    painter.line_segment(
-                                        [Pos2::new(x_pos, w_top), Pos2::new(x_pos, w_bot)],
-                                        Stroke::new(1.5, Color32::from_rgba_unmultiplied(0, 220, 180, 24)),
-                                    );
-                                }
-                            }
-                        }
-                    }
-
                     // Indicadores numéricos no canto esquerdo
                     painter.text(
                         Pos2::new(graph_rect.min.x + 6.0, top_y + 2.0),
@@ -415,7 +395,7 @@ pub(super) fn draw(
                         if let Some(cached) = state.note_phonemes_cache.get(note_index) {
                             if !cached.is_empty() {
                                 let count = cached.len();
-                                let mut cur_offset = cached[0].1;
+                                let mut cur_offset = cached[0].relative_position_ms;
                                 let has_custom = note.phoneme_durations_ms.len() == count;
                                 let authored_sum: f64 = if has_custom {
                                     note.phoneme_durations_ms.iter().sum()
@@ -431,13 +411,11 @@ pub(super) fn draw(
                                     1.0
                                 };
 
-                                for (idx, (p_alias, _rel_pos, default_dur)) in
-                                    cached.iter().enumerate()
-                                {
+                                for (idx, phone) in cached.iter().enumerate() {
                                     let dur = if has_custom {
                                         note.phoneme_durations_ms[idx] * scale
                                     } else {
-                                        *default_dur
+                                        phone.duration_ms
                                     };
                                     let p_start = (note.position_ms + cur_offset).max(0.0);
                                     let p_end = p_start + dur.max(10.0);
@@ -449,7 +427,7 @@ pub(super) fn draw(
                                         end_ms: p_end,
                                         norm_val: norm_clamped,
                                         lyric: note.lyric.clone(),
-                                        alias: p_alias.clone(),
+                                        alias: phone.alias.clone(),
                                     });
                                 }
                                 continue;
@@ -486,8 +464,9 @@ pub(super) fn draw(
                     }
 
                     let is_shift_down = ui.input(|i| i.modifiers.shift);
-                    if !ui.input(|i| i.pointer.primary_down()) {
+                    if !ui.input(|i| i.pointer.primary_down() || i.pointer.secondary_down()) {
                         state.shift_locked_drawer_norm = None;
+                        state.is_dragging_in_drawer = false;
                     }
 
                     let mut is_drawing = false;
@@ -501,6 +480,10 @@ pub(super) fn draw(
                     let primary_active = (graph_response.clicked() && !is_secondary_down)
                         || graph_response.dragged_by(egui::PointerButton::Primary)
                         || (graph_response.hovered() && is_primary_down && !is_secondary_down);
+
+                    if secondary_active || primary_active {
+                        state.is_dragging_in_drawer = true;
+                    }
 
                     if let Some(mpos) = graph_response.interact_pointer_pos().or_else(|| {
                         if secondary_active || primary_active || graph_response.hovered() {
@@ -598,7 +581,7 @@ pub(super) fn draw(
                             let click_t =
                                 (mpos.x - timeline_origin_x) as f64 / state.px_per_ms as f64;
 
-                            let norm = if is_shift_down {
+                            let norm: f64 = if is_shift_down {
                                 *state.shift_locked_drawer_norm.get_or_insert(raw_norm)
                             } else {
                                 state.shift_locked_drawer_norm = Some(raw_norm);

@@ -90,15 +90,8 @@ impl KamafeuStudioApp {
             }
             ui.separator();
             if let Some(track) = self.project.tracks.get_mut(self.active_track_index) {
-                if ui
-                    .checkbox(&mut track.mute, lang.tr("Mudo (Mute) [M]", "Mute [M]"))
-                    .clicked()
-                {
-                    ui.close_menu();
-                }
-                if ui.checkbox(&mut track.solo, "Solo").clicked() {
-                    ui.close_menu();
-                }
+                ui.checkbox(&mut track.mute, lang.tr("Mudo (Mute) [M]", "Mute [M]"));
+                ui.checkbox(&mut track.solo, "Solo");
             }
             ui.separator();
             if ui

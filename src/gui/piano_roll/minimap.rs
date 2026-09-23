@@ -58,6 +58,12 @@ pub(super) fn draw(
 
         // Viewport window overlay
         let visible_w = (ui.available_width() - keyboard_width).max(10.0);
+        // Keep the state in the same range as the ScrollArea. Without this,
+        // dragging against the physical window edge can repeatedly alternate
+        // between the radar's unconstrained target and ScrollArea's clamped
+        // value, producing a visible shake.
+        let max_scroll_x = (total_canvas_ms * state.px_per_ms as f64) as f32 - visible_w;
+        let max_scroll_x = max_scroll_x.max(0.0);
         let vp_start_norm =
             ((timeline_scroll_x / state.px_per_ms) as f64 / total_canvas_ms).clamp(0.0, 1.0) as f32;
         let vp_dur_ms = (visible_w / state.px_per_ms) as f64;
@@ -73,16 +79,31 @@ pub(super) fn draw(
                 minimap_rect.max.y - 1.0,
             ),
         );
-        m_painter.rect_filled(
-            vp_rect,
-            Rounding::same(2.0),
-            Color32::from_rgba_unmultiplied(192, 132, 252, 40),
-        );
-        m_painter.rect_stroke(
-            vp_rect,
-            Rounding::same(2.0),
-            Stroke::new(1.0, theme.accent_c32()),
-        );
+        let is_vp_hovered = minimap_resp
+            .hover_pos()
+            .map_or(false, |pos| vp_rect.contains(pos));
+
+        if is_vp_hovered {
+            if minimap_resp.dragged() {
+                ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
+            } else {
+                ui.ctx().set_cursor_icon(egui::CursorIcon::Grab);
+            }
+        }
+
+        let vp_fill = if is_vp_hovered || minimap_resp.dragged() {
+            theme.c32_alpha(theme.accent_color, 0.35)
+        } else {
+            Color32::from_rgba_unmultiplied(192, 132, 252, 45)
+        };
+        let vp_stroke = if is_vp_hovered || minimap_resp.dragged() {
+            Stroke::new(1.8, theme.accent_c32())
+        } else {
+            Stroke::new(1.0, theme.accent_c32())
+        };
+
+        m_painter.rect_filled(vp_rect, Rounding::same(3.0), vp_fill);
+        m_painter.rect_stroke(vp_rect, Rounding::same(3.0), vp_stroke);
 
         // Playhead in minimap
         let playhead_norm = (state.playhead_ms / total_canvas_ms).clamp(0.0, 1.0) as f32;
@@ -95,17 +116,48 @@ pub(super) fn draw(
             Stroke::new(1.5, theme.playhead_c32()),
         );
 
-        // Minimap drag interaction
-        if minimap_resp.dragged() || minimap_resp.clicked() {
+        // Minimap drag interaction. A drag keeps the initial grab offset, so
+        // grabbing the viewport edge does not jump the piano roll to center.
+        if minimap_resp.drag_started() {
+            state.minimap_drag_scroll_origin = Some(state.horizontal_scroll_offset);
+            state.minimap_navigation_active = true;
+            state.horizontal_follow_user_override = true;
+            state.auto_scroll_mode = crate::gui::types::AutoScrollMode::Off;
+        }
+        if minimap_resp.dragged() {
+            state.minimap_navigation_active = true;
+            state.horizontal_follow_user_override = true;
+            state.auto_scroll_mode = crate::gui::types::AutoScrollMode::Off;
+            // `drag_delta` belongs to the response that claimed the pointer;
+            // unlike the current pointer position, it remains valid after the
+            // pointer crosses the radar's edge. Requiring the pointer to stay
+            // inside the thin radar strip was what made the viewport appear
+            // locked as soon as a trackpad drag escaped that strip.
+            let origin = state
+                .minimap_drag_scroll_origin
+                .unwrap_or(timeline_scroll_x);
+            let delta_ms = (minimap_resp.drag_delta().x / map_span_x) as f64 * total_canvas_ms;
+            state.horizontal_scroll_offset =
+                (origin + (delta_ms * state.px_per_ms as f64) as f32).clamp(0.0, max_scroll_x);
+            ui.ctx().request_repaint();
+        } else if minimap_resp.clicked() {
+            state.minimap_navigation_active = true;
+            state.horizontal_follow_user_override = true;
+            state.auto_scroll_mode = crate::gui::types::AutoScrollMode::Off;
             if let Some(mpos) = minimap_resp.interact_pointer_pos() {
                 if mpos.x >= map_origin_x && mpos.x <= map_origin_x + map_span_x {
                     let click_norm = ((mpos.x - map_origin_x) / map_span_x).clamp(0.0, 1.0) as f64;
-                    let target_ms = click_norm * total_canvas_ms;
-                    let target_scroll_x =
-                        (target_ms * state.px_per_ms as f64) as f32 - visible_w * 0.5;
-                    state.horizontal_scroll_offset = target_scroll_x.max(0.0);
+                    state.horizontal_scroll_offset =
+                        (click_norm * total_canvas_ms * state.px_per_ms as f64) as f32
+                            - visible_w * 0.5;
+                    state.horizontal_scroll_offset =
+                        state.horizontal_scroll_offset.clamp(0.0, max_scroll_x);
                 }
             }
+        } else if !ui.input(|input| input.pointer.primary_down()) {
+            // The release may happen outside the radar. Use the global button
+            // state so a completed drag always drops its saved origin.
+            state.minimap_drag_scroll_origin = None;
         }
     }
 }

@@ -1,6 +1,6 @@
 use crate::gui::KamafeuStudioApp;
 use crate::oto::Voicebank;
-use std::time::Instant;
+use web_time::Instant;
 
 impl KamafeuStudioApp {
     /// Makes every voicebank entry point restore the singer-specific render

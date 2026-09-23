@@ -109,6 +109,7 @@ pub fn draw_unified_toolbar(
     current_tool: &mut EditTool,
     pitch_sub_tool: &mut PitchSubTool,
     auto_scroll_mode: &mut AutoScrollMode,
+    vertical_pitch_follow: &mut bool,
     active_scale: &mut MusicalScale,
     scale_root_key: &mut u8,
     px_per_ms: &mut f32,
@@ -116,6 +117,7 @@ pub fn draw_unified_toolbar(
     show_arrangement: &mut bool,
     show_drawer: &mut bool,
     show_phonemes: &mut bool,
+    show_envelope: &mut bool,
     show_inspector: &mut bool,
     is_maximized: &mut bool,
     on_play: &mut dyn FnMut(),
@@ -137,6 +139,7 @@ pub fn draw_unified_toolbar(
     // ==========================================
     egui::ScrollArea::horizontal()
         .id_salt("toolbar_compact_scroll")
+        .drag_to_scroll(true)
         .auto_shrink([false, false])
         .show(ui, |ui| {
             ui.horizontal(|ui| {
@@ -266,6 +269,90 @@ pub fn draw_unified_toolbar(
                         if ui.add(button).on_hover_text(tooltip).clicked() {
                             *enabled = !*enabled;
                         }
+                    }
+
+                    ui.separator();
+                    for (mode, label, tooltip) in [
+                        (
+                            AutoScrollMode::Off,
+                            "Horizontal: Off",
+                            lang.tr("Rolagem horizontal desligada", "Horizontal scrolling off"),
+                        ),
+                        (
+                            AutoScrollMode::StationaryCursor,
+                            "Horizontal: Cursor",
+                            lang.tr(
+                                "Cursor horizontal estacionário",
+                                "Stationary horizontal cursor",
+                            ),
+                        ),
+                        (
+                            AutoScrollMode::PageScroll,
+                            "Horizontal: Página",
+                            lang.tr("Rolagem horizontal por página", "Horizontal page scrolling"),
+                        ),
+                    ] {
+                        let selected = *auto_scroll_mode == mode;
+                        let button = egui::Button::new(
+                            RichText::new(label)
+                                .size(9.5)
+                                .color(if selected {
+                                    theme.accent_c32()
+                                } else {
+                                    theme.text_muted_c32()
+                                }),
+                        )
+                        .min_size(Vec2::new(82.0, 20.0))
+                        .fill(if selected {
+                            theme.c32_alpha(theme.accent_color, 0.22)
+                        } else {
+                            theme.bg_header_c32()
+                        })
+                        .stroke(Stroke::new(
+                            if selected { 1.2 } else { 1.0 },
+                            if selected {
+                                theme.accent_c32()
+                            } else {
+                                theme.grid_line_sub_c32()
+                            },
+                        ));
+                        if ui.add(button).on_hover_text(tooltip).clicked() {
+                            *auto_scroll_mode = mode;
+                        }
+                    }
+
+                    let vertical_button = egui::Button::new(
+                        RichText::new("Vertical: Notas")
+                            .size(9.5)
+                            .color(if *vertical_pitch_follow {
+                                theme.note_fill_c32()
+                            } else {
+                                theme.text_muted_c32()
+                            }),
+                    )
+                    .min_size(Vec2::new(84.0, 20.0))
+                    .fill(if *vertical_pitch_follow {
+                        theme.c32_alpha(theme.note_fill, 0.22)
+                    } else {
+                        theme.bg_header_c32()
+                    })
+                    .stroke(Stroke::new(
+                        if *vertical_pitch_follow { 1.2 } else { 1.0 },
+                        if *vertical_pitch_follow {
+                            theme.note_fill_c32()
+                        } else {
+                            theme.grid_line_sub_c32()
+                        },
+                    ));
+                    if ui
+                        .add(vertical_button)
+                        .on_hover_text(lang.tr(
+                            "Acompanhar automaticamente as notas na vertical",
+                            "Automatically follow notes vertically",
+                        ))
+                        .clicked()
+                    {
+                        *vertical_pitch_follow = !*vertical_pitch_follow;
                     }
 
                     // Keep the active loop range visible in the main toolbar;
@@ -426,6 +513,11 @@ pub fn draw_unified_toolbar(
                         (GridSnapOption::Snap1_16T, "1/16T (1/24)"),
                         (GridSnapOption::Snap1_32T, "1/32T (1/48)"),
                         (GridSnapOption::Snap1_64T, "1/64T (1/96)"),
+                        (GridSnapOption::Snap1_5, "1/5"),
+                        (GridSnapOption::Snap1_10, "1/10"),
+                        (GridSnapOption::Snap1_20, "1/20"),
+                        (GridSnapOption::Snap1_40, "1/40"),
+                        (GridSnapOption::Snap1_80, "1/80"),
                     ];
 
                     egui::ComboBox::from_id_salt("grid_snap_combo_unified")
@@ -564,7 +656,7 @@ pub fn draw_unified_toolbar(
                 toolbar_card(ui, theme, |ui| {
                     ui.spacing_mut().item_spacing = Vec2::new(2.0, 0.0);
 
-                    let toggles: [(&mut bool, &str, &str, &str); 4] = [
+                    let toggles: [(&mut bool, &str, &str, &str); 5] = [
                         (
                             show_arrangement,
                             lang.tr("Arr", "Arr"),
@@ -591,6 +683,15 @@ pub fn draw_unified_toolbar(
                                 "Phoneme & oto.ini Envelope Ruler (Alt+O)",
                             ),
                             "panel_btn_phonemes",
+                        ),
+                        (
+                            show_envelope,
+                            lang.tr("Env", "Env"),
+                            lang.tr(
+                                "Exibir / Editar Envelopes de Volume (O)",
+                                "Show / Edit Volume Envelopes (O)",
+                            ),
+                            "panel_btn_envelope",
                         ),
                         (
                             show_inspector,
@@ -631,6 +732,9 @@ pub fn draw_unified_toolbar(
 
                         if resp.clicked() {
                             *flag = !*flag;
+                            if *flag && *is_maximized {
+                                *is_maximized = false;
+                            }
                         }
                     }
 
@@ -658,12 +762,17 @@ pub fn draw_unified_toolbar(
                     if ui
                         .add(max_btn)
                         .on_hover_text(lang.tr(
-                            "Maximizar Piano Roll (F11 / Shift+F)",
-                            "Maximize Piano Roll (F11 / Shift+F)",
+                            "Maximizar / Focar Piano Roll (Shift+F / Alt+M)",
+                            "Maximize / Focus Piano Roll (Shift+F / Alt+M)",
                         ))
                         .clicked()
                     {
                         *is_maximized = !*is_maximized;
+                        if !*is_maximized && !*show_arrangement && !*show_inspector && !*show_phonemes {
+                            *show_arrangement = true;
+                            *show_inspector = true;
+                            *show_phonemes = true;
+                        }
                     }
                 });
 
@@ -847,37 +956,6 @@ pub fn draw_unified_toolbar(
 
                         ui.separator();
 
-                        // --- Auto Scroll ---
-                        ui.horizontal(|ui| {
-                            egui::ComboBox::from_id_salt("autoscroll_combo_popup")
-                                .selected_text(match auto_scroll_mode {
-                                    AutoScrollMode::Off => lang.tr("Rolagem: Off", "Scroll: Off"),
-                                    AutoScrollMode::StationaryCursor => {
-                                        lang.tr("Rolagem: Cursor", "Scroll: Cursor")
-                                    }
-                                    AutoScrollMode::PageScroll => {
-                                        lang.tr("Rolagem: Página", "Scroll: Page")
-                                    }
-                                })
-                                .show_ui(ui, |ui| {
-                                    ui.selectable_value(
-                                        auto_scroll_mode,
-                                        AutoScrollMode::Off,
-                                        lang.tr("Desligada", "Off"),
-                                    );
-                                    ui.selectable_value(
-                                        auto_scroll_mode,
-                                        AutoScrollMode::StationaryCursor,
-                                        lang.tr("Cursor estacionário", "Stationary cursor"),
-                                    );
-                                    ui.selectable_value(
-                                        auto_scroll_mode,
-                                        AutoScrollMode::PageScroll,
-                                        lang.tr("Por página", "Page scroll"),
-                                    );
-                                });
-                        });
-
                         // --- Scale Guide ---
                         ui.horizontal(|ui| {
                             ui.label(
@@ -887,32 +965,42 @@ pub fn draw_unified_toolbar(
                                     .color(theme.accent_c32()),
                             );
 
-                            egui::ComboBox::from_id_salt("toolbar_scale_root_popup")
-                                .selected_text(
-                                    ROOT_NOTE_NAMES
-                                        .get(*scale_root_key as usize)
-                                        .copied()
-                                        .unwrap_or("C"),
-                                )
-                                .width(36.0)
-                                .show_ui(ui, |ui| {
-                                    for (k_idx, k_name) in ROOT_NOTE_NAMES.iter().enumerate() {
-                                        ui.selectable_value(scale_root_key, k_idx as u8, *k_name);
-                                    }
-                                });
+                            let root_label = ROOT_NOTE_NAMES
+                                .get(*scale_root_key as usize)
+                                .copied()
+                                .unwrap_or("C");
 
-                            egui::ComboBox::from_id_salt("toolbar_scale_type_popup")
-                                .selected_text(active_scale.display_name())
-                                .width(120.0)
-                                .show_ui(ui, |ui| {
-                                    for scale in MusicalScale::ALL {
-                                        ui.selectable_value(
-                                            active_scale,
-                                            scale,
-                                            scale.display_name(),
-                                        );
+                            ui.menu_button(
+                                RichText::new(root_label).size(10.5).color(theme.text_primary_c32()),
+                                |ui| {
+                                    for (k_idx, k_name) in ROOT_NOTE_NAMES.iter().enumerate() {
+                                        if ui
+                                            .selectable_label(*scale_root_key as usize == k_idx, *k_name)
+                                            .clicked()
+                                        {
+                                            *scale_root_key = k_idx as u8;
+                                            ui.close_menu();
+                                        }
                                     }
-                                });
+                                },
+                            );
+
+                            ui.menu_button(
+                                RichText::new(active_scale.display_name())
+                                    .size(10.5)
+                                    .color(theme.accent_c32()),
+                                |ui| {
+                                    for scale in MusicalScale::ALL {
+                                        if ui
+                                            .selectable_label(*active_scale == scale, scale.display_name())
+                                            .clicked()
+                                        {
+                                            *active_scale = scale;
+                                            ui.close_menu();
+                                        }
+                                    }
+                                },
+                            );
                         });
 
                         ui.separator();

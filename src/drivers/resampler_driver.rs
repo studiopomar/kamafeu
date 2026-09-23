@@ -229,9 +229,16 @@ fn actual_input_wav(
     raw_samples: &[f32],
     sample_rate: u32,
     args: &ResamplerArgs,
+    is_wine_exe: bool,
     temp_dir: &mut Option<tempfile::TempDir>,
 ) -> Result<PathBuf, String> {
-    if args.input_wav.is_file() {
+    // If the path contains non-ASCII characters (e.g. Japanese voicebank filenames like あ.wav)
+    // or when running under Wine (which uses ANSI codepage on CLI args), copy or write
+    // to a clean ASCII temporary path so external resamplers (TIPS, Moresampler, etc.) can open it.
+    let path_str = args.input_wav.to_string_lossy();
+    let is_non_ascii = !path_str.is_ascii();
+
+    if args.input_wav.is_file() && !is_non_ascii && !is_wine_exe {
         return Ok(args.input_wav.clone());
     }
 
@@ -240,7 +247,15 @@ fn actual_input_wav(
         .tempdir()
         .map_err(|error| format!("Falha ao criar diretório temporário: {error}"))?;
     let path = directory.path().join("input.wav");
-    crate::renderer::TrackRenderer::save_wav_samples(&path, raw_samples, sample_rate)?;
+
+    if args.input_wav.is_file() {
+        let _ = std::fs::copy(&args.input_wav, &path);
+    } else if !raw_samples.is_empty() {
+        crate::renderer::TrackRenderer::save_wav_samples(&path, raw_samples, sample_rate)?;
+    } else if args.input_wav.exists() {
+        let _ = std::fs::copy(&args.input_wav, &path);
+    }
+
     *temp_dir = Some(directory);
     Ok(path)
 }
@@ -319,7 +334,7 @@ impl ResamplerDriver for NativeResamplerDriver {
     }
 
     fn cache_identity(&self) -> String {
-        format!("{}:world-fallback-v1", self.name())
+        format!("{}:world-fallback-v5-envelope-match", self.name())
     }
 
     fn render_sample(
@@ -410,7 +425,7 @@ impl ResamplerDriver for NativeVenusResamplerDriver {
 
     fn cache_identity(&self) -> String {
         format!(
-            "{}:venus-v17-os{}-formants{}-{:?}-f0{:.0}-{:.0}",
+            "{}:venus-v23-envelope-spectrum-os{}-formants{}-{:?}-f0{:.0}-{:.0}",
             self.name(),
             self.oversampling_factor,
             if self.preserve_formants { "on" } else { "off" },
@@ -436,6 +451,17 @@ impl ResamplerDriver for NativeVenusResamplerDriver {
             0.0
         };
         let breathiness = parse_flag_numeric(&args.flags, "B").unwrap_or(0.0);
+        // A `.venus` sidecar is optional at render time: an unwritable
+        // voicebank must remain renderable, but a valid sidecar contributes
+        // its manually edited alias corrections.
+        let analysis =
+            crate::dsp::venus_analysis::load_or_analyze(&args.input_wav, raw_samples, sample_rate)
+                .unwrap_or_else(|_| {
+                    crate::dsp::venus_analysis::analyze_samples(raw_samples, sample_rate)
+                });
+        let alias_gain = analysis.gain_linear();
+        let formant_shift = analysis.formant_shift_cents as f64;
+        let alias_breathiness = analysis.breathiness as f64;
         let internal_rate = sample_rate.saturating_mul(self.oversampling_factor);
         let internal_input = if internal_rate == sample_rate {
             raw_samples.to_vec()
@@ -465,23 +491,30 @@ impl ResamplerDriver for NativeVenusResamplerDriver {
                     args.loop_start_ms,
                     args.loop_end_ms,
                     args.tail_start_ms,
-                    gender,
-                    breathiness,
+                    gender + formant_shift,
+                    breathiness + alias_breathiness,
                 )
             },
         );
         if cancel.is_some_and(|flag| flag.load(std::sync::atomic::Ordering::Relaxed)) {
             return Err("Renderização cancelada".to_string());
         }
-        if internal_rate == sample_rate {
-            Ok(rendered)
+        let mut rendered = if internal_rate == sample_rate {
+            rendered
         } else {
-            Ok(crate::renderer::TrackRenderer::convert_sample_rate(
+            crate::renderer::TrackRenderer::convert_sample_rate(
                 &rendered,
                 internal_rate,
                 sample_rate,
-            ))
+            )
+        };
+        if (alias_gain - 1.0).abs() > f32::EPSILON {
+            for sample in &mut rendered {
+                *sample *= alias_gain;
+            }
+            crate::dsp::VenusResampler::apply_output_safety(&mut rendered);
         }
+        Ok(rendered)
     }
 }
 
@@ -624,19 +657,20 @@ impl ResamplerDriver for MacResDriver {
             ));
         }
 
-        let mut temp_input_dir = None;
-        let actual_input_wav =
-            actual_input_wav(raw_samples, sample_rate, args, &mut temp_input_dir)?;
-        if args.output_wav.is_file() {
-            let _ = std::fs::remove_file(&args.output_wav);
-        }
-        let mut cmd = crate::drivers::process::prepare_command(&self.executable_path)?;
         let is_exe = self
             .executable_path
             .extension()
             .and_then(|ext| ext.to_str())
             .map(|ext| ext.eq_ignore_ascii_case("exe"))
             .unwrap_or(false);
+
+        let mut temp_input_dir = None;
+        let actual_input_wav =
+            actual_input_wav(raw_samples, sample_rate, args, is_exe, &mut temp_input_dir)?;
+        if args.output_wav.is_file() {
+            let _ = std::fs::remove_file(&args.output_wav);
+        }
+        let mut cmd = crate::drivers::process::prepare_command(&self.executable_path)?;
 
         cmd.args(classic_arguments(
             &actual_input_wav,
@@ -950,7 +984,7 @@ impl ResamplerDriver for ExternalResamplerDriver {
 
         let mut temp_input_dir = None;
         let actual_input_wav =
-            actual_input_wav(raw_samples, sample_rate, args, &mut temp_input_dir)?;
+            actual_input_wav(raw_samples, sample_rate, args, is_exe, &mut temp_input_dir)?;
         if args.output_wav.is_file() {
             let _ = std::fs::remove_file(&args.output_wav);
         }

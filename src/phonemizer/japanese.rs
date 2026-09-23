@@ -954,7 +954,10 @@ mod tests {
         let phones = JapanesePhonemizer::apply_japanese(&notes, &vb, PhonemizerMode::CVVC);
         assert_eq!(phones.len(), 3);
         assert_eq!(phones[0].lyric, "- か");
-        assert_eq!(phones[1].lyric, "あ s", "Should find 'あ s' alias in voicebank");
+        assert_eq!(
+            phones[1].lyric, "あ s",
+            "Should find 'あ s' alias in voicebank"
+        );
         assert_eq!(phones[2].lyric, "さ");
     }
 }

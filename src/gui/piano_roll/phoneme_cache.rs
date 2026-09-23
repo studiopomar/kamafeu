@@ -49,7 +49,9 @@ pub(super) fn draw(
                     vb,
                     phonemizer_mode,
                 );
-                for p in phones {
+                let timing_inputs = crate::renderer::timing::plan_inputs(&phones, vb, 0.0);
+                let timings = crate::renderer::timing::resolve_phoneme_timings(&timing_inputs);
+                for (p, timing) in phones.into_iter().zip(timings) {
                     if p.note_index < state.phoneme_cache.len() {
                         let is_first_phone = state.note_phonemes_cache[p.note_index].is_empty();
                         if is_first_phone {
@@ -68,11 +70,15 @@ pub(super) fn draw(
                         }
                         let note_pos = notes[p.note_index].position_ms;
                         let rel_pos = p.position_ms - note_pos;
-                        state.note_phonemes_cache[p.note_index].push((
-                            p.lyric,
-                            rel_pos,
-                            p.duration_ms,
-                        ));
+                        state.note_phonemes_cache[p.note_index].push(CachedPhoneme {
+                            alias: p.lyric,
+                            relative_position_ms: rel_pos,
+                            duration_ms: p.duration_ms,
+                            preutter_ms: timing.preutter_ms,
+                            overlap_ms: timing.overlap_ms,
+                            tail_intrude_ms: timing.tail_intrude_ms,
+                            tail_overlap_ms: timing.tail_overlap_ms,
+                        });
                     }
                 }
             }

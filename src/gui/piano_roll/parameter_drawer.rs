@@ -1,4 +1,3 @@
-mod envelope;
 mod expressions;
 mod timbre;
 mod voicebank_pitch;
@@ -19,19 +18,7 @@ pub(super) fn draw(
     voicebank: Option<&Voicebank>,
     on_note_changed: &mut dyn FnMut(),
 ) {
-    if state.show_envelope_handles {
-        envelope::draw(
-            ui,
-            notes,
-            state,
-            keyboard_width,
-            timeline_scroll_x,
-            on_before_change,
-            theme,
-            ruler_rect,
-            bpm,
-        );
-    } else if state.show_parameters_drawer {
+    if state.show_parameters_drawer {
         expressions::draw(
             ui,
             notes,

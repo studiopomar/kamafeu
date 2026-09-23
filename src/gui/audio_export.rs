@@ -290,14 +290,20 @@ impl KamafeuStudioApp {
                             Some(&report_progress),
                         )
                     };
-                    let render_pool = rayon::ThreadPoolBuilder::new()
-                        .num_threads(render_threads)
-                        .thread_name(|index| format!("kamafeu-export-{index}"))
-                        .build();
-                    let mut audio = match render_pool {
-                        Ok(pool) => pool.install(render),
-                        Err(_) => render(),
+                    #[cfg(not(target_arch = "wasm32"))]
+                    let mut audio = {
+                        let render_pool = rayon::ThreadPoolBuilder::new()
+                            .num_threads(render_threads)
+                            .thread_name(|index| format!("kamafeu-export-{index}"))
+                            .build();
+                        match render_pool {
+                            Ok(pool) => pool.install(render),
+                            Err(_) => render(),
+                        }
                     };
+
+                    #[cfg(target_arch = "wasm32")]
+                    let mut audio = render();
 
                     if let Some(error) = audio.error.take() {
                         let _ = export_tx.send(Err(error));

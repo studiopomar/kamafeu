@@ -73,6 +73,12 @@ impl KamafeuStudioApp {
                                         ui.label("S");
                                         ui.label(lang.tr("Alternar Tocar Apenas Seleção (ON/OFF)", "Toggle Play Selection Only (ON/OFF)"));
                                         ui.end_row();
+                                        ui.label("O");
+                                        ui.label(lang.tr("Exibir / Editar Envelopes de Volume (OpenUtau)", "Show / Edit Volume Envelopes (OpenUtau)"));
+                                        ui.end_row();
+                                        ui.label("Alt+O");
+                                        ui.label(lang.tr("Exibir / Ocultar Régua de Fonemas", "Toggle Phoneme Ruler"));
+                                        ui.end_row();
                                         ui.label("Ctrl+Alt+P / Cmd+Alt+P");
                                         ui.label(lang.tr("Abrir Pre-tunning (Afinador Orgânico)", "Open Pre-tunning (Organic Tuner)"));
                                         ui.end_row();

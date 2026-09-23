@@ -89,7 +89,6 @@ impl KamafeuStudioApp {
                 .changed()
             {
                 self.persist_config();
-                ui.close_menu();
             }
             if self.config.layout.modular_workspace
                 && ui
@@ -117,8 +116,13 @@ impl KamafeuStudioApp {
                     ),
                     (
                         &mut self.piano_roll_state.show_phoneme_ruler,
-                        "Régua de Fonemas e Envelopes do oto.ini (Alt+O)",
-                        "Phoneme & oto.ini Envelope Ruler (Alt+O)",
+                        "Régua de Fonemas (Alt+O)",
+                        "Phoneme Ruler (Alt+O)",
+                    ),
+                    (
+                        &mut self.piano_roll_state.show_envelope_handles,
+                        "Envelopes de Volume (O)",
+                        "Volume Envelopes (O)",
                     ),
                     (
                         &mut self.piano_roll_state.show_inspector,
@@ -140,27 +144,41 @@ impl KamafeuStudioApp {
                 .checkbox(
                     &mut self.piano_roll_state.is_maximized,
                     lang.tr(
-                        "Maximizar Piano Roll / Otimizar Espaço (F11 / Shift+F)",
-                        "Maximize Piano Roll / Optimize Space (F11 / Shift+F)",
+                        "Maximizar Piano Roll / Otimizar Espaço (Shift+F / Alt+M)",
+                        "Maximize Piano Roll / Optimize Space (Shift+F / Alt+M)",
                     ),
                 )
                 .clicked()
             {
                 self.persist_config();
+            }
+            let is_fs = ctx.input(|i| i.viewport().fullscreen.unwrap_or(false));
+            let fs_label = if is_fs {
+                lang.tr("Sair de Tela Cheia (F11)", "Exit Fullscreen (F11)")
+            } else {
+                lang.tr("Janela em Tela Cheia (F11)", "Fullscreen Window (F11)")
+            };
+            if ui.button(fs_label).clicked() {
+                ctx.send_viewport_cmd(egui::ViewportCommand::Fullscreen(!is_fs));
                 ui.close_menu();
             }
-            if ui
-                .checkbox(
-                    &mut self.render_log_window_open,
-                    lang.tr(
-                        "Janela de Log do Engine DSP (Ctrl+L)",
-                        "DSP Engine Log Window (Ctrl+L)",
-                    ),
-                )
-                .clicked()
-            {
+            let is_max_win = ctx.input(|i| i.viewport().maximized.unwrap_or(false));
+            let max_win_label = if is_max_win {
+                lang.tr("Restaurar Tamanho da Janela", "Restore Window Size")
+            } else {
+                lang.tr("Maximizar Janela do Sistema", "Maximize System Window")
+            };
+            if ui.button(max_win_label).clicked() {
+                ctx.send_viewport_cmd(egui::ViewportCommand::Maximized(!is_max_win));
                 ui.close_menu();
             }
+            ui.checkbox(
+                &mut self.render_log_window_open,
+                lang.tr(
+                    "Janela de Log do Engine DSP (Ctrl+L)",
+                    "DSP Engine Log Window (Ctrl+L)",
+                ),
+            );
             ui.separator();
             ui.menu_button(lang.tr("Tema do Aplicativo", "App Theme"), |ui| {
                 for preset in crate::gui::theme::ThemePreset::ALL {

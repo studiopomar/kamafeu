@@ -138,14 +138,29 @@ impl SingerScanner {
         let has_char_yaml = dir.join("character.yaml").exists();
         let has_native = dir.join("kamafeu_voicebank.json").exists();
 
-        // DiffSinger folders often contain a character.yaml, which looks like
-        // an OpenUtau singer at a glance but cannot be rendered by this UTAU
-        // pipeline.  Do not offer them as selectable voicebanks unless they
-        // also provide a real oto.ini/native Kamafeu definition.
-        let is_diffsinger = dir.join("dsconfig.yaml").exists()
+        // DiffSinger folders contain character.yaml or dsconfig.yaml, which look like
+        // an OpenUtau singer but cannot be rendered by this classic/WORLD UTAU
+        // resampler pipeline. Hide them from the voicebank list as requested.
+        let mut is_diffsinger = dir.join("dsconfig.yaml").exists()
+            || dir.join("dsdict.yaml").exists()
             || dir.join("acoustic.onnx").exists()
-            || dir.join("vocoder.onnx").exists();
-        if is_diffsinger && !has_oto && !has_native {
+            || dir.join("variance.onnx").exists()
+            || dir.join("vocoder.onnx").exists()
+            || dir.join("phone_set.json").exists();
+
+        if !is_diffsinger && has_char_yaml {
+            if let Ok(content) = fs::read_to_string(dir.join("character.yaml")) {
+                let content_lower = content.to_lowercase();
+                if content_lower.contains("diffsinger")
+                    || content_lower.contains("singer_type: diffsinger")
+                    || content_lower.contains("voice_type: diffsinger")
+                {
+                    is_diffsinger = true;
+                }
+            }
+        }
+
+        if is_diffsinger && !has_native {
             return None;
         }
 

@@ -3,6 +3,7 @@ use crate::oto::Voicebank;
 use crate::project::model::{UNote, UProject, UTrack};
 use std::sync::atomic::{AtomicBool, Ordering};
 
+#[cfg(not(target_arch = "wasm32"))]
 use rayon::prelude::*;
 
 use super::{RenderOptions, TrackRenderer};
@@ -184,8 +185,54 @@ impl ProjectRenderer {
             mono: Result<Vec<f32>, String>,
         }
 
+        #[cfg(not(target_arch = "wasm32"))]
         let mut track_results: Vec<TrackResult> = audible_tracks
             .par_iter()
+            .copied()
+            .enumerate()
+            .filter_map(|(audible_index, (track_index, track))| {
+                if cancel.is_some_and(|token| token.load(Ordering::Relaxed)) {
+                    return None;
+                }
+                let notes = Self::notes_for_track(project, track_index, start_ms, end_ms);
+                if notes.is_empty() {
+                    return None;
+                }
+
+                let track_cb = |prog: f32, msg: &str| {
+                    if let Some(cb) = on_progress {
+                        let total_prog = (audible_index as f32 + prog) / (track_count as f32);
+                        cb(total_prog, msg);
+                    }
+                };
+
+                let mono = TrackRenderer::try_render_track_with_progress_cancellable(
+                    &notes,
+                    voicebank,
+                    sample_rate,
+                    project.bpm,
+                    resampler_driver,
+                    wavtool_driver,
+                    Some(options),
+                    Some(&track_cb),
+                    cancel,
+                );
+
+                Some(TrackResult {
+                    _track_index: track_index,
+                    audible_index,
+                    track_name: track.name.clone(),
+                    volume_db: track.volume_db,
+                    pan: track.pan,
+                    fx_rack: track.fx_rack.clone(),
+                    mono,
+                })
+            })
+            .collect();
+
+        #[cfg(target_arch = "wasm32")]
+        let mut track_results: Vec<TrackResult> = audible_tracks
+            .iter()
             .copied()
             .enumerate()
             .filter_map(|(audible_index, (track_index, track))| {
@@ -236,7 +283,7 @@ impl ProjectRenderer {
             if let Some(cb) = on_progress {
                 cb(1.0, error);
             }
-            return RenderedAudio::failed(sample_rate, error.clone());
+            return RenderedAudio::failed(sample_rate, error.to_string());
         }
 
         // Sort by audible_index so mixing order is deterministic.
@@ -288,19 +335,7 @@ impl ProjectRenderer {
             }
         }
 
-        let peak = stereo
-            .iter()
-            .map(|sample| sample.abs())
-            .fold(0.0f32, f32::max);
-        // Leave enough mix headroom for the optional playback metronome and
-        // the output device. A 0.98 full-scale project clips as soon as a
-        // click or a unity-gain stage is added after this mixer.
-        if peak > 0.89 {
-            let gain = 0.89 / peak;
-            for sample in &mut stereo {
-                *sample *= gain;
-            }
-        }
+        TrackRenderer::apply_soft_limiter(&mut stereo, 0.89);
 
         if let Some(callback) = on_progress {
             callback(1.0, "[Mixer] Renderização multifaixa concluída");
@@ -549,13 +584,24 @@ impl ProjectRenderer {
 
         if let Some(fx) = fx_rack {
             if fx.master_enabled {
-                let mut track_stereo = Vec::with_capacity(required_len);
+                // Time-based effects like Reverb and Delay require a decay tail ringout
+                // so the ambient reflections do not abruptly truncate at the note boundary.
+                let tail_frames = (sample_rate as usize * 25) / 10; // 2.5 seconds tail
+                let tail_samples = tail_frames * 2;
+                let mut track_stereo = Vec::with_capacity(required_len + tail_samples);
                 for &sample in mono.iter() {
                     track_stereo.push(sample * left_gain);
                     track_stereo.push(sample * right_gain);
                 }
+                track_stereo.resize(required_len + tail_samples, 0.0);
+
                 let mut processor = crate::audio::FxRackProcessor::new(fx.clone(), sample_rate);
                 processor.process_interleaved(&mut track_stereo, sample_rate);
+
+                if stereo.len() < track_stereo.len() {
+                    stereo.resize(track_stereo.len(), 0.0);
+                }
+
                 for (i, &sample) in track_stereo.iter().enumerate() {
                     stereo[i] += sample;
                 }

@@ -18,7 +18,7 @@ use eframe::egui::{self, Color32, Frame, Margin, RichText, Rounding, Stroke};
 pub struct PreferencesDialogState {
     pub active_tab: usize,
     pub detected_audio_devices: Vec<String>,
-    pub last_device_scan: Option<std::time::Instant>,
+    pub last_device_scan: Option<web_time::Instant>,
     pub cache_status_message: Option<String>,
     pub benchmark_result: Option<String>,
     pub memory_stress_result: Option<String>,
@@ -33,7 +33,7 @@ impl Default for PreferencesDialogState {
         Self {
             active_tab: 0,
             detected_audio_devices: AudioPlayer::list_output_devices(),
-            last_device_scan: Some(std::time::Instant::now()),
+            last_device_scan: Some(web_time::Instant::now()),
             cache_status_message: None,
             benchmark_result: None,
             memory_stress_result: None,
@@ -48,7 +48,7 @@ impl Default for PreferencesDialogState {
 impl PreferencesDialogState {
     pub fn refresh_devices(&mut self) {
         self.detected_audio_devices = AudioPlayer::list_output_devices();
-        self.last_device_scan = Some(std::time::Instant::now());
+        self.last_device_scan = Some(web_time::Instant::now());
     }
 }
 

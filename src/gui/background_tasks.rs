@@ -1,6 +1,6 @@
 use crate::gui::KamafeuStudioApp;
 use eframe::egui;
-use std::time::Instant;
+use web_time::Instant;
 
 impl KamafeuStudioApp {
     pub(super) fn update_background_tasks(&mut self, ctx: &egui::Context) {
@@ -231,6 +231,7 @@ impl KamafeuStudioApp {
         // Keep the waveform fresh while editing only when the user opted in.
         // The preview method is hash-gated, so this inexpensive call does not
         // start a new render on every UI frame.
+        #[cfg(not(target_arch = "wasm32"))]
         if self.config.dsp.background_prerender {
             self.trigger_background_waveform_preview();
         } else if let Some(cancel) = self.preview_waveform_cancel.take() {

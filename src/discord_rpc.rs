@@ -1,6 +1,9 @@
+#[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
 use discord_rich_presence::{activity, DiscordIpc, DiscordIpcClient};
 use std::sync::mpsc::{channel, Receiver, Sender};
+#[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
 use std::thread;
+#[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 const DISCORD_APP_ID: &str = "1535402147045183600";
@@ -39,11 +42,13 @@ pub enum RpcMessage {
     Shutdown,
 }
 
+#[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
 pub struct DiscordRpcManager {
     tx: Sender<RpcMessage>,
     last_state: Option<DiscordActivityState>,
 }
 
+#[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
 impl DiscordRpcManager {
     pub fn new() -> Self {
         let (tx, rx) = channel::<RpcMessage>();
@@ -66,8 +71,6 @@ impl DiscordRpcManager {
     }
 
     pub fn set_enabled(&mut self, enabled: bool) {
-        // Force the next frame to be published after a disable/enable toggle;
-        // otherwise an identical activity can remain absent from Discord.
         if self
             .last_state
             .as_ref()
@@ -79,18 +82,38 @@ impl DiscordRpcManager {
     }
 }
 
+#[cfg(any(target_os = "android", target_arch = "wasm32"))]
+pub struct DiscordRpcManager {
+    last_state: Option<DiscordActivityState>,
+}
+
+#[cfg(any(target_os = "android", target_arch = "wasm32"))]
+impl DiscordRpcManager {
+    pub fn new() -> Self {
+        Self { last_state: None }
+    }
+
+    pub fn update(&mut self, state: DiscordActivityState) {
+        self.last_state = Some(state);
+    }
+
+    pub fn set_enabled(&mut self, _enabled: bool) {}
+}
+
 impl Default for DiscordRpcManager {
     fn default() -> Self {
         Self::new()
     }
 }
 
+#[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
 impl Drop for DiscordRpcManager {
     fn drop(&mut self) {
         let _ = self.tx.send(RpcMessage::Shutdown);
     }
 }
 
+#[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
 fn rpc_worker_loop(rx: Receiver<RpcMessage>) {
     let mut client: Option<DiscordIpcClient> = None;
     let mut current_state: Option<DiscordActivityState> = None;
