@@ -89,7 +89,8 @@ pub fn draw_inspector_panel(
 
                     ui.separator();
 
-                    ui.label("Env (p1..p5):");
+                    ui.label("Envelope UTAU / OpenUtau (tempo e nível):");
+                    ui.label("Cada ponto usa tempo relativo e nível de 0 a 200%.");
                     ui.add(
                         egui::DragValue::new(&mut note.envelope.p1)
                             .range(0.0..=200.0)
@@ -120,6 +121,24 @@ pub fn draw_inspector_panel(
                             .speed(1.0)
                             .prefix("p5:"),
                     );
+                    ui.horizontal(|ui| {
+                        ui.label("Níveis:");
+                        for level in [
+                            &mut note.envelope.v1,
+                            &mut note.envelope.v2,
+                            &mut note.envelope.v3,
+                            &mut note.envelope.v4,
+                            &mut note.envelope.v5,
+                        ] {
+                            ui.add(
+                                egui::DragValue::new(level)
+                                    .range(0.0..=200.0)
+                                    .speed(1.0)
+                                    .suffix("%"),
+                            );
+                        }
+                    });
+                    note.envelope.normalize(note.duration_ms);
                 }
                 InspectorTab::Dynamics => {
                     ui.label("Dynamics Offset (DYN):");

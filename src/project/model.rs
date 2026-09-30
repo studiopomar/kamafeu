@@ -624,6 +624,7 @@ impl UProject {
                 }
                 note.position_ms = note.position_ms.max(0.0);
                 note.duration_ms = note.duration_ms.max(1.0);
+                note.envelope.normalize(note.duration_ms);
                 if !note.envelope.crossfade_ms.is_finite() {
                     note.envelope.crossfade_ms = 0.0;
                 }

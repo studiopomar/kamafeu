@@ -230,22 +230,11 @@ impl KamafeuStudioApp {
     }
 
     pub fn preview_tone(&mut self, freq: f64) {
-        let sample_rate = 44100;
-        let num_samples = (sample_rate as f64 * 0.3) as usize;
-        let mut raw_samples: Vec<f32> = (0..num_samples)
-            .map(|i| {
-                (i as f64 * 2.0 * std::f64::consts::PI * freq / sample_rate as f64).sin() as f32
-                    * 0.4
-            })
-            .collect();
-
-        let len = raw_samples.len();
-        for (i, sample) in raw_samples.iter_mut().enumerate() {
-            let fade = (len - i) as f32 / len as f32;
-            *sample *= fade;
+        let sample_rate = self.sample_rate.max(22050);
+        let raw_samples = crate::dsp::piano::render_piano_preview(freq, sample_rate);
+        if !raw_samples.is_empty() {
+            self.audio_player.play_samples(raw_samples, sample_rate);
         }
-
-        self.audio_player.play_samples(raw_samples, sample_rate);
     }
 
     pub fn compute_preview_waveform_hash(&self) -> u64 {

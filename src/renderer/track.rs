@@ -169,13 +169,22 @@ impl TrackRenderer {
             .map(|d| d.path().to_path_buf())
             .unwrap_or_else(|| std::path::PathBuf::from("/tmp"));
 
-        let start_msg = format!(
-            "[Render] Rendering {} notes, max_end={:.0}ms, buffer_len={}",
-            notes.len(),
-            max_end_ms,
-            total_samples
-        );
-        log(0.0, &start_msg);
+        let is_default_or_empty_vb = voicebank.entries.is_empty()
+            || voicebank.name == "Synthetic Fallback"
+            || voicebank.name == "Default Singer"
+            || voicebank.name == "Cantor Padrão";
+
+        if is_default_or_empty_vb {
+            if !notes.is_empty() {
+                log(
+                    1.0,
+                    "[Render] Cantor Padrão (sem voicebank): sintetizando notas com som de piano/teclado...",
+                );
+                return Ok(crate::dsp::piano::render_piano_track(notes, sample_rate));
+            } else {
+                return Ok(Vec::new());
+            }
+        }
 
         let mode = if let Some(vm) = vocal_mode {
             vm.phonemizer_mode

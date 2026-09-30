@@ -1,6 +1,7 @@
 pub mod autopitch;
 pub mod envelope;
 pub mod lpc;
+pub mod piano;
 pub mod pitch;
 pub mod pitch_bend;
 pub mod pitch_encoder;

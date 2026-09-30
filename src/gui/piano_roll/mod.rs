@@ -911,33 +911,47 @@ pub fn draw_piano_roll(
                     );
                 }
             }
-            let env_pts = [
-                (e.p1, e.v1),
-                (e.p1 + e.p2, e.v2),
-                (e.p1 + e.p2 + e.p3, e.v3),
-                ((note.duration_ms - e.p4).max(0.0), e.v4),
-                ((note.duration_ms - e.p4 + e.p5).max(0.0), e.v5),
-            ];
-
+            // --- OpenUtau-Style Smooth Volume Envelope & Point Controls ---
+            let env_pts = e.get_effective_points(note.duration_ms);
             let mut env_screen_pts = Vec::with_capacity(5);
             for (t_ms, vol) in env_pts.iter() {
                 let px_x = x_start + (*t_ms * state.px_per_ms as f64) as f32;
-                let px_y = y_bottom - (*vol / 100.0).clamp(0.0, 1.0) as f32 * (y_bottom - y_top);
+                let px_y = y_bottom - (*vol / 100.0).clamp(0.0, 2.0) as f32 * (y_bottom - y_top);
                 env_screen_pts.push(Pos2::new(px_x, px_y));
             }
 
-            if state.show_envelope_handles {
+            // High-density smooth cosine-interpolated curve for silky visual curve
+            let visual_curve = e.generate_visual_curve(note.duration_ms, 12);
+            let mut curve_screen_pts = Vec::with_capacity(visual_curve.len());
+            for (t_ms, vol) in &visual_curve {
+                let px_x = x_start + (*t_ms * state.px_per_ms as f64) as f32;
+                let px_y = y_bottom - (*vol / 100.0).clamp(0.0, 2.0) as f32 * (y_bottom - y_top);
+                curve_screen_pts.push(Pos2::new(px_x, px_y));
+            }
+
+            if state.show_envelope_handles || is_selected {
+                // 100% (0 dB) Nominal Reference Guide
+                let ref_100_y = y_top;
+                painter.line_segment(
+                    [Pos2::new(x_start, ref_100_y), Pos2::new(x_end, ref_100_y)],
+                    Stroke::new(0.8_f32, Color32::from_rgba_unmultiplied(0, 220, 255, 40)),
+                );
+
+                // Translucent filled area under the curve
                 let fill_color = if is_selected {
                     Color32::from_rgba_unmultiplied(0, 220, 255, 38)
                 } else {
-                    Color32::from_rgba_unmultiplied(0, 180, 220, 15)
+                    Color32::from_rgba_unmultiplied(0, 180, 220, 16)
                 };
-                let mut poly_pts = Vec::with_capacity(env_screen_pts.len() + 2);
+
+                let mut poly_pts = Vec::with_capacity(curve_screen_pts.len() + 2);
                 poly_pts.push(Pos2::new(x_start, y_bottom));
-                for pt in &env_screen_pts {
+                for pt in &curve_screen_pts {
                     poly_pts.push(*pt);
                 }
-                poly_pts.push(Pos2::new(x_end, y_bottom));
+                let last_x = curve_screen_pts.last().map(|p| p.x).unwrap_or(x_end);
+                poly_pts.push(Pos2::new(last_x, y_bottom));
+
                 if poly_pts.len() >= 3 {
                     painter.add(egui::Shape::convex_polygon(
                         poly_pts,
@@ -945,39 +959,46 @@ pub fn draw_piano_roll(
                         Stroke::NONE,
                     ));
                 }
-            }
 
-            let env_color = if is_selected {
-                Color32::from_rgba_unmultiplied(0, 235, 255, 220)
-            } else {
-                Color32::from_rgba_unmultiplied(0, 180, 220, 90)
-            };
+                // Smooth glowing outline curve
+                let env_color = if is_selected {
+                    Color32::from_rgba_unmultiplied(0, 240, 255, 235)
+                } else {
+                    Color32::from_rgba_unmultiplied(0, 190, 230, 110)
+                };
 
-            if let Some(first) = env_screen_pts.first() {
-                painter.line_segment(
-                    [Pos2::new(x_start, y_bottom), *first],
-                    Stroke::new(1.4_f32, env_color),
-                );
-            }
-            for i in 0..env_screen_pts.len().saturating_sub(1) {
-                painter.line_segment(
-                    [env_screen_pts[i], env_screen_pts[i + 1]],
-                    Stroke::new(1.4_f32, env_color),
-                );
-            }
-            if let Some(last) = env_screen_pts.last() {
-                painter.line_segment(
-                    [*last, Pos2::new(x_end, y_bottom)],
-                    Stroke::new(1.4_f32, env_color),
-                );
+                for i in 0..curve_screen_pts.len().saturating_sub(1) {
+                    painter.line_segment(
+                        [curve_screen_pts[i], curve_screen_pts[i + 1]],
+                        Stroke::new(if is_selected { 1.8_f32 } else { 1.3_f32 }, env_color),
+                    );
+                }
             }
 
             if is_selected && state.show_envelope_handles {
-                let handle_labels = ["p1", "p2", "p3", "p4", "p5"];
+                let handle_labels = ["P1 (Ataque)", "P2 (Pico)", "P3 (Decaimento)", "P4 (Sustentação)", "P5 (Soltura)"];
+                let handle_descs = ["P1", "P2", "P3", "P4", "P5"];
+
                 for (pt_i, pt) in env_screen_pts.iter().enumerate() {
-                    let is_pt_hover = mouse_interact_pos.is_some_and(|m| m.distance(*pt) <= 12.0);
+                    let is_pt_hover = mouse_interact_pos.is_some_and(|m| m.distance(*pt) <= 13.0);
                     let is_pt_drag = state.dragging_envelope_pt == Some((idx, pt_i));
-                    let radius = if is_pt_drag || is_pt_hover { 6.5 } else { 4.5 };
+                    let radius = if is_pt_drag {
+                        7.0
+                    } else if is_pt_hover {
+                        6.0
+                    } else {
+                        4.5
+                    };
+
+                    // Outer halo glow
+                    if is_pt_hover || is_pt_drag {
+                        painter.circle_filled(
+                            *pt,
+                            radius + 4.0,
+                            Color32::from_rgba_unmultiplied(0, 240, 255, 55),
+                        );
+                    }
+
                     let fill = if is_pt_drag {
                         Color32::WHITE
                     } else if is_pt_hover {
@@ -985,12 +1006,13 @@ pub fn draw_piano_roll(
                     } else {
                         Color32::from_rgb(0, 225, 255)
                     };
+
                     painter.circle_filled(*pt, radius, fill);
                     painter.circle_stroke(
                         *pt,
                         radius,
                         Stroke::new(
-                            1.2_f32,
+                            1.4_f32,
                             if is_pt_drag {
                                 Color32::from_rgb(0, 210, 240)
                             } else {
@@ -1000,34 +1022,28 @@ pub fn draw_piano_roll(
                     );
 
                     if is_pt_hover || is_pt_drag {
-                        let label = handle_labels.get(pt_i).copied().unwrap_or("");
-                        let vol = match pt_i {
-                            0 => e.v1,
-                            1 => e.v2,
-                            2 => e.v3,
-                            3 => e.v4,
-                            4 => e.v5,
-                            _ => 100.0,
-                        };
-                        let text = format!("{label}: {:.0}%", vol);
-                        let label_pos = Pos2::new(pt.x, (pt.y - 14.0).max(y_top - 6.0));
+                        let tag = handle_descs.get(pt_i).copied().unwrap_or("");
+                        let name = handle_labels.get(pt_i).copied().unwrap_or("");
+                        let (t_val, vol_val) = env_pts[pt_i];
+                        let text = format!("{tag} [{name}]: {:.1}ms • {:.0}%", t_val, vol_val);
+                        let label_pos = Pos2::new(pt.x, (pt.y - 16.0).max(y_top - 8.0));
                         let text_shape = painter.layout_no_wrap(
                             text,
-                            egui::FontId::proportional(9.0),
+                            egui::FontId::proportional(9.5),
                             Color32::WHITE,
                         );
                         let pill_rect = Rect::from_center_size(
                             label_pos,
-                            Vec2::new(text_shape.size().x + 8.0, 14.0),
+                            Vec2::new(text_shape.size().x + 10.0, 16.0),
                         );
                         painter.rect_filled(
                             pill_rect,
-                            Rounding::same(3.0),
-                            Color32::from_rgba_unmultiplied(15, 20, 35, 220),
+                            Rounding::same(4.0),
+                            Color32::from_rgba_unmultiplied(12, 18, 30, 235),
                         );
                         painter.rect_stroke(
                             pill_rect,
-                            Rounding::same(3.0),
+                            Rounding::same(4.0),
                             Stroke::new(1.0_f32, Color32::from_rgb(0, 225, 255)),
                         );
                         painter.galley(
@@ -1185,53 +1201,33 @@ pub fn draw_piano_roll(
                         ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
                         let duration = note.duration_ms.max(1.0);
                         let time =
-                            (f64::from(mpos.x - x_start) / f64::from(state.px_per_ms)).max(0.0);
-                        let volume = ((y_bottom - mpos.y) / (y_bottom - y_top)).clamp(0.0, 1.0)
+                            (f64::from(mpos.x - x_start) / f64::from(state.px_per_ms));
+                        let volume = ((y_bottom - mpos.y) / (y_bottom - y_top)).clamp(0.0, 2.0)
                             as f64
                             * 100.0;
-                        match pt_idx {
-                            0 => {
-                                note.envelope.p1 = time.clamp(0.0, duration);
-                                note.envelope.v1 = volume.clamp(0.0, 100.0);
-                            }
-                            1 => {
-                                let p2_time = time.max(note.envelope.p1);
-                                note.envelope.p2 = (p2_time - note.envelope.p1).max(0.0);
-                                note.envelope.v2 = volume.clamp(0.0, 100.0);
-                            }
-                            2 => {
-                                let p3_time = time.max(note.envelope.p1 + note.envelope.p2);
-                                note.envelope.p3 =
-                                    (p3_time - note.envelope.p1 - note.envelope.p2).max(0.0);
-                                note.envelope.v3 = volume.clamp(0.0, 100.0);
-                            }
-                            3 => {
-                                let p4_pos = time.clamp(0.0, duration + 200.0);
-                                note.envelope.p4 = (duration - p4_pos).max(0.0);
-                                note.envelope.v4 = volume.clamp(0.0, 100.0);
-                            }
-                            4 => {
-                                let p4_pos = (duration - note.envelope.p4).max(0.0);
-                                let p5_pos = time.max(p4_pos);
-                                note.envelope.p5 = (p5_pos - p4_pos).max(0.0);
-                                note.envelope.v5 = volume.clamp(0.0, 100.0);
-                            }
-                            5 => {
-                                note.envelope.crossfade_ms = (f64::from(x_start - mpos.x)
-                                    / f64::from(state.px_per_ms))
-                                .clamp(0.0, 600.0);
-                            }
-                            _ => {}
-                        }
+                        note.envelope.set_point(pt_idx, time, volume, duration);
                         state.continuous_edit_dirty = true;
                     }
                 }
 
+                if hovered_env_pt.is_some()
+                    && ui.input(|i| i.pointer.button_double_clicked(egui::PointerButton::Primary))
+                {
+                    if let Some(pt_i) = hovered_env_pt {
+                        on_before_change();
+                        note.envelope.reset_point(pt_i);
+                        state.continuous_edit_dirty = true;
+                        on_note_changed();
+                    }
+                }
+
                 if hovered_env_pt.is_some() && ui.input(|i| i.pointer.secondary_clicked()) {
-                    on_before_change();
-                    note.envelope = crate::dsp::envelope::UtauEnvelope::default();
-                    state.continuous_edit_dirty = true;
-                    on_note_changed();
+                    if let Some(pt_i) = hovered_env_pt {
+                        on_before_change();
+                        note.envelope.reset_point(pt_i);
+                        state.continuous_edit_dirty = true;
+                        on_note_changed();
+                    }
                 }
 
                 if note_rect.contains(mpos)
@@ -1300,6 +1296,10 @@ pub fn draw_piano_roll(
                             state.note_original_midi = note_midi;
                             state.dragging_is_resize = resize_handle_right.contains(mpos);
                             state.dragging_is_left_resize = resize_handle_left.contains(mpos);
+
+                            if !state.dragging_is_resize && !state.dragging_is_left_resize {
+                                on_preview_freq(midi_to_freq(note_midi as f64));
+                            }
 
                             state.note_original_states = state
                                 .selected_note_indices
@@ -2716,6 +2716,9 @@ pub fn draw_piano_roll(
                                     let new_m = (state.note_original_midi as i32 + delta_semitones)
                                         .clamp(state.min_midi as i32, state.max_midi as i32)
                                         as u8;
+                                    if new_m != notes[drag_idx].midi_key() {
+                                        on_preview_freq(midi_to_freq(new_m as f64));
+                                    }
                                     notes[drag_idx].position_ms = new_pos;
                                     notes[drag_idx].set_midi_key(new_m);
                                 }
@@ -2937,6 +2940,9 @@ pub fn draw_piano_roll(
                             state.creating_note_idx = Some(new_idx);
                             state.selected_note_index = Some(new_idx);
                             state.drag_start_pos = Some(mpos);
+
+                            let freq = midi_to_freq(click_midi as f64);
+                            on_preview_freq(freq);
                         }
                     }
                     _ => {}

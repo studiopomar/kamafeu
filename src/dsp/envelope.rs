@@ -7,11 +7,11 @@ pub struct UtauEnvelope {
     pub p3: f64, // ms decay duration
     pub p4: f64, // ms sustain fadeout start from note end
     pub p5: f64, // ms release duration
-    pub v1: f64, // level at p1 (0-100)
-    pub v2: f64, // level at p2 (0-100)
-    pub v3: f64, // level at p3 (0-100)
-    pub v4: f64, // level at p4 (0-100)
-    pub v5: f64, // level at p5 (0-100)
+    pub v1: f64, // level at p1 (0-200%)
+    pub v2: f64, // level at p2 (0-200%)
+    pub v3: f64, // level at p3 (0-200%)
+    pub v4: f64, // level at p4 (0-200%)
+    pub v5: f64, // level at p5 (0-200%)
     /// Crossfade individual. Zero mantém o overlap automático do oto.ini/global.
     #[serde(default)]
     pub crossfade_ms: f64,
@@ -36,6 +36,200 @@ impl Default for UtauEnvelope {
 }
 
 impl UtauEnvelope {
+    /// Keeps an envelope valid after loading, numeric editing, or a drag.
+    ///
+    /// OpenUtau stores the five points as ordered X/Y values.  Kamafeu stores
+    /// the same shape using UTAU's duration fields (`p1..p5`), so this is the
+    /// single place where invalid/NaN values are converted back to a usable
+    /// envelope.
+    pub fn normalize(&mut self, duration_ms: f64) {
+        let duration = if duration_ms.is_finite() {
+            duration_ms.max(1.0)
+        } else {
+            1.0
+        };
+
+        let finite = |value: f64, fallback: f64| {
+            if value.is_finite() { value } else { fallback }
+        };
+
+        self.p1 = finite(self.p1, 0.0).clamp(0.0, duration);
+        self.p2 = finite(self.p2, 5.0).clamp(0.0, 500.0);
+        self.p3 = finite(self.p3, 35.0).clamp(0.0, 1_500.0);
+        self.p4 = finite(self.p4, 0.0).clamp(0.0, 1_500.0);
+        self.p5 = finite(self.p5, 35.0).clamp(0.0, 500.0);
+        self.crossfade_ms = finite(self.crossfade_ms, 0.0).clamp(0.0, 600.0);
+
+        self.v1 = finite(self.v1, 0.0).clamp(0.0, 200.0);
+        self.v2 = finite(self.v2, 100.0).clamp(0.0, 200.0);
+        self.v3 = finite(self.v3, 100.0).clamp(0.0, 200.0);
+        self.v4 = finite(self.v4, 100.0).clamp(0.0, 200.0);
+        self.v5 = finite(self.v5, 0.0).clamp(0.0, 200.0);
+    }
+
+    /// Returns the 5 effective points `(time_ms, volume_percent)` relative to note start (0.0 ms).
+    pub fn get_effective_points(&self, duration_ms: f64) -> [(f64, f64); 5] {
+        let p1_t = self.p1;
+        let p2_t = (p1_t + self.p2).max(p1_t);
+        let p3_t = (p2_t + self.p3).max(p2_t);
+        let p4_t = (duration_ms - self.p4).max(p3_t);
+        let p5_t = (p4_t + self.p5).max(p4_t);
+
+        [
+            (p1_t, self.v1),
+            (p2_t, self.v2),
+            (p3_t, self.v3),
+            (p4_t, self.v4),
+            (p5_t, self.v5),
+        ]
+    }
+
+    /// Sets point position and volume from interactive dragging, updating internal parameters.
+    pub fn set_point(
+        &mut self,
+        pt_idx: usize,
+        time_ms: f64,
+        volume_percent: f64,
+        duration_ms: f64,
+    ) {
+        let dur = duration_ms.max(10.0);
+        let vol = if volume_percent.is_finite() {
+            volume_percent.clamp(0.0, 200.0)
+        } else {
+            0.0
+        };
+
+        match pt_idx {
+            0 => {
+                // P1: time is p1, volume is v1
+                self.p1 = time_ms.clamp(-300.0, dur * 0.5);
+                self.v1 = vol;
+            }
+            1 => {
+                // P2: time is p1 + p2, volume is v2
+                let p2_t = time_ms.max(self.p1);
+                self.p2 = (p2_t - self.p1).clamp(0.0, dur);
+                self.v2 = vol;
+            }
+            2 => {
+                // P3: time is p1 + p2 + p3, volume is v3
+                let p2_t = self.p1 + self.p2;
+                let p3_t = time_ms.max(p2_t);
+                self.p3 = (p3_t - p2_t).clamp(0.0, dur * 1.5);
+                self.v3 = vol;
+            }
+            3 => {
+                // P4: time is duration - p4, volume is v4
+                let p4_t = time_ms.clamp(self.p1 + self.p2, dur + 200.0);
+                self.p4 = (dur - p4_t).max(0.0);
+                self.v4 = vol;
+            }
+            4 => {
+                // P5: time is duration - p4 + p5, volume is v5
+                let p4_t = dur - self.p4;
+                let p5_t = time_ms.max(p4_t);
+                self.p5 = (p5_t - p4_t).clamp(0.0, 500.0);
+                self.v5 = vol;
+            }
+            _ => {}
+        }
+
+        self.normalize(dur);
+    }
+
+    /// Resets an individual point to standard defaults
+    pub fn reset_point(&mut self, pt_idx: usize) {
+        match pt_idx {
+            0 => {
+                self.p1 = 0.0;
+                self.v1 = 0.0;
+            }
+            1 => {
+                self.p2 = 5.0;
+                self.v2 = 100.0;
+            }
+            2 => {
+                self.p3 = 35.0;
+                self.v3 = 100.0;
+            }
+            3 => {
+                self.p4 = 0.0;
+                self.v4 = 100.0;
+            }
+            4 => {
+                self.p5 = 35.0;
+                self.v5 = 0.0;
+            }
+            _ => {}
+        }
+    }
+
+    /// ACPT: Auto Crossfade preset matching overlap
+    pub fn acpt(&mut self, overlap_ms: f64) {
+        self.p1 = 0.0;
+        self.p2 = overlap_ms.max(5.0);
+        self.v1 = 0.0;
+        self.v2 = 100.0;
+        self.v3 = 100.0;
+        self.v4 = 100.0;
+        self.v5 = 0.0;
+        self.crossfade_ms = 0.0;
+    }
+
+    /// P2P3: Snap attack peak to sustain
+    pub fn p2p3(&mut self) {
+        self.v2 = self.v3;
+        self.p2 = self.p2.max(5.0);
+    }
+
+    /// P1P4: Zero margins preset
+    pub fn p1p4(&mut self) {
+        self.p1 = 0.0;
+        self.p4 = 0.0;
+        self.v1 = 0.0;
+        self.v4 = 100.0;
+    }
+
+    /// OPT: Optimize envelope durations proportionally to note length
+    pub fn opt(&mut self, duration_ms: f64) {
+        let dur = duration_ms.max(10.0);
+        if dur < 150.0 {
+            let scale = dur / 150.0;
+            self.p2 = (self.p2 * scale).max(2.0);
+            self.p3 = (self.p3 * scale).max(5.0);
+            self.p5 = (self.p5 * scale).max(5.0);
+        }
+    }
+
+    /// RESET: Full envelope reset to UTAU standard (5/35/0/35)
+    pub fn reset(&mut self) {
+        *self = Self::default();
+    }
+
+    /// Generates high-density cosine-interpolated curve points `(t_ms, vol_pct)` for smooth visual rendering.
+    pub fn generate_visual_curve(&self, duration_ms: f64, num_subdivisions: usize) -> Vec<(f64, f64)> {
+        let pts = self.get_effective_points(duration_ms);
+        let mut curve = Vec::new();
+        let subs = num_subdivisions.max(8);
+
+        for i in 0..4 {
+            let (x0, y0) = pts[i];
+            let (x1, y1) = pts[i + 1];
+            let dx = x1 - x0;
+
+            for step in 0..subs {
+                let frac = step as f64 / subs as f64;
+                let t_ms = x0 + dx * frac;
+                // Cosine smooth S-curve interpolation: S(t) = 0.5 * (1 - cos(pi * t))
+                let smooth_t = 0.5 * (1.0 - (std::f64::consts::PI * frac).cos());
+                let vol = y0 + (y1 - y0) * smooth_t;
+                curve.push((t_ms, vol));
+            }
+        }
+        curve.push(pts[4]);
+        curve
+    }
+
     /// Five-point phoneme envelope following standard UTAU and OpenUtau geometry.
     /// Times are relative to the musical phoneme start (0.0 ms), so preutterance
     /// points lie at negative offsets.
@@ -245,6 +439,80 @@ mod tests {
     }
 
     #[test]
+    fn test_effective_points_and_visual_curve() {
+        let env = UtauEnvelope::default();
+        let pts = env.get_effective_points(500.0);
+        assert_eq!(pts.len(), 5);
+        assert_eq!(pts[0], (0.0, 0.0));
+        assert_eq!(pts[1], (5.0, 100.0));
+        assert_eq!(pts[4], (535.0, 0.0));
+
+        let curve = env.generate_visual_curve(500.0, 16);
+        assert!(!curve.is_empty());
+        assert_eq!(curve.first().unwrap().0, 0.0);
+        assert_eq!(curve.last().unwrap().0, 535.0);
+    }
+
+    #[test]
+    fn test_envelope_presets() {
+        let mut env = UtauEnvelope::default();
+        env.acpt(45.0);
+        assert_eq!(env.p2, 45.0);
+
+        env.p1p4();
+        assert_eq!(env.p1, 0.0);
+        assert_eq!(env.p4, 0.0);
+
+        env.reset();
+        assert_eq!(env.p2, 5.0);
+        assert_eq!(env.p5, 35.0);
+    }
+
+    #[test]
+    fn test_set_point_preserves_order_and_supports_openutau_levels() {
+        let mut env = UtauEnvelope::default();
+        env.set_point(3, 40.0, 175.0, 200.0);
+        env.set_point(2, 180.0, 150.0, 200.0);
+        env.set_point(1, 20.0, 125.0, 200.0);
+
+        let points = env.get_effective_points(200.0);
+        assert!(points.windows(2).all(|pair| pair[0].0 <= pair[1].0));
+        assert_eq!(env.v1, 0.0);
+        assert_eq!(env.v2, 125.0);
+        assert_eq!(env.v3, 150.0);
+        assert_eq!(env.v4, 175.0);
+        assert!(points.iter().any(|(_, level)| *level > 100.0));
+    }
+
+    #[test]
+    fn test_normalize_repairs_invalid_values() {
+        let mut env = UtauEnvelope {
+            p1: f64::NAN,
+            p2: f64::INFINITY,
+            p3: -10.0,
+            p4: f64::NAN,
+            p5: 900.0,
+            v1: -20.0,
+            v2: f64::NAN,
+            v3: 250.0,
+            v4: f64::INFINITY,
+            v5: -1.0,
+            crossfade_ms: f64::INFINITY,
+        };
+        env.normalize(100.0);
+        assert_eq!(env.p1, 0.0);
+        assert_eq!(env.p2, 5.0);
+        assert_eq!(env.p3, 0.0);
+        assert_eq!(env.p5, 500.0);
+        assert_eq!(env.v1, 0.0);
+        assert_eq!(env.v2, 100.0);
+        assert_eq!(env.v3, 200.0);
+        assert_eq!(env.v4, 100.0);
+        assert_eq!(env.v5, 0.0);
+        assert_eq!(env.crossfade_ms, 0.0);
+    }
+
+    #[test]
     fn phoneme_envelope_crossfades_and_applies_expression_levels() {
         let env = UtauEnvelope::default();
         let points = env.phoneme_points(80.0, 500.0, 70.0, 30.0, 30.0, 80.0, 50.0, 25.0);
@@ -257,8 +525,6 @@ mod tests {
     #[test]
     fn vcv_envelopes_are_complementary_on_the_absolute_timeline() {
         let env = UtauEnvelope::default();
-        // Next phoneme: note at 500 ms, 300 ms preutter and 100 ms overlap.
-        // Therefore both fades must occupy absolute time 200..300 ms.
         let previous = env.phoneme_points(0.0, 500.0, 300.0, 100.0, 0.0, 100.0, 100.0, 0.0);
         let current = env.phoneme_points(300.0, 500.0, 0.0, 0.0, 100.0, 100.0, 100.0, 0.0);
         for absolute_ms in [200.0, 225.0, 250.0, 275.0, 300.0] {

@@ -170,8 +170,41 @@ pub fn draw_phoneme_ruler(
                     }
                 }
 
-                let y_top = strip_rect.min.y + 24.0;
-                let y_bottom = strip_rect.max.y - 10.0;
+                // OpenUtau's phoneme canvas is intentionally compact: the
+                // envelope occupies the center band while labels and timing
+                // markers remain readable above/below it.
+                let y_top = strip_rect.min.y + 22.0;
+                let y_bottom = strip_rect.max.y - 9.0;
+
+                // Envelope scale: 0%, 100% and 200% are visible at a glance.
+                // This also makes the visual editor agree with the UTAU level
+                // range used by the model and by OpenUtau.
+                let envelope_height = (y_bottom - y_top).max(1.0);
+                for (level, color, width) in [
+                    (0.0_f32, Color32::from_rgba_unmultiplied(120, 100, 150, 90), 1.0_f32),
+                    (0.5_f32, Color32::from_rgba_unmultiplied(160, 145, 190, 95), 1.0_f32),
+                    (1.0_f32, Color32::from_rgba_unmultiplied(220, 190, 240, 125), 1.2_f32),
+                ] {
+                    let y = y_bottom - envelope_height * level;
+                    painter.line_segment(
+                        [Pos2::new(strip_rect.min.x, y), Pos2::new(strip_rect.max.x, y)],
+                        Stroke::new(width, color),
+                    );
+                }
+                painter.text(
+                    Pos2::new(strip_rect.min.x + 4.0, y_top - 3.0),
+                    egui::Align2::LEFT_BOTTOM,
+                    "200%",
+                    egui::FontId::proportional(8.0),
+                    Color32::from_rgba_unmultiplied(210, 190, 235, 150),
+                );
+                painter.text(
+                    Pos2::new(strip_rect.min.x + 4.0, y_bottom - envelope_height * 0.5),
+                    egui::Align2::LEFT_CENTER,
+                    "100%",
+                    egui::FontId::proportional(8.0),
+                    Color32::from_rgba_unmultiplied(210, 190, 235, 130),
+                );
 
                 let mut previous_note_end_ms: Option<f64> = None;
                 let mut previous_note_lyric: Option<String> = None;
@@ -376,15 +409,18 @@ pub fn draw_phoneme_ruler(
 
                     let has_previous_adjacent =
                         prior_end_ms.is_some_and(|prev_end| prev_end >= note_position_ms - 2.0);
+                    // OpenUtau's phoneme canvas uses a stable blue envelope
+                    // fill; selection changes brightness, not the identity of
+                    // the control surface.
                     let fill_color = if is_selected {
-                        theme.c32_alpha(theme.accent_color, 0.45)
+                        Color32::from_rgba_unmultiplied(35, 145, 205, 155)
                     } else {
-                        theme.c32_alpha(theme.accent_color, 0.25)
+                        Color32::from_rgba_unmultiplied(25, 105, 165, 125)
                     };
                     let stroke_color = if is_selected {
-                        theme.accent_c32()
+                        Color32::from_rgb(35, 175, 245)
                     } else {
-                        theme.c32_alpha(theme.accent_color, 0.7)
+                        Color32::from_rgb(25, 135, 205)
                     };
 
                     let attack_start_x = preutter_x;
@@ -412,28 +448,33 @@ pub fn draw_phoneme_ruler(
                     let env_pts = [
                         Pos2::new(
                             x_start + (calc_points[0].0 * px_per_ms) as f32,
-                            y_bottom
-                                - (calc_points[0].1.clamp(0.0, 2.0) as f32) * (y_bottom - y_top),
+                                y_bottom
+                                - (calc_points[0].1.clamp(0.0, 2.0) as f32) * (y_bottom - y_top)
+                                    * 0.5,
                         ),
                         Pos2::new(
                             x_start + (calc_points[1].0 * px_per_ms) as f32,
-                            y_bottom
-                                - (calc_points[1].1.clamp(0.0, 2.0) as f32) * (y_bottom - y_top),
+                                y_bottom
+                                - (calc_points[1].1.clamp(0.0, 2.0) as f32) * (y_bottom - y_top)
+                                    * 0.5,
                         ),
                         Pos2::new(
                             x_start + (calc_points[2].0 * px_per_ms) as f32,
-                            y_bottom
-                                - (calc_points[2].1.clamp(0.0, 2.0) as f32) * (y_bottom - y_top),
+                                y_bottom
+                                - (calc_points[2].1.clamp(0.0, 2.0) as f32) * (y_bottom - y_top)
+                                    * 0.5,
                         ),
                         Pos2::new(
                             x_start + (calc_points[3].0 * px_per_ms) as f32,
-                            y_bottom
-                                - (calc_points[3].1.clamp(0.0, 2.0) as f32) * (y_bottom - y_top),
+                                y_bottom
+                                - (calc_points[3].1.clamp(0.0, 2.0) as f32) * (y_bottom - y_top)
+                                    * 0.5,
                         ),
                         Pos2::new(
                             x_start + (calc_points[4].0 * px_per_ms) as f32,
-                            y_bottom
-                                - (calc_points[4].1.clamp(0.0, 2.0) as f32) * (y_bottom - y_top),
+                                y_bottom
+                                - (calc_points[4].1.clamp(0.0, 2.0) as f32) * (y_bottom - y_top)
+                                    * 0.5,
                         ),
                     ];
 
@@ -496,9 +537,10 @@ pub fn draw_phoneme_ruler(
                                     .map(|(time, level)| {
                                         Pos2::new(
                                             phone_start_x + (time * px_per_ms) as f32,
-                                            y_bottom
-                                                - (level.clamp(0.0, 2.0) as f32)
-                                                    * (y_bottom - y_top),
+                                                y_bottom
+                                                    - (level.clamp(0.0, 2.0) as f32)
+                                                        * (y_bottom - y_top)
+                                                        * 0.5,
                                         )
                                     })
                                     .collect();
@@ -841,8 +883,7 @@ pub fn draw_phoneme_ruler(
                                     }
                                     if ui.input(|i| i.pointer.secondary_clicked()) {
                                         on_before_change();
-                                        note.envelope =
-                                            crate::dsp::envelope::UtauEnvelope::default();
+                                        note.envelope.reset_point(pt_i);
                                         state.continuous_edit_dirty = true;
                                         on_note_changed();
                                     }
@@ -932,12 +973,30 @@ pub fn draw_phoneme_ruler(
                         }
                     }
 
-                    if subphonemes.len() > 1 {
+                    // OpenUtau shows every resolved phoneme, including a
+                    // single-phoneme note.  The pink onset line is the visual
+                    // anchor used to edit phoneme timing.
+                    if !subphonemes.is_empty() {
                         for (index, (label, rel_pos, duration)) in subphonemes.iter().enumerate() {
                             let seg_start_x = x_start + (*rel_pos * px_per_ms) as f32;
                             let seg_end_x = x_start + ((*rel_pos + *duration) * px_per_ms) as f32;
                             let visible_start = seg_start_x.max(strip_rect.min.x);
                             let visible_end = seg_end_x.min(strip_rect.max.x);
+
+                            if seg_start_x >= strip_rect.min.x - 1.0
+                                && seg_start_x <= strip_rect.max.x + 1.0
+                            {
+                                painter.line_segment(
+                                    [
+                                        Pos2::new(seg_start_x, y_top),
+                                        Pos2::new(seg_start_x, y_bottom),
+                                    ],
+                                    Stroke::new(
+                                        1.4_f32,
+                                        Color32::from_rgba_unmultiplied(255, 72, 180, 220),
+                                    ),
+                                );
+                            }
 
                             let badge_x =
                                 if seg_start_x < strip_rect.min.x && seg_end_x > strip_rect.min.x {
@@ -1666,44 +1725,19 @@ pub fn draw_phoneme_ruler(
                             if let Some(pos) = pointer_pos {
                                 let duration = note_duration_ms.max(1.0);
                                 let time = ((pos.x - x_start) as f64 / px_per_ms).max(0.0);
+                                // UTAU/OpenUtau envelopes use a 0..200% vertical
+                                // range.  Keep the editor's input mapping identical
+                                // to the renderer (which already supports 200%).
                                 let volume = (((y_bottom - pos.y) / (y_bottom - y_top))
                                     .clamp(0.0, 1.0)
                                     as f64)
-                                    * 100.0;
-                                match pt_idx {
-                                    0 => {
-                                        note.envelope.p1 = time.clamp(0.0, duration);
-                                        note.envelope.v1 = volume.clamp(0.0, 100.0);
-                                    }
-                                    1 => {
-                                        let p2_time = time.max(note.envelope.p1);
-                                        note.envelope.p2 = (p2_time - note.envelope.p1).max(0.0);
-                                        note.envelope.v2 = volume.clamp(0.0, 100.0);
-                                    }
-                                    2 => {
-                                        let p3_time = time.max(note.envelope.p1 + note.envelope.p2);
-                                        note.envelope.p3 =
-                                            (p3_time - note.envelope.p1 - note.envelope.p2)
-                                                .max(0.0);
-                                        note.envelope.v3 = volume.clamp(0.0, 100.0);
-                                    }
-                                    3 => {
-                                        let p4_pos = time.clamp(0.0, duration + 200.0);
-                                        note.envelope.p4 = (duration - p4_pos).max(0.0);
-                                        note.envelope.v4 = volume.clamp(0.0, 100.0);
-                                    }
-                                    4 => {
-                                        let p4_pos = (duration - note.envelope.p4).max(0.0);
-                                        let p5_pos = time.max(p4_pos);
-                                        note.envelope.p5 = (p5_pos - p4_pos).max(0.0);
-                                        note.envelope.v5 = volume.clamp(0.0, 100.0);
-                                    }
-                                    5 => {
+                                    * 200.0;
+                                if pt_idx < 5 {
+                                    note.envelope.set_point(pt_idx, time, volume, duration);
+                                } else if pt_idx == 5 {
                                         note.envelope.crossfade_ms = (((x_start - pos.x) as f64)
                                             / px_per_ms)
                                             .clamp(0.0, 600.0);
-                                    }
-                                    _ => {}
                                 }
                                 state.continuous_edit_dirty = true;
                             }
