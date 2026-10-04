@@ -652,10 +652,27 @@ pub fn draw_piano_roll(
                     visible_clip.max,
                 );
                 if portrait_rect.is_positive() {
+                    // Preserve the source aspect ratio. The previous
+                    // implementation mapped the whole image directly to the
+                    // canvas rectangle, stretching portraits horizontally or
+                    // vertically whenever the piano roll had a different
+                    // aspect ratio. Crop the excess UV range instead.
+                    let image_size = texture.size_vec2();
+                    let image_aspect = image_size.x / image_size.y.max(1.0);
+                    let canvas_aspect = portrait_rect.width() / portrait_rect.height().max(1.0);
+                    let uv = if image_aspect > canvas_aspect {
+                        let visible_width = canvas_aspect / image_aspect;
+                        let margin = (1.0 - visible_width) * 0.5;
+                        Rect::from_min_max(Pos2::new(margin, 0.0), Pos2::new(1.0 - margin, 1.0))
+                    } else {
+                        let visible_height = image_aspect / canvas_aspect;
+                        let margin = (1.0 - visible_height) * 0.5;
+                        Rect::from_min_max(Pos2::new(0.0, margin), Pos2::new(1.0, 1.0 - margin))
+                    };
                     painter.image(
                         texture.id(),
                         portrait_rect,
-                        Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)),
+                        uv,
                         Color32::from_white_alpha(42),
                     );
                 }
