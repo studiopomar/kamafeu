@@ -890,44 +890,29 @@ pub(super) fn draw(
                         ));
                     }
 
-                    // 7. Renderizar Marcadores e Letras/Fonemas na base do Drawer
+                    // 7. Boundaries only. OpenUtau's expression canvas keeps
+                    // phoneme labels out of the curve lane; labels belong to
+                    // the phoneme canvas above it. Drawing one vertical guide
+                    // per phoneme here produced the overlapping pills and
+                    // unreadable text that this editor used to show.
+                    let mut last_boundary: Option<f32> = None;
                     for kf in &keyframes {
                         let x_start =
                             timeline_origin_x + (kf.start_ms * state.px_per_ms as f64) as f32;
-                        let x_end = timeline_origin_x + (kf.end_ms * state.px_per_ms as f64) as f32;
-
-                        if x_end >= graph_rect.min.x - 20.0 && x_start <= graph_rect.max.x + 20.0 {
-                            // Marcador vertical sutil no início do fonema
-                            painter.line_segment(
-                                [
-                                    Pos2::new(x_start, graph_rect.max.y - 14.0),
-                                    Pos2::new(x_start, graph_rect.max.y - 2.0),
-                                ],
-                                Stroke::new(
-                                    1.0_f32,
-                                    Color32::from_rgba_unmultiplied(130, 130, 180, 80),
-                                ),
-                            );
-
-                            // Letra / Fonema na base exatamente no vão do fonema
-                            let x_mid = (x_start + x_end) * 0.5;
-                            if x_mid >= graph_rect.min.x + 8.0 && x_mid <= graph_rect.max.x - 8.0 {
-                                let label_display = if kf.alias.starts_with(&kf.lyric)
-                                    || kf.alias.contains(&kf.lyric)
-                                {
-                                    kf.lyric.clone()
-                                } else {
-                                    kf.alias.clone()
-                                };
-                                painter.text(
-                                    Pos2::new(x_mid, graph_rect.max.y - 12.0),
-                                    egui::Align2::CENTER_TOP,
-                                    label_display,
-                                    egui::FontId::proportional(8.5),
-                                    Color32::from_rgba_unmultiplied(170, 170, 210, 160),
-                                );
-                            }
+                        if x_start < graph_rect.left() || x_start > graph_rect.right() {
+                            continue;
                         }
+                        if last_boundary.is_some_and(|x| (x - x_start).abs() < 1.0) {
+                            continue;
+                        }
+                        painter.line_segment(
+                            [
+                                Pos2::new(x_start, graph_rect.bottom() - 5.0),
+                                Pos2::new(x_start, graph_rect.bottom()),
+                            ],
+                            Stroke::new(1.0, Color32::from_rgba_unmultiplied(145, 145, 170, 110)),
+                        );
+                        last_boundary = Some(x_start);
                     }
 
                     // 8. Retículo / Cursor Interativo do Pincel com Tooltip de Valor em Tempo Real
@@ -1135,7 +1120,6 @@ fn draw_envelope_editor(
     let pink = theme.playhead_c32();
     let orange = theme.note_hover_c32();
     let white = theme.text_primary_c32();
-    let purple = theme.pitch_curve_c32();
     painter.rect_filled(graph_rect, Rounding::ZERO, bg);
 
     // The lower editor is a set of horizontal lanes, not a generic graph.
@@ -1172,34 +1156,14 @@ fn draw_envelope_editor(
             ],
             Stroke::new(1.2_f32, pink),
         );
+        // Keep the note identity as a small canvas label. The previous
+        // rounded tags consumed a second, overlapping layout on top of every
+        // note and made dense passages unreadable.
         painter.text(
-            Pos2::new((x_start + x_end) * 0.5, lane_top + lane_height * 0.55),
-            egui::Align2::CENTER_CENTER,
-            format!("- {} ({:.0}ms)", note.lyric, duration),
-            egui::FontId::proportional(12.0),
-            white,
-        );
-        painter.rect_filled(
-            Rect::from_min_max(
-                Pos2::new((x_start + x_end) * 0.5 - 42.0, graph_rect.top() + 5.0),
-                Pos2::new((x_start + x_end) * 0.5 + 42.0, graph_rect.top() + 38.0),
-            ),
-            Rounding::same(9.0),
-            Color32::from_rgb(25, 22, 34),
-        );
-        painter.rect_stroke(
-            Rect::from_min_max(
-                Pos2::new((x_start + x_end) * 0.5 - 42.0, graph_rect.top() + 5.0),
-                Pos2::new((x_start + x_end) * 0.5 + 42.0, graph_rect.top() + 38.0),
-            ),
-            Rounding::same(9.0),
-            Stroke::new(1.5_f32, purple),
-        );
-        painter.text(
-            Pos2::new((x_start + x_end) * 0.5, graph_rect.top() + 21.0),
-            egui::Align2::CENTER_CENTER,
-            format!("- {}", note.lyric),
-            egui::FontId::proportional(13.0),
+            Pos2::new((x_start + x_end) * 0.5, graph_rect.top() + 8.0),
+            egui::Align2::CENTER_TOP,
+            &note.lyric,
+            egui::FontId::proportional(9.0),
             white,
         );
 
