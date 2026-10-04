@@ -139,16 +139,17 @@ impl SingerScanner {
         let has_char_yaml = dir.join("character.yaml").exists();
         let has_native = dir.join("kamafeu_voicebank.json").exists();
 
-        // DiffSinger folders contain character.yaml or dsconfig.yaml, which look like
-        // an OpenUtau singer but cannot be rendered by this classic/WORLD UTAU
-        // resampler pipeline. Hide them from the voicebank list as requested.
-        let mut is_diffsinger = dir.join("dsconfig.yaml").exists()
+        // DiffSinger folders use a neural phrase renderer rather than oto.ini.
+        // Keep them in the singer catalog so the application can select and
+        // route them to the dedicated renderer instead of silently hiding them.
+        let is_diffsinger = dir.join("dsconfig.yaml").exists()
             || dir.join("dsdict.yaml").exists()
             || dir.join("acoustic.onnx").exists()
             || dir.join("variance.onnx").exists()
             || dir.join("vocoder.onnx").exists()
             || dir.join("phone_set.json").exists();
 
+        let mut is_diffsinger = is_diffsinger;
         if !is_diffsinger && has_char_yaml {
             if let Ok(content) = fs::read_to_string(dir.join("character.yaml")) {
                 let content_lower = content.to_lowercase();
@@ -161,12 +162,8 @@ impl SingerScanner {
             }
         }
 
-        if is_diffsinger && !has_native {
-            return None;
-        }
-
         let mut sub_has_oto = false;
-        if !has_oto && !has_char && !has_char_yaml && !has_native {
+        if !has_oto && !has_char && !has_char_yaml && !has_native && !is_diffsinger {
             if let Ok(entries) = fs::read_dir(dir) {
                 for e in entries.flatten() {
                     let sub_p = e.path();
@@ -178,7 +175,8 @@ impl SingerScanner {
             }
         }
 
-        if !has_oto && !has_char && !has_char_yaml && !has_native && !sub_has_oto {
+        if !has_oto && !has_char && !has_char_yaml && !has_native && !sub_has_oto && !is_diffsinger
+        {
             return None;
         }
 
@@ -290,6 +288,11 @@ impl SingerScanner {
                 "portrait.png",
                 "char.png",
                 "avatar.png",
+                "IMAGE.PNG",
+                "CHARACTER.PNG",
+                "ICON.PNG",
+                "PORTRAIT.PNG",
+                "AVATAR.PNG",
             ];
             for img_name in common_images {
                 let p = dir.join(img_name);
@@ -300,7 +303,9 @@ impl SingerScanner {
             }
         }
 
-        let voice_type = if dir.join("kamafeu_voicebank.json").exists() {
+        let voice_type = if is_diffsinger {
+            "DiffSinger"
+        } else if dir.join("kamafeu_voicebank.json").exists() {
             "Kamafeu Studio Nativo"
         } else if sub_has_oto {
             "Multipitch VCV/CVC"
@@ -331,7 +336,7 @@ mod tests {
     }
 
     #[test]
-    fn diffsinger_metadata_is_not_listed_as_a_utau_voicebank() {
+    fn diffsinger_metadata_is_listed_as_a_diffsinger_voicebank() {
         let directory = tempfile::tempdir().expect("temporary singer directory");
         fs::write(
             directory.path().join("character.yaml"),
@@ -341,7 +346,9 @@ mod tests {
         fs::write(directory.path().join("dsconfig.yaml"), "phonemes: []")
             .expect("DiffSinger metadata");
 
-        assert!(SingerScanner::inspect_singer_directory(directory.path()).is_none());
+        let singer = SingerScanner::inspect_singer_directory(directory.path())
+            .expect("DiffSinger voicebank should be discoverable");
+        assert_eq!(singer.voice_type, "DiffSinger");
     }
 
     #[test]
@@ -367,6 +374,30 @@ mod tests {
         assert_eq!(
             singer.image_path.as_deref(),
             Some(directory.path().join("portrait.png").as_path())
+        );
+    }
+
+    #[test]
+    fn finds_uppercase_png_portrait_without_metadata() {
+        let directory = tempfile::tempdir().expect("temporary singer directory");
+        fs::write(
+            directory.path().join("oto.ini"),
+            "ka.wav=ka,0,100,-400,80,30\n",
+        )
+        .expect("oto.ini");
+        fs::write(directory.path().join("PORTRAIT.PNG"), b"not-an-image").expect("portrait");
+
+        let singer = SingerScanner::inspect_singer_directory(directory.path())
+            .expect("voicebank should be listed");
+
+        let portrait = singer.image_path.expect("PNG portrait should be detected");
+        assert!(portrait.exists());
+        assert_eq!(
+            portrait
+                .file_name()
+                .and_then(|name| name.to_str())
+                .map(|name| name.to_ascii_lowercase()),
+            Some("portrait.png".to_string())
         );
     }
 }

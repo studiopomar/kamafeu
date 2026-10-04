@@ -24,6 +24,22 @@ pub struct Voicebank {
 }
 
 impl Voicebank {
+    /// Returns true when this folder is an OpenUtau DiffSinger bank. These
+    /// banks must be rendered as complete phrases with ONNX models and must
+    /// never fall through to the classic oto.ini renderer.
+    pub fn is_diffsinger(&self) -> bool {
+        self.root_path.join("dsconfig.yaml").is_file()
+            || self.root_path.join("acoustic.onnx").is_file()
+            || self.root_path.join("dsvocoder").is_dir()
+    }
+
+    pub fn diffsinger_config(&self) -> Result<crate::oto::DiffSingerConfig, String> {
+        if !self.is_diffsinger() {
+            return Err("o voicebank ativo não é DiffSinger".to_string());
+        }
+        crate::oto::DiffSingerConfig::load(&self.root_path)
+    }
+
     pub fn new<P: AsRef<Path>>(root_path: P) -> Result<Self, std::io::Error> {
         let root_path = root_path.as_ref().to_path_buf();
         let mut temp_dir = None;
@@ -246,6 +262,7 @@ impl Voicebank {
         }
         .or_else(|| {
             let default_names = [
+                "image.png",
                 "character.png",
                 "icon.png",
                 "avatar.png",
@@ -258,6 +275,7 @@ impl Voicebank {
                 "icon.jpg",
                 "avatar.jpg",
                 "portrait.jpg",
+                "IMAGE.PNG",
                 "CHARACTER.PNG",
                 "ICON.PNG",
                 "AVATAR.PNG",
@@ -810,5 +828,19 @@ mod tests {
         assert!(vb.character_info.contains("voice: Test Voice"));
         assert!(vb.character_info.contains("version: 1.5"));
         assert!(vb.character_info.contains("web: https://example.test"));
+    }
+
+    #[test]
+    fn finds_conventional_png_portrait_without_metadata() {
+        let dir = tempdir().unwrap();
+        fs::write(dir.path().join("oto.ini"), "ka.wav=ka,0,100,-400,80,30\n").unwrap();
+        fs::write(dir.path().join("image.png"), b"not-an-image").unwrap();
+
+        let vb = Voicebank::new(dir.path()).unwrap();
+
+        assert_eq!(
+            vb.image_path.as_deref(),
+            Some(dir.path().join("image.png").as_path())
+        );
     }
 }

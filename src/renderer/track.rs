@@ -152,6 +152,13 @@ impl TrackRenderer {
             return Ok(Vec::new());
         }
 
+        if voicebank.is_diffsinger() {
+            let mode = vocal_mode
+                .map(|mode| mode.phonemizer_mode)
+                .unwrap_or(crate::phonemizer::PhonemizerMode::None);
+            return Self::render_diffsinger_track(notes, voicebank, sample_rate, mode);
+        }
+
         let log = |progress: f32, msg: &str| {
             if on_progress.is_none() {
                 eprintln!("{}", msg);
@@ -846,6 +853,128 @@ impl TrackRenderer {
         }
 
         Ok(track_buffer)
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn render_diffsinger_track(
+        notes: &[UNote],
+        voicebank: &Voicebank,
+        output_sample_rate: u32,
+        phonemizer_mode: crate::phonemizer::PhonemizerMode,
+    ) -> Result<Vec<f32>, String> {
+        let config = voicebank.diffsinger_config()?;
+        let phones = crate::phonemizer::JapanesePhonemizer::apply_phonemizer(
+            notes,
+            voicebank,
+            phonemizer_mode,
+        );
+        if phones.is_empty() {
+            return Err("o fonemizador não gerou fonemas para o banco DiffSinger".to_string());
+        }
+        let token_map = Self::load_diffsinger_tokens(&config.phonemes)?;
+        let silence = token_map
+            .get("SP")
+            .copied()
+            .ok_or_else(|| "phonemes.txt não contém o token obrigatório 'SP'".to_string())?;
+        let mut tokens = vec![silence];
+        let mut durations = vec![8i64];
+        let mut language_ids = vec![0i64];
+        let mut f0 = Vec::new();
+        let frame_ms = config.hop_size as f64 * 1000.0 / config.sample_rate as f64;
+        let pitch_notes = Self::phrase_pitch_notes(notes);
+        f0.resize(8, 0.0);
+        let mut previous_end = phones[0].position_ms;
+        for phone in phones {
+            let gap = (phone.position_ms - previous_end).max(0.0);
+            if gap > 0.0 {
+                tokens.push(silence);
+                durations.push((gap / frame_ms).round().max(1.0) as i64);
+                language_ids.push(0);
+                f0.extend(std::iter::repeat_n(
+                    0.0,
+                    durations.last().copied().unwrap() as usize,
+                ));
+            }
+            let token = token_map.get(&phone.lyric).copied().ok_or_else(|| {
+                format!(
+                    "o fonema '{}' não existe no vocabulário DiffSinger de {}",
+                    phone.lyric,
+                    config.phonemes.display()
+                )
+            })?;
+            let frames = (phone.duration_ms / frame_ms).round().max(1.0) as usize;
+            tokens.push(token);
+            durations.push(frames as i64);
+            let language = phone
+                .lyric
+                .split_once('/')
+                .map(|(language, _)| language)
+                .and_then(|language| config.language_ids.get(language))
+                .copied()
+                .unwrap_or(0);
+            language_ids.push(language);
+            for frame in 0..frames {
+                let absolute_time = phone.position_ms + frame as f64 * frame_ms;
+                let cents = Self::phrase_pitch_cents_at(&pitch_notes, absolute_time, 0.0);
+                let hz = if cents.is_finite() {
+                    440.0 * 2.0_f64.powf((cents / 100.0 - 69.0) / 12.0)
+                } else {
+                    0.0
+                };
+                f0.push(hz as f32);
+            }
+            previous_end = phone.position_ms + phone.duration_ms;
+        }
+        tokens.push(silence);
+        durations.push(8);
+        language_ids.push(0);
+        f0.resize(f0.len() + 8, 0.0);
+        let mut runtime = crate::dsp::diffsinger_runtime::DiffSingerRuntime::load(&config)?;
+        let language_ids = config.languages.as_ref().map(|_| language_ids.as_slice());
+        let mut samples = runtime.render_phrase(&tokens, &durations, &f0, language_ids)?;
+        if output_sample_rate != config.vocoder_sample_rate {
+            let target = (samples.len() as f64 * output_sample_rate as f64
+                / config.vocoder_sample_rate as f64)
+                .round() as usize;
+            let source = samples.clone();
+            samples = (0..target)
+                .map(|index| {
+                    let position =
+                        index as f64 * source.len().saturating_sub(1) as f64 / target.max(1) as f64;
+                    let left = position.floor() as usize;
+                    let fraction = (position - left as f64) as f32;
+                    source[left.min(source.len().saturating_sub(1))] * (1.0 - fraction)
+                        + source[(left + 1).min(source.len().saturating_sub(1))] * fraction
+                })
+                .collect();
+        }
+        Ok(samples)
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn load_diffsinger_tokens(path: &std::path::Path) -> Result<HashMap<String, i64>, String> {
+        let content = std::fs::read_to_string(path)
+            .map_err(|error| format!("não foi possível ler {}: {error}", path.display()))?;
+        if path.extension().and_then(|extension| extension.to_str()) == Some("json") {
+            let values: HashMap<String, i64> = serde_json::from_str(&content)
+                .map_err(|error| format!("vocabulário DiffSinger JSON inválido: {error}"))?;
+            return Ok(values);
+        }
+        Ok(content
+            .lines()
+            .enumerate()
+            .map(|(index, line)| (line.trim_end_matches('\r').to_string(), index as i64))
+            .collect())
+    }
+
+    #[cfg(target_arch = "wasm32")]
+    fn render_diffsinger_track(
+        _notes: &[UNote],
+        _voicebank: &Voicebank,
+        _output_sample_rate: u32,
+        _phonemizer_mode: crate::phonemizer::PhonemizerMode,
+    ) -> Result<Vec<f32>, String> {
+        Err("DiffSinger ONNX ainda não está disponível no alvo WASM".to_string())
     }
 
     /// Render track using default native Rust drivers and tempo 120.0

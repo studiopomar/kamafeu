@@ -32,36 +32,28 @@ impl KamafeuStudioApp {
         }
 
         TopBottomPanel::top("top_menu_bar")
-            .exact_height(26.0)
+            .exact_height(56.0)
             .frame(Frame::none().fill(self.config.theme.bg_panel_c32()))
             .show(ctx, |ui| {
-                egui::menu::bar(ui, |ui| {
-                    self.menu_file(ui);
-                    self.menu_edit(ui);
-                    self.menu_tracks(ui);
-                    self.menu_vocal_modes(ui);
-                    self.menu_singers(ui);
-                    self.menu_view(ui, ctx);
-                    self.menu_playback(ui);
-
-                    ui.menu_button("⋯", |ui| {
-                        self.menu_tools(ui);
-                        self.menu_language(ui);
-                        if ui
-                            .button(self.config.language.tr("Pacotes", "Packages"))
-                            .clicked()
-                        {
-                            self.packages_window_open = true;
-                            ui.close_menu();
-                        }
-                        self.menu_help(ui);
-                    })
-                    .response
-                    .on_hover_text(self.config.language.tr(
-                        "Mais opções: ferramentas, idioma, pacotes e ajuda",
-                        "More options: tools, language, packages and help",
-                    ));
-
+                ui.horizontal_wrapped(|ui| {
+                    ui.spacing_mut().item_spacing = egui::Vec2::new(4.0, 2.0);
+                            self.menu_file(ui);
+                            self.menu_edit(ui);
+                            self.menu_tracks(ui);
+                            self.menu_vocal_modes(ui);
+                            self.menu_singers(ui);
+                            self.menu_view(ui, ctx);
+                            self.menu_playback(ui);
+                            self.menu_tools(ui);
+                            self.menu_language(ui);
+                            if ui
+                                .button(self.config.language.tr("Pacotes", "Packages"))
+                                .clicked()
+                            {
+                                self.packages_window_open = true;
+                                ui.close_menu();
+                            }
+                            self.menu_help(ui);
                     // ==========================================
                     // DIREITA: BADGE DO PROJETO
                     // ==========================================

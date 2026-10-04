@@ -1,4 +1,6 @@
 pub mod autopitch;
+#[path = "diffsinger.rs"]
+pub mod diffsinger_runtime;
 pub mod envelope;
 pub mod lpc;
 pub mod piano;
