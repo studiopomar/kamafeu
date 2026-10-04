@@ -18,12 +18,25 @@ document.addEventListener('DOMContentLoaded', () => {
    ------------------------------------------------------------------- */
 const SITE_TRANSLATIONS = {
   'Recursos': 'Features', 'Teclado Vocal': 'Vocal Keyboard', 'Motores DSP': 'DSP Engines',
-  'Kamafeu Web': 'Kamafeu Web', 'Kamafeu Web — abrir no navegador': 'Kamafeu Web — open in browser',
+  'Kamafeu Web': 'Kamafeu Web', 'Kamafeu Web: abrir no navegador': 'Kamafeu Web: open in browser',
   'oto.ini & Acústica': 'oto.ini & Acoustics', 'Formatos': 'Formats', 'Temas': 'Themes',
   'Downloads': 'Downloads', 'Compilação': 'Build', 'Abrir Menu': 'Open menu',
-  'Versão 1.0.0 • Rust 1.82+ • Open Source (MIT)': 'Version 1.0.0 • Rust 1.82+ • Open Source (MIT)',
-  'Editor e sintetizador vocal por amostragem e splicing em Rust.': 'A sample-based vocal editor and synthesizer with splicing, built in Rust.',
+  'Versão 1.0.2-rc.1 • Rust 1.82+ • Código aberto (MIT)': 'Version 1.0.2-rc.1 • Rust 1.82+ • Open source (MIT)',
+  'Um editor vocal para quem gosta de saber o que está acontecendo com o áudio.': 'A vocal editor for people who like to understand what is happening to the audio.',
   'Baixar Desktop': 'Download Desktop', 'Teclado Vocal': 'Vocal Keyboard',
+  'Abrir a versão web': 'Open the web version',
+  'Experimente no navegador': 'Try it in your browser',
+  'Um teclado para ouvir os sons': 'A keyboard for listening to the sounds',
+  'No dia a dia': 'For everyday work',
+  'As partes que você realmente usa': 'The parts you actually use',
+  'Como o som é feito': 'How the sound is made',
+  'Motores internos e resamplers externos': 'Built-in engines and external resamplers',
+  'Para entender o voicebank': 'Understanding the voicebank',
+  'O que cada linha do oto.ini faz': 'What each oto.ini line does',
+  'Arquivos': 'Files', 'Abra o projeto onde ele estiver': 'Open your project wherever it came from',
+  'Do seu jeito': 'Make it yours', 'Temas para trabalhar com conforto': 'Themes for comfortable work',
+  'Comece por aqui': 'Start here', 'Baixe o Kamafeu Studio': 'Download Kamafeu Studio',
+  'Se você quiser compilar': 'If you want to build it',
   'Demonstração Interativa': 'Interactive Demo',
   'Teclado Vocal & Síntese Formântica WebAudio': 'Vocal Keyboard & WebAudio Formant Synthesis',
   'Consoante (Ataque):': 'Consonant (Attack):', 'Vogal (Sustentação):': 'Vowel (Sustain):',
@@ -122,7 +135,7 @@ function translateSiteToEnglish() {
     });
   });
   document.documentElement.lang = 'en';
-  document.title = 'Kamafeu Studio — UTAU Vocal Editor and Synthesizer in Rust';
+  document.title = 'Kamafeu Studio | UTAU Vocal Editor in Rust';
 }
 
 function initLanguageSwitcher() {
@@ -148,13 +161,13 @@ function initOsDetection() {
   const ua = navigator.userAgent.toLowerCase();
   const english = document.documentElement.lang === 'en';
   if (ua.includes('mac')) {
-    downloadText.textContent = english ? 'Download for macOS (.dmg)' : 'Baixar para macOS (.dmg)';
+    downloadText.textContent = english ? 'View macOS releases' : 'Ver releases do macOS';
   } else if (ua.includes('win')) {
-    downloadText.textContent = english ? 'Download for Windows (.exe)' : 'Baixar para Windows (.exe)';
+    downloadText.textContent = english ? 'View Windows releases' : 'Ver releases do Windows';
   } else if (ua.includes('android')) {
-    downloadText.textContent = english ? 'Download APK (.apk)' : 'Baixar APK (.apk)';
+    downloadText.textContent = english ? 'View Android releases' : 'Ver releases do Android';
   } else if (ua.includes('linux')) {
-    downloadText.textContent = english ? 'Download for Linux (.AppImage)' : 'Baixar para Linux (.AppImage)';
+    downloadText.textContent = english ? 'View Linux releases' : 'Ver releases do Linux';
   } else {
     downloadText.textContent = english ? 'View Available Downloads' : 'Ver Downloads Disponíveis';
   }
@@ -459,7 +472,7 @@ function playSynthVoice(baseFreq, noteName, cons = 'none', vowelKey = 'e_closed'
   const statusInfo = document.getElementById('synthStatusInfo');
   if (statusInfo) {
     const consLabel = hasConsonant ? `[ ${cons.toUpperCase()} ] + ` : '';
-    statusInfo.textContent = `Sintetizando: ${noteName} (${targetFreq.toFixed(1)} Hz) — ${consLabel}Vogal [ ${vowelKey.toUpperCase()} ]`;
+    statusInfo.textContent = `Sintetizando: ${noteName} (${targetFreq.toFixed(1)} Hz) | ${consLabel}Vogal [ ${vowelKey.toUpperCase()} ]`;
   }
 }
 

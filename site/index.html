@@ -3,8 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>Kamafeu Studio — Editor e Sintetizador Vocal UTAU em Rust</title>
-  <meta name="description" content="Editor e sintetizador vocal por amostragem e splicing em Rust para o ecossistema UTAU e OpenUtau. Motores nativos VENUS e Andromeda, calibração oto.ini e suporte multifaixa.">
+  <title>Kamafeu Studio | Editor vocal para UTAU</title>
+  <meta name="description" content="Editor e sintetizador vocal para bancos UTAU e OpenUtau. Feito em Rust, com ferramentas para notas, fonemas, afinação e renderização de áudio.">
   <meta name="keywords" content="Kamafeu Studio, UTAU, OpenUtau, Rust, Sintetizador Vocal, Piano Roll, VENUS, Andromeda, Studio Pomar, DSP, oto.ini, Resampler, Wavtool">
   <meta name="author" content="Studio Pomar">
 
@@ -64,21 +64,21 @@
     <section class="hero-section">
       <div class="container hero-content">
         <div class="version-badge">
-          <span class="badge-dot"></span> Versão 1.0.0 &bull; Rust 1.82+ &bull; Open Source (MIT)
+          <span class="badge-dot"></span> Versão 1.0.2-rc.1 &bull; Rust 1.82+ &bull; Código aberto (MIT)
         </div>
 
         <h1 class="hero-title">
-          Editor e sintetizador vocal por amostragem e splicing em Rust.
+          Um editor vocal para quem gosta de saber o que está acontecendo com o áudio.
         </h1>
 
         <p class="hero-lead">
-          O <strong>Kamafeu Studio</strong> é uma workstation completa voltada para bancos de voz UTAU e OpenUtau. Projetado sem redes neurais, oferece controle técnico direto sobre amostragem, calibração <code>oto.ini</code>, afinação contínua e emenda acústica de alta fidelidade com os motores nativos <strong>VENUS</strong> e <strong>Andromeda</strong>.
+          O <strong>Kamafeu Studio</strong> reúne piano roll, edição de fonemas, afinação e renderização para bancos de voz UTAU e OpenUtau. O processamento é feito localmente, com motores nativos em Rust e suporte a resamplers externos quando você precisar deles.
         </p>
 
         <div class="hero-buttons">
           <a href="https://studiopomar.github.io/kamafeu/web" target="_blank" rel="noopener" class="btn btn-primary" id="heroWebStudioBtn" style="background: linear-gradient(135deg, #ff6584, #c084fc); border: none; box-shadow: 0 6px 20px rgba(255, 101, 132, 0.45); font-weight: 700;">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="12" cy="12" r="10"/><path d="M2 12h20"/><path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"/></svg>
-            <span>✨ Abrir no Navegador (Web Studio)</span>
+            <span>Abrir a versão web</span>
           </a>
           <a href="#downloads" class="btn btn-secondary" id="heroDownloadBtn">
             <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
@@ -98,7 +98,7 @@
               <span class="frame-btn min"></span>
               <span class="frame-btn max"></span>
             </div>
-            <div class="frame-title">Kamafeu Studio — Projeto: Primavera.aps — 128 BPM 4/4 — Engine: VENUS (In-Process DSP)</div>
+            <div class="frame-title">Kamafeu Studio | Projeto: Primavera.aps | 128 BPM 4/4 | Engine: VENUS</div>
             <div class="frame-meta">Tema: Pomar Neon</div>
           </div>
           <div class="frame-screen">
@@ -111,9 +111,9 @@
     <!-- Interactive Vocal Synth Keyboard Section -->
     <section class="section section-dark" id="teclado-synth">
       <div class="container">
-        <div class="section-label">Demonstração Interativa</div>
-        <h2 class="section-heading">Teclado Vocal & Síntese Formântica WebAudio</h2>
-        <p class="section-subheading">Toque no piano roll para ouvir a reconstrução de formantes (vogais orais, nasais e schwa) combinadas a consoantes acústicas (oclusivas, fricativas e nasais) do motor <strong>VENUS</strong>.</p>
+        <div class="section-label">Experimente no navegador</div>
+        <h2 class="section-heading">Um teclado para ouvir os sons</h2>
+        <p class="section-subheading">Escolha uma consoante, uma vogal e uma nota. Esta demonstração usa Web Audio para mostrar, de forma simples, como o motor combina ataque, vogal e afinação.</p>
 
         <div class="synth-keyboard-widget">
           <!-- Top Controls -->
@@ -251,16 +251,16 @@
     <!-- Key Workflows Section -->
     <section class="section" id="recursos">
       <div class="container">
-        <div class="section-label">Fluxo de Trabalho</div>
-        <h2 class="section-heading">Construído para Composição e Síntese Técnica</h2>
-        <p class="section-subheading">Uma suíte completa de ferramentas que respeita os fundamentos acústicos do UTAU clássico e traz a performance multithread do Rust moderno.</p>
+        <div class="section-label">No dia a dia</div>
+        <h2 class="section-heading">As partes que você realmente usa</h2>
+        <p class="section-subheading">O Kamafeu foi feito para editar uma frase, testar um banco de voz e chegar ao som que você tinha na cabeça sem esconder os detalhes importantes.</p>
 
         <div class="feature-rows">
           <!-- Item 1 -->
           <div class="feature-item">
             <div class="feature-text">
-              <h3>Piano Roll & Modelagem Contínua de Afinação</h3>
-              <p>Ferramentas intuitivas com atalhos de teclado ágeis: Seleção (<kbd>V</kbd>), Lápis contínuo (<kbd>N</kbd>), Divisão de notas (<kbd>C</kbd>) e Borracha (<kbd>E</kbd>). Desenho livre de afinação (<kbd>P</kbd>) com suporte a portamento suave, curvas em S e Bézier, assistente de escalas musicais (Maior, Menor, Pentatônicas, Blues e Modos Gregos) e gaveta inferior de envelopes UTAU de 5 pontos.</p>
+              <h3>Notas e afinação</h3>
+              <p>Desenhe e mova notas com poucos atalhos: seleção (<kbd>V</kbd>), lápis (<kbd>N</kbd>), corte (<kbd>C</kbd>) e borracha (<kbd>E</kbd>). A ferramenta de pitch (<kbd>P</kbd>) permite fazer portamentos, vibratos e curvas à mão, com ajuda de escalas e envelopes UTAU.</p>
               <ul class="feature-bullets">
                 <li>Edição dinâmica de parâmetros: Velocity, Modulação, Sopro e Gênero</li>
                 <li>Repetição contínua em loop <kbd>[A ... B]</kbd> sem engasgos de buffer</li>
@@ -285,8 +285,8 @@
           <!-- Item 2 -->
           <div class="feature-item reverse">
             <div class="feature-text">
-              <h3>Suporte Fonético Completo & Dicionários G2P</h3>
-              <p>Resolução fonética transparente para múltiplos idiomas com particionamento silábico automático e consulta multinotas por tom (<kbd>prefix.map</kbd>).</p>
+              <h3>Fonemas que você consegue acompanhar</h3>
+              <p>O editor mostra como a letra vira fonema e procura as amostras no banco de voz. Você pode deixar o fonemizador trabalhar ou corrigir os aliases manualmente.</p>
               <ul class="feature-bullets">
                 <li><strong>Português Brasileiro:</strong> Suporte completo a BRAPA VCCV, CVC, CVVC, VCV e motor G2P ortográfico integrado.</li>
                 <li><strong>Japonês:</strong> Conversão Romaji &rarr; Hiragana/Kana, CV, VCV e CVVC.</li>
@@ -311,8 +311,8 @@
           <!-- Item 3 -->
           <div class="feature-item">
             <div class="feature-text">
-              <h3>Rack de Efeitos (DSP) & Alinhamento de Fase</h3>
-              <p>Processamento de áudio por faixa com equalizador gráfico e paramétrico de 31 bandas, compressor dinâmico, delay de sincronismo e reverb estéreo. O motor de mixagem aplica alinhamento de fase de onda e equal-power crossfade entre fonemas adjacentes, eliminando cliques, descontinuidades e cancelamentos de harmônicos no buffer de saída.</p>
+              <h3>Áudio, efeitos e exportação</h3>
+              <p>Cada faixa pode passar pelo equalizador, compressor, chorus, delay e reverb. O renderizador cuida das transições entre amostras e exporta o resultado em WAV ou FLAC.</p>
             </div>
             <div class="feature-graphic">
               <div class="info-card">
@@ -338,16 +338,16 @@
     <!-- Audio Engines Comparison -->
     <section class="section section-dark" id="motores">
       <div class="container">
-        <div class="section-label">Motores de Áudio</div>
-        <h2 class="section-heading">Pipeline Nativo em Rust & Compatibilidade Externa</h2>
-        <p class="section-subheading">O Kamafeu permite alternar livremente entre o pipeline interno de alta performance e ferramentas consagradas da comunidade.</p>
+        <div class="section-label">Como o som é feito</div>
+        <h2 class="section-heading">Motores internos e resamplers externos</h2>
+        <p class="section-subheading">Você pode usar os motores que já vêm no Kamafeu ou configurar ferramentas conhecidas do ecossistema UTAU.</p>
 
         <div class="engines-grid">
           <!-- VENUS -->
           <div class="engine-card featured">
             <div class="engine-type">Resampler Nativo</div>
             <h3 class="engine-title">VENUS</h3>
-            <p class="engine-desc">Motor nativo em Rust baseado em síntese formântica pura, análise de periodicidade com algoritmo YIN e reconstrução espectral de fase mínima. Preserva a inteligibilidade das consoantes rápidas sem cortes de alias e mantém a ressonância natural da voz sem artefatos anasalados.</p>
+            <p class="engine-desc">Motor nativo em Rust para analisar, afinar e reconstruir os trechos de voz. Ele roda dentro do Kamafeu e não precisa de um executável separado.</p>
             <div class="engine-meta">
               <span>&bull; Roda em processo (In-Memory)</span>
               <span>&bull; Zero dependência externa</span>
@@ -359,7 +359,7 @@
           <div class="engine-card featured">
             <div class="engine-type">Wavtool Nativo</div>
             <h3 class="engine-title">Andromeda</h3>
-            <p class="engine-desc">Motor de emenda e costura de fonemas interno de alta velocidade. Aplica cálculo de envelope de amplitude UTAU de 5 pontos, interpolação suave e crossfade de potência constante (equal-power crossfade) diretamente no buffer de saída.</p>
+            <p class="engine-desc">Motor que junta os trechos de voz e aplica os envelopes UTAU. O crossfade ajuda a ligar uma amostra à outra sem cortes secos.</p>
             <div class="engine-meta">
               <span>&bull; Processamento paralelo com Rayon</span>
               <span>&bull; Streaming contínuo sem travamentos</span>
@@ -371,7 +371,7 @@
           <div class="engine-card">
             <div class="engine-type">Executáveis Externos (CLI)</div>
             <h3 class="engine-title">straycat-rs, moresampler, hifisampler, TIPS, macres</h3>
-            <p class="engine-desc">Suporte transparente ao protocolo de linha de comando clássico do UTAU. No Windows, os binários rodam nativamente; no macOS e Linux, são executados automaticamente através da integração com Wine.</p>
+            <p class="engine-desc">O Kamafeu também conversa com resamplers que seguem o protocolo de linha de comando do UTAU. No Windows eles rodam diretamente; no macOS e Linux, você pode precisar do Wine.</p>
             <div class="engine-meta">
               <span>&bull; Protocolo UTAU CLI padrão</span>
               <span>&bull; Cache de renderização acelerado</span>
@@ -385,9 +385,9 @@
     <!-- Interactive oto.ini & DSP Waveform Visualizer -->
     <section class="section" id="oto-calibrador">
       <div class="container">
-        <div class="section-label">Fundamentos Acústicos</div>
-        <h2 class="section-heading">Como Funciona a Calibração de oto.ini no Kamafeu</h2>
-        <p class="section-subheading">Ajuste os 5 parâmetros acústicos fundamentais abaixo e veja visualmente como o Kamafeu isola a consoante fixa e estica a vogal periódica na forma de onda.</p>
+        <div class="section-label">Para entender o voicebank</div>
+        <h2 class="section-heading">O que cada linha do oto.ini faz</h2>
+        <p class="section-subheading">Mude os parâmetros abaixo e veja qual parte da amostra fica fixa, qual parte pode ser esticada e onde a nota entra.</p>
 
         <div class="calibrator-widget">
           <div class="calibrator-controls">
@@ -435,9 +435,9 @@
     <!-- Supported Formats Table -->
     <section class="section section-dark" id="formatos">
       <div class="container">
-        <div class="section-label">Intercâmbio de Dados</div>
-        <h2 class="section-heading">Formatos de Arquivo Suportados</h2>
-        <p class="section-subheading">Compatibilidade direta de importação e exportação com os principais softwares de canto e DAWs do mercado.</p>
+        <div class="section-label">Arquivos</div>
+        <h2 class="section-heading">Abra o projeto onde ele estiver</h2>
+        <p class="section-subheading">O Kamafeu trabalha com o formato próprio e também importa e exporta formatos comuns de UTAU, OpenUtau, MIDI e outros editores vocais.</p>
 
         <div class="table-wrap">
           <table class="data-table">
@@ -477,14 +477,14 @@
                 <td><code>.mid, .midi</code></td>
                 <td><span class="tag-yes">Sim</span></td>
                 <td><span class="tag-yes">Sim</span></td>
-                <td>Intercâmbio universal com DAWs como Reaper, FL Studio, Ableton Live e Logic Pro com notas, andamento e mensagens de pitch bend.</td>
+                <td>Arquivo usado para levar notas, andamento e pitch bend para DAWs como Reaper, FL Studio, Ableton Live e Logic Pro.</td>
               </tr>
               <tr>
                 <td><strong>UtaFormatix Data</strong></td>
                 <td><code>.ufdata</code></td>
                 <td><span class="tag-yes">Sim</span></td>
                 <td><span class="tag-yes">Sim</span></td>
-                <td>Padrão aberto universal em JSON para migração fiel entre sintetizadores vocais modernos sem perda de temporização.</td>
+                <td>Arquivo JSON aberto para trocar notas e informações de tempo entre ferramentas de síntese vocal.</td>
               </tr>
               <tr>
                 <td><strong>Synthesizer V Project</strong></td>
@@ -516,9 +516,9 @@
     <!-- Theme Gallery -->
     <section class="section" id="temas">
       <div class="container">
-        <div class="section-label">Interface Gráfica</div>
-        <h2 class="section-heading">Temas Visuais Personalizáveis</h2>
-        <p class="section-subheading">O Kamafeu Studio inclui um gerenciador de temas integrado (<kbd>Ctrl/Cmd + Alt + T</kbd>) para alternar cores, densidade de grade e contraste.</p>
+        <div class="section-label">Do seu jeito</div>
+        <h2 class="section-heading">Temas para trabalhar com conforto</h2>
+        <p class="section-subheading">Escolha uma paleta, ajuste o contraste e deixe a interface mais parecida com o jeito que você trabalha.</p>
 
         <!-- Theme Tabs -->
         <div class="theme-tabs" id="themeTabs">
@@ -554,23 +554,23 @@
     <!-- Downloads Section -->
     <section class="section section-dark" id="downloads">
       <div class="container">
-        <div class="section-label">Instalação</div>
-        <h2 class="section-heading">Download do Kamafeu Studio</h2>
-        <p class="section-subheading">Binários pré-compilados disponíveis na aba de Releases do GitHub para as principais plataformas.</p>
+        <div class="section-label">Comece por aqui</div>
+        <h2 class="section-heading">Baixe o Kamafeu Studio</h2>
+        <p class="section-subheading">Os pacotes ficam na página de Releases do GitHub. Escolha o arquivo da sua plataforma e extraia para uma pasta.</p>
 
         <div class="downloads-grid">
           <!-- macOS -->
           <div class="download-card">
             <div class="dl-os-icon"></div>
             <h3>macOS</h3>
-            <p class="dl-arch">Apple Silicon (M1/M2/M3/M4) & Intel</p>
+            <p class="dl-arch">Apple Silicon e Intel</p>
             <ul class="dl-specs">
-              <li>&bull; Pacote DMG e binário autônomo</li>
-              <li>&bull; Backend gráfico Metal e CoreAudio</li>
-              <li>&bull; macOS 11.0 Big Sur ou superior</li>
+              <li>&bull; Um pacote para cada arquitetura</li>
+              <li>&bull; Áudio pelo CoreAudio</li>
+              <li>&bull; Assinatura depende da release</li>
             </ul>
             <a href="https://github.com/studiopomar/kamafeu/releases" target="_blank" rel="noopener" class="btn btn-primary btn-block">
-              Baixar para macOS (.dmg)
+              Ver releases do macOS
             </a>
           </div>
 
@@ -580,12 +580,12 @@
             <h3>Windows</h3>
             <p class="dl-arch">x64 (64-bit)</p>
             <ul class="dl-specs">
-              <li>&bull; Instalador executável e versão portátil</li>
-              <li>&bull; WASAPI e DirectSound de baixa latência</li>
+              <li>&bull; Pacote portátil em .zip</li>
+              <li>&bull; Executável MSVC</li>
               <li>&bull; Windows 10 e Windows 11</li>
             </ul>
             <a href="https://github.com/studiopomar/kamafeu/releases" target="_blank" rel="noopener" class="btn btn-primary btn-block">
-              Baixar para Windows (.exe)
+              Ver releases do Windows
             </a>
           </div>
 
@@ -593,14 +593,14 @@
           <div class="download-card">
             <div class="dl-os-icon">🐧</div>
             <h3>Linux</h3>
-            <p class="dl-arch">x86_64 AppImage & .deb</p>
+            <p class="dl-arch">x86_64</p>
             <ul class="dl-specs">
-              <li>&bull; AppImage portátil universal e pacote Debian/Ubuntu</li>
-              <li>&bull; Suporte a ALSA e PulseAudio/PipeWire</li>
-              <li>&bull; Integração automática com Wine para resamplers Win32</li>
+              <li>&bull; Pacote .tar.gz</li>
+              <li>&bull; Requer ALSA e bibliotecas gráficas</li>
+              <li>&bull; Wine é necessário para resamplers Windows</li>
             </ul>
             <a href="https://github.com/studiopomar/kamafeu/releases" target="_blank" rel="noopener" class="btn btn-primary btn-block">
-              Baixar AppImage (.AppImage)
+              Ver releases do Linux
             </a>
           </div>
 
@@ -610,12 +610,12 @@
             <h3>Android</h3>
             <p class="dl-arch">ARM64 APK</p>
             <ul class="dl-specs">
-              <li>&bull; Pacote APK com motores nativos VENUS e Andromeda</li>
-              <li>&bull; Integração SAF para importação de pacotes <code>.kfv</code></li>
-              <li>&bull; Android 8.0 (Oreo) ou superior</li>
+              <li>&bull; APK ARM64 experimental</li>
+              <li>&bull; Usa VENUS e Andromeda</li>
+              <li>&bull; Android 5.0 / API 21 ou superior</li>
             </ul>
             <a href="https://github.com/studiopomar/kamafeu/releases" target="_blank" rel="noopener" class="btn btn-secondary btn-block">
-              Baixar APK Android (.apk)
+              Ver releases do Android
             </a>
           </div>
         </div>
@@ -626,7 +626,7 @@
     <section class="section" id="compilacao">
       <div class="container">
         <div class="section-label">Desenvolvimento</div>
-        <h2 class="section-heading">Compilação a Partir do Código-Fonte</h2>
+        <h2 class="section-heading">Se você quiser compilar</h2>
         <p class="section-subheading">Requisitos: <strong>Rust 1.82 ou superior</strong> e o gerenciador de pacotes <strong>Cargo</strong> instalados via <a href="https://rustup.rs" target="_blank" rel="noopener" class="inline-link">rustup.rs</a>.</p>
 
         <div class="code-terminal">
@@ -685,7 +685,7 @@ cargo build --release
       <div class="footer-col-links">
         <div class="links-group">
           <h4>Projeto</h4>
-          <a href="https://studiopomar.github.io/kamafeu/web" target="_blank" rel="noopener">Kamafeu Web — abrir no navegador</a>
+          <a href="https://studiopomar.github.io/kamafeu/web" target="_blank" rel="noopener">Kamafeu Web: abrir no navegador</a>
           <a href="https://github.com/studiopomar/kamafeu" target="_blank" rel="noopener">GitHub</a>
           <a href="https://github.com/studiopomar/kamafeu/releases" target="_blank" rel="noopener">Releases & Downloads</a>
           <a href="https://github.com/studiopomar/kamafeu/blob/main/CHANGELOG.md" target="_blank" rel="noopener">Histórico de Alterações</a>
