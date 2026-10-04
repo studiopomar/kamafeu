@@ -2,6 +2,7 @@ use crate::drivers::{ResamplerArgs, ResamplerDriver};
 use std::collections::{HashMap, VecDeque};
 use std::hash::{DefaultHasher, Hash, Hasher};
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex, OnceLock, RwLock};
 use std::time::Duration;
 
@@ -10,6 +11,31 @@ use std::time::Duration;
 const CACHE_SCHEMA: u32 = 4;
 const MAX_CACHE_ENTRIES: usize = 2048;
 const MAX_CACHE_SAMPLES: usize = 128 * 1024 * 1024;
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct CacheStats {
+    pub hits: u64,
+    pub misses: u64,
+    pub renders: u64,
+}
+
+static CACHE_HITS: AtomicU64 = AtomicU64::new(0);
+static CACHE_MISSES: AtomicU64 = AtomicU64::new(0);
+static CACHE_RENDERS: AtomicU64 = AtomicU64::new(0);
+
+pub fn cache_stats() -> CacheStats {
+    CacheStats {
+        hits: CACHE_HITS.load(Ordering::Relaxed),
+        misses: CACHE_MISSES.load(Ordering::Relaxed),
+        renders: CACHE_RENDERS.load(Ordering::Relaxed),
+    }
+}
+
+pub fn reset_cache_stats() {
+    CACHE_HITS.store(0, Ordering::Relaxed);
+    CACHE_MISSES.store(0, Ordering::Relaxed);
+    CACHE_RENDERS.store(0, Ordering::Relaxed);
+}
 
 #[derive(Debug, Clone, Copy)]
 struct CacheLimits {
@@ -457,7 +483,10 @@ pub(crate) fn render_with_cache(
             .lock()
             .unwrap_or_else(|error| error.into_inner());
         match state.entries.get(&key) {
-            Some(CacheEntry::Ready(samples)) => return Ok((samples.to_vec(), true)),
+            Some(CacheEntry::Ready(samples)) => {
+                CACHE_HITS.fetch_add(1, Ordering::Relaxed);
+                return Ok((samples.to_vec(), true));
+            }
             Some(CacheEntry::Rendering) => {
                 if cancel.is_some_and(|token| token.load(Ordering::Relaxed)) {
                     return Err("renderização cancelada".to_string());
@@ -468,6 +497,7 @@ pub(crate) fn render_with_cache(
                 drop(next_state);
             }
             None => {
+                CACHE_MISSES.fetch_add(1, Ordering::Relaxed);
                 state.entries.insert(key, CacheEntry::Rendering);
                 break;
             }
@@ -476,6 +506,7 @@ pub(crate) fn render_with_cache(
 
     if driver.supports_persistent_cache() {
         if let Some(samples) = load_persistent(key, sample_rate) {
+            CACHE_HITS.fetch_add(1, Ordering::Relaxed);
             let mut state = state_mutex
                 .lock()
                 .unwrap_or_else(|error| error.into_inner());
@@ -485,6 +516,7 @@ pub(crate) fn render_with_cache(
         }
     }
 
+    CACHE_RENDERS.fetch_add(1, Ordering::Relaxed);
     let rendered = driver
         .render_sample(raw_samples, sample_rate, args, cancel)
         .and_then(|samples| {

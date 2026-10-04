@@ -19,6 +19,7 @@ impl KamafeuStudioApp {
             |ui| {
                 let (file_count, disk_bytes) = resampler_cache::get_disk_cache_stats();
                 let (mem_entries, mem_samples) = resampler_cache::get_memory_cache_stats();
+                let stats = resampler_cache::cache_stats();
                 let disk_mb = disk_bytes as f64 / (1024.0 * 1024.0);
                 let mem_mb = (mem_samples * 4) as f64 / (1024.0 * 1024.0);
 
@@ -33,6 +34,31 @@ impl KamafeuStudioApp {
                     ),
                 );
             });
+
+                let requests = stats.hits.saturating_add(stats.misses);
+                let hit_rate = if requests == 0 {
+                    0.0
+                } else {
+                    stats.hits as f64 * 100.0 / requests as f64
+                };
+                ui.horizontal(|ui| {
+                    ui.label(lang.tr("Reutilização do Cache:", "Cache Reuse:"));
+                    ui.label(
+                        RichText::new(format!(
+                            "{} hits, {} misses, {} renders ({hit_rate:.1}%)",
+                            stats.hits, stats.misses, stats.renders
+                        ))
+                        .strong()
+                        .color(Color32::from_rgb(255, 220, 130)),
+                    );
+                    help_marker(
+                        ui,
+                        lang.tr(
+                            "Hits são trechos reutilizados; misses são solicitações novas; renders são trabalhos realmente enviados ao resampler.",
+                            "Hits are reused slices; misses are new requests; renders are jobs actually sent to the resampler.",
+                        ),
+                    );
+                });
 
                 ui.horizontal(|ui| {
                 ui.label(lang.tr("Memória RAM (DSP Pool):", "RAM Memory (DSP Pool):"));
@@ -80,6 +106,13 @@ impl KamafeuStudioApp {
                     .clicked()
                 {
                     resampler_cache::clear_memory_cache();
+                }
+
+                if ui
+                    .button(RichText::new(lang.tr("Zerar Estatísticas", "Reset Statistics")).size(11.0))
+                    .clicked()
+                {
+                    resampler_cache::reset_cache_stats();
                 }
 
                 if ui
