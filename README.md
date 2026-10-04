@@ -96,8 +96,8 @@ O Kamafeu Studio conta com um motor completo de temas e customização de interf
 #### Pomar Neon (Esmeralda)
 <img src="assets/themes/theme_pomar_neon.png" alt="Tema Pomar Neon (Esmeralda)" width="100%" />
 
-#### Melodyne Classic (Bariloche)
-<img src="assets/themes/theme_melodyne_gold.png" alt="Tema Melodyne Classic (Bariloche)" width="100%" />
+#### Melodina Classico (Bariloche)
+<img src="assets/themes/theme_melodyne_gold.png" alt="Tema Melodina Classico (Bariloche)" width="100%" />
 
 #### Cyberpunk (Synthwave)
 <img src="assets/themes/theme_cyberpunk.png" alt="Tema Cyberpunk (Synthwave)" width="100%" />

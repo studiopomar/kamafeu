@@ -33,7 +33,7 @@ impl ThemePreset {
         match lang {
             crate::config::AppLanguage::PtBr => match self {
                 ThemePreset::PomarNeon => "Pomar Neon (Esmeralda)",
-                ThemePreset::MelodyneGold => "Melodyne Classic (Bariloche)",
+                ThemePreset::MelodyneGold => "Melodina Classico (Bariloche)",
                 ThemePreset::Cyberpunk => "Cyberpunk (Synthwave)",
                 ThemePreset::NordicSlate => "Nordic Slate (Clean Dark)",
                 ThemePreset::MikanTeal => "Voz-a-loide Teal (Mikan)",
@@ -43,7 +43,7 @@ impl ThemePreset {
             },
             crate::config::AppLanguage::EnUs => match self {
                 ThemePreset::PomarNeon => "Pomar Neon (Emerald)",
-                ThemePreset::MelodyneGold => "Melodyne Classic (Bariloche)",
+                ThemePreset::MelodyneGold => "Melodina Classico (Bariloche)",
                 ThemePreset::Cyberpunk => "Cyberpunk (Synthwave)",
                 ThemePreset::NordicSlate => "Nordic Slate (Clean Dark)",
                 ThemePreset::MikanTeal => "Vocaloid Teal (Mikan)",
