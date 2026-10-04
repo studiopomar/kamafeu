@@ -188,10 +188,6 @@ impl AudioPlayer {
         set_flush_denormals_to_zero(enabled);
     }
 
-    pub fn set_flush_denormals_to_zero(&mut self, enabled: bool) {
-        set_flush_denormals_to_zero(enabled);
-    }
-
     pub fn new() -> Self {
         Self {
             ctx: None,

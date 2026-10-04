@@ -76,12 +76,12 @@ web-time = "1.1"
 ndarray = "0.17.2"
 rustfft = "6.4"
 world-rs = "0.1.0"
-ort = { version = "2.0.0-rc.13", default-features = false, features = ["std", "ndarray", "download-binaries", "copy-dylibs", "tls-native"] }
+rayon = "1.10"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
-rayon = "1.10"
 rodio = "0.19"
 ureq = { version = "2.12", default-features = false, features = ["json", "tls"] }
+ort = { version = "2.0.0-rc.13", default-features = false, features = ["std", "ndarray", "download-binaries", "copy-dylibs", "tls-native"] }
 
 [target.'cfg(not(any(target_os = "android", target_arch = "wasm32")))'.dependencies]
 discord-rich-presence = "0.2.4"

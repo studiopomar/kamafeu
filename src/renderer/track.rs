@@ -8,7 +8,6 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, OnceLock, RwLock};
 
-#[cfg(not(target_arch = "wasm32"))]
 use rayon::prelude::*;
 
 use self::phone_result::PhoneResult;
@@ -251,8 +250,11 @@ impl TrackRenderer {
         };
         #[cfg(not(target_arch = "wasm32"))]
         let io_threads = io_thread_count().read().map(|value| *value).unwrap_or(4);
+        #[cfg(target_arch = "wasm32")]
+        let io_threads = 1;
         let load_wavs = || {
             wav_paths_vec
+                .clone()
                 .into_par_iter()
                 .filter_map(|path| {
                     Self::load_wav_samples(&path)
