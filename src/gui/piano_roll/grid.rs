@@ -65,22 +65,6 @@ pub fn draw_piano_keys(
 
         painter.rect_filled(key_rect, Rounding::ZERO, key_color);
 
-        // Tactile white key bevel (highlight on top edge, subtle shadow on bottom edge)
-        painter.line_segment(
-            [
-                Pos2::new(sticky_key_x, y_top + 0.5),
-                Pos2::new(sticky_key_x + keyboard_width - 1.0, y_top + 0.5),
-            ],
-            Stroke::new(1.0, Color32::from_rgba_unmultiplied(255, 255, 255, 120)),
-        );
-        painter.line_segment(
-            [
-                Pos2::new(sticky_key_x, y_bottom - 0.5),
-                Pos2::new(sticky_key_x + keyboard_width, y_bottom - 0.5),
-            ],
-            Stroke::new(1.0, Color32::from_rgba_unmultiplied(20, 16, 28, 90)),
-        );
-
         // Tonic & note labels
         let is_tonic = state.active_scale != crate::gui::piano_roll::state::MusicalScale::Chromatic
             && state.active_scale.is_tonic(state.scale_root_key, midi);
@@ -142,19 +126,6 @@ pub fn draw_piano_keys(
             let freq = midi_to_freq(midi as f64);
             on_preview_freq(freq);
         }
-
-        // Drop shadow under black key
-        let shadow_rect = key_rect.translate(egui::Vec2::new(1.5, 1.5));
-        painter.rect_filled(
-            shadow_rect,
-            Rounding {
-                nw: 0.0,
-                ne: 3.0,
-                se: 3.0,
-                sw: 0.0,
-            },
-            Color32::from_rgba_unmultiplied(0, 0, 0, 110),
-        );
 
         let key_color = if is_active {
             theme.key_active_c32()
@@ -259,19 +230,11 @@ pub fn draw_timeline_grid(
                 (time_ms % beat_ms).abs() < 1e-2 || ((time_ms % beat_ms) - beat_ms).abs() < 1e-2;
 
             let (line_width, line_color) = if is_bar {
-                (1.8_f32, theme.grid_line_bar_c32())
+                (1.4_f32, theme.c32_alpha(theme.grid_line_bar, 0.72))
             } else if is_beat {
-                (1.2_f32, theme.grid_line_sub_c32())
+                (1.0_f32, theme.c32_alpha(theme.grid_line_sub, 0.52))
             } else {
-                (
-                    0.8_f32,
-                    Color32::from_rgba_unmultiplied(
-                        theme.grid_line_sub[0],
-                        theme.grid_line_sub[1],
-                        theme.grid_line_sub[2],
-                        140,
-                    ),
-                )
+                (0.6_f32, theme.c32_alpha(theme.grid_line_sub, 0.28))
             };
 
             painter.line_segment(

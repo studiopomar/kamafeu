@@ -32,7 +32,10 @@ impl KamafeuStudioApp {
             self.config.layout.modular_workspace && !self.piano_roll_state.is_maximized;
         let window_title = self.config.language.tr("Piano Roll", "Piano Roll");
         let bg_canvas = self.config.theme.bg_canvas_c32();
-        let is_mobile = ctx.screen_rect().width() < 768.0;
+        let viewport = ctx.screen_rect();
+        let is_mobile = cfg!(target_os = "android")
+            || viewport.width() < 1100.0
+            || (viewport.height() < 600.0 && viewport.width() < 1200.0);
 
         if is_mobile {
             match self.active_mobile_tab {
@@ -53,6 +56,7 @@ impl KamafeuStudioApp {
                         .show(ctx, |ui| {
                             egui::ScrollArea::both()
                                 .auto_shrink([false, false])
+                                .drag_to_scroll(true)
                                 .show(ui, |ui| {
                                     self.draw_arrangement_inner(ui);
                                 });
@@ -64,6 +68,7 @@ impl KamafeuStudioApp {
                         .show(ctx, |ui| {
                             egui::ScrollArea::vertical()
                                 .auto_shrink([false, false])
+                                .drag_to_scroll(true)
                                 .show(ui, |ui| {
                                     self.draw_inspector_inner(ui);
                                 });
@@ -203,9 +208,10 @@ impl KamafeuStudioApp {
             self.playback_start_offset_ms = t;
         }
 
-        if let Some(freq) = preview_freq {
-            self.preview_tone(freq);
-        }
+        // Note selection/editing must stay silent. Audio preview is reserved
+        // for the transport play action, so clicking or dragging a note does
+        // not trigger the piano preview.
+        let _ = preview_freq;
 
         if before_changed {
             if let Some(snapshot) = piano_edit_snapshot.clone() {
@@ -361,6 +367,7 @@ impl KamafeuStudioApp {
 
         egui::ScrollArea::vertical()
             .auto_shrink([false, false])
+            .drag_to_scroll(true)
             .show(ui, |ui| {
                 ui.spacing_mut().item_spacing = egui::Vec2::new(0.0, 10.0);
                 ui.add_space(8.0);
@@ -376,7 +383,7 @@ impl KamafeuStudioApp {
                         )
                         .strong(),
                     );
-                    ui.horizontal(|ui| {
+                    ui.horizontal_wrapped(|ui| {
                         if ui
                             .selectable_label(
                                 self.config.language == crate::config::AppLanguage::PtBr,
@@ -449,7 +456,7 @@ impl KamafeuStudioApp {
                         egui::RichText::new(lang.tr("💾 Exportação de Áudio", "💾 Audio Export"))
                             .strong(),
                     );
-                    ui.horizontal(|ui| {
+                    ui.horizontal_wrapped(|ui| {
                         if ui.button(lang.tr("Exportar WAV", "Export WAV")).clicked() {
                             self.export_wav();
                         }

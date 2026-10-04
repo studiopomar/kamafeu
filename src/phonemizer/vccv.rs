@@ -69,8 +69,8 @@ fn phone_with_pitch(
     }
 }
 
-fn length(vb: &Voicebank, alias: &str, note: &UNote) -> f64 {
-    vb.find_mapped_entry(alias, &note.pitch)
+fn length(vb: &Voicebank, alias: &str, pitch: &str, note: &UNote) -> f64 {
+    vb.find_mapped_entry(alias, pitch)
         .map(|oto| (oto.preutterance - oto.overlap.min(0.0)).max(5.0))
         .unwrap_or(60.0)
         * consonant_velocity_time_scale(note.expressions.consonant_velocity)
@@ -200,7 +200,11 @@ pub fn apply(notes: &[UNote], vb: &Voicebank) -> Vec<RenderPhone> {
                     select(vb, &note.pitch, choices)
                 }
             };
-            let mut lengths: Vec<_> = transitions.iter().map(|a| length(vb, a, note)).collect();
+            let trans_pitch = previous_pitch.as_deref().unwrap_or(&note.pitch);
+            let mut lengths: Vec<_> = transitions
+                .iter()
+                .map(|alias| length(vb, alias, trans_pitch, note))
+                .collect();
             let total: f64 = lengths.iter().sum();
             let available = out
                 .last()
@@ -220,7 +224,6 @@ pub fn apply(notes: &[UNote], vb: &Voicebank) -> Vec<RenderPhone> {
                 last.duration_ms -= budget;
             }
             let mut cursor = start - budget;
-            let trans_pitch = previous_pitch.as_deref().unwrap_or(&note.pitch);
             for (alias, duration) in transitions.into_iter().zip(lengths) {
                 if duration > 0.0 {
                     out.push(phone_with_pitch(
@@ -269,7 +272,10 @@ pub fn apply(notes: &[UNote], vb: &Voicebank) -> Vec<RenderPhone> {
             }
         }
         if !endings.is_empty() {
-            let lengths: Vec<_> = endings.iter().map(|a| length(vb, a, note)).collect();
+            let lengths: Vec<_> = endings
+                .iter()
+                .map(|alias| length(vb, alias, &note.pitch, note))
+                .collect();
             let total: f64 = lengths.iter().sum();
             let last = out.last_mut().unwrap();
             let budget = total.min(last.duration_ms * 0.5);

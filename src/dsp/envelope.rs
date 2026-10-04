@@ -50,7 +50,11 @@ impl UtauEnvelope {
         };
 
         let finite = |value: f64, fallback: f64| {
-            if value.is_finite() { value } else { fallback }
+            if value.is_finite() {
+                value
+            } else {
+                fallback
+            }
         };
 
         self.p1 = finite(self.p1, 0.0).clamp(0.0, duration);
@@ -207,7 +211,11 @@ impl UtauEnvelope {
     }
 
     /// Generates high-density cosine-interpolated curve points `(t_ms, vol_pct)` for smooth visual rendering.
-    pub fn generate_visual_curve(&self, duration_ms: f64, num_subdivisions: usize) -> Vec<(f64, f64)> {
+    pub fn generate_visual_curve(
+        &self,
+        duration_ms: f64,
+        num_subdivisions: usize,
+    ) -> Vec<(f64, f64)> {
         let pts = self.get_effective_points(duration_ms);
         let mut curve = Vec::new();
         let subs = num_subdivisions.max(8);

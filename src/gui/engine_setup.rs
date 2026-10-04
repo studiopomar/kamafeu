@@ -4,8 +4,8 @@ use crate::drivers::GalapagosWavtoolDriver;
 use crate::drivers::KnownResampler;
 use crate::drivers::KnownWavtool;
 use crate::drivers::MacResDriver;
-use crate::drivers::NativeVenusResamplerDriver;
 use crate::drivers::NativeWavtoolDriver;
+use crate::drivers::NativeWorldResamplerDriver;
 use crate::drivers::ResamplerDriver;
 use crate::drivers::WavtoolDriver;
 use crate::drivers::WavtoolYawuDriver;
@@ -14,12 +14,57 @@ use std::path::PathBuf;
 
 impl KamafeuStudioApp {
     pub(super) fn persist_config(&mut self) {
+        self.audio_player
+            .set_volume(self.config.audio.master_volume);
+        self.audio_player
+            .set_flush_denormals_to_zero(self.config.experimental.flush_denormals_to_zero);
+        crate::renderer::TrackRenderer::set_pitch_sampling_config(
+            self.config.dsp.pitch_curve_step_ms,
+            &self.config.dsp.pitch_interpolation,
+        );
+        crate::dsp::world_resampler::set_runtime_config(
+            crate::dsp::world_resampler::WorldRuntimeConfig {
+                f0_floor_hz: self.config.dsp.f0_min_hz as f64,
+                f0_ceil_hz: self.config.dsp.f0_max_hz as f64,
+                voiced_aperiodicity: self.config.dsp.world_voiced_aperiodicity as f64,
+                formant_preservation_mode: self.config.dsp.formant_preservation_mode.clone(),
+                f0_detection_method: self.config.dsp.f0_detection_method.clone(),
+                frame_period_ms: self.config.dsp.world_frame_period_ms as f64,
+            },
+        );
         crate::renderer::resampler_cache::set_persistent_cache_dir_override(
             self.config.memory.custom_cache_dir.clone(),
         );
         crate::renderer::resampler_cache::set_cache_limits(
             self.config.memory.max_ram_cache_mb,
             self.config.memory.max_disk_cache_mb,
+        );
+        crate::gui::piano_roll::state::set_waveform_cache_resolution(
+            self.config.memory.waveform_cache_resolution,
+        );
+        crate::renderer::TrackRenderer::set_io_thread_concurrency(
+            self.config.memory.io_thread_concurrency,
+        );
+        crate::renderer::TrackRenderer::set_preload_strategy(
+            &self.config.memory.ram_preload_strategy,
+        );
+        crate::renderer::TrackRenderer::set_anti_aliasing_filter(
+            self.config.dsp.anti_aliasing_filter,
+        );
+        crate::renderer::ProjectRenderer::set_render_limiter(
+            self.config.dsp.render_limiter_enabled,
+            self.config.dsp.render_limiter_peak_db,
+        );
+        crate::renderer::TrackRenderer::set_crossfade_curve(&self.config.dsp.crossfade_curve);
+        crate::dsp::world_resampler::set_runtime_config(
+            crate::dsp::world_resampler::WorldRuntimeConfig {
+                f0_floor_hz: self.config.dsp.f0_min_hz as f64,
+                f0_ceil_hz: self.config.dsp.f0_max_hz as f64,
+                voiced_aperiodicity: self.config.dsp.world_voiced_aperiodicity as f64,
+                formant_preservation_mode: self.config.dsp.formant_preservation_mode.clone(),
+                f0_detection_method: self.config.dsp.f0_detection_method.clone(),
+                frame_period_ms: self.config.dsp.world_frame_period_ms as f64,
+            },
         );
         self.config.layout.show_arrangement_view = self.piano_roll_state.show_arrangement_view;
         self.config.layout.show_parameters_drawer = self.piano_roll_state.show_parameters_drawer;
@@ -66,7 +111,7 @@ impl KamafeuStudioApp {
     pub(super) fn create_resampler_driver(&self) -> Box<dyn ResamplerDriver> {
         #[cfg(any(target_os = "android", target_arch = "wasm32"))]
         {
-            return Box::new(NativeVenusResamplerDriver::default());
+            return Box::new(NativeWorldResamplerDriver);
         }
 
         #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
@@ -89,6 +134,19 @@ impl KamafeuStudioApp {
                 ));
             }
 
+            // Projects saved by older builds may contain the short name
+            // `Catalina` instead of the catalog label. Keep both forms on
+            // the NSF profile so it receives model discovery and HiFi-GAN
+            // flag handling instead of falling back to a generic CLI driver.
+            if self.selected_resampler.contains("Catalina")
+                || self.selected_resampler.contains("catalina")
+            {
+                return Box::new(ExternalResamplerDriver::for_known(
+                    KnownResampler::Catalina,
+                    self.custom_resampler_path.clone(),
+                ));
+            }
+
             if self.selected_resampler.contains("Venus")
                 || self.selected_resampler.contains("venus")
                 || self.selected_resampler.contains("VENUS")
@@ -97,19 +155,7 @@ impl KamafeuStudioApp {
                 || self.selected_resampler.contains("Native")
                 || self.selected_resampler.contains("Nativo")
             {
-                let preserve_formants = self.config.dsp.formant_preservation_mode != "Desativado";
-                let f0_method = match self.config.dsp.f0_detection_method.as_str() {
-                    "pyIN (Probabilístico)" => crate::dsp::F0TrackerMethod::Pyin,
-                    "Harvest/DIO (Espectral)" => crate::dsp::F0TrackerMethod::World,
-                    _ => crate::dsp::F0TrackerMethod::Yin,
-                };
-                return Box::new(NativeVenusResamplerDriver::new(
-                    self.config.dsp.oversampling_factor,
-                    preserve_formants,
-                    f64::from(self.config.dsp.f0_min_hz),
-                    f64::from(self.config.dsp.f0_max_hz),
-                    f0_method,
-                ));
+                return Box::new(NativeWorldResamplerDriver);
             }
 
             if let Some(profile) = KnownResampler::from_label(&self.selected_resampler) {

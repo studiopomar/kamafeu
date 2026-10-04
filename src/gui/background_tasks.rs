@@ -59,7 +59,9 @@ impl KamafeuStudioApp {
         if let Some(ref rx) = self.render_rx {
             // Drain the complete ready batch.  Limiting this to two chunks let
             // a busy piano-roll frame leave the sink without the next block.
-            for _ in 0..4 {
+            // Drain the whole ready window in one frame. The producer may
+            // already have rendered ahead while egui was busy scrolling.
+            for _ in 0..16 {
                 match rx.try_recv() {
                     Ok(mut chunk) => {
                         if let Some(error) = chunk.audio.error.take() {
@@ -122,6 +124,14 @@ impl KamafeuStudioApp {
                     }
                     Err(std::sync::mpsc::TryRecvError::Empty) => break,
                     Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                        if !self.progressive_playback_started {
+                            let error =
+                                "O worker de renderização terminou antes de gerar áudio. Verifique o Catalina e o log de renderização.";
+                            self.piano_roll_state.is_playing = false;
+                            self.progressive_playback_started = false;
+                            self.transport_state.status_message = error.to_string();
+                            self.render_log_messages.push(error.to_string());
+                        }
                         drop_rx = true;
                         break;
                     }

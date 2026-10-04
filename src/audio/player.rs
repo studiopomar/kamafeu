@@ -1,3 +1,11 @@
+use std::sync::atomic::{AtomicBool, Ordering};
+
+static FLUSH_DENORMALS_TO_ZERO: AtomicBool = AtomicBool::new(true);
+
+pub fn set_flush_denormals_to_zero(enabled: bool) {
+    FLUSH_DENORMALS_TO_ZERO.store(enabled, Ordering::Relaxed);
+}
+
 #[cfg(not(target_arch = "wasm32"))]
 use rodio::{buffer::SamplesBuffer, OutputStream, OutputStreamHandle, Sink};
 
@@ -12,6 +20,10 @@ pub struct AudioPlayer {
 
 #[cfg(not(target_arch = "wasm32"))]
 impl AudioPlayer {
+    pub fn set_flush_denormals_to_zero(&mut self, enabled: bool) {
+        set_flush_denormals_to_zero(enabled);
+    }
+
     pub fn new() -> Self {
         eprintln!("[AudioPlayer] Initializing CoreAudio OutputStream on main thread...");
         let (stream, stream_handle) = match OutputStream::try_default() {
@@ -98,7 +110,13 @@ impl AudioPlayer {
         }
         Self::sanitize_samples(&mut samples);
 
-        if let Some(sink) = self.active_sink.as_ref() {
+        if self.active_sink.as_ref().is_some_and(|sink| sink.empty()) {
+            // A sink can become empty between UI frames while the renderer
+            // is still producing pages. Recreate it instead of appending to
+            // an already-finished queue, which is ignored by some outputs.
+            self.active_sink = None;
+            self.play_samples_with_channels(samples, sample_rate, channels);
+        } else if let Some(sink) = self.active_sink.as_ref() {
             sink.append(SamplesBuffer::new(channels.max(1), sample_rate, samples));
         } else {
             self.play_samples_with_channels(samples, sample_rate, channels);
@@ -108,6 +126,9 @@ impl AudioPlayer {
     fn sanitize_samples(samples: &mut [f32]) {
         for s in samples.iter_mut() {
             if !s.is_finite() {
+                *s = 0.0;
+            } else if FLUSH_DENORMALS_TO_ZERO.load(Ordering::Relaxed) && s.abs() < f32::MIN_POSITIVE
+            {
                 *s = 0.0;
             } else if s.abs() > 0.95 {
                 let sign = s.signum();
@@ -163,6 +184,14 @@ pub struct AudioPlayer {
 
 #[cfg(target_arch = "wasm32")]
 impl AudioPlayer {
+    pub fn set_flush_denormals_to_zero(&mut self, enabled: bool) {
+        set_flush_denormals_to_zero(enabled);
+    }
+
+    pub fn set_flush_denormals_to_zero(&mut self, enabled: bool) {
+        set_flush_denormals_to_zero(enabled);
+    }
+
     pub fn new() -> Self {
         Self {
             ctx: None,
@@ -307,6 +336,9 @@ impl AudioPlayer {
     fn sanitize_samples(samples: &mut [f32]) {
         for s in samples.iter_mut() {
             if !s.is_finite() {
+                *s = 0.0;
+            } else if FLUSH_DENORMALS_TO_ZERO.load(Ordering::Relaxed) && s.abs() < f32::MIN_POSITIVE
+            {
                 *s = 0.0;
             } else if s.abs() > 0.95 {
                 let sign = s.signum();

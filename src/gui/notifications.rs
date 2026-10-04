@@ -8,22 +8,47 @@ impl KamafeuStudioApp {
         let mut reveal_path: Option<PathBuf> = None;
 
         if let Some((ref path, ref text, created_at)) = self.last_exported_notification {
-            if created_at.elapsed().as_secs_f32() > 25.0 {
+            let elapsed = created_at.elapsed().as_secs_f32();
+            if elapsed > 25.0 {
                 dismiss = true;
             } else {
+                let animated = self.config.workflow.ui_animations_enabled;
+                let speed = self.config.workflow.ui_animation_speed.clamp(0.25, 4.0);
+                let fade_in = (elapsed * speed / 0.22).clamp(0.0, 1.0);
+                let fade_out = ((25.0 - elapsed) * speed / 0.45).clamp(0.0, 1.0);
+                let visibility = if animated { fade_in.min(fade_out) } else { 1.0 };
+                if animated && visibility < 0.999 {
+                    ctx.request_repaint_after(std::time::Duration::from_millis(16));
+                }
                 egui::Area::new(egui::Id::new("export_floating_toast_area"))
-                    .anchor(egui::Align2::RIGHT_BOTTOM, egui::vec2(-20.0, -20.0))
+                    .anchor(
+                        egui::Align2::RIGHT_BOTTOM,
+                        egui::vec2(-20.0, -20.0 - (1.0 - visibility) * 8.0),
+                    )
                     .order(egui::Order::Foreground)
                     .show(ctx, |ui| {
                         egui::Frame::none()
-                            .fill(egui::Color32::from_rgb(26, 22, 38))
+                            .fill(egui::Color32::from_rgba_unmultiplied(
+                                26,
+                                22,
+                                38,
+                                (235.0 * visibility) as u8,
+                            ))
                             .rounding(egui::Rounding::same(8.0))
-                            .stroke(egui::Stroke::new(1.5, egui::Color32::from_rgb(0, 255, 180)))
+                            .stroke(egui::Stroke::new(
+                                1.2,
+                                egui::Color32::from_rgba_unmultiplied(
+                                    0,
+                                    255,
+                                    180,
+                                    (220.0 * visibility) as u8,
+                                ),
+                            ))
                             .shadow(egui::epaint::Shadow {
-                                offset: egui::Vec2::new(0.0, 4.0),
-                                blur: 12.0,
+                                offset: egui::Vec2::new(0.0, 5.0),
+                                blur: 22.0,
                                 spread: 0.0,
-                                color: egui::Color32::from_black_alpha(180),
+                                color: egui::Color32::from_black_alpha(70),
                             })
                             .inner_margin(egui::Margin::symmetric(14.0, 10.0))
                             .show(ui, |ui| {
@@ -185,10 +210,10 @@ impl KamafeuStudioApp {
                     .rounding(egui::Rounding::same(8.0))
                     .stroke(egui::Stroke::new(1.2, stroke_color))
                     .shadow(egui::epaint::Shadow {
-                        offset: egui::Vec2::new(0.0, 4.0),
-                        blur: 14.0,
-                        spread: 1.0,
-                        color: egui::Color32::from_black_alpha((160.0 * alpha) as u8),
+                        offset: egui::Vec2::new(0.0, 5.0),
+                        blur: 22.0,
+                        spread: 0.0,
+                        color: egui::Color32::from_black_alpha((70.0 * alpha) as u8),
                     })
                     .inner_margin(egui::Margin::symmetric(14.0, 10.0))
                     .show(ui, |ui| {
@@ -431,6 +456,19 @@ impl KamafeuStudioApp {
                                     .id_salt("expanded_phonemizers_scroll")
                                     .max_height(180.0)
                                     .show(ui, |ui| {
+                                        let mut language = None;
+                                        for mode in crate::phonemizer::PhonemizerMode::ALL {
+                                            let info = mode.info();
+                                            if language != Some(info.language) {
+                                                if language.is_some() { ui.add_space(4.0); }
+                                                ui.label(egui::RichText::new(format!("{} [{}]", info.language, info.source)).strong().size(10.0).color(border_color));
+                                                language = Some(info.language);
+                                            }
+                                            if ui.small_button(egui::RichText::new(info.name).strong().color(egui::Color32::BLACK)).clicked() {
+                                                selected_new_mode = Some(mode);
+                                            }
+                                        }
+                                        return;
                                         ui.label(egui::RichText::new(lang.tr("🇯🇵 Japonês:", "🇯🇵 Japanese:")).strong().size(10.0).color(border_color));
                                         ui.horizontal_wrapped(|ui| {
                                             for (mode, label) in [

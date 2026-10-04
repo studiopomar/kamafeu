@@ -63,8 +63,8 @@ pub(super) fn draw(
                         if ui
                             .radio_value(
                                 selected_resampler,
-                                "VENUS (Nativo)".to_string(),
-                                lang.tr("VENUS (Nativo)", "VENUS (Native)"),
+                                "WORLD (Nativo)".to_string(),
+                                lang.tr("WORLD (Nativo)", "WORLD (Native)"),
                             )
                             .clicked()
                         {

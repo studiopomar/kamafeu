@@ -169,6 +169,28 @@ impl KamafeuStudioApp {
                     );
                 });
 
+                ui.horizontal(|ui| {
+                    ui.label(lang.tr("Período de Frame do WORLD:", "WORLD Frame Period:"));
+                    ui.add(
+                        egui::Slider::new(&mut self.config.dsp.world_frame_period_ms, 1.0..=20.0)
+                            .suffix(" ms"),
+                    );
+                    help_marker(ui, lang.tr(
+                        "Intervalo temporal da análise F0 e espectral. Valores menores capturam vibratos e ataques com mais resolução; valores maiores reduzem custo e suavizam a análise.",
+                        "Temporal interval for F0 and spectral analysis. Lower values capture vibrato and attacks with more resolution; higher values reduce cost and smooth the analysis.",
+                    ));
+                });
+
+                ui.horizontal(|ui| {
+                    ui.label(lang.tr("Ruído em Vogais Vozeadas (WORLD):", "Voiced Vowel Noise (WORLD):"));
+                    ui.add(egui::Slider::new(&mut self.config.dsp.world_voiced_aperiodicity, 0.0..=0.5)
+                        .text(lang.tr("aperiodicidade", "aperiodicity")));
+                    help_marker(ui, lang.tr(
+                        "Controla a quantidade de ruído misturada em frames vozeados. Valores baixos deixam a voz mais limpa; valores altos preservam mais soprosidade.",
+                        "Controls noise mixed into voiced frames. Lower values sound cleaner; higher values preserve more breathiness.",
+                    ));
+                });
+
                 ui.add_space(4.0);
                 ui.horizontal(|ui| {
                     ui.label(lang.tr("Janela de Análise FFT / Espectral:", "FFT / Spectral Analysis Window:"));
@@ -180,8 +202,8 @@ impl KamafeuStudioApp {
                     help_marker(
                         ui,
                         lang.tr(
-                            "Função de janelamento aplicada em transformadas de Fourier e no motor VENUS.",
-                            "Windowing function applied in Fourier transforms and the VENUS engine.",
+                            "Função de janelamento aplicada em transformadas de Fourier e no motor WORLD.",
+                            "Windowing function applied in Fourier transforms and the WORLD engine.",
                         ),
                     );
                 });
@@ -315,6 +337,22 @@ impl KamafeuStudioApp {
                             "Synthesizes notes as soon as they are drawn or modified in the piano roll for instant playback.",
                         ),
                     );
+                });
+
+                ui.horizontal(|ui| {
+                    ui.checkbox(
+                        &mut self.config.dsp.render_limiter_enabled,
+                        lang.tr("Limiter de segurança no render", "Render safety limiter"),
+                    );
+                    ui.add_enabled(
+                        self.config.dsp.render_limiter_enabled,
+                        egui::Slider::new(&mut self.config.dsp.render_limiter_peak_db, -24.0..=0.0)
+                            .suffix(" dBFS"),
+                    );
+                    help_marker(ui, lang.tr(
+                        "Limita picos do preview e da renderização antes da reprodução. 0 dBFS permite pico máximo; -1 dBFS deixa margem para conversores e exportação.",
+                        "Limits peaks in preview and render before playback. 0 dBFS allows full scale; -1 dBFS leaves headroom for converters and export.",
+                    ));
                 });
 
                 ui.horizontal(|ui| {

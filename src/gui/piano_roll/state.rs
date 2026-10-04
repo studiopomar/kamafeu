@@ -2,6 +2,7 @@ use crate::gui::types::{AutoScrollMode, EditTool, GridSnapOption, PitchSubTool};
 use crate::project::model::{UNote, UPitchBendPoint};
 use eframe::egui::Pos2;
 use std::collections::HashSet;
+use std::sync::{OnceLock, RwLock};
 
 pub const PHONEME_SEPARATORS: [char; 5] = ['.', ',', ';', '|', '/'];
 
@@ -150,6 +151,7 @@ pub enum ContextMenuCategory {
     QuantizeGrade,
     LyricsPhonemes,
     MusicalTransform,
+    Expression,
     Transpose,
     AutoPitch,
     Vibrato,
@@ -198,6 +200,14 @@ pub struct PianoRollState {
     /// position chooses the centre pitch, never an accidental depth.
     pub vibrato_brush_center: Option<f64>, // abs_midi
     pub auto_scroll_mode: AutoScrollMode,
+    pub default_note_duration_ms: f64,
+    pub default_note_lyric: String,
+    pub default_note_dynamics: f64,
+    pub default_note_volume: f64,
+    pub default_note_attack: f64,
+    pub default_note_decay: f64,
+    pub ui_animations_enabled: bool,
+    pub ui_animation_speed: f32,
     pub vertical_pitch_follow: bool,
     pub pitch_follow_smoothed_midi: Option<f32>,
     pub is_scrubbing_ruler: bool,
@@ -377,8 +387,9 @@ impl PianoRollState {
             return;
         }
 
-        // 1.0ms resolution per bucket for crisp, high-detail peak envelopes like Copaiba NEO
-        let bucket_ms = 1.0;
+        // Higher mip levels reduce memory and drawing work while preserving
+        // the min/max envelope of every bucket.
+        let bucket_ms = f64::from(waveform_cache_resolution());
         let frames_per_bucket = ((bucket_ms * sample_rate as f64) / 1000.0).max(1.0) as usize;
         let ms_per_frame = 1000.0 / sample_rate as f64;
 
@@ -521,6 +532,24 @@ impl PianoRollState {
     }
 }
 
+fn waveform_cache_resolution_cell() -> &'static RwLock<u32> {
+    static RESOLUTION: OnceLock<RwLock<u32>> = OnceLock::new();
+    RESOLUTION.get_or_init(|| RwLock::new(2))
+}
+
+fn waveform_cache_resolution() -> u32 {
+    waveform_cache_resolution_cell()
+        .read()
+        .map(|value| (*value).clamp(1, 8))
+        .unwrap_or(2)
+}
+
+pub fn set_waveform_cache_resolution(resolution: u32) {
+    if let Ok(mut value) = waveform_cache_resolution_cell().write() {
+        *value = resolution.clamp(1, 8);
+    }
+}
+
 impl Default for PianoRollState {
     fn default() -> Self {
         Self {
@@ -565,6 +594,14 @@ impl Default for PianoRollState {
             pitch_line_start: None,
             vibrato_brush_center: None,
             auto_scroll_mode: AutoScrollMode::PageScroll,
+            default_note_duration_ms: 480.0,
+            default_note_lyric: "ka".to_string(),
+            default_note_dynamics: 0.0,
+            default_note_volume: 100.0,
+            default_note_attack: 100.0,
+            default_note_decay: 0.0,
+            ui_animations_enabled: true,
+            ui_animation_speed: 1.0,
             vertical_pitch_follow: false,
             pitch_follow_smoothed_midi: None,
             is_scrubbing_ruler: false,

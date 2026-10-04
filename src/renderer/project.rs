@@ -2,11 +2,33 @@ use crate::drivers::{ResamplerDriver, WavtoolDriver};
 use crate::oto::Voicebank;
 use crate::project::model::{UNote, UProject, UTrack};
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::{OnceLock, RwLock};
 
 #[cfg(not(target_arch = "wasm32"))]
 use rayon::prelude::*;
 
 use super::{RenderOptions, TrackRenderer};
+
+#[derive(Clone, Copy)]
+struct RenderLimiterConfig {
+    enabled: bool,
+    peak_db: f32,
+}
+
+fn render_limiter_config() -> &'static RwLock<RenderLimiterConfig> {
+    static CONFIG: OnceLock<RwLock<RenderLimiterConfig>> = OnceLock::new();
+    CONFIG.get_or_init(|| {
+        RwLock::new(RenderLimiterConfig {
+            enabled: true,
+            peak_db: -1.0,
+        })
+    })
+}
+
+pub(crate) fn configured_render_limiter_peak() -> Option<f32> {
+    let config = render_limiter_config().read().ok()?;
+    config.enabled.then(|| 10.0_f32.powf(config.peak_db / 20.0))
+}
 
 #[derive(Debug, Clone)]
 pub struct RenderedAudio {
@@ -55,6 +77,13 @@ pub struct ProgressiveChunk {
 pub struct ProjectRenderer;
 
 impl ProjectRenderer {
+    pub fn set_render_limiter(enabled: bool, peak_db: f32) {
+        if let Ok(mut config) = render_limiter_config().write() {
+            config.enabled = enabled;
+            config.peak_db = peak_db.clamp(-24.0, 0.0);
+        }
+    }
+
     /// Earliest musical context required to continue notes that cross a
     /// progressive-preview boundary. The result never precedes `floor_ms`, so
     /// playback started in the middle of a note remains internally consistent.
@@ -335,7 +364,9 @@ impl ProjectRenderer {
             }
         }
 
-        TrackRenderer::apply_soft_limiter(&mut stereo, 0.89);
+        if let Some(target_peak) = configured_render_limiter_peak() {
+            TrackRenderer::apply_soft_limiter(&mut stereo, target_peak);
+        }
 
         if let Some(callback) = on_progress {
             callback(1.0, "[Mixer] Renderização multifaixa concluída");
@@ -868,6 +899,65 @@ mod tests {
             .all(|chunk| chunk.audio.frame_count() == 44_100));
         for i in 1..chunks.len() {
             assert!(chunks[i].chunk_start_ms > chunks[i - 1].chunk_start_ms);
+        }
+    }
+
+    #[test]
+    fn world_progressive_chunks_do_not_introduce_boundary_silence() {
+        let mut project = UProject::default();
+        project.parts[0].notes = vec![
+            UNote::new("a", "C4", 0.0, 500.0),
+            UNote::new("a", "D4", 500.0, 500.0),
+            UNote::new("a", "E4", 1000.0, 500.0),
+        ];
+        let directory = tempfile::tempdir().unwrap();
+        let source: Vec<f32> = (0..88_200)
+            .map(|i| {
+                let phase = i as f32 * std::f32::consts::TAU * 220.0 / 44_100.0;
+                (phase.sin() * 0.30 + (phase * 2.0).sin() * 0.12) as f32
+            })
+            .collect();
+        TrackRenderer::save_wav_samples(directory.path().join("source.wav"), &source, 44_100)
+            .unwrap();
+        std::fs::write(
+            directory.path().join("oto.ini"),
+            "source.wav=a,0,120,-700,0,0\n",
+        )
+        .unwrap();
+        let voicebank = Voicebank::new(directory.path()).unwrap();
+        let (tx, rx) = std::sync::mpsc::sync_channel(8);
+        let cancel = AtomicBool::new(false);
+        ProjectRenderer::render_project_progressive(
+            &project,
+            &voicebank,
+            44_100,
+            120.0,
+            1_500.0,
+            500.0,
+            &crate::drivers::NativeWorldResamplerDriver,
+            &crate::drivers::NativeWavtoolDriver,
+            &RenderOptions::default(),
+            None,
+            Some(&cancel),
+            &tx,
+        );
+        let chunks: Vec<_> = rx.try_iter().collect();
+        assert_eq!(chunks.len(), 3);
+        let joined: Vec<f32> = chunks
+            .iter()
+            .flat_map(|chunk| chunk.audio.samples.iter().copied())
+            .collect();
+        for center_ms in [250.0, 750.0, 1_250.0] {
+            let center = (center_ms * 44.1) as usize;
+            let radius = (44_100.0 * 0.08) as usize;
+            let window = &joined[center - radius..center + radius];
+            let rms = (window
+                .iter()
+                .map(|sample| f64::from(*sample).powi(2))
+                .sum::<f64>()
+                / window.len() as f64)
+                .sqrt();
+            assert!(rms > 0.005, "progressive WORLD chunk cut at {center_ms}ms");
         }
     }
 }

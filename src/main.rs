@@ -6,7 +6,9 @@ use std::io::{Error, ErrorKind};
 use std::path::PathBuf;
 
 use kamafeu::{
-    drivers::{NativeResamplerDriver, NativeWavtoolDriver},
+    drivers::{
+        NativeResamplerDriver, NativeWavtoolDriver, NativeWorldResamplerDriver, ResamplerDriver,
+    },
     formats::{ApsFormat, MidiFormat, UstFormat, UstxFormat},
     gui::KamafeuStudioApp,
     oto::Voicebank,
@@ -56,6 +58,14 @@ enum Commands {
         /// Sample rate (Hz)
         #[arg(short, long, default_value_t = 44100)]
         sample_rate: u32,
+
+        /// Use the native WORLD resampler instead of the classic engine
+        #[arg(long)]
+        venus: bool,
+
+        /// Ignore instrumental wave parts while diagnosing vocal rendering
+        #[arg(long)]
+        vocal_only: bool,
     },
 }
 
@@ -169,6 +179,8 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             input,
             output,
             sample_rate,
+            venus,
+            vocal_only,
         }) => {
             println!("Loading voicebank from: {:?}", voicebank);
             let vb = Voicebank::new(&voicebank)?;
@@ -176,6 +188,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             println!("Reading input file: {:?}", input);
             let mut project = load_project(&input)?;
             project.normalize();
+            if vocal_only {
+                project.wave_parts.clear();
+            }
             let note_count: usize = project.parts.iter().map(|part| part.notes.len()).sum();
             if note_count == 0 {
                 return Err(Error::new(
@@ -186,16 +201,29 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
 
             println!("Rendering {} notes at {}Hz...", note_count, sample_rate);
-            let native_resampler = NativeResamplerDriver;
+            let classic_resampler = NativeResamplerDriver;
+            let world_resampler = NativeWorldResamplerDriver;
+            let resampler: &dyn ResamplerDriver = if venus {
+                &world_resampler
+            } else {
+                &classic_resampler
+            };
             let native_wavtool = NativeWavtoolDriver;
+            // A project file owns its phonemizer choice. Falling back to raw
+            // mode here silently discarded CVVC/VCV transitions during CLI
+            // export even though the editor preview used the selected mode.
+            let render_options = RenderOptions {
+                phonemizer_mode: project.phonemizer.unwrap_or_default(),
+                ..RenderOptions::default()
+            };
             let rendered = ProjectRenderer::render_project_with_drivers(
                 &project,
                 &vb,
                 sample_rate,
                 0.0,
-                &native_resampler,
+                resampler,
                 &native_wavtool,
-                &RenderOptions::default(),
+                &render_options,
                 None,
             );
 

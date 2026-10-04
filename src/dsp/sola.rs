@@ -707,6 +707,12 @@ impl SolaResampler {
             .clamp(minimum_target_period, maximum_target_period);
 
         let mut output = vec![0.0f32; target_samples];
+        // The synthesis grains use a Hann window. Their overlap is not
+        // perfectly constant when pitch marks or the target F0 move, so a
+        // plain sum produces periodic amplitude valleys that sound like the
+        // phoneme is being cut. Track the accumulated window energy and
+        // normalize the overlap-add after all grains have been written.
+        let mut weights = vec![0.0f32; target_samples];
         let mut output_center = -base_target_period * 3.0;
         let max_output_center = target_samples as f64 + maximum_target_period * 3.0;
 
@@ -785,9 +791,24 @@ impl SolaResampler {
 
                 let output_index = output_index as usize;
                 output[output_index] += sample_val * window;
+                weights[output_index] += window;
             }
 
             output_center += target_period;
+        }
+
+        // Correct only under-covered positions. Full division can over-emphasize
+        // isolated grains at the edges and alter the harmonic balance used by
+        // the pitch tracker. The capped correction removes amplitude valleys
+        // while leaving normally covered grains untouched.
+        let reference_weight = weights.iter().copied().fold(0.0f32, f32::max);
+        if reference_weight > 1e-4 {
+            for (sample, weight) in output.iter_mut().zip(weights.iter()) {
+                if *weight > 1e-4 && *weight < reference_weight * 0.82 {
+                    let gain = (reference_weight / *weight).min(1.22);
+                    *sample *= gain;
+                }
+            }
         }
 
         // Different aliases often have very different consonant and tail

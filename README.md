@@ -40,7 +40,9 @@ O nome **Kamafeu** faz referência à tradicional joia em camafeu, esculpida man
   - [Motores de junção e emenda de fonemas (Wavtools)](#motores-de-junção-e-emenda-de-fonemas-wavtools)
 - [Copaiba Voicebank Toolkit (Experimental)](#copaiba-voicebank-toolkit-experimental)
 - [Primeiros passos](#primeiros-passos)
+- [Instalação para usuários finais](#instalação-para-usuários-finais)
 - [Versão mobile (Android; iOS em avaliação)](#versão-mobile-android-ios-em-avaliação)
+- [Arquivos de configuração, cache e logs](#arquivos-de-configuração-cache-e-logs)
 - [Instruções de compilação](#instruções-de-compilação)
   - [Linux](#linux)
   - [FreeBSD](#freebsd)
@@ -169,6 +171,13 @@ O Kamafeu Studio lê e grava projetos em múltiplos formatos do ecossistema de s
 | **VOCALOID Sequence** | `.vsqx` | Sim | Sim | **Formato de sequência XML do VOCALOID (Yamaha).** Converte dados de trilhas de canto (`vocaloidStyleTrack`), notas musicais, letras e curvas de pitch bend. |
 | **Kamafeu Voicebank** | `.kfv` | Sim | Sim | **Pacote de cantor do Kamafeu Studio (ZIP compactado).** Agrupa gravações de áudio WAV, arquivos `oto.ini`, `character.txt`, `prefix.map` e metadados de identificação do banco de voz. |
 
+Os formatos `.aps`, `.ustx`, `.ust`, `.mid`/`.midi` e `.kfv` são os formatos
+mais diretamente integrados ao fluxo do Kamafeu. `.ufdata`, `.svp` e `.vsqx`
+possuem conversores próprios e devem ser tratados como formatos de intercâmbio:
+algumas informações específicas de cada aplicativo podem não ter equivalente no
+modelo interno do Kamafeu e, portanto, podem não sobreviver a uma conversão de
+ida e volta.
+
 ## Motores de áudio (Resamplers e Wavtools)
 
 O Kamafeu Studio permite alternar entre o pipeline nativo de processamento e ferramentas clássicas de linha de comando:
@@ -203,6 +212,85 @@ O **Copaiba** foi projetado para calibragem, teste e organização de bancos de 
 5. **Modele a afinação:** Utilize a ferramenta de pitch (`P`) para criar curvas de transição, portamentos e vibratos.
 6. **Reproduza e exporte:** Pressione `Espaço` para ouvir a prévia e utilize o menu **Arquivo -> Exportar Áudio** para gerar o arquivo final em WAV ou FLAC.
 
+## Instalação para usuários finais
+
+Os pacotes oficiais são publicados na página de [Releases](https://github.com/studiopomar/kamafeu/releases).
+Cada pacote inclui o editor, o Copaiba e os resamplers externos compilados para a
+plataforma correspondente.
+
+### Windows
+
+1. Baixe o pacote `windows-x64` ou `windows-x86`.
+2. Extraia o `.zip` para uma pasta de sua preferência.
+3. Execute `kamafeu.exe`.
+
+O Windows x64 é a opção recomendada. O pacote não possui instalador tradicional;
+o programa pode ser executado diretamente da pasta extraída.
+
+### macOS
+
+1. Baixe o pacote `macos-arm64` para Apple Silicon ou `macos-intel` para Macs Intel.
+2. Abra o `.dmg` e execute `Kamafeu.app`.
+3. Caso o macOS exiba um aviso de segurança, autorize o aplicativo em **Ajustes do Sistema -> Privacidade e Segurança**.
+
+Os artefatos podem não estar assinados ou notarizados, dependendo da release.
+
+### Linux
+
+1. Baixe o pacote `linux-x64`.
+2. Extraia o `.tar.gz`.
+3. Execute `./kamafeu` a partir da pasta extraída.
+
+O pacote é distribuído como binário portátil, mas ainda depende das bibliotecas
+gráficas e de áudio indicadas na seção de compilação. Para resamplers Windows,
+instale o Wine antes de abrir o projeto.
+
+### Android
+
+1. Baixe o APK Android ARM64 quando ele estiver anexado à release.
+2. Autorize a instalação de aplicativos externos, se necessário.
+3. Instale o APK e conceda acesso aos arquivos quando solicitado.
+
+O APK é experimental. No Android, use preferencialmente os motores nativos VENUS
+e Andromeda; resamplers externos e executáveis Windows não são suportados.
+
+### iOS
+
+Não há pacote oficial para iOS nesta release. A seção de requisitos usa iOS 15.1
+apenas como referência de compatibilidade de aplicativos modernos.
+
+## Dependências em tempo de execução
+
+Além do executável, o uso completo pode depender de recursos do sistema:
+
+- **Windows:** dispositivo de áudio funcional e drivers atualizados. Resamplers `.exe` funcionam nativamente.
+- **macOS:** CoreAudio e permissões de áudio/arquivos do sistema. Wine é necessário para resamplers Windows.
+- **Linux:** ALSA, X11 ou Wayland e as bibliotecas gráficas da distribuição. Wine é necessário para resamplers Windows.
+- **Android:** armazenamento acessível pelo seletor de arquivos do sistema e driver gráfico compatível. O armazenamento é controlado pelo sandbox do Android.
+- **iOS:** ainda sem build oficial; não há dependências de execução definidas.
+
+O Kamafeu não instala automaticamente voicebanks de terceiros. Os arquivos WAV,
+`oto.ini`, `character.txt` e, quando aplicável, `prefix.map` devem ser fornecidos
+pelo usuário.
+
+## Arquivos de configuração, cache e logs
+
+O aplicativo armazena preferências, últimos projetos e últimos voicebanks usados
+em `kamafeu_config.json`. Nas builds nativas atuais, o caminho padrão é
+`$HOME/.config/kamafeu/kamafeu_config.json`; se a variável `HOME` não estiver
+disponível, o arquivo é criado como `kamafeu_config.json` no diretório atual.
+O caminho do cache de resamplers é `$HOME/.cache/kamafeu/resampler-v<versão>` no
+Linux/Windows e `$HOME/Library/Caches/kamafeu/resampler-v<versão>` no macOS, e pode
+ser alterado pelas preferências do aplicativo.
+
+O cache contém dados temporários de renderização e pode ser removido para
+diagnóstico ou para liberar espaço. Remover o cache não apaga projetos nem
+voicebanks. Para investigar falhas, use a janela **Console** do editor e inclua o
+log de renderização ao abrir um issue.
+
+Projetos recentes e voicebanks recentes são apenas referências de caminho; mover
+ou renomear esses arquivos pode exigir que sejam selecionados novamente no editor.
+
 ## Versão mobile (Android; iOS em avaliação)
 
 O Kamafeu Studio conta com infraestrutura baseada em `winit` e `egui`, permitindo a compilação para Android. O suporte a iOS permanece em avaliação e não faz parte dos artefatos oficiais desta release candidate. O ecossistema mobile impõe desafios arquiteturais e restrições técnicas significativas:
@@ -236,6 +324,37 @@ cargo apk build --lib --release --target aarch64-linux-android
 Os binários Android não são publicados pelo workflow desktop; a assinatura exige um keystore configurado conforme [docs/android-signing.md](docs/android-signing.md).
 
 Para instruções detalhadas sobre assinatura criptográfica de APKs e variáveis de ambiente de keystore, consulte [docs/android-signing.md](docs/android-signing.md).
+
+## Especificações técnicas
+
+O Kamafeu Studio é um aplicativo nativo relativamente leve. Os requisitos abaixo são
+referências práticas para executar o editor; voicebanks grandes, muitos tracks,
+efeitos e renderizações simultâneas podem exigir mais recursos.
+
+| Plataforma | Requisito mínimo | Requisito recomendado |
+|---|---|---|
+| **Windows** | Windows 10/11, CPU dual-core, 2 GB de RAM, 500 MB livres e GPU integrada compatível com a renderização gráfica do sistema | Windows 10/11 64-bit, CPU quad-core, 8 GB de RAM, 1 GB livre e GPU integrada moderna |
+| **macOS** | macOS compatível com Intel ou Apple Silicon, CPU dual-core, 2 GB de RAM e 500 MB livres | macOS atualizado, Apple Silicon ou Intel quad-core, 8 GB de RAM e 1 GB livre |
+| **Linux** | Distribuição 64-bit com X11 ou Wayland, ALSA, CPU dual-core, 2 GB de RAM e 500 MB livres | Distribuição 64-bit atual, CPU quad-core, 8 GB de RAM, ALSA e 1 GB livre |
+| **Android** | Android 5.0/API 21 ou superior, CPU ARM, 3 GB de RAM e 500 MB livres | Android 10/API 29 ou superior, ARM64, 4 GB ou mais de RAM e 1 GB livre |
+| **iOS** | Referência: iOS 15.1 ou superior, aproximadamente 2 GB de RAM e 500 MB livres | iOS atualizado, aparelho com 4 GB ou mais de RAM e 1 GB livre |
+
+### Arquiteturas e artefatos
+
+- **Windows:** `x86_64-pc-windows-msvc` (x64) e `i686-pc-windows-msvc` (x86).
+- **macOS:** `x86_64-apple-darwin` (Intel) e `aarch64-apple-darwin` (Apple Silicon).
+- **Linux:** `x86_64-unknown-linux-gnu`.
+- **Android:** `aarch64-linux-android` (ARM64) no APK distribuído; o pipeline também contempla ARMv7.
+- **iOS:** nenhum artefato oficial nesta release.
+
+O suporte a iOS ainda está em avaliação e não faz parte dos artefatos oficiais
+desta release. A versão iOS 15.1 é usada apenas como referência de compatibilidade
+com aplicativos atuais, como o WhatsApp, e não significa que exista uma versão iOS
+publicada do Kamafeu Studio.
+
+Os valores de memória são estimativas operacionais, pois o projeto não impõe um
+limite mínimo de RAM. O espaço indicado não inclui voicebanks, projetos, cache e
+arquivos temporários do usuário.
 
 ## Instruções de compilação
 
@@ -339,6 +458,12 @@ Os executáveis gerados estarão localizados em `target/release/`:
 - No macOS, o artefato é um `Kamafeu.app` dentro do `.dmg`, mas assinatura e notarização dependem do processo de distribuição do mantenedor.
 - A qualidade final depende do `oto.ini`, dos WAVs e do resampler/wavtool escolhidos. Um voicebank com aliases ausentes pode exigir correção manual no Copaiba.
 - A reprodução com motores externos no Linux/macOS pode exigir Wine e bibliotecas de áudio/gráficas do sistema.
+- Projetos importados de `.ufdata`, `.svp` e `.vsqx` podem perder recursos específicos do formato original durante a conversão.
+- Voicebanks muito grandes, renderização de várias faixas e uso simultâneo de efeitos podem exceder o limite prático de 2 GB de RAM.
+- No Android, o sandbox impede a execução de resamplers externos e o acesso direto a caminhos tradicionais como `/sdcard/`; use o seletor de arquivos ou pacotes `.kfv`/`.zip`.
+- A interface mobile ainda está em adaptação para toque; mouse, teclado físico e telas maiores oferecem a experiência mais completa.
+- Falhas de áudio podem depender do driver, do dispositivo selecionado, do backend do sistema ou da configuração do Wine.
+- FreeBSD possui instruções de compilação experimentais, mas não possui artefato oficial no workflow de releases.
 
 ### Checklist rápido para reportar problemas
 

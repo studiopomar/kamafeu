@@ -10,7 +10,7 @@ pub(super) fn draw(
     keyboard_width: f32,
     timeline_scroll_x: f32,
     on_before_change: &mut dyn FnMut(),
-    _theme: &ThemeConfig,
+    theme: &ThemeConfig,
     ruler_rect: Rect,
     bpm: f64,
     lang: crate::config::AppLanguage,
@@ -21,14 +21,25 @@ pub(super) fn draw(
         return;
     }
 
+    let viewport = ui.ctx().screen_rect();
+    // O Android é sempre touch-first. No desktop, só aumentamos a lista em
+    // larguras realmente estreitas; tablets continuam no layout compacto,
+    // mas não perdem espaço gráfico desnecessariamente.
+    let touch_first = cfg!(target_os = "android")
+        || viewport.width() < 720.0
+        || (viewport.height() < 500.0 && viewport.width() < 900.0);
+    let sidebar_width: f32 = if touch_first { 190.0 } else { 150.0 };
+    let tab_width = (sidebar_width - 15.0_f32).max(125.0_f32);
+    let tab_height: f32 = if touch_first { 40.0 } else { 18.0 };
+
     let panel_response = egui::TopBottomPanel::bottom("bottom_param_drawer_fixed")
         .resizable(true)
         .height_range(60.0..=750.0)
         .default_height(state.drawer_height)
         .frame(
             egui::Frame::none()
-                .fill(MelodyneTheme::BG_PANEL)
-                .stroke(Stroke::new(1.5_f32, MelodyneTheme::ACCENT_GOLD)),
+                .fill(theme.bg_panel_c32())
+                .stroke(Stroke::new(0.8_f32, theme.c32_alpha(theme.accent_color, 0.55))),
         )
         .show_inside(ui, |ui| {
             let drawer_available_h = ui.available_height().max(50.0);
@@ -43,7 +54,7 @@ pub(super) fn draw(
                 |ui| {
                     ui.add_space(4.0);
                     ui.allocate_ui_with_layout(
-                        Vec2::new(150.0, drawer_available_h),
+                        Vec2::new(sidebar_width, drawer_available_h),
                         egui::Layout::top_down(egui::Align::Min),
                         |ui| {
                             ui.add_space(2.0);
@@ -53,7 +64,7 @@ pub(super) fn draw(
                                 )
                                 .strong()
                                 .size(10.0)
-                                .color(Color32::from_rgb(0, 255, 157)),
+                                .color(theme.accent_c32()),
                             );
                             ui.add_space(2.0);
 
@@ -64,7 +75,7 @@ pub(super) fn draw(
                                 .max_height(list_height)
                                 .auto_shrink([false, false])
                                 .show(ui, |ui| {
-                                    ui.set_width(135.0);
+                                    ui.set_width(tab_width);
                                     let param_tabs = [
                                         (lang.tr("Timbre", "Timbre"), ParameterTab::Timbre),
                                         (lang.tr("Pitch do Voicebank", "Voicebank Pitch"), ParameterTab::VoicebankPitch),
@@ -144,7 +155,7 @@ pub(super) fn draw(
                                         let btn = egui::Button::new(
                                             egui::RichText::new(p_name).size(9.5).color(text_color),
                                         )
-                                        .min_size(Vec2::new(125.0, 18.0))
+                                        .min_size(Vec2::new(tab_width, tab_height))
                                         .fill(fill_color)
                                         .rounding(Rounding::same(3.0));
 
@@ -174,6 +185,26 @@ pub(super) fn draw(
                         Sense::click_and_drag(),
                     );
 
+                    if matches!(
+                        state.selected_parameter,
+                        ParameterTab::EnvelopeFadeIn
+                            | ParameterTab::EnvelopeFadeOut
+                            | ParameterTab::EnvelopeCrossfade
+                    ) {
+                        draw_envelope_editor(
+                            ui,
+                            graph_rect,
+                            &graph_response,
+                            notes,
+                            state,
+                            ruler_rect.min.x + keyboard_width - timeline_scroll_x,
+                            theme,
+                            on_before_change,
+                            on_note_changed,
+                        );
+                        return;
+                    }
+
                     if state.selected_parameter == ParameterTab::Timbre {
                         super::timbre::draw(
                             ui,
@@ -183,7 +214,7 @@ pub(super) fn draw(
                             &graph_response,
                             ruler_rect.min.x + keyboard_width - timeline_scroll_x,
                             voicebank,
-                            _theme,
+                            theme,
                             lang,
                             on_before_change,
                             on_note_changed,
@@ -193,7 +224,7 @@ pub(super) fn draw(
                     if state.selected_parameter == ParameterTab::VoicebankPitch {
                         super::voicebank_pitch::draw(ui, notes, state, graph_rect, &graph_response,
                             ruler_rect.min.x + keyboard_width - timeline_scroll_x, voicebank,
-                            _theme, lang, on_before_change, on_note_changed);
+                            theme, lang, on_before_change, on_note_changed);
                         return;
                     }
                     let painter = ui.painter_at(graph_rect);
@@ -1080,4 +1111,168 @@ pub(super) fn draw(
             );
         });
     state.drawer_height = panel_response.response.rect.height().clamp(60.0, 750.0);
+}
+
+/// Dedicated five-point envelope editor for the bottom parameter drawer.
+/// The envelope is intentionally rendered as a connected polygon per note,
+/// with the same P1..P5 handles used by the note envelope editor.
+fn draw_envelope_editor(
+    ui: &mut egui::Ui,
+    graph_rect: Rect,
+    response: &egui::Response,
+    notes: &mut [UNote],
+    state: &mut PianoRollState,
+    timeline_origin_x: f32,
+    theme: &ThemeConfig,
+    on_before_change: &mut dyn FnMut(),
+    on_note_changed: &mut dyn FnMut(),
+) {
+    let painter = ui.painter_at(graph_rect);
+    let bg = Color32::from_rgb(18, 18, 22);
+    let lane = theme.c32_alpha(theme.bg_panel, 0.92);
+    let lane_stroke = theme.note_stroke_c32();
+    let cyan = theme.accent_c32();
+    let pink = theme.playhead_c32();
+    let orange = theme.note_hover_c32();
+    let white = theme.text_primary_c32();
+    let purple = theme.pitch_curve_c32();
+    painter.rect_filled(graph_rect, Rounding::ZERO, bg);
+
+    // The lower editor is a set of horizontal lanes, not a generic graph.
+    let lane_top = graph_rect.top() + 48.0;
+    let lane_bottom = graph_rect.bottom() - 18.0;
+    let lane_height = (lane_bottom - lane_top).max(22.0);
+    let mid_y = lane_top + lane_height * 0.5;
+    for y in [graph_rect.top() + 30.0, lane_top, mid_y, lane_bottom] {
+        painter.line_segment(
+            [
+                Pos2::new(graph_rect.left(), y),
+                Pos2::new(graph_rect.right(), y),
+            ],
+            Stroke::new(1.0_f32, Color32::from_rgba_unmultiplied(128, 116, 157, 150)),
+        );
+    }
+    let px_per_ms = state.px_per_ms.max(0.001) as f64;
+    let mut nearest: Option<(usize, usize, f32)> = None;
+
+    for (note_idx, note) in notes.iter().enumerate() {
+        let duration = note.duration_ms.max(1.0);
+        let x_start = timeline_origin_x + (note.position_ms * px_per_ms) as f32;
+        let x_end = timeline_origin_x + ((note.position_ms + duration) * px_per_ms) as f32;
+        if x_end < graph_rect.left() - 30.0 || x_start > graph_rect.right() + 30.0 {
+            continue;
+        }
+        let rect = Rect::from_min_max(Pos2::new(x_start, lane_top), Pos2::new(x_end, lane_bottom));
+        painter.rect_filled(rect, Rounding::same(2.0), lane);
+        painter.rect_stroke(rect, Rounding::same(2.0), Stroke::new(1.0_f32, lane_stroke));
+        painter.line_segment(
+            [
+                Pos2::new(x_start, graph_rect.top()),
+                Pos2::new(x_start, graph_rect.bottom()),
+            ],
+            Stroke::new(1.2_f32, pink),
+        );
+        painter.text(
+            Pos2::new((x_start + x_end) * 0.5, lane_top + lane_height * 0.55),
+            egui::Align2::CENTER_CENTER,
+            format!("- {} ({:.0}ms)", note.lyric, duration),
+            egui::FontId::proportional(12.0),
+            white,
+        );
+        painter.rect_filled(
+            Rect::from_min_max(
+                Pos2::new((x_start + x_end) * 0.5 - 42.0, graph_rect.top() + 5.0),
+                Pos2::new((x_start + x_end) * 0.5 + 42.0, graph_rect.top() + 38.0),
+            ),
+            Rounding::same(9.0),
+            Color32::from_rgb(25, 22, 34),
+        );
+        painter.rect_stroke(
+            Rect::from_min_max(
+                Pos2::new((x_start + x_end) * 0.5 - 42.0, graph_rect.top() + 5.0),
+                Pos2::new((x_start + x_end) * 0.5 + 42.0, graph_rect.top() + 38.0),
+            ),
+            Rounding::same(9.0),
+            Stroke::new(1.5_f32, purple),
+        );
+        painter.text(
+            Pos2::new((x_start + x_end) * 0.5, graph_rect.top() + 21.0),
+            egui::Align2::CENTER_CENTER,
+            format!("- {}", note.lyric),
+            egui::FontId::proportional(13.0),
+            white,
+        );
+
+        let points = [
+            (note.envelope.p1, note.envelope.v1),
+            (note.envelope.p2, note.envelope.v2),
+            (note.envelope.p3, note.envelope.v3),
+            (note.envelope.p4, note.envelope.v4),
+            (note.envelope.p5, note.envelope.v5),
+        ];
+        let screen_points: Vec<Pos2> = points
+            .iter()
+            .map(|(time, level)| {
+                Pos2::new(
+                    x_start + (*time * px_per_ms) as f32,
+                    lane_bottom - lane_height * (*level as f32 / 200.0).clamp(0.0, 1.0),
+                )
+            })
+            .collect();
+        painter.add(egui::Shape::line(
+            screen_points.clone(),
+            Stroke::new(2.0_f32, cyan),
+        ));
+        for (point_idx, point) in screen_points.iter().enumerate() {
+            if point.x < graph_rect.left() - 12.0 || point.x > graph_rect.right() + 12.0 {
+                continue;
+            }
+            let color = match point_idx {
+                0 => cyan,
+                1 => cyan,
+                2 | 3 => orange,
+                _ => pink,
+            };
+            let radius = if state.dragging_envelope_pt == Some((note_idx, point_idx)) {
+                7.0
+            } else {
+                5.5
+            };
+            painter.circle_filled(*point, radius, bg);
+            painter.circle_stroke(*point, radius, Stroke::new(2.0_f32, color));
+            if let Some(cursor) = response.hover_pos() {
+                let distance = cursor.distance(*point);
+                if distance < nearest.map(|v| v.2).unwrap_or(15.0) {
+                    nearest = Some((note_idx, point_idx, distance));
+                }
+            }
+        }
+    }
+
+    if let Some((note_idx, point_idx, _)) = nearest {
+        ui.ctx().set_cursor_icon(egui::CursorIcon::Grab);
+        if response.drag_started() {
+            on_before_change();
+            state.dragging_envelope_pt = Some((note_idx, point_idx));
+            state.is_dragging_in_drawer = true;
+        }
+    }
+    if let Some((note_idx, point_idx)) = state.dragging_envelope_pt {
+        if let Some(pos) = response.interact_pointer_pos() {
+            if let Some(note) = notes.get_mut(note_idx) {
+                let duration = note.duration_ms.max(1.0);
+                let time = ((pos.x - timeline_origin_x) as f64 / px_per_ms - note.position_ms)
+                    .clamp(0.0, duration);
+                let volume =
+                    (((lane_bottom - pos.y) / lane_height) * 200.0).clamp(0.0, 200.0) as f64;
+                note.envelope.set_point(point_idx, time, volume, duration);
+                state.continuous_edit_dirty = true;
+                on_note_changed();
+            }
+        }
+        if !ui.input(|input| input.pointer.primary_down()) {
+            state.dragging_envelope_pt = None;
+            state.is_dragging_in_drawer = false;
+        }
+    }
 }

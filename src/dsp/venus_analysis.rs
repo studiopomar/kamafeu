@@ -5,7 +5,7 @@
 
 use super::{
     sola::SolaResampler,
-    venus::{FastFft, WorldF0Extractor},
+    world_analysis::{FastFft, WorldF0Extractor},
 };
 use serde::{Deserialize, Serialize};
 use std::fs;

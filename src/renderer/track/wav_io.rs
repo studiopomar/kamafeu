@@ -1,5 +1,8 @@
 use super::TrackRenderer;
 use std::path::Path;
+use std::sync::atomic::{AtomicBool, Ordering};
+
+static ANTI_ALIASING_FILTER: AtomicBool = AtomicBool::new(true);
 
 impl TrackRenderer {
     /// Convert mono samples between rates using linear interpolation.
@@ -18,6 +21,15 @@ impl TrackRenderer {
         let output_len = ((samples.len() as f64 * f64::from(target_rate) / f64::from(source_rate))
             .round() as usize)
             .max(1);
+
+        if ANTI_ALIASING_FILTER.load(Ordering::Relaxed) {
+            return crate::dsp::windowed_sinc::WindowedSincResampler::resample_sinc_for_rate(
+                samples,
+                output_len,
+                source_rate,
+                target_rate,
+            );
+        }
         let ratio = f64::from(source_rate) / f64::from(target_rate);
         let mut output = Vec::with_capacity(output_len);
         for output_index in 0..output_len {
@@ -111,4 +123,8 @@ impl TrackRenderer {
             .map_err(|e| format!("Finalize WAV error: {}", e))?;
         Ok(())
     }
+}
+
+pub(crate) fn set_anti_aliasing_filter(enabled: bool) {
+    ANTI_ALIASING_FILTER.store(enabled, Ordering::Relaxed);
 }

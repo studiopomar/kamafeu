@@ -1,5 +1,7 @@
 use super::{ResamplerSlots, TrackRenderer};
-use crate::drivers::{NativeResamplerDriver, NativeWavtoolDriver};
+use crate::drivers::{
+    GalapagosWavtoolDriver, NativeResamplerDriver, NativeWavtoolDriver, NativeWorldResamplerDriver,
+};
 use crate::oto::Voicebank;
 use crate::phonemizer::PhonemizerMode;
 use crate::project::model::UNote;
@@ -216,6 +218,22 @@ fn oto_enveloped_vc_overlap_is_not_faded_twice() {
 }
 
 #[test]
+fn level_matched_mixer_compensates_alias_loudness_without_a_second_fade() {
+    let mut track = vec![0.0f32; 300];
+    for sample in &mut track[100..200] {
+        *sample = 0.2;
+    }
+    let incoming = vec![0.16f32; 100];
+
+    TrackRenderer::mix_level_matched(&mut track, &incoming, 150, 200, 0, 220.0, 44_100);
+
+    // The 0.16 incoming alias is raised to the 0.2 level of the preceding
+    // alias. The result remains a simple sum, with no extra fade applied.
+    assert!((track[180] - 0.4).abs() < 1e-5);
+    assert!((track[220] - 0.2).abs() < 1e-5);
+}
+
+#[test]
 fn generated_vcv_fixture_has_no_silent_transition_hole() {
     let directory = tempfile::tempdir().unwrap();
     let source: Vec<f32> = (0..44100)
@@ -264,6 +282,156 @@ fn generated_vcv_fixture_has_no_silent_transition_hole() {
         assert!(
             rms > 0.005,
             "silent VCV transition at {center_ms} ms: {rms}"
+        );
+    }
+}
+
+#[test]
+fn generated_cvvc_fixture_keeps_one_continuous_vc_to_cv_handoff() {
+    let directory = tempfile::tempdir().unwrap();
+    let sample_rate = 44_100;
+    let source: Vec<f32> = (0..sample_rate)
+        .map(|index| {
+            let phase = index as f32 * std::f32::consts::TAU * 220.0 / sample_rate as f32;
+            phase.sin() * 0.22 + (phase * 2.0).sin() * 0.06
+        })
+        .collect();
+    for name in ["ka.wav", "as.wav", "sa.wav", "head-sa.wav", "asa.wav"] {
+        TrackRenderer::save_wav_samples(directory.path().join(name), &source, sample_rate).unwrap();
+    }
+    std::fs::write(
+        directory.path().join("oto.ini"),
+        concat!(
+            "ka.wav=- か,0,100,-700,40,20\n",
+            "as.wav=a s,0,90,-300,50,25\n",
+            "sa.wav=さ,0,100,-700,70,35\n",
+            "head-sa.wav=- さ,0,300,-700,300,100\n",
+            "asa.wav=a さ,0,180,-700,180,80\n",
+        ),
+    )
+    .unwrap();
+    let voicebank = Voicebank::new(directory.path()).unwrap();
+    let notes = vec![
+        UNote::new("か", "C4", 0.0, 400.0),
+        UNote::new("さ", "D4", 400.0, 400.0),
+    ];
+    let options = RenderOptions {
+        phonemizer_mode: PhonemizerMode::CVVC,
+        ..RenderOptions::default()
+    };
+    let audio = TrackRenderer::render_track_with_drivers(
+        &notes,
+        &voicebank,
+        sample_rate,
+        120.0,
+        &NativeResamplerDriver,
+        &NativeWavtoolDriver,
+        Some(&options),
+    );
+
+    let begin = (260.0 * sample_rate as f64 / 1000.0) as usize;
+    let end = (470.0 * sample_rate as f64 / 1000.0) as usize;
+    let transition = &audio[begin..end.min(audio.len())];
+    let mut quiet_run = 0usize;
+    let mut longest_quiet_run = 0usize;
+    for sample in transition {
+        if sample.abs() < 0.0005 {
+            quiet_run += 1;
+            longest_quiet_run = longest_quiet_run.max(quiet_run);
+        } else {
+            quiet_run = 0;
+        }
+    }
+    assert!(
+        longest_quiet_run < sample_rate as usize / 200,
+        "CVVC handoff contains a silent/stuck gap of {longest_quiet_run} samples"
+    );
+    let max_jump = transition
+        .windows(2)
+        .map(|pair| (pair[1] - pair[0]).abs())
+        .fold(0.0f32, f32::max);
+    assert!(max_jump < 0.20, "CVVC handoff clicks: max jump {max_jump}");
+}
+
+#[test]
+fn world_full_track_fixture_has_no_internal_phoneme_cut() {
+    let directory = tempfile::tempdir().unwrap();
+    let sample_rate = 44_100;
+    let source: Vec<f32> = (0..sample_rate * 2)
+        .map(|i| {
+            let phase = i as f32 * std::f32::consts::TAU * 220.0 / sample_rate as f32;
+            (phase.sin() * 0.30 + (phase * 2.0).sin() * 0.12) as f32
+        })
+        .collect();
+    TrackRenderer::save_wav_samples(directory.path().join("a.wav"), &source, sample_rate).unwrap();
+    std::fs::write(directory.path().join("oto.ini"), "a.wav=a,0,120,-700,0,0\n").unwrap();
+    let voicebank = Voicebank::new(directory.path()).unwrap();
+    let notes = vec![
+        UNote::new("a", "C4", 0.0, 500.0),
+        UNote::new("a", "D4", 500.0, 500.0),
+        UNote::new("a", "E4", 1000.0, 500.0),
+    ];
+    let audio = TrackRenderer::render_track_with_drivers(
+        &notes,
+        &voicebank,
+        sample_rate,
+        120.0,
+        &NativeWorldResamplerDriver,
+        &NativeWavtoolDriver,
+        None,
+    );
+
+    let converged_audio = TrackRenderer::render_track_with_drivers(
+        &notes,
+        &voicebank,
+        sample_rate,
+        120.0,
+        &NativeWorldResamplerDriver,
+        &GalapagosWavtoolDriver,
+        None,
+    );
+
+    let mut run = 0usize;
+    let mut longest = 0usize;
+    for sample in &audio {
+        if sample.abs() < 0.001 {
+            run += 1;
+            longest = longest.max(run);
+        } else {
+            run = 0;
+        }
+    }
+    assert!(audio.iter().any(|sample| sample.abs() > 0.01));
+    assert!(
+        longest < sample_rate as usize / 100,
+        "internal cut: {longest} samples"
+    );
+    for center_ms in [250.0, 750.0, 1_250.0] {
+        let center = (center_ms * sample_rate as f64 / 1000.0) as usize;
+        let radius = (sample_rate as f64 * 0.08) as usize;
+        let window = &audio[center.saturating_sub(radius)..(center + radius).min(audio.len())];
+        let rms = (window
+            .iter()
+            .map(|sample| f64::from(*sample).powi(2))
+            .sum::<f64>()
+            / window.len().max(1) as f64)
+            .sqrt();
+        assert!(
+            rms > 0.005,
+            "WORLD note body was cut at {center_ms}ms: rms={rms}"
+        );
+
+        let converged_window = &converged_audio
+            [center.saturating_sub(radius)..(center + radius).min(converged_audio.len())];
+        let converged_rms = (converged_window
+            .iter()
+            .map(|sample| f64::from(*sample).powi(2))
+            .sum::<f64>()
+            / converged_window.len().max(1) as f64)
+            .sqrt();
+        assert!(
+            converged_rms > 0.005,
+            "converged WORLD note body was cut at {center_ms}ms: rms={converged_rms}"
         );
     }
 }

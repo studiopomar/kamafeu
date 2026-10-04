@@ -4,7 +4,9 @@
     clippy::unnecessary_map_or,
     clippy::collapsible_if,
     dependency_on_unit_never_type_fallback,
-    bindings_with_variant_name
+    bindings_with_variant_name,
+    float_literal_f32_fallback,
+    unreachable_code
 )]
 #![allow(unknown_lints)]
 #![allow(clippy::all)]
@@ -23,6 +25,7 @@ pub mod oto;
 pub mod phonemizer;
 pub mod project;
 pub mod renderer;
+pub mod updater;
 
 pub use audio::*;
 pub use config::*;

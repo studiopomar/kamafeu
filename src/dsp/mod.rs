@@ -8,9 +8,10 @@ pub mod pitch_encoder;
 pub mod pyin;
 pub mod resampler;
 pub mod sola;
-pub mod venus;
 pub mod venus_analysis;
 pub mod windowed_sinc;
+pub mod world_analysis;
+pub mod world_resampler;
 
 /// Change the duration of a segment without changing its playback rate.
 ///
@@ -165,5 +166,4 @@ pub use pitch_encoder::encode_pitch_bend_string;
 pub use pyin::{PitchExtractor, PitchResult};
 pub use resampler::Resampler;
 pub use sola::{SolaResampler, SolaStretchMode};
-pub use venus::{F0TrackerMethod, VenusResampler, VenusResampler as WorldResampler};
 pub use windowed_sinc::WindowedSincResampler;

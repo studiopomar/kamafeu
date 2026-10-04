@@ -13,12 +13,7 @@ const MAX_PARTIALS: usize = 14;
 /// - Frequency-dependent per-harmonic damping
 /// - Hammer strike attack transient
 /// - Natural note duration and damper release
-pub fn render_piano_tone(
-    freq: f64,
-    duration_ms: f64,
-    sample_rate: u32,
-    velocity: f32,
-) -> Vec<f32> {
+pub fn render_piano_tone(freq: f64, duration_ms: f64, sample_rate: u32, velocity: f32) -> Vec<f32> {
     if freq <= 10.0 || sample_rate == 0 {
         return Vec::new();
     }

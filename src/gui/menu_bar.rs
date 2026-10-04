@@ -18,7 +18,10 @@ use std::path::PathBuf;
 impl KamafeuStudioApp {
     pub(crate) fn render_menu_bar(&mut self, ctx: &egui::Context) {
         let screen_width = ctx.screen_rect().width();
-        let is_mobile = screen_width < 768.0;
+        let viewport = ctx.screen_rect();
+        let is_mobile = cfg!(target_os = "android")
+            || screen_width < 1100.0
+            || (viewport.height() < 600.0 && screen_width < 1200.0);
 
         if is_mobile {
             self.render_mobile_menu_bar(ctx);
@@ -195,7 +198,7 @@ impl KamafeuStudioApp {
         let text_primary = self.config.theme.text_primary_c32();
 
         TopBottomPanel::top("mobile_top_bar")
-            .exact_height(34.0)
+            .exact_height(52.0)
             .frame(Frame::none().fill(bg_panel))
             .show(ctx, |ui| {
                 ui.horizontal_centered(|ui| {
@@ -206,6 +209,7 @@ impl KamafeuStudioApp {
                             .size(12.0)
                             .color(accent),
                     )
+                    .min_size(egui::Vec2::new(92.0, 44.0))
                     .fill(card_bg)
                     .stroke(egui::Stroke::new(1.0, accent))
                     .rounding(egui::Rounding::same(5.0));
@@ -248,7 +252,10 @@ impl KamafeuStudioApp {
                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                         ui.add_space(4.0);
                         if ui
-                            .button(egui::RichText::new("💾").size(12.0))
+                            .add(
+                                egui::Button::new(egui::RichText::new("💾").size(14.0))
+                                    .min_size(egui::Vec2::new(44.0, 44.0)),
+                            )
                             .on_hover_text(lang.tr("Salvar Projeto", "Save Project"))
                             .clicked()
                         {
@@ -256,7 +263,10 @@ impl KamafeuStudioApp {
                         }
 
                         if ui
-                            .button(egui::RichText::new("⚙").size(12.0))
+                            .add(
+                                egui::Button::new(egui::RichText::new("⚙").size(14.0))
+                                    .min_size(egui::Vec2::new(44.0, 44.0)),
+                            )
                             .on_hover_text(lang.tr("Preferências", "Preferences"))
                             .clicked()
                         {
@@ -271,89 +281,97 @@ impl KamafeuStudioApp {
         let lang = self.config.language;
         let theme = &self.config.theme;
 
+        let drawer_width = ctx.screen_rect().width().min(360.0).max(220.0);
+        let drawer_height = (ctx.screen_rect().height() - 52.0).max(180.0);
+
         egui::Window::new(lang.tr("Menu Principal", "Main Menu"))
             .id(egui::Id::new("mobile_main_menu_drawer"))
             .collapsible(false)
             .resizable(false)
-            .anchor(egui::Align2::LEFT_TOP, egui::Vec2::new(0.0, 34.0))
-            .default_size(egui::Vec2::new(280.0, ctx.screen_rect().height() - 34.0))
+            .anchor(egui::Align2::LEFT_TOP, egui::Vec2::new(0.0, 52.0))
+            .default_size(egui::Vec2::new(drawer_width, drawer_height))
             .frame(
                 Frame::window(&ctx.style())
                     .fill(theme.bg_panel_c32())
                     .rounding(egui::Rounding::same(0.0)),
             )
             .show(ctx, |ui| {
-                egui::ScrollArea::vertical().show(ui, |ui| {
-                    ui.spacing_mut().item_spacing = egui::Vec2::new(0.0, 6.0);
+                egui::ScrollArea::vertical()
+                    .drag_to_scroll(true)
+                    .show(ui, |ui| {
+                        ui.spacing_mut().item_spacing = egui::Vec2::new(0.0, 6.0);
 
-                    ui.horizontal(|ui| {
-                        ui.heading(lang.tr("Navegação", "Navigation"));
-                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            if ui.button("✖").clicked() {
-                                self.mobile_menu_open = false;
-                            }
+                        ui.horizontal(|ui| {
+                            ui.heading(lang.tr("Navegação", "Navigation"));
+                            ui.with_layout(
+                                egui::Layout::right_to_left(egui::Align::Center),
+                                |ui| {
+                                    if ui.button("✖").clicked() {
+                                        self.mobile_menu_open = false;
+                                    }
+                                },
+                            );
                         });
+                        ui.separator();
+
+                        // Categorias em CollapsingHeader com touch targets confortáveis
+                        ui.collapsing(lang.tr("📁 Arquivo", "📁 File"), |ui| {
+                            self.menu_file(ui);
+                        });
+
+                        ui.collapsing(lang.tr("✏️ Editar", "✏️ Edit"), |ui| {
+                            self.menu_edit(ui);
+                        });
+
+                        ui.collapsing(lang.tr("🎚️ Faixas", "🎚️ Tracks"), |ui| {
+                            self.menu_tracks(ui);
+                        });
+
+                        ui.collapsing(lang.tr("🎤 Modos Vocais", "🎤 Vocal Modes"), |ui| {
+                            self.menu_vocal_modes(ui);
+                        });
+
+                        ui.collapsing(
+                            lang.tr("👤 Cantores & Voicebanks", "👤 Singers & Voicebanks"),
+                            |ui| {
+                                self.menu_singers(ui);
+                            },
+                        );
+
+                        ui.collapsing(lang.tr("🛠️ Ferramentas", "🛠️ Tools"), |ui| {
+                            self.menu_tools(ui);
+                        });
+
+                        ui.collapsing(lang.tr("👁️ Exibir", "👁️ View"), |ui| {
+                            self.menu_view(ui, ctx);
+                        });
+
+                        ui.collapsing(lang.tr("▶️ Reprodução", "▶️ Playback"), |ui| {
+                            self.menu_playback(ui);
+                        });
+
+                        ui.collapsing(lang.tr("🌐 Idioma / Language", "🌐 Language"), |ui| {
+                            self.menu_language(ui);
+                        });
+
+                        ui.separator();
+
+                        if ui
+                            .button(lang.tr("📦 Gerenciador de Pacotes", "📦 Package Manager"))
+                            .clicked()
+                        {
+                            self.packages_window_open = true;
+                            self.mobile_menu_open = false;
+                        }
+
+                        if ui
+                            .button(lang.tr("❓ Guia de Atalhos & Ajuda", "❓ Shortcuts & Help"))
+                            .clicked()
+                        {
+                            self.shortcuts_guide_open = true;
+                            self.mobile_menu_open = false;
+                        }
                     });
-                    ui.separator();
-
-                    // Categorias em CollapsingHeader com touch targets confortáveis
-                    ui.collapsing(lang.tr("📁 Arquivo", "📁 File"), |ui| {
-                        self.menu_file(ui);
-                    });
-
-                    ui.collapsing(lang.tr("✏️ Editar", "✏️ Edit"), |ui| {
-                        self.menu_edit(ui);
-                    });
-
-                    ui.collapsing(lang.tr("🎚️ Faixas", "🎚️ Tracks"), |ui| {
-                        self.menu_tracks(ui);
-                    });
-
-                    ui.collapsing(lang.tr("🎤 Modos Vocais", "🎤 Vocal Modes"), |ui| {
-                        self.menu_vocal_modes(ui);
-                    });
-
-                    ui.collapsing(
-                        lang.tr("👤 Cantores & Voicebanks", "👤 Singers & Voicebanks"),
-                        |ui| {
-                            self.menu_singers(ui);
-                        },
-                    );
-
-                    ui.collapsing(lang.tr("🛠️ Ferramentas", "🛠️ Tools"), |ui| {
-                        self.menu_tools(ui);
-                    });
-
-                    ui.collapsing(lang.tr("👁️ Exibir", "👁️ View"), |ui| {
-                        self.menu_view(ui, ctx);
-                    });
-
-                    ui.collapsing(lang.tr("▶️ Reprodução", "▶️ Playback"), |ui| {
-                        self.menu_playback(ui);
-                    });
-
-                    ui.collapsing(lang.tr("🌐 Idioma / Language", "🌐 Language"), |ui| {
-                        self.menu_language(ui);
-                    });
-
-                    ui.separator();
-
-                    if ui
-                        .button(lang.tr("📦 Gerenciador de Pacotes", "📦 Package Manager"))
-                        .clicked()
-                    {
-                        self.packages_window_open = true;
-                        self.mobile_menu_open = false;
-                    }
-
-                    if ui
-                        .button(lang.tr("❓ Guia de Atalhos & Ajuda", "❓ Shortcuts & Help"))
-                        .clicked()
-                    {
-                        self.shortcuts_guide_open = true;
-                        self.mobile_menu_open = false;
-                    }
-                });
             });
     }
 }

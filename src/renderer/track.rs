@@ -6,7 +6,7 @@ mod slots;
 mod wav_io;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock, RwLock};
 
 #[cfg(not(target_arch = "wasm32"))]
 use rayon::prelude::*;
@@ -25,7 +25,39 @@ use crate::renderer::RenderOptions;
 
 pub struct TrackRenderer;
 
+static LAZY_WAV_LOADING: AtomicBool = AtomicBool::new(false);
+
+fn io_thread_count() -> &'static RwLock<usize> {
+    static THREADS: OnceLock<RwLock<usize>> = OnceLock::new();
+    THREADS.get_or_init(|| RwLock::new(4))
+}
+
 impl TrackRenderer {
+    pub fn set_io_thread_concurrency(threads: u32) {
+        if let Ok(mut value) = io_thread_count().write() {
+            *value = threads.clamp(1, 16) as usize;
+        }
+    }
+
+    pub fn set_preload_strategy(strategy: &str) {
+        LAZY_WAV_LOADING.store(strategy == "Lazy On-Demand", Ordering::Relaxed);
+    }
+
+    pub fn set_anti_aliasing_filter(enabled: bool) {
+        wav_io::set_anti_aliasing_filter(enabled);
+    }
+
+    pub fn set_crossfade_curve(curve: &str) {
+        mixing::set_crossfade_curve(curve);
+    }
+
+    /// Applies the advanced pitch sampling controls used by all subsequent
+    /// renders. This is intentionally process-wide because rendering happens
+    /// on worker threads and the preferences dialog can change while idle.
+    pub fn set_pitch_sampling_config(step_ms: f32, interpolation: &str) {
+        phrase_pitch::set_pitch_sampling_config(step_ms, interpolation);
+    }
+
     /// Render a list of UNotes to a single PCM audio buffer using custom resampler & wavtool drivers
     pub fn render_track_with_drivers(
         notes: &[UNote],
@@ -212,16 +244,32 @@ impl TrackRenderer {
             .collect();
 
         // Collect paths into a Vec so rayon can index them.
-        let wav_paths_vec: Vec<std::path::PathBuf> = unique_wav_paths.into_iter().collect();
+        let wav_paths_vec: Vec<std::path::PathBuf> = if LAZY_WAV_LOADING.load(Ordering::Relaxed) {
+            Vec::new()
+        } else {
+            unique_wav_paths.into_iter().collect()
+        };
         #[cfg(not(target_arch = "wasm32"))]
-        let wav_cache: HashMap<std::path::PathBuf, Arc<(Vec<f32>, u32)>> = wav_paths_vec
-            .into_par_iter()
-            .filter_map(|path| {
-                Self::load_wav_samples(&path)
-                    .ok()
-                    .map(|(samples, rate)| (path, Arc::new((samples, rate))))
-            })
-            .collect();
+        let io_threads = io_thread_count().read().map(|value| *value).unwrap_or(4);
+        let load_wavs = || {
+            wav_paths_vec
+                .into_par_iter()
+                .filter_map(|path| {
+                    Self::load_wav_samples(&path)
+                        .ok()
+                        .map(|(samples, rate)| (path, Arc::new((samples, rate))))
+                })
+                .collect()
+        };
+        let wav_cache: HashMap<std::path::PathBuf, Arc<(Vec<f32>, u32)>> =
+            match rayon::ThreadPoolBuilder::new()
+                .num_threads(io_threads)
+                .thread_name(|index| format!("kamafeu-io-{index}"))
+                .build()
+            {
+                Ok(pool) => pool.install(load_wavs),
+                Err(_) => load_wavs(),
+            };
         #[cfg(target_arch = "wasm32")]
         let wav_cache: HashMap<std::path::PathBuf, Arc<(Vec<f32>, u32)>> = wav_paths_vec
             .into_iter()
@@ -240,7 +288,11 @@ impl TrackRenderer {
                     .find_mapped_entry(&phone.lyric, &phone.pitch)
                     .is_none_or(|entry| {
                         let path = voicebank.root_path.join(&entry.wav_filename);
-                        wav_cache.get(&path).is_none_or(|audio| audio.0.is_empty())
+                        if LAZY_WAV_LOADING.load(Ordering::Relaxed) {
+                            !path.is_file()
+                        } else {
+                            wav_cache.get(&path).is_none_or(|audio| audio.0.is_empty())
+                        }
                     })
             })
             .collect::<Vec<_>>();
@@ -264,13 +316,16 @@ impl TrackRenderer {
                 None => Some("alias ausente no voicebank".to_string()),
                 Some(entry) => {
                     let path = voicebank.root_path.join(&entry.wav_filename);
-                    match wav_cache.get(&path) {
-                        Some(audio) if !audio.0.is_empty() => None,
-                        _ => Some(format!(
-                            "amostra WAV ausente, vazia ou ilegível: {}",
-                            path.display()
-                        )),
-                    }
+                    let available = if LAZY_WAV_LOADING.load(Ordering::Relaxed) {
+                        path.is_file()
+                    } else {
+                        wav_cache
+                            .get(&path)
+                            .is_some_and(|audio| !audio.0.is_empty())
+                    };
+                    (!available).then(|| {
+                        format!("amostra WAV ausente, vazia ou ilegível: {}", path.display())
+                    })
                 }
             };
             if let Some(reason) = reason {
@@ -379,9 +434,15 @@ impl TrackRenderer {
                 ));
 
             // Retrieve samples from the in-memory cache (zero disk I/O).
-            let cached = wav_cache
-                .get(&wav_full_path)
-                .ok_or_else(|| format!("Amostra indisponível: {}", wav_full_path.display()))?;
+            let on_demand;
+            let cached = if let Some(cached) = wav_cache.get(&wav_full_path) {
+                cached
+            } else {
+                on_demand = Self::load_wav_samples(&wav_full_path)
+                    .map(|(samples, rate)| Arc::new((samples, rate)))
+                    .map_err(|error| format!("Amostra indisponível: {error}"))?;
+                &on_demand
+            };
             let (raw_samples, src_sample_rate) = (cached.0.as_slice(), cached.1);
 
             let base_midi = phone.midi_key() as f64;
@@ -744,7 +805,7 @@ impl TrackRenderer {
                 .unwrap_or(&[]);
             let start_sample_idx =
                 ((result.actual_start_ms / 1000.0) * sample_rate as f64).round() as usize;
-            previous_phone_end_sample = Self::mix_phase_aligned(
+            previous_phone_end_sample = Self::mix_level_matched(
                 &mut track_buffer,
                 audible_samples,
                 start_sample_idx,
@@ -755,7 +816,9 @@ impl TrackRenderer {
             );
         }
 
-        Self::apply_soft_limiter(&mut track_buffer, 0.89);
+        if let Some(target_peak) = crate::renderer::project::configured_render_limiter_peak() {
+            Self::apply_soft_limiter(&mut track_buffer, target_peak);
+        }
 
         let buffer_max = track_buffer.iter().map(|s| s.abs()).fold(0.0f32, f32::max);
         log(

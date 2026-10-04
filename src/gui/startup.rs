@@ -8,9 +8,9 @@ use crate::gui::lyrics_dialog;
 use crate::gui::phoneme_palette::PhonemePaletteState;
 use crate::gui::piano_roll::PianoRollState;
 use crate::gui::theme_editor_dialog;
-use crate::gui::types::ExportAudioScope;
 use crate::gui::types::RightSidebarTab;
 use crate::gui::types::TransportState;
+use crate::gui::types::{AutoScrollMode, ExportAudioScope, GridSnapOption};
 use crate::gui::KamafeuStudioApp;
 use crate::gui::RenderLogFilter;
 use crate::oto::Voicebank;
@@ -57,6 +57,20 @@ impl KamafeuStudioApp {
 
         cc.egui_ctx.set_visuals(config.theme.create_egui_visuals());
         crate::phonemizer::set_custom_rules(config.phonemizer_rules.clone());
+        crate::dsp::world_resampler::set_runtime_config(
+            crate::dsp::world_resampler::WorldRuntimeConfig {
+                f0_floor_hz: config.dsp.f0_min_hz as f64,
+                f0_ceil_hz: config.dsp.f0_max_hz as f64,
+                voiced_aperiodicity: config.dsp.world_voiced_aperiodicity as f64,
+                formant_preservation_mode: config.dsp.formant_preservation_mode.clone(),
+                f0_detection_method: config.dsp.f0_detection_method.clone(),
+                frame_period_ms: config.dsp.world_frame_period_ms as f64,
+            },
+        );
+        crate::renderer::TrackRenderer::set_pitch_sampling_config(
+            config.dsp.pitch_curve_step_ms,
+            &config.dsp.pitch_interpolation,
+        );
 
         if let Some(ref wine_path) = config.dsp.custom_wine_path {
             crate::drivers::process::set_custom_wine_path(Some(wine_path.clone()));
@@ -68,6 +82,22 @@ impl KamafeuStudioApp {
             config.memory.max_ram_cache_mb,
             config.memory.max_disk_cache_mb,
         );
+        crate::gui::piano_roll::state::set_waveform_cache_resolution(
+            config.memory.waveform_cache_resolution,
+        );
+        crate::renderer::TrackRenderer::set_io_thread_concurrency(
+            config.memory.io_thread_concurrency,
+        );
+        crate::renderer::TrackRenderer::set_preload_strategy(&config.memory.ram_preload_strategy);
+        crate::renderer::TrackRenderer::set_anti_aliasing_filter(config.dsp.anti_aliasing_filter);
+        crate::renderer::ProjectRenderer::set_render_limiter(
+            config.dsp.render_limiter_enabled,
+            config.dsp.render_limiter_peak_db,
+        );
+        crate::audio::player::set_flush_denormals_to_zero(
+            config.experimental.flush_denormals_to_zero,
+        );
+        crate::renderer::TrackRenderer::set_crossfade_curve(&config.dsp.crossfade_curve);
         let _ =
             crate::renderer::resampler_cache::cleanup_older_than(config.memory.auto_cleanup_days);
 
@@ -116,6 +146,13 @@ impl KamafeuStudioApp {
             bpm: project.bpm,
             ..TransportState::default()
         };
+        transport_state.grid_snap = match config.workflow.default_grid_snap.as_str() {
+            "Freeform" => GridSnapOption::Freeform,
+            "1/4" => GridSnapOption::Snap1_4,
+            "1/8" => GridSnapOption::Snap1_8,
+            "1/32" => GridSnapOption::Snap1_32,
+            _ => GridSnapOption::Snap1_16,
+        };
         if let Some(error) = config_error {
             transport_state.status_message = error;
         }
@@ -126,6 +163,31 @@ impl KamafeuStudioApp {
         let voicebank_oto_signature = voicebank
             .as_ref()
             .and_then(|vb| crate::copaiba_bridge::oto_signature(&vb.root_path).ok());
+        let mut humanize_dialog_state = humanize_dialog::HumanizeDialogState::default();
+        humanize_dialog_state.humanize_params.timing_jitter_ms =
+            config.workflow.humanize_timing_jitter_ms.clamp(0.0, 100.0);
+        humanize_dialog_state.humanize_params.pitch_cents_jitter = config
+            .workflow
+            .humanize_pitch_cents_jitter
+            .clamp(0.0, 100.0);
+        humanize_dialog_state.humanize_params.volume_jitter_pct =
+            config.workflow.humanize_volume_jitter_pct.clamp(0.0, 50.0);
+        humanize_dialog_state.humanize_params.breathiness_jitter_pct = config
+            .workflow
+            .humanize_breathiness_jitter_pct
+            .clamp(0.0, 50.0);
+        humanize_dialog_state.vibrato_params.min_duration_ms = config
+            .workflow
+            .auto_vibrato_min_duration_ms
+            .clamp(80.0, 2000.0);
+        humanize_dialog_state.vibrato_params.length_pct =
+            config.workflow.auto_vibrato_length_pct.clamp(20.0, 100.0);
+        humanize_dialog_state.vibrato_params.depth_cents =
+            config.workflow.auto_vibrato_depth_cents.clamp(10.0, 150.0);
+        humanize_dialog_state.vibrato_params.period_ms =
+            config.workflow.auto_vibrato_period_ms.clamp(80.0, 300.0);
+        humanize_dialog_state.vibrato_params.fade_in_pct =
+            config.workflow.auto_vibrato_fade_in_pct.clamp(5.0, 60.0);
 
         Self {
             project,
@@ -139,9 +201,65 @@ impl KamafeuStudioApp {
                 state.show_parameters_drawer = config.layout.show_parameters_drawer;
                 state.show_phoneme_ruler = config.layout.show_phoneme_ruler;
                 state.show_inspector = config.layout.show_inspector;
+                state.show_minimap = config.layout.show_minimap;
+                state.show_waveform_area = config.layout.show_waveform_area;
+                state.show_envelope_handles = config.layout.show_envelope_handles;
+                state.vertical_pitch_follow = config.layout.vertical_pitch_follow;
                 state.is_maximized = config.layout.is_maximized;
                 state.px_per_ms = config.layout.px_per_ms;
                 state.row_height = config.layout.row_height;
+                state.min_midi = config
+                    .layout
+                    .default_min_midi
+                    .min(config.layout.default_max_midi.saturating_sub(1));
+                state.max_midi = config
+                    .layout
+                    .default_max_midi
+                    .max(state.min_midi.saturating_add(1));
+                state.default_note_duration_ms = config.workflow.default_note_duration_ms;
+                state.default_note_lyric = if config.workflow.default_note_lyric.trim().is_empty() {
+                    "ka".to_string()
+                } else {
+                    config.workflow.default_note_lyric.clone()
+                };
+                state.default_note_dynamics =
+                    config.workflow.default_note_dynamics.clamp(-100.0, 100.0);
+                state.default_note_volume = config.workflow.default_note_volume.clamp(0.0, 200.0);
+                state.default_note_attack = config.workflow.default_note_attack.clamp(0.0, 200.0);
+                state.default_note_decay = config.workflow.default_note_decay.clamp(0.0, 100.0);
+                state.ui_animations_enabled = config.workflow.ui_animations_enabled;
+                state.ui_animation_speed = config.workflow.ui_animation_speed.clamp(0.25, 4.0);
+                state.active_tool = match config.workflow.default_edit_tool.as_str() {
+                    "Pencil" => crate::gui::types::EditTool::Pencil,
+                    "PitchDraw" => crate::gui::types::EditTool::PitchDraw,
+                    "Slice" => crate::gui::types::EditTool::Slice,
+                    "Eraser" => crate::gui::types::EditTool::Eraser,
+                    _ => crate::gui::types::EditTool::Pointer,
+                };
+                state.pitch_sub_tool = match config.workflow.default_pitch_sub_tool.as_str() {
+                    "Smooth" => crate::gui::types::PitchSubTool::Smooth,
+                    "Line" => crate::gui::types::PitchSubTool::Line,
+                    "Vibrato" => crate::gui::types::PitchSubTool::Vibrato,
+                    _ => crate::gui::types::PitchSubTool::Freehand,
+                };
+                state.active_scale = match config.layout.default_scale.as_str() {
+                    "Major" => crate::gui::piano_roll::MusicalScale::Major,
+                    "NaturalMinor" => crate::gui::piano_roll::MusicalScale::NaturalMinor,
+                    "HarmonicMinor" => crate::gui::piano_roll::MusicalScale::HarmonicMinor,
+                    "MelodicMinor" => crate::gui::piano_roll::MusicalScale::MelodicMinor,
+                    "PentatonicMajor" => crate::gui::piano_roll::MusicalScale::PentatonicMajor,
+                    "PentatonicMinor" => crate::gui::piano_roll::MusicalScale::PentatonicMinor,
+                    "Blues" => crate::gui::piano_roll::MusicalScale::Blues,
+                    "Dorian" => crate::gui::piano_roll::MusicalScale::Dorian,
+                    "Mixolydian" => crate::gui::piano_roll::MusicalScale::Mixolydian,
+                    _ => crate::gui::piano_roll::MusicalScale::Chromatic,
+                };
+                state.scale_root_key = config.layout.default_scale_root_key.min(11);
+                state.auto_scroll_mode = match config.workflow.default_auto_scroll.as_str() {
+                    "Desligado" => AutoScrollMode::Off,
+                    "Seguir Cabeça (Cursor)" => AutoScrollMode::StationaryCursor,
+                    _ => AutoScrollMode::PageScroll,
+                };
                 state
             },
             transport_state,
@@ -151,7 +269,11 @@ impl KamafeuStudioApp {
             undo_manager: UndoManager::default(),
             pending_edit_snapshot: None,
             clipboard: Vec::new(),
-            audio_player: AudioPlayer::new(),
+            audio_player: {
+                let mut player = AudioPlayer::new();
+                player.set_volume(config.audio.master_volume);
+                player
+            },
             sample_rate: config.audio.sample_rate.clamp(8_000, 192_000),
             render_threads: if config.dsp.render_threads == 0 {
                 4
@@ -243,7 +365,7 @@ impl KamafeuStudioApp {
             last_snapshot_time: None,
             last_exported_notification: None,
             lyrics_dialog_state: lyrics_dialog::LyricsDialogState::default(),
-            humanize_dialog_state: humanize_dialog::HumanizeDialogState::default(),
+            humanize_dialog_state,
             fx_rack_dialog_state: fx_rack_dialog::FxRackDialogState::default(),
             theme_editor_dialog_state: theme_editor_dialog::ThemeEditorDialogState::default(),
             fx_rack_config: crate::audio::FxRackConfig::default(),
@@ -252,7 +374,9 @@ impl KamafeuStudioApp {
             last_frame_instant: Instant::now(),
             is_dirty: false,
             exit_confirmation_open: false,
-            panel_tips_created_at: Some(Instant::now()),
+            // A dica continua disponível em Ajuda, mas não cobre o editor na
+            // primeira abertura, especialmente em telas pequenas.
+            panel_tips_created_at: None,
             phonemizer_warning_dismissed: false,
             phonemizer_warning_expanded: false,
             preview_waveform_cache_hash: 0,

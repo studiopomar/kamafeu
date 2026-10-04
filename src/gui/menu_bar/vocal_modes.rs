@@ -39,6 +39,37 @@ impl KamafeuStudioApp {
             );
             ui.separator();
 
+            ui.menu_button("Fonemizadores por idioma", |catalog| {
+                catalog.radio_value(
+                    &mut self.vocal_mode_params.phonemizer_mode,
+                    crate::phonemizer::PhonemizerMode::None,
+                    "Manual — Sem fonemizador [Kamafeu nativo]",
+                );
+                catalog.separator();
+                let mut language = None;
+                for mode in crate::phonemizer::PhonemizerMode::ALL {
+                    let info = mode.info();
+                    if language != Some(info.language) {
+                        if language.is_some() {
+                            catalog.separator();
+                        }
+                        catalog.label(egui::RichText::new(info.language).strong());
+                        language = Some(info.language);
+                    }
+                    if catalog
+                        .radio_value(
+                            &mut self.vocal_mode_params.phonemizer_mode,
+                            mode,
+                            format!("{} [{}]", info.name, info.source),
+                        )
+                        .clicked()
+                    {
+                        catalog.close_menu();
+                    }
+                }
+            });
+            ui.separator();
+
             let mode = &mut self.vocal_mode_params.phonemizer_mode;
             if ui
                 .radio_value(

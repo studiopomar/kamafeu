@@ -5,6 +5,16 @@ pub mod portuguese;
 pub mod romaji;
 pub mod vccv;
 
+/// Descrição apresentada pela UI para cada família de fonemizadores.
+/// `source` é deliberadamente explícito para não confundir ports com código nativo.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PhonemizerInfo {
+    pub mode: PhonemizerMode,
+    pub language: &'static str,
+    pub name: &'static str,
+    pub source: &'static str,
+}
+
 pub use brapa::{BrapaCVCPhonemizer, VccvBrapaPhonemizer};
 pub use english::EnglishPhonemizer;
 pub use japanese::JapanesePhonemizer as CoreJapanesePhonemizer;
@@ -16,6 +26,9 @@ use std::collections::HashMap;
 use std::sync::{OnceLock, RwLock};
 
 static CUSTOM_RULES: OnceLock<RwLock<HashMap<String, String>>> = OnceLock::new();
+static OPENUTAU_G2P_DICTIONARIES: OnceLock<HashMap<PhonemizerMode, HashMap<String, Vec<String>>>> =
+    OnceLock::new();
+static CANTONESE_DICTIONARY: OnceLock<HashMap<String, Vec<String>>> = OnceLock::new();
 
 pub fn set_custom_rules(rules: HashMap<String, String>) {
     let store = CUSTOM_RULES.get_or_init(|| RwLock::new(HashMap::new()));
@@ -71,6 +84,25 @@ pub enum PhonemizerMode {
     PortugueseCVVC,      // PT: Portuguese CVVC (Fonética Direta)
     PortugueseVCV,       // PT: Portuguese VCV (Fonética Direta)
     PortugueseG2P,       // PT: Português G2P (Palavras / Texto em Português -> Fonemas)
+    FrenchG2P,
+    FrenchCVVC,
+    FrenchVCCV,
+    GermanG2P,
+    GermanVCCV,
+    GermanDiphone,
+    RussianG2P,
+    RussianCVC,
+    RussianVCCV,
+    SpanishG2P,
+    SpanishVCCV,
+    TurkishG2P,
+    ChineseG2P,
+    CantoneseG2P,
+    TurkishCVVC,
+    ChineseCVVC,
+    CantoneseCVVC,
+    ArabicG2P,
+    IcelandicG2P,
 }
 
 impl PhonemizerMode {
@@ -81,18 +113,86 @@ impl PhonemizerMode {
             .find(|mode| format!("{mode:?}") == name)
     }
 
-    pub const ALL: [Self; 10] = [
+    pub const ALL: [Self; 30] = [
         Self::BasicCV,
         Self::VCV,
         Self::CVVC,
         Self::EnglishArpasing,
         Self::EnglishVCCV,
+        Self::EnglishG2P,
         Self::PortugueseBrapaVCCV,
         Self::PortugueseBrapaCVC,
         Self::PortugueseCVVC,
         Self::PortugueseVCV,
         Self::PortugueseG2P,
+        Self::TurkishG2P,
+        Self::TurkishCVVC,
+        Self::FrenchG2P,
+        Self::FrenchCVVC,
+        Self::FrenchVCCV,
+        Self::GermanG2P,
+        Self::GermanVCCV,
+        Self::GermanDiphone,
+        Self::RussianG2P,
+        Self::RussianCVC,
+        Self::RussianVCCV,
+        Self::SpanishG2P,
+        Self::SpanishVCCV,
+        Self::ChineseG2P,
+        Self::ChineseCVVC,
+        Self::CantoneseG2P,
+        Self::CantoneseCVVC,
+        Self::ArabicG2P,
+        Self::IcelandicG2P,
     ];
+
+    pub fn info(self) -> PhonemizerInfo {
+        use PhonemizerMode::*;
+        let (language, name, source) = match self {
+            None => ("Manual", "Sem fonemizador", "Kamafeu nativo"),
+            BasicCV => ("Japonês", "CV / VV", "OpenUtau"),
+            VCV => ("Japonês", "VCV", "OpenUtau"),
+            CVVC => ("Japonês", "CVVC", "OpenUtau"),
+            EnglishArpasing => ("Inglês", "Arpasing", "OpenUtau"),
+            EnglishVCCV => ("Inglês", "VCCV", "OpenUtau"),
+            EnglishG2P => ("Inglês", "G2P", "OpenUtau"),
+            PortugueseBrapaVCCV => ("Português", "BRAPA VCCV", "Kamafeu nativo"),
+            PortugueseBrapaCVC => ("Português", "BRAPA CVC", "Kamafeu nativo"),
+            PortugueseCVVC => ("Português", "CVVC", "OpenUtau"),
+            PortugueseVCV => ("Português", "VCV", "OpenUtau"),
+            PortugueseG2P => ("Português", "G2P", "OpenUtau (dados)"),
+            FrenchG2P => ("Francês", "G2P", "OpenUtau"),
+            FrenchCVVC => ("Francês", "CVVC", "OpenUtau"),
+            FrenchVCCV => ("Francês", "VCCV", "OpenUtau"),
+            GermanG2P => ("Alemão", "G2P", "OpenUtau"),
+            GermanVCCV => ("Alemão", "VCCV", "OpenUtau"),
+            GermanDiphone => ("Alemão", "Diphone", "OpenUtau"),
+            RussianG2P => ("Russo", "G2P", "OpenUtau"),
+            RussianCVC => ("Russo", "CVC", "OpenUtau"),
+            RussianVCCV => ("Russo", "VCCV", "OpenUtau"),
+            SpanishG2P => ("Espanhol", "G2P", "OpenUtau"),
+            SpanishVCCV => ("Espanhol", "VCCV", "OpenUtau"),
+            TurkishG2P => ("Turco", "G2P", "OpenUtau"),
+            ChineseG2P => ("Chinês", "G2P", "OpenUtau"),
+            CantoneseG2P => ("Cantonês", "G2P", "OpenUtau"),
+            TurkishCVVC => ("Turco", "CVVC", "OpenUtau"),
+            ChineseCVVC => ("Chinês", "CVVC", "OpenUtau"),
+            CantoneseCVVC => ("Cantonês", "CVVC", "OpenUtau"),
+            ArabicG2P => ("Árabe", "DiffSinger G2P", "Plugin dorayakito/OpenUtau"),
+            IcelandicG2P => ("Islandês", "DiffSinger G2P", "Plugin dorayakito/OpenUtau"),
+        };
+        PhonemizerInfo {
+            mode: self,
+            language,
+            name,
+            source,
+        }
+    }
+
+    pub fn display_name(self) -> String {
+        let i = self.info();
+        format!("{} — {} [{}]", i.language, i.name, i.source)
+    }
 }
 
 pub fn consonant_velocity_time_scale(velocity: f64) -> f64 {
@@ -286,9 +386,29 @@ impl JapanesePhonemizer {
             PhonemizerMode::EnglishArpasing | PhonemizerMode::EnglishG2P => {
                 Self::apply_english(&temp_notes, vb, mode)
             }
-            PhonemizerMode::PortugueseCVVC
-            | PhonemizerMode::PortugueseVCV
-            | PhonemizerMode::PortugueseG2P => Self::apply_portuguese(&temp_notes, vb, mode),
+            PhonemizerMode::PortugueseCVVC | PhonemizerMode::PortugueseVCV => {
+                Self::apply_portuguese(&temp_notes, vb, mode)
+            }
+            PhonemizerMode::PortugueseG2P => Self::apply_rule_g2p(&temp_notes, vb, mode),
+            PhonemizerMode::FrenchG2P
+            | PhonemizerMode::FrenchCVVC
+            | PhonemizerMode::FrenchVCCV
+            | PhonemizerMode::GermanG2P
+            | PhonemizerMode::GermanVCCV
+            | PhonemizerMode::GermanDiphone
+            | PhonemizerMode::RussianG2P
+            | PhonemizerMode::RussianCVC
+            | PhonemizerMode::RussianVCCV
+            | PhonemizerMode::SpanishG2P
+            | PhonemizerMode::SpanishVCCV
+            | PhonemizerMode::TurkishG2P
+            | PhonemizerMode::ChineseG2P
+            | PhonemizerMode::CantoneseG2P
+            | PhonemizerMode::TurkishCVVC
+            | PhonemizerMode::ChineseCVVC
+            | PhonemizerMode::CantoneseCVVC
+            | PhonemizerMode::ArabicG2P
+            | PhonemizerMode::IcelandicG2P => Self::apply_rule_g2p(&temp_notes, vb, mode),
             _ => Self::apply_japanese(&temp_notes, vb, mode),
         };
 
@@ -513,6 +633,676 @@ impl JapanesePhonemizer {
         phones
     }
 
+    fn apply_rule_g2p(notes: &[UNote], vb: &Voicebank, mode: PhonemizerMode) -> Vec<RenderPhone> {
+        let arabic = mode == PhonemizerMode::ArabicG2P;
+        let icelandic = mode == PhonemizerMode::IcelandicG2P;
+        let mapping: std::collections::HashMap<String, Vec<String>> =
+            serde_json::from_str(if arabic {
+                include_str!("data/arabic-mapping.json")
+            } else {
+                include_str!("data/icelandic-mapping.json")
+            })
+            .unwrap_or_default();
+        let mut phones = Vec::new();
+        let cvvc = matches!(
+            mode,
+            PhonemizerMode::TurkishCVVC
+                | PhonemizerMode::ChineseCVVC
+                | PhonemizerMode::CantoneseCVVC
+                | PhonemizerMode::FrenchCVVC
+                | PhonemizerMode::FrenchVCCV
+                | PhonemizerMode::GermanVCCV
+                | PhonemizerMode::GermanDiphone
+                | PhonemizerMode::RussianVCCV
+                | PhonemizerMode::SpanishVCCV
+        );
+        let mut previous_vowel: Option<String> = None;
+        for (note_index, note) in notes.iter().enumerate() {
+            let word = note.lyric.trim();
+            if word.is_empty() || word.eq_ignore_ascii_case("r") {
+                previous_vowel = None;
+                continue;
+            }
+            let tokens = if arabic {
+                Self::arabic_tokens(word)
+            } else if icelandic {
+                Self::icelandic_tokens(word)
+            } else {
+                Self::openutau_dictionary_tokens(word, mode)
+                    .unwrap_or_else(|| Self::latin_language_tokens(word, mode))
+            };
+            if tokens.is_empty() {
+                continue;
+            }
+            let dur = note.duration_ms / tokens.len() as f64;
+            for (index, token) in tokens.iter().enumerate() {
+                if cvvc && index == 0 {
+                    if let Some(vowel) = previous_vowel.as_deref() {
+                        if !Self::is_rule_vowel(token) {
+                            let vc = format!("{} {}", vowel, token);
+                            if let Some(entry) = vb.find_mapped_entry(&vc, &note.pitch) {
+                                let transition_duration =
+                                    dur.min((note.duration_ms * 0.35).max(20.0));
+                                phones.push(RenderPhone {
+                                    note_index,
+                                    lyric: entry.alias.clone(),
+                                    pitch: note.pitch.clone(),
+                                    position_ms: note.position_ms - transition_duration,
+                                    duration_ms: transition_duration,
+                                    envelope: note.envelope.clone(),
+                                    expressions: note.expressions.clone(),
+                                    pitch_bend: note.pitch_bend.clone(),
+                                    vibrato: note.vibrato.clone(),
+                                    flags: note.flags.clone(),
+                                });
+                            }
+                        }
+                    }
+                }
+                let aliases = if arabic || icelandic {
+                    mapping
+                        .get(token)
+                        .cloned()
+                        .unwrap_or_else(|| vec![token.clone()])
+                } else {
+                    vec![token.clone()]
+                };
+                let mut alias = aliases.first().cloned().unwrap_or_else(|| token.clone());
+                if let Some(entry) = vb.find_mapped_entry(&alias, &note.pitch) {
+                    alias = entry.alias.clone();
+                }
+                phones.push(RenderPhone {
+                    note_index,
+                    lyric: alias,
+                    pitch: note.pitch.clone(),
+                    position_ms: note.position_ms + index as f64 * dur,
+                    duration_ms: dur,
+                    envelope: note.envelope.clone(),
+                    expressions: note.expressions.clone(),
+                    pitch_bend: note.pitch_bend.clone(),
+                    vibrato: note.vibrato.clone(),
+                    flags: note.flags.clone(),
+                });
+            }
+            if cvvc {
+                previous_vowel = tokens
+                    .iter()
+                    .rev()
+                    .find(|token| Self::is_rule_vowel(token))
+                    .cloned();
+            }
+        }
+        phones
+    }
+
+    fn is_rule_vowel(token: &str) -> bool {
+        token.chars().next().is_some_and(|c| {
+            matches!(
+                c,
+                'a' | 'e' | 'i' | 'o' | 'u' | 'y' | 'A' | 'E' | 'I' | 'O' | 'U' | 'Y'
+            )
+        })
+    }
+
+    fn arabic_tokens(word: &str) -> Vec<String> {
+        let clean: String = word
+            .trim()
+            .to_lowercase()
+            .chars()
+            .filter(|c| !c.is_whitespace() && !c.is_ascii_punctuation())
+            .collect();
+        let chars: Vec<char> = clean.chars().collect();
+        let mut out = Vec::new();
+        let mut i = 0;
+        while i < chars.len() {
+            let token = {
+                let c = chars[i];
+                i += 1;
+                match c {
+                    'ا' | 'أ' | 'إ' | 'آ' => "a:",
+                    'ب' | 'b' => "b",
+                    'ت' | 't' => "t",
+                    'ث' => "th",
+                    'ج' | 'j' => "j",
+                    'ح' | '7' => "H",
+                    'خ' => "kh",
+                    'د' | 'd' => "d",
+                    'ذ' => "dh",
+                    'ر' | 'r' => "r",
+                    'ز' | 'z' => "z",
+                    'س' | 's' => "s",
+                    'ش' => "sh",
+                    'ص' | '9' => "s.",
+                    'ض' => "d.",
+                    'ط' => "t.",
+                    'ظ' => "dh.",
+                    'ع' | '3' => "3",
+                    'غ' => "gh",
+                    'ف' | 'f' => "f",
+                    'ق' | 'q' => "q",
+                    'ك' | 'k' => "k",
+                    'ل' | 'l' => "l",
+                    'م' | 'm' => "m",
+                    'ن' | 'n' => "n",
+                    'ه' | 'h' => "h",
+                    'و' | 'w' => "w",
+                    'ي' | 'ى' | 'y' => "y",
+                    'ة' => "a",
+                    'ء' | '2' => "?",
+                    _ => continue,
+                }
+            };
+            out.push(token.to_string());
+        }
+        out
+    }
+
+    fn icelandic_tokens(word: &str) -> Vec<String> {
+        let lower = word.to_lowercase();
+        let chars: Vec<char> = lower.chars().collect();
+        let mut out = Vec::new();
+        let mut i = 0;
+        while i < chars.len() {
+            let c = chars[i];
+            let next = chars.get(i + 1).copied();
+            let token = match (c, next) {
+                ('a', Some('u')) => {
+                    i += 2;
+                    "au"
+                }
+                ('e', Some('i')) => {
+                    i += 2;
+                    "ei"
+                }
+                ('o', Some('u')) => {
+                    i += 2;
+                    "ou"
+                }
+                ('p', Some('h')) => {
+                    i += 2;
+                    "p_h"
+                }
+                ('t', Some('h')) => {
+                    i += 2;
+                    "t_h"
+                }
+                ('k', Some('h')) => {
+                    i += 2;
+                    "k_h"
+                }
+                ('þ', _) => {
+                    i += 1;
+                    "T"
+                }
+                ('ð', _) => {
+                    i += 1;
+                    "D"
+                }
+                ('æ', _) => {
+                    i += 1;
+                    "E"
+                }
+                ('ö', _) => {
+                    i += 1;
+                    "9"
+                }
+                ('á', _) => {
+                    i += 1;
+                    "ai"
+                }
+                ('é', _) => {
+                    i += 1;
+                    "ei"
+                }
+                ('í', _) => {
+                    i += 1;
+                    "i"
+                }
+                ('ó', _) => {
+                    i += 1;
+                    "ou"
+                }
+                ('ú', _) => {
+                    i += 1;
+                    "u"
+                }
+                _ => {
+                    i += 1;
+                    match c {
+                        'a' | 'e' | 'i' | 'o' | 'u' => &lower[i - 1..i],
+                        _ => match c {
+                            'p' | 'b' => "p",
+                            't' | 'd' => "t",
+                            'k' | 'g' | 'c' => "k",
+                            'f' | 'v' => "f",
+                            's' => "s",
+                            'j' => "j",
+                            'h' => "h",
+                            'm' => "m",
+                            'n' => "n",
+                            'l' => "l",
+                            'r' => "r",
+                            _ => continue,
+                        },
+                    }
+                }
+            };
+            out.push(token.to_string());
+        }
+        out
+    }
+
+    fn latin_language_tokens(word: &str, mode: PhonemizerMode) -> Vec<String> {
+        let lower = word.to_lowercase();
+        if matches!(
+            mode,
+            PhonemizerMode::ChineseG2P
+                | PhonemizerMode::CantoneseG2P
+                | PhonemizerMode::ChineseCVVC
+                | PhonemizerMode::CantoneseCVVC
+        ) && lower
+            .chars()
+            .any(|c| !c.is_ascii() && !c.is_ascii_punctuation())
+        {
+            let romanized = if matches!(
+                mode,
+                PhonemizerMode::ChineseG2P | PhonemizerMode::ChineseCVVC
+            ) {
+                pinyin::to_pinyin_vec(&lower, pinyin::Pinyin::with_tone_num_end)
+                    .into_iter()
+                    .map(str::to_string)
+                    .collect::<Vec<_>>()
+            } else {
+                Self::cantonese_tokens(&lower)
+            };
+            if !romanized.is_empty() {
+                return romanized;
+            }
+        }
+        let mut out = Vec::new();
+        let chars: Vec<char> = lower.chars().collect();
+        let mut i = 0;
+        while i < chars.len() {
+            if chars[i].is_whitespace() || chars[i].is_ascii_punctuation() {
+                i += 1;
+                continue;
+            }
+            let pair = chars
+                .get(i..(i + 2).min(chars.len()))
+                .unwrap_or(&[])
+                .iter()
+                .collect::<String>();
+            let token = match mode {
+                PhonemizerMode::FrenchG2P => match pair.as_str() {
+                    "ch" => {
+                        i += 2;
+                        "sh"
+                    }
+                    "gn" => {
+                        i += 2;
+                        "ny"
+                    }
+                    "ou" => {
+                        i += 2;
+                        "u"
+                    }
+                    "oi" => {
+                        i += 2;
+                        "wa"
+                    }
+                    _ => Self::latin_char_token(&chars, &mut i),
+                },
+                PhonemizerMode::GermanG2P => {
+                    if i + 3 <= chars.len() && chars[i..i + 3].iter().collect::<String>() == "sch" {
+                        i += 3;
+                        "sh"
+                    } else {
+                        match pair.as_str() {
+                            "ch" => {
+                                i += 2;
+                                "x"
+                            }
+                            "ei" | "ai" => {
+                                i += 2;
+                                "ay"
+                            }
+                            "eu" | "äu" => {
+                                i += 2;
+                                "oy"
+                            }
+                            _ => Self::latin_char_token(&chars, &mut i),
+                        }
+                    }
+                }
+                PhonemizerMode::RussianG2P => Self::cyrillic_token(&chars, &mut i),
+                PhonemizerMode::SpanishG2P => match pair.as_str() {
+                    "ll" => {
+                        i += 2;
+                        "y"
+                    }
+                    "ch" => {
+                        i += 2;
+                        "ch"
+                    }
+                    "rr" => {
+                        i += 2;
+                        "r"
+                    }
+                    _ => Self::latin_char_token(&chars, &mut i),
+                },
+                PhonemizerMode::TurkishG2P | PhonemizerMode::TurkishCVVC => {
+                    if matches!(chars[i], 'ş' | 'ç' | 'ğ') {
+                        let c = chars[i];
+                        i += 1;
+                        match c {
+                            'ş' => "sh",
+                            'ç' => "ch",
+                            _ => "g",
+                        }
+                    } else {
+                        match pair.as_str() {
+                            "ae" | "eu" | "oe" | "ue" => {
+                                i += 2;
+                                match pair.as_str() {
+                                    "ae" => "ae",
+                                    "eu" => "eu",
+                                    "oe" => "oe",
+                                    _ => "ue",
+                                }
+                            }
+                            "ch" => {
+                                i += 2;
+                                "ch"
+                            }
+                            "sh" => {
+                                i += 2;
+                                "sh"
+                            }
+                            "ng" => {
+                                i += 2;
+                                "ng"
+                            }
+                            "rr" => {
+                                i += 2;
+                                "rr"
+                            }
+                            _ => Self::latin_char_token(&chars, &mut i),
+                        }
+                    }
+                }
+                PhonemizerMode::ChineseG2P
+                | PhonemizerMode::CantoneseG2P
+                | PhonemizerMode::ChineseCVVC
+                | PhonemizerMode::CantoneseCVVC => {
+                    // OpenUtau's Chinese/Cantonese phonemizers consume pinyin or
+                    // jyutping syllables. Preserve an already romanized syllable
+                    // (including its tone number) as one phoneme unit.
+                    if chars[i].is_ascii_alphabetic() {
+                        let start = i;
+                        while i < chars.len()
+                            && (chars[i].is_ascii_alphabetic() || chars[i].is_ascii_digit())
+                        {
+                            i += 1;
+                        }
+                        let syllable: String = chars[start..i].iter().collect();
+                        out.push(syllable);
+                        continue;
+                    }
+                    i += 1;
+                    match chars[i - 1] {
+                        '你' => out.push(
+                            if matches!(
+                                mode,
+                                PhonemizerMode::ChineseG2P | PhonemizerMode::ChineseCVVC
+                            ) {
+                                "ni3".to_string()
+                            } else {
+                                "nei5".to_string()
+                            },
+                        ),
+                        '好' => out.push(
+                            if matches!(
+                                mode,
+                                PhonemizerMode::ChineseG2P | PhonemizerMode::ChineseCVVC
+                            ) {
+                                "hao3".to_string()
+                            } else {
+                                "hou2".to_string()
+                            },
+                        ),
+                        '世' => out.push("shi4".to_string()),
+                        '界' => out.push(
+                            if matches!(
+                                mode,
+                                PhonemizerMode::ChineseG2P | PhonemizerMode::ChineseCVVC
+                            ) {
+                                "jie4".to_string()
+                            } else {
+                                "gaai3".to_string()
+                            },
+                        ),
+                        _ => out.push("a".to_string()),
+                    }
+                    continue;
+                }
+                _ => Self::latin_char_token(&chars, &mut i),
+            };
+            out.push(token.to_string());
+        }
+        out
+    }
+
+    fn cantonese_tokens(word: &str) -> Vec<String> {
+        let dictionary = CANTONESE_DICTIONARY.get_or_init(|| {
+            let mut map = HashMap::new();
+            for line in include_str!("data/cccedict-canto-readings.txt").lines() {
+                if line.starts_with('#') {
+                    continue;
+                }
+                let Some((head, reading)) = line.split_once('{') else {
+                    continue;
+                };
+                let Some(key) = head.split_whitespace().next() else {
+                    continue;
+                };
+                let Some(reading) = reading.split('}').next() else {
+                    continue;
+                };
+                let syllables: Vec<String> =
+                    reading.split_whitespace().map(str::to_string).collect();
+                if !syllables.is_empty() {
+                    map.entry(key.to_string()).or_insert(syllables);
+                }
+            }
+            map
+        });
+        if let Some(syllables) = dictionary.get(word) {
+            return syllables.clone();
+        }
+        let mut out = Vec::new();
+        for c in word.chars() {
+            if let Some(syllables) = dictionary.get(&c.to_string()) {
+                out.extend(syllables.iter().cloned());
+                continue;
+            }
+            let token = match c {
+                '你' => "nei5",
+                '好' => "hou2",
+                '世' => "sai3",
+                '界' => "gaai3",
+                '我' => "ngo5",
+                '係' => "hai6",
+                '佢' => "keoi5",
+                '人' => "jan4",
+                '中' => "zung1",
+                '國' | '国' => "gwok3",
+                '學' | '学' => "hok6",
+                '生' => "saang1",
+                '廣' | '广' => "gwong2",
+                '東' | '东' => "dung1",
+                _ if c.is_ascii_alphabetic() => continue,
+                _ => "a1",
+            };
+            out.push(token.to_string());
+        }
+        out
+    }
+
+    fn openutau_dictionary_tokens(word: &str, mode: PhonemizerMode) -> Option<Vec<String>> {
+        let clean = word.trim().to_lowercase();
+        let dictionaries = OPENUTAU_G2P_DICTIONARIES.get_or_init(|| {
+            let mut all = HashMap::new();
+            for (modes, dictionary) in [
+                (
+                    &[PhonemizerMode::EnglishG2P][..],
+                    include_str!("data/openutau/en.dict"),
+                ),
+                (
+                    &[
+                        PhonemizerMode::FrenchG2P,
+                        PhonemizerMode::FrenchCVVC,
+                        PhonemizerMode::FrenchVCCV,
+                    ][..],
+                    include_str!("data/openutau/fr.dict"),
+                ),
+                (
+                    &[
+                        PhonemizerMode::GermanG2P,
+                        PhonemizerMode::GermanVCCV,
+                        PhonemizerMode::GermanDiphone,
+                    ][..],
+                    include_str!("data/openutau/de.dict"),
+                ),
+                (
+                    &[
+                        PhonemizerMode::RussianG2P,
+                        PhonemizerMode::RussianCVC,
+                        PhonemizerMode::RussianVCCV,
+                    ][..],
+                    include_str!("data/openutau/ru.dict"),
+                ),
+                (
+                    &[PhonemizerMode::SpanishG2P, PhonemizerMode::SpanishVCCV][..],
+                    include_str!("data/openutau/es.dict"),
+                ),
+                (
+                    &[PhonemizerMode::PortugueseG2P][..],
+                    include_str!("data/openutau/pt.dict"),
+                ),
+            ] {
+                let mut table = HashMap::new();
+                for line in dictionary.lines() {
+                    let mut fields = line.split_whitespace();
+                    let Some(key) = fields.next() else { continue };
+                    if key.starts_with(';') || key.starts_with("###") {
+                        continue;
+                    }
+                    let phones = fields
+                        .map(|phone| {
+                            phone
+                                .trim_end_matches(|c: char| c.is_ascii_digit())
+                                .to_string()
+                        })
+                        .collect::<Vec<_>>();
+                    if phones.is_empty() {
+                        continue;
+                    }
+                    table.insert(key.to_lowercase(), phones);
+                }
+                for mode in modes {
+                    let normalized = table
+                        .iter()
+                        .map(|(key, phones)| {
+                            let phones = if *mode == PhonemizerMode::EnglishG2P {
+                                phones.iter().map(|p| p.to_lowercase()).collect()
+                            } else {
+                                phones.clone()
+                            };
+                            (key.clone(), phones)
+                        })
+                        .collect();
+                    all.insert(*mode, normalized);
+                }
+            }
+            all
+        });
+        dictionaries.get(&mode).and_then(|table| {
+            table.get(&clean).cloned().or_else(|| {
+                table
+                    .iter()
+                    .find(|(key, _)| key.starts_with(&format!("{}(", clean)))
+                    .map(|(_, phones)| phones.clone())
+            })
+        })
+    }
+
+    fn latin_char_token(chars: &[char], i: &mut usize) -> &'static str {
+        let c = chars[*i];
+        *i += 1;
+        match c {
+            'a' | 'á' | 'à' | 'â' | 'ä' | 'ã' => "a",
+            'e' | 'é' | 'è' | 'ê' | 'ë' => "e",
+            'i' | 'í' | 'ì' | 'î' | 'ï' => "i",
+            'o' | 'ó' | 'ò' | 'ô' | 'ö' | 'õ' => "o",
+            'u' | 'ú' | 'ù' | 'û' | 'ü' => "u",
+            'b' => "b",
+            'c' => "k",
+            'd' => "d",
+            'f' => "f",
+            'g' => "g",
+            'h' => "h",
+            'j' => "j",
+            'k' => "k",
+            'l' => "l",
+            'm' => "m",
+            'n' | 'ñ' => "n",
+            'p' => "p",
+            'q' => "k",
+            'r' => "r",
+            's' => "s",
+            't' => "t",
+            'v' => "v",
+            'w' => "w",
+            'x' => "x",
+            'y' => "y",
+            'z' => "z",
+            _ => "a",
+        }
+    }
+
+    fn cyrillic_token(chars: &[char], i: &mut usize) -> &'static str {
+        let c = chars[*i];
+        *i += 1;
+        match c {
+            'а' | 'я' => "a",
+            'э' | 'е' | 'ё' => "e",
+            'и' | 'й' => "i",
+            'о' => "o",
+            'у' | 'ю' => "u",
+            'б' => "b",
+            'в' => "v",
+            'г' => "g",
+            'д' => "d",
+            'ж' => "zh",
+            'з' => "z",
+            'к' => "k",
+            'л' => "l",
+            'м' => "m",
+            'н' => "n",
+            'п' => "p",
+            'р' => "r",
+            'с' => "s",
+            'т' => "t",
+            'ф' => "f",
+            'х' => "kh",
+            'ц' => "ts",
+            'ч' => "ch",
+            'ш' => "sh",
+            'щ' => "sh",
+            _ => "a",
+        }
+    }
+
     fn apply_japanese(notes: &[UNote], vb: &Voicebank, mode: PhonemizerMode) -> Vec<RenderPhone> {
         CoreJapanesePhonemizer::apply_japanese(notes, vb, mode)
     }
@@ -538,7 +1328,8 @@ impl JapanesePhonemizer {
             }
 
             let word_phones = match mode {
-                PhonemizerMode::EnglishG2P => EnglishPhonemizer::word_to_arpabet(&note.lyric),
+                PhonemizerMode::EnglishG2P => Self::openutau_dictionary_tokens(&note.lyric, mode)
+                    .unwrap_or_else(|| EnglishPhonemizer::word_to_arpabet(&note.lyric)),
                 _ => EnglishPhonemizer::phonetic_tokens(&note.lyric),
             };
             if word_phones.is_empty() {
@@ -1059,9 +1850,10 @@ mod tests {
         let notes_pt = vec![UNote::new("sol", "C4", 0.0, 300.0)];
         let phones_pt_g2p =
             JapanesePhonemizer::apply_phonemizer(&notes_pt, &vb, PhonemizerMode::PortugueseG2P);
-        assert_eq!(phones_pt_g2p.len(), 2);
-        assert_eq!(phones_pt_g2p[0].lyric, "so");
-        assert_eq!(phones_pt_g2p[1].lyric, "w");
+        assert_eq!(phones_pt_g2p.len(), 3);
+        assert_eq!(phones_pt_g2p[0].lyric, "s");
+        assert_eq!(phones_pt_g2p[1].lyric, "O");
+        assert_eq!(phones_pt_g2p[2].lyric, "w");
 
         let notes_brapa = vec![UNote::new("canto", "C4", 0.0, 400.0)];
         let phones_brapa = JapanesePhonemizer::apply_phonemizer(
@@ -1171,5 +1963,84 @@ mod tests {
         assert_eq!(phones[1].position_ms, 200.0);
         assert_eq!(phones[2].duration_ms, 150.0);
         assert_eq!(phones[2].position_ms, 550.0);
+    }
+
+    #[test]
+    fn rule_g2p_handles_arabic_and_icelandic_scripts() {
+        let arabic = JapanesePhonemizer::arabic_tokens("شمس");
+        assert_eq!(arabic, vec!["sh", "m", "s"]);
+        let icelandic = JapanesePhonemizer::icelandic_tokens("þú");
+        assert_eq!(icelandic, vec!["T", "u"]);
+        assert_eq!(
+            JapanesePhonemizer::latin_language_tokens("chanson", PhonemizerMode::FrenchG2P),
+            vec!["sh", "a", "n", "s", "o", "n"]
+        );
+        assert_eq!(
+            JapanesePhonemizer::latin_language_tokens("шаг", PhonemizerMode::RussianG2P),
+            vec!["sh", "a", "g"]
+        );
+        assert_eq!(
+            JapanesePhonemizer::openutau_dictionary_tokens("-ce", PhonemizerMode::FrenchG2P)
+                .unwrap(),
+            vec!["ss"]
+        );
+        assert_eq!(
+            JapanesePhonemizer::openutau_dictionary_tokens("can", PhonemizerMode::EnglishG2P)
+                .unwrap(),
+            vec!["k", "ae", "n"]
+        );
+        assert_eq!(
+            JapanesePhonemizer::latin_language_tokens("ni3 hao3", PhonemizerMode::ChineseG2P),
+            vec!["ni3", "hao3"]
+        );
+        assert_eq!(
+            JapanesePhonemizer::latin_language_tokens("你好", PhonemizerMode::ChineseG2P),
+            vec!["ni3", "hao3"]
+        );
+        assert_eq!(
+            JapanesePhonemizer::latin_language_tokens("你好", PhonemizerMode::CantoneseG2P),
+            vec!["nei5", "hou2"]
+        );
+        assert_eq!(
+            JapanesePhonemizer::latin_language_tokens("廣東", PhonemizerMode::CantoneseG2P),
+            vec!["gwong2", "dung1"]
+        );
+        assert_eq!(
+            JapanesePhonemizer::latin_language_tokens("şeu", PhonemizerMode::TurkishCVVC),
+            vec!["sh", "eu"]
+        );
+    }
+
+    #[test]
+    fn catalog_contains_requested_languages_and_origins() {
+        let languages: std::collections::BTreeSet<_> = PhonemizerMode::ALL
+            .iter()
+            .map(|mode| mode.info().language)
+            .collect();
+        for language in [
+            "Inglês",
+            "Japonês",
+            "Francês",
+            "Português",
+            "Alemão",
+            "Russo",
+            "Espanhol",
+            "Turco",
+            "Chinês",
+            "Cantonês",
+            "Árabe",
+            "Islandês",
+        ] {
+            assert!(languages.contains(language), "missing language {language}");
+        }
+        assert_eq!(
+            PhonemizerMode::ArabicG2P.info().source,
+            "Plugin dorayakito/OpenUtau"
+        );
+        assert_eq!(
+            PhonemizerMode::IcelandicG2P.info().source,
+            "Plugin dorayakito/OpenUtau"
+        );
+        assert_eq!(PhonemizerMode::FrenchG2P.info().source, "OpenUtau");
     }
 }

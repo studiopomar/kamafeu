@@ -41,17 +41,18 @@ pub(super) fn draw(
             .show(ui.ctx(), |ui| {
                 ui.scope(|ui| {
                     let mut visuals = ui.visuals().clone();
-                    visuals.widgets.hovered.bg_fill = Color32::from_rgb(38, 48, 72);
-                    visuals.widgets.hovered.weak_bg_fill = Color32::from_rgb(38, 48, 72);
-                    visuals.widgets.hovered.fg_stroke = Stroke::new(1.0, Color32::WHITE);
-                    visuals.widgets.hovered.rounding = Rounding::same(4.0);
-                    visuals.widgets.active.bg_fill = Color32::from_rgb(48, 62, 92);
-                    visuals.widgets.active.weak_bg_fill = Color32::from_rgb(48, 62, 92);
-                    visuals.widgets.active.fg_stroke = Stroke::new(1.2, Color32::WHITE);
-                    visuals.widgets.active.rounding = Rounding::same(4.0);
+                    let theme_selection = visuals.selection.bg_fill;
+                    let theme_accent = visuals.selection.stroke.color;
+                    visuals.widgets.hovered.weak_bg_fill = theme_selection;
+                    visuals.widgets.hovered.fg_stroke = Stroke::new(1.0, theme_accent);
+                    visuals.widgets.hovered.rounding = visuals.window_rounding;
+                    visuals.widgets.active.bg_fill = theme_selection;
+                    visuals.widgets.active.weak_bg_fill = theme_selection;
+                    visuals.widgets.active.fg_stroke = Stroke::new(1.2, theme_accent);
+                    visuals.widgets.active.rounding = visuals.window_rounding;
                     visuals.widgets.inactive.bg_fill = Color32::TRANSPARENT;
                     visuals.widgets.inactive.weak_bg_fill = Color32::TRANSPARENT;
-                    visuals.widgets.inactive.fg_stroke = Stroke::new(1.0, Color32::from_rgb(220, 225, 240));
+                    visuals.widgets.inactive.fg_stroke = visuals.widgets.noninteractive.fg_stroke;
                     *ui.visuals_mut() = visuals;
 
                     ui.horizontal_top(|ui| {
@@ -59,14 +60,14 @@ pub(super) fn draw(
                         // PAINEL PRINCIPAL (ESQUERDA)
                         // ==========================================
                         egui::Frame::menu(ui.style())
-                            .fill(MelodyneTheme::BG_PANEL)
-                            .stroke(Stroke::new(1.0_f32, MelodyneTheme::ACCENT_GOLD))
-                            .rounding(Rounding::same(6.0))
+                            .fill(ui.visuals().window_fill())
+                            .stroke(Stroke::new(1.0_f32, theme_accent))
+                            .rounding(ui.visuals().window_rounding)
                             .shadow(egui::epaint::Shadow {
                                 offset: Vec2::new(0.0, 4.0),
-                                blur: 14.0,
+                                blur: 22.0,
                                 spread: 0.0,
-                                color: Color32::from_black_alpha(200),
+                                color: Color32::from_black_alpha(86),
                             })
                             .inner_margin(egui::Margin::same(6.0))
                             .show(ui, |ui| {
@@ -285,6 +286,7 @@ pub(super) fn draw(
                                 draw_category_item(lang.tr("Quantização & Grade", "Quantization & Grid"), ContextMenuCategory::QuantizeGrade);
                                 draw_category_item(lang.tr("Letras & Fonemas", "Lyrics & Phonemes"), ContextMenuCategory::LyricsPhonemes);
                                 draw_category_item(lang.tr("Transformações Musicais", "Musical Transforms"), ContextMenuCategory::MusicalTransform);
+                                draw_category_item(lang.tr("Expressão & Articulação", "Expression & Articulation"), ContextMenuCategory::Expression);
                                 draw_category_item(lang.tr("Transposição", "Transpose"), ContextMenuCategory::Transpose);
                                 draw_category_item(lang.tr("Pre-tunning & Afinação", "Pre-tunning & Tuning"), ContextMenuCategory::AutoPitch);
                                 draw_category_item(lang.tr("Presets de Vibrato Vocal", "Vocal Vibrato Presets"), ContextMenuCategory::Vibrato);
@@ -315,6 +317,7 @@ pub(super) fn draw(
                                 ContextMenuCategory::QuantizeGrade => 160.0,
                                 ContextMenuCategory::LyricsPhonemes => 170.0,
                                 ContextMenuCategory::MusicalTransform => 130.0,
+                                ContextMenuCategory::Expression => 175.0,
                                 ContextMenuCategory::Transpose => 160.0,
                                 ContextMenuCategory::AutoPitch => 360.0,
                                 ContextMenuCategory::Vibrato => 190.0,
@@ -326,14 +329,14 @@ pub(super) fn draw(
                             }
 
                             egui::Frame::menu(ui.style())
-                                .fill(MelodyneTheme::BG_PANEL)
-                                .stroke(Stroke::new(1.0_f32, MelodyneTheme::ACCENT_CYAN))
-                                .rounding(Rounding::same(6.0))
+                                .fill(ui.visuals().window_fill())
+                                .stroke(Stroke::new(1.0_f32, theme_accent))
+                                .rounding(ui.visuals().window_rounding)
                                 .shadow(egui::epaint::Shadow {
                                     offset: Vec2::new(0.0, 4.0),
-                                    blur: 14.0,
+                                    blur: 22.0,
                                     spread: 0.0,
-                                    color: Color32::from_black_alpha(200),
+                                    color: Color32::from_black_alpha(86),
                                 })
                                 .inner_margin(egui::Margin::same(6.0))
                                 .show(ui, |ui| {
@@ -385,6 +388,50 @@ pub(super) fn draw(
                                                     }
                                                 }
                                                 state.selected_note_index = state.selected_note_indices.iter().next().copied();
+                                                close_menu = true;
+                                            }
+                                            if ui.button(lang.tr("Selecionar Notas Alternadas (Pares)", "Select Alternating Notes (Even)")).clicked() {
+                                                state.selected_note_indices = (0..notes.len())
+                                                    .filter(|i| i % 2 == 0)
+                                                    .collect();
+                                                state.selected_note_index = state.selected_note_indices.iter().next().copied();
+                                                close_menu = true;
+                                            }
+                                            if ui.button(lang.tr("Selecionar Notas Alternadas (Ímpares)", "Select Alternating Notes (Odd)")).clicked() {
+                                                state.selected_note_indices = (0..notes.len())
+                                                    .filter(|i| i % 2 == 1)
+                                                    .collect();
+                                                state.selected_note_index = state.selected_note_indices.iter().next().copied();
+                                                close_menu = true;
+                                            }
+                                            if ui.button(lang.tr("Selecionar Mesma Altura da Nota", "Select Same Pitch as Note")).clicked() {
+                                                if let Some(reference_idx) = menu_idx_opt {
+                                                    if let Some(reference) = notes.get(reference_idx) {
+                                                        let midi = reference.midi_key();
+                                                        state.selected_note_indices = notes
+                                                            .iter()
+                                                            .enumerate()
+                                                            .filter(|(_, note)| note.midi_key() == midi)
+                                                            .map(|(idx, _)| idx)
+                                                            .collect();
+                                                        state.selected_note_index = state.selected_note_indices.iter().next().copied();
+                                                    }
+                                                }
+                                                close_menu = true;
+                                            }
+                                            if ui.button(lang.tr("Selecionar Mesmo Lyric da Nota", "Select Same Lyric as Note")).clicked() {
+                                                if let Some(reference_idx) = menu_idx_opt {
+                                                    if let Some(reference) = notes.get(reference_idx) {
+                                                        let lyric = reference.lyric.clone();
+                                                        state.selected_note_indices = notes
+                                                            .iter()
+                                                            .enumerate()
+                                                            .filter(|(_, note)| note.lyric == lyric)
+                                                            .map(|(idx, _)| idx)
+                                                            .collect();
+                                                        state.selected_note_index = state.selected_note_indices.iter().next().copied();
+                                                    }
+                                                }
                                                 close_menu = true;
                                             }
                                             if ui.button(lang.tr("Selecionar Notas Sobrepostas", "Select Overlapping Notes")).clicked() {
@@ -582,6 +629,44 @@ pub(super) fn draw(
                                             }
                                             if ui.button(lang.tr("Espelhar Intervalos (Inversão)", "Mirror Intervals (Inversion)")).clicked() {
                                                 state.request_invert_intervals = true;
+                                                close_menu = true;
+                                            }
+                                        }
+
+                                        ContextMenuCategory::Expression => {
+                                            ui.label(egui::RichText::new(lang.tr("Expressão & Articulação", "Expression & Articulation")).size(11.0).color(MelodyneTheme::ACCENT_CYAN).strong());
+                                            ui.separator();
+                                            let target_indices: Vec<usize> = if !state.selected_note_indices.is_empty() {
+                                                state.selected_note_indices.iter().copied().collect()
+                                            } else if let Some(idx) = menu_idx_opt {
+                                                vec![idx]
+                                            } else {
+                                                Vec::new()
+                                            };
+                                            if ui.button(lang.tr("Aplicar padrões de novas notas", "Apply new-note defaults")).clicked() {
+                                                on_before_change();
+                                                for idx in target_indices.iter().copied() {
+                                                    if let Some(note) = notes.get_mut(idx) {
+                                                        note.expressions.dynamics = state.default_note_dynamics;
+                                                        note.expressions.volume = state.default_note_volume;
+                                                        note.expressions.attack = state.default_note_attack;
+                                                        note.expressions.decay = state.default_note_decay;
+                                                    }
+                                                }
+                                                trigger_note_changed = true;
+                                                close_menu = true;
+                                            }
+                                            if ui.button(lang.tr("Normalizar expressão (0 / 100)", "Normalize expression (0 / 100)")).clicked() {
+                                                on_before_change();
+                                                for idx in target_indices.iter().copied() {
+                                                    if let Some(note) = notes.get_mut(idx) {
+                                                        note.expressions.dynamics = 0.0;
+                                                        note.expressions.volume = 100.0;
+                                                        note.expressions.attack = 100.0;
+                                                        note.expressions.decay = 0.0;
+                                                    }
+                                                }
+                                                trigger_note_changed = true;
                                                 close_menu = true;
                                             }
                                         }

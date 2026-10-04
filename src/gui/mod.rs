@@ -60,6 +60,17 @@ use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use web_time::Instant;
 
+pub fn open_external_url(url: &str) {
+    #[cfg(target_os = "macos")]
+    let _ = std::process::Command::new("open").arg(url).spawn();
+    #[cfg(target_os = "linux")]
+    let _ = std::process::Command::new("xdg-open").arg(url).spawn();
+    #[cfg(target_os = "windows")]
+    let _ = std::process::Command::new("cmd")
+        .args(["/C", "start", "", url])
+        .spawn();
+}
+
 #[allow(dead_code)]
 fn playback_sample_offset(audio: &RenderedAudio, start_ms: f64) -> usize {
     let frame = ((start_ms.max(0.0) / 1_000.0) * audio.sample_rate as f64).round() as usize;

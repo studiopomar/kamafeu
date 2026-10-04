@@ -294,43 +294,44 @@ impl Voicebank {
         if let Ok(read_dir) = fs::read_dir(current_dir) {
             let mut directory_entries = read_dir.flatten().collect::<Vec<_>>();
             directory_entries.sort_by_key(|entry| entry.file_name());
-            for entry in directory_entries {
+            // Load the oto.ini owned by this directory before descending into
+            // colour/pitch subbanks. `or_insert` below then gives the root
+            // voice its documented precedence for duplicate, unsuffixed
+            // aliases. The old depth-first walk did the opposite even though
+            // its comment claimed root precedence.
+            for entry in directory_entries.iter().filter(|entry| {
+                entry.file_type().is_ok_and(|kind| kind.is_file())
+                    && entry
+                        .file_name()
+                        .to_str()
+                        .is_some_and(|name| name.eq_ignore_ascii_case("oto.ini"))
+            }) {
                 let path = entry.path();
-                if entry
-                    .file_type()
-                    .map(|kind| kind.is_symlink())
-                    .unwrap_or(true)
-                {
+                if entry.file_type().is_ok_and(|kind| kind.is_symlink()) {
                     continue;
                 }
-                if path.is_dir() {
-                    Self::scan_oto_files(root, &path, entries);
-                } else if path.is_file() {
-                    if let Some(filename) = path.file_name().and_then(|s| s.to_str()) {
-                        if filename.eq_ignore_ascii_case("oto.ini") {
-                            if let Ok(file_entries) = OtoParser::parse_file(&path) {
-                                let rel_sub_dir = path
-                                    .parent()
-                                    .and_then(|p| p.strip_prefix(root).ok())
-                                    .unwrap_or(Path::new(""));
-
-                                for (alias, mut entry) in file_entries {
-                                    if !is_safe_relative_path(Path::new(&entry.wav_filename)) {
-                                        continue;
-                                    }
-                                    if rel_sub_dir != Path::new("") {
-                                        let full_wav = rel_sub_dir.join(&entry.wav_filename);
-                                        entry.wav_filename = full_wav.to_string_lossy().to_string();
-                                    }
-                                    // When a bank contains Voice Colors/subdirectories, the
-                                    // root `oto.ini` is the principal voice.  Keep the first
-                                    // definition for duplicate aliases instead of letting a
-                                    // colour directory selected by filesystem order replace it.
-                                    entries.entry(alias).or_insert(entry);
-                                }
-                            }
+                if let Ok(file_entries) = OtoParser::parse_file(&path) {
+                    let rel_sub_dir = path
+                        .parent()
+                        .and_then(|parent| parent.strip_prefix(root).ok())
+                        .unwrap_or(Path::new(""));
+                    for (alias, mut oto) in file_entries {
+                        if !is_safe_relative_path(Path::new(&oto.wav_filename)) {
+                            continue;
                         }
+                        if rel_sub_dir != Path::new("") {
+                            oto.wav_filename = rel_sub_dir
+                                .join(&oto.wav_filename)
+                                .to_string_lossy()
+                                .to_string();
+                        }
+                        entries.entry(alias).or_insert(oto);
                     }
+                }
+            }
+            for entry in directory_entries {
+                if entry.file_type().is_ok_and(|kind| kind.is_dir()) {
+                    Self::scan_oto_files(root, &entry.path(), entries);
                 }
             }
         }
@@ -725,5 +726,23 @@ mod tests {
         let (pref, suff) = vb.prefix_map.get_prefix_suffix("C4").unwrap();
         assert_eq!(pref, "");
         assert_eq!(suff, "_C4");
+    }
+
+    #[test]
+    fn root_oto_wins_over_duplicate_aliases_in_subbanks() {
+        let dir = tempdir().unwrap();
+        let subbank = dir.path().join("A3");
+        fs::create_dir(&subbank).unwrap();
+        fs::write(dir.path().join("oto.ini"), "root.wav=ka,0,100,-400,80,30\n").unwrap();
+        fs::write(
+            subbank.join("oto.ini"),
+            "sub.wav=ka,0,200,-500,160,60\nsub.wav=ka_A3,0,200,-500,160,60\n",
+        )
+        .unwrap();
+
+        let vb = Voicebank::new(dir.path()).unwrap();
+        assert_eq!(vb.entries["ka"].wav_filename, "root.wav");
+        assert_eq!(vb.entries["ka"].preutterance, 80.0);
+        assert_eq!(vb.entries["ka_A3"].wav_filename, "A3/sub.wav");
     }
 }

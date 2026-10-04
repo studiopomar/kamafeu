@@ -15,6 +15,22 @@ fn default_row_height() -> f32 {
     22.0
 }
 
+fn default_min_midi() -> u8 {
+    36
+}
+
+fn default_max_midi() -> u8 {
+    96
+}
+
+fn default_scale_str() -> String {
+    "Chromatic".to_string()
+}
+
+fn default_scale_root_key() -> u8 {
+    0
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EditorLayoutConfig {
     /// Enables the dockable workspace. Kept opt-in while legacy panel
@@ -29,12 +45,28 @@ pub struct EditorLayoutConfig {
     pub show_phoneme_ruler: bool,
     #[serde(default)]
     pub show_inspector: bool,
+    #[serde(default = "default_true")]
+    pub show_minimap: bool,
+    #[serde(default = "default_true")]
+    pub show_waveform_area: bool,
+    #[serde(default)]
+    pub show_envelope_handles: bool,
+    #[serde(default)]
+    pub vertical_pitch_follow: bool,
+    #[serde(default = "default_scale_str")]
+    pub default_scale: String,
+    #[serde(default = "default_scale_root_key")]
+    pub default_scale_root_key: u8,
     #[serde(default)]
     pub is_maximized: bool,
     #[serde(default = "default_editor_zoom")]
     pub px_per_ms: f32,
     #[serde(default = "default_row_height")]
     pub row_height: f32,
+    #[serde(default = "default_min_midi")]
+    pub default_min_midi: u8,
+    #[serde(default = "default_max_midi")]
+    pub default_max_midi: u8,
 }
 
 impl Default for EditorLayoutConfig {
@@ -45,9 +77,17 @@ impl Default for EditorLayoutConfig {
             show_parameters_drawer: false,
             show_phoneme_ruler: true,
             show_inspector: true,
+            show_minimap: true,
+            show_waveform_area: true,
+            show_envelope_handles: false,
+            vertical_pitch_follow: false,
+            default_scale: default_scale_str(),
+            default_scale_root_key: 0,
             is_maximized: false,
             px_per_ms: default_editor_zoom(),
             row_height: default_row_height(),
+            default_min_midi: default_min_midi(),
+            default_max_midi: default_max_midi(),
         }
     }
 }
@@ -130,7 +170,7 @@ impl Default for AudioDeviceConfig {
 fn default_resampler_str() -> String {
     #[cfg(any(target_arch = "wasm32", target_os = "android"))]
     {
-        "VENUS (WORLD)".to_string()
+        "WORLD (Nativo)".to_string()
     }
     #[cfg(not(any(target_arch = "wasm32", target_os = "android")))]
     {
@@ -175,7 +215,7 @@ fn default_resampler_instances() -> u32 {
 }
 
 fn default_f0_method() -> String {
-    "YIN (Pitch Fundamental Adaptativo)".to_string()
+    "Harvest/DIO (Espectral)".to_string()
 }
 
 fn default_f0_min() -> f32 {
@@ -192,6 +232,18 @@ fn default_fft_window() -> String {
 
 fn default_formant_mode() -> String {
     "LPC Spectral Envelope".to_string()
+}
+
+fn default_render_limiter_db() -> f32 {
+    -1.0
+}
+
+fn default_world_aperiodicity() -> f32 {
+    0.18
+}
+
+fn default_world_frame_period_ms() -> f32 {
+    5.0
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -233,6 +285,10 @@ pub struct DspEngineConfig {
     pub f0_min_hz: f32,
     #[serde(default = "default_f0_max")]
     pub f0_max_hz: f32,
+    #[serde(default = "default_world_aperiodicity")]
+    pub world_voiced_aperiodicity: f32,
+    #[serde(default = "default_world_frame_period_ms")]
+    pub world_frame_period_ms: f32,
     #[serde(default = "default_fft_window")]
     pub fft_window_type: String,
     #[serde(default)]
@@ -241,6 +297,10 @@ pub struct DspEngineConfig {
     pub formant_preservation_mode: String,
     #[serde(default = "default_true")]
     pub background_prerender: bool,
+    #[serde(default = "default_true")]
+    pub render_limiter_enabled: bool,
+    #[serde(default = "default_render_limiter_db")]
+    pub render_limiter_peak_db: f32,
     #[serde(default)]
     pub verbose_dsp_logging: bool,
     #[serde(default)]
@@ -277,10 +337,14 @@ impl Default for DspEngineConfig {
             f0_detection_method: default_f0_method(),
             f0_min_hz: default_f0_min(),
             f0_max_hz: default_f0_max(),
+            world_voiced_aperiodicity: default_world_aperiodicity(),
+            world_frame_period_ms: default_world_frame_period_ms(),
             fft_window_type: default_fft_window(),
             oversampling_factor: 1,
             formant_preservation_mode: default_formant_mode(),
             background_prerender: true,
+            render_limiter_enabled: true,
+            render_limiter_peak_db: default_render_limiter_db(),
             verbose_dsp_logging: false,
             custom_wine_prefix: None,
             custom_wine_path: None,
@@ -445,6 +509,66 @@ fn default_note_duration_ms() -> f64 {
     480.0
 }
 
+fn default_edit_tool_str() -> String {
+    "Pointer".to_string()
+}
+
+fn default_pitch_sub_tool_str() -> String {
+    "Freehand".to_string()
+}
+
+fn default_note_lyric_str() -> String {
+    "ka".to_string()
+}
+
+fn default_note_dynamics() -> f64 {
+    0.0
+}
+
+fn default_note_volume() -> f64 {
+    100.0
+}
+
+fn default_note_attack() -> f64 {
+    100.0
+}
+
+fn default_note_decay() -> f64 {
+    0.0
+}
+
+fn default_humanize_pitch() -> f64 {
+    10.0
+}
+
+fn default_humanize_volume() -> f64 {
+    8.0
+}
+
+fn default_humanize_breathiness() -> f64 {
+    5.0
+}
+
+fn default_vibrato_min_duration() -> f64 {
+    350.0
+}
+fn default_vibrato_length() -> f64 {
+    65.0
+}
+fn default_vibrato_depth() -> f64 {
+    60.0
+}
+fn default_vibrato_period() -> f64 {
+    160.0
+}
+fn default_vibrato_fade_in() -> f64 {
+    25.0
+}
+
+fn default_ui_animation_speed() -> f32 {
+    1.0
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EditorWorkflowConfig {
     #[serde(default = "default_true")]
@@ -465,6 +589,42 @@ pub struct EditorWorkflowConfig {
     pub default_grid_snap: String,
     #[serde(default = "default_autoscroll_str")]
     pub default_auto_scroll: String,
+    #[serde(default = "default_edit_tool_str")]
+    pub default_edit_tool: String,
+    #[serde(default = "default_pitch_sub_tool_str")]
+    pub default_pitch_sub_tool: String,
+    #[serde(default = "default_note_lyric_str")]
+    pub default_note_lyric: String,
+    #[serde(default = "default_note_dynamics")]
+    pub default_note_dynamics: f64,
+    #[serde(default = "default_note_volume")]
+    pub default_note_volume: f64,
+    #[serde(default = "default_note_attack")]
+    pub default_note_attack: f64,
+    #[serde(default = "default_note_decay")]
+    pub default_note_decay: f64,
+    #[serde(default)]
+    pub humanize_timing_jitter_ms: f64,
+    #[serde(default = "default_humanize_pitch")]
+    pub humanize_pitch_cents_jitter: f64,
+    #[serde(default = "default_humanize_volume")]
+    pub humanize_volume_jitter_pct: f64,
+    #[serde(default = "default_humanize_breathiness")]
+    pub humanize_breathiness_jitter_pct: f64,
+    #[serde(default = "default_vibrato_min_duration")]
+    pub auto_vibrato_min_duration_ms: f64,
+    #[serde(default = "default_vibrato_length")]
+    pub auto_vibrato_length_pct: f64,
+    #[serde(default = "default_vibrato_depth")]
+    pub auto_vibrato_depth_cents: f64,
+    #[serde(default = "default_vibrato_period")]
+    pub auto_vibrato_period_ms: f64,
+    #[serde(default = "default_vibrato_fade_in")]
+    pub auto_vibrato_fade_in_pct: f64,
+    #[serde(default = "default_true")]
+    pub ui_animations_enabled: bool,
+    #[serde(default = "default_ui_animation_speed")]
+    pub ui_animation_speed: f32,
     #[serde(default = "default_true")]
     pub confirm_on_exit_dirty: bool,
     #[serde(default)]
@@ -483,6 +643,24 @@ impl Default for EditorWorkflowConfig {
             default_note_duration_ms: 480.0,
             default_grid_snap: default_grid_snap_str(),
             default_auto_scroll: default_autoscroll_str(),
+            default_edit_tool: default_edit_tool_str(),
+            default_pitch_sub_tool: default_pitch_sub_tool_str(),
+            default_note_lyric: default_note_lyric_str(),
+            default_note_dynamics: default_note_dynamics(),
+            default_note_volume: default_note_volume(),
+            default_note_attack: default_note_attack(),
+            default_note_decay: default_note_decay(),
+            humanize_timing_jitter_ms: 0.0,
+            humanize_pitch_cents_jitter: default_humanize_pitch(),
+            humanize_volume_jitter_pct: default_humanize_volume(),
+            humanize_breathiness_jitter_pct: default_humanize_breathiness(),
+            auto_vibrato_min_duration_ms: default_vibrato_min_duration(),
+            auto_vibrato_length_pct: default_vibrato_length(),
+            auto_vibrato_depth_cents: default_vibrato_depth(),
+            auto_vibrato_period_ms: default_vibrato_period(),
+            auto_vibrato_fade_in_pct: default_vibrato_fade_in(),
+            ui_animations_enabled: true,
+            ui_animation_speed: default_ui_animation_speed(),
             confirm_on_exit_dirty: true,
             allow_overlapping_notes: false,
         }
@@ -628,6 +806,33 @@ impl AppLanguage {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct UpdateSettings {
+    #[serde(default = "default_true")]
+    pub check_enabled: bool,
+    #[serde(default = "default_update_frequency")]
+    pub frequency: String,
+    #[serde(default)]
+    pub automatic_download: bool,
+    #[serde(default)]
+    pub last_check_unix: Option<i64>,
+}
+
+fn default_update_frequency() -> String {
+    "weekly".to_string()
+}
+
+impl Default for UpdateSettings {
+    fn default() -> Self {
+        Self {
+            check_enabled: true,
+            frequency: default_update_frequency(),
+            automatic_download: false,
+            last_check_unix: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct KamafeuConfig {
     #[serde(default)]
     pub language: AppLanguage,
@@ -675,6 +880,8 @@ pub struct KamafeuConfig {
     pub voicebank_tuning: VoicebankTuningConfig,
     #[serde(default)]
     pub experimental: ExperimentalConfig,
+    #[serde(default)]
+    pub updates: UpdateSettings,
     /// User-editable phonemizer rules, keyed by the phonemizer mode name.
     #[serde(default)]
     pub phonemizer_rules: HashMap<String, String>,
@@ -706,6 +913,7 @@ impl Default for KamafeuConfig {
             layout: EditorLayoutConfig::default(),
             voicebank_tuning: VoicebankTuningConfig::default(),
             experimental: ExperimentalConfig::default(),
+            updates: UpdateSettings::default(),
             phonemizer_rules: HashMap::new(),
         }
     }

@@ -430,120 +430,157 @@ pub(super) fn draw(
                             .size(10.0)
                             .color(theme.text_muted_c32()),
                     );
-                    egui::ComboBox::from_id_salt("phonemizer_mode_cb_unified")
-                        .selected_text(match vocal_mode_params.phonemizer_mode {
-                            crate::phonemizer::PhonemizerMode::None => {
-                                lang.tr("Sem Fonemizador (Manual)", "No Phonemizer (Manual)")
-                            }
-                            crate::phonemizer::PhonemizerMode::BasicCV => "JA: Basic CV",
-                            crate::phonemizer::PhonemizerMode::VCV => "JA: Japanese VCV",
-                            crate::phonemizer::PhonemizerMode::CVVC => "JA: Japanese CVVC",
-                            crate::phonemizer::PhonemizerMode::EnglishArpasing => {
-                                "EN: English Arpasing"
-                            }
-                            crate::phonemizer::PhonemizerMode::EnglishVCCV => "EN: English VCCV",
-                            crate::phonemizer::PhonemizerMode::EnglishG2P => {
-                                lang.tr("EN: English G2P (Palavras)", "EN: English G2P (Words)")
-                            }
-                            crate::phonemizer::PhonemizerMode::PortugueseBrapaVCCV => {
-                                "PT: VCCV BRAPA (xiao / 3.7)"
-                            }
-                            crate::phonemizer::PhonemizerMode::PortugueseBrapaCVC => {
-                                "PT: BRAPA CVC"
-                            }
-                            crate::phonemizer::PhonemizerMode::PortugueseCVVC => {
-                                "PT: Portuguese CVVC"
-                            }
-                            crate::phonemizer::PhonemizerMode::PortugueseVCV => {
-                                "PT: Portuguese VCV"
-                            }
-                            crate::phonemizer::PhonemizerMode::PortugueseG2P => {
-                                lang.tr("PT: Português G2P", "PT: Portuguese G2P")
-                            }
-                        })
+                    egui::ComboBox::from_id_salt("phonemizer_catalog_unified")
+                        .selected_text(vocal_mode_params.phonemizer_mode.display_name())
                         .show_ui(ui, |ui| {
                             ui.selectable_value(
                                 &mut vocal_mode_params.phonemizer_mode,
                                 crate::phonemizer::PhonemizerMode::None,
-                                lang.tr("• Sem Fonemizador (Manual)", "• No Phonemizer (Manual)"),
+                                "Manual — Sem fonemizador [Kamafeu nativo]",
                             );
-                            ui.separator();
-                            ui.label(
-                                RichText::new(lang.tr("[JA] Japonês", "[JA] Japanese"))
-                                    .strong()
-                                    .color(theme.accent_c32()),
-                            );
-                            ui.selectable_value(
-                                &mut vocal_mode_params.phonemizer_mode,
-                                crate::phonemizer::PhonemizerMode::BasicCV,
-                                "  JA: Basic CV",
-                            );
-                            ui.selectable_value(
-                                &mut vocal_mode_params.phonemizer_mode,
-                                crate::phonemizer::PhonemizerMode::VCV,
-                                "  JA: Japanese VCV",
-                            );
-                            ui.selectable_value(
-                                &mut vocal_mode_params.phonemizer_mode,
-                                crate::phonemizer::PhonemizerMode::CVVC,
-                                "  JA: Japanese CVVC",
-                            );
-                            ui.separator();
-                            ui.label(
-                                RichText::new(lang.tr("[PT] Português", "[PT] Portuguese"))
-                                    .strong()
-                                    .color(theme.accent_c32()),
-                            );
-                            ui.selectable_value(
-                                &mut vocal_mode_params.phonemizer_mode,
-                                crate::phonemizer::PhonemizerMode::PortugueseBrapaVCCV,
-                                "  PT: VCCV BRAPA (xiao / 3.7)",
-                            );
-                            ui.selectable_value(
-                                &mut vocal_mode_params.phonemizer_mode,
-                                crate::phonemizer::PhonemizerMode::PortugueseG2P,
-                                lang.tr(
-                                    "  PT: Português G2P (Palavras -> Fonemas)",
-                                    "  PT: Portuguese G2P (Words -> Phonemes)",
-                                ),
-                            );
-                            ui.selectable_value(
-                                &mut vocal_mode_params.phonemizer_mode,
-                                crate::phonemizer::PhonemizerMode::PortugueseBrapaCVC,
-                                "  PT: BRAPA CVC",
-                            );
-                            ui.selectable_value(
-                                &mut vocal_mode_params.phonemizer_mode,
-                                crate::phonemizer::PhonemizerMode::PortugueseCVVC,
-                                "  PT: Portuguese CVVC",
-                            );
-                            ui.selectable_value(
-                                &mut vocal_mode_params.phonemizer_mode,
-                                crate::phonemizer::PhonemizerMode::PortugueseVCV,
-                                "  PT: Portuguese VCV",
-                            );
-                            ui.separator();
-                            ui.label(
-                                RichText::new(lang.tr("[EN] Inglês", "[EN] English"))
-                                    .strong()
-                                    .color(theme.accent_c32()),
-                            );
-                            ui.selectable_value(
-                                &mut vocal_mode_params.phonemizer_mode,
-                                crate::phonemizer::PhonemizerMode::EnglishG2P,
-                                "  EN: English G2P",
-                            );
-                            ui.selectable_value(
-                                &mut vocal_mode_params.phonemizer_mode,
-                                crate::phonemizer::PhonemizerMode::EnglishArpasing,
-                                "  EN: English Arpasing",
-                            );
-                            ui.selectable_value(
-                                &mut vocal_mode_params.phonemizer_mode,
-                                crate::phonemizer::PhonemizerMode::EnglishVCCV,
-                                "  EN: English VCCV",
-                            );
+                            let mut language = None;
+                            for mode in crate::phonemizer::PhonemizerMode::ALL {
+                                let info = mode.info();
+                                if language != Some(info.language) {
+                                    if language.is_some() {
+                                        ui.separator();
+                                    }
+                                    ui.label(
+                                        RichText::new(info.language)
+                                            .strong()
+                                            .color(theme.accent_c32()),
+                                    );
+                                    language = Some(info.language);
+                                }
+                                ui.selectable_value(
+                                    &mut vocal_mode_params.phonemizer_mode,
+                                    mode,
+                                    format!("  {} [{}]", info.name, info.source),
+                                );
+                            }
                         });
+                    if false {
+                        egui::ComboBox::from_id_salt("phonemizer_mode_cb_unified")
+                            .selected_text(match vocal_mode_params.phonemizer_mode {
+                                crate::phonemizer::PhonemizerMode::None => {
+                                    lang.tr("Sem Fonemizador (Manual)", "No Phonemizer (Manual)")
+                                }
+                                crate::phonemizer::PhonemizerMode::BasicCV => "JA: Basic CV",
+                                crate::phonemizer::PhonemizerMode::VCV => "JA: Japanese VCV",
+                                crate::phonemizer::PhonemizerMode::CVVC => "JA: Japanese CVVC",
+                                crate::phonemizer::PhonemizerMode::EnglishArpasing => {
+                                    "EN: English Arpasing"
+                                }
+                                crate::phonemizer::PhonemizerMode::EnglishVCCV => {
+                                    "EN: English VCCV"
+                                }
+                                crate::phonemizer::PhonemizerMode::EnglishG2P => {
+                                    lang.tr("EN: English G2P (Palavras)", "EN: English G2P (Words)")
+                                }
+                                crate::phonemizer::PhonemizerMode::PortugueseBrapaVCCV => {
+                                    "PT: VCCV BRAPA (xiao / 3.7)"
+                                }
+                                crate::phonemizer::PhonemizerMode::PortugueseBrapaCVC => {
+                                    "PT: BRAPA CVC"
+                                }
+                                crate::phonemizer::PhonemizerMode::PortugueseCVVC => {
+                                    "PT: Portuguese CVVC"
+                                }
+                                crate::phonemizer::PhonemizerMode::PortugueseVCV => {
+                                    "PT: Portuguese VCV"
+                                }
+                                crate::phonemizer::PhonemizerMode::PortugueseG2P => {
+                                    lang.tr("PT: Português G2P", "PT: Portuguese G2P")
+                                }
+                                _ => "Language G2P",
+                            })
+                            .show_ui(ui, |ui| {
+                                ui.selectable_value(
+                                    &mut vocal_mode_params.phonemizer_mode,
+                                    crate::phonemizer::PhonemizerMode::None,
+                                    lang.tr(
+                                        "• Sem Fonemizador (Manual)",
+                                        "• No Phonemizer (Manual)",
+                                    ),
+                                );
+                                ui.separator();
+                                ui.label(
+                                    RichText::new(lang.tr("[JA] Japonês", "[JA] Japanese"))
+                                        .strong()
+                                        .color(theme.accent_c32()),
+                                );
+                                ui.selectable_value(
+                                    &mut vocal_mode_params.phonemizer_mode,
+                                    crate::phonemizer::PhonemizerMode::BasicCV,
+                                    "  JA: Basic CV",
+                                );
+                                ui.selectable_value(
+                                    &mut vocal_mode_params.phonemizer_mode,
+                                    crate::phonemizer::PhonemizerMode::VCV,
+                                    "  JA: Japanese VCV",
+                                );
+                                ui.selectable_value(
+                                    &mut vocal_mode_params.phonemizer_mode,
+                                    crate::phonemizer::PhonemizerMode::CVVC,
+                                    "  JA: Japanese CVVC",
+                                );
+                                ui.separator();
+                                ui.label(
+                                    RichText::new(lang.tr("[PT] Português", "[PT] Portuguese"))
+                                        .strong()
+                                        .color(theme.accent_c32()),
+                                );
+                                ui.selectable_value(
+                                    &mut vocal_mode_params.phonemizer_mode,
+                                    crate::phonemizer::PhonemizerMode::PortugueseBrapaVCCV,
+                                    "  PT: VCCV BRAPA (xiao / 3.7)",
+                                );
+                                ui.selectable_value(
+                                    &mut vocal_mode_params.phonemizer_mode,
+                                    crate::phonemizer::PhonemizerMode::PortugueseG2P,
+                                    lang.tr(
+                                        "  PT: Português G2P (Palavras -> Fonemas)",
+                                        "  PT: Portuguese G2P (Words -> Phonemes)",
+                                    ),
+                                );
+                                ui.selectable_value(
+                                    &mut vocal_mode_params.phonemizer_mode,
+                                    crate::phonemizer::PhonemizerMode::PortugueseBrapaCVC,
+                                    "  PT: BRAPA CVC",
+                                );
+                                ui.selectable_value(
+                                    &mut vocal_mode_params.phonemizer_mode,
+                                    crate::phonemizer::PhonemizerMode::PortugueseCVVC,
+                                    "  PT: Portuguese CVVC",
+                                );
+                                ui.selectable_value(
+                                    &mut vocal_mode_params.phonemizer_mode,
+                                    crate::phonemizer::PhonemizerMode::PortugueseVCV,
+                                    "  PT: Portuguese VCV",
+                                );
+                                ui.separator();
+                                ui.label(
+                                    RichText::new(lang.tr("[EN] Inglês", "[EN] English"))
+                                        .strong()
+                                        .color(theme.accent_c32()),
+                                );
+                                ui.selectable_value(
+                                    &mut vocal_mode_params.phonemizer_mode,
+                                    crate::phonemizer::PhonemizerMode::EnglishG2P,
+                                    "  EN: English G2P",
+                                );
+                                ui.selectable_value(
+                                    &mut vocal_mode_params.phonemizer_mode,
+                                    crate::phonemizer::PhonemizerMode::EnglishArpasing,
+                                    "  EN: English Arpasing",
+                                );
+                                ui.selectable_value(
+                                    &mut vocal_mode_params.phonemizer_mode,
+                                    crate::phonemizer::PhonemizerMode::EnglishVCCV,
+                                    "  EN: English VCCV",
+                                );
+                            });
+                    }
 
                     ui.add_space(6.0);
                     ui.label(

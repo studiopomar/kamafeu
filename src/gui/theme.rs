@@ -456,11 +456,38 @@ impl ThemeConfig {
     }
 
     pub fn note_selected_fill_c32(&self) -> Color32 {
-        self.c32_alpha(self.note_selected_fill, self.note_opacity)
+        let raw = self.c32_alpha(self.note_selected_fill, self.note_opacity);
+        let luminance = 0.2126 * raw.r() as f32 + 0.7152 * raw.g() as f32 + 0.0722 * raw.b() as f32;
+        if luminance > 150.0 {
+            let scale = 150.0 / luminance;
+            Color32::from_rgba_unmultiplied(
+                (raw.r() as f32 * scale) as u8,
+                (raw.g() as f32 * scale) as u8,
+                (raw.b() as f32 * scale) as u8,
+                raw.a(),
+            )
+        } else {
+            raw
+        }
     }
 
     pub fn note_selected_stroke_c32(&self) -> Color32 {
-        self.c32(self.note_selected_stroke)
+        let raw = self.c32(self.note_selected_stroke);
+        // Theme files created by older versions often stored a near-white
+        // selected outline. Keep the configured hue, but cap its luminance
+        // so selected notes remain readable on saturated note fills.
+        let luminance = 0.2126 * raw.r() as f32 + 0.7152 * raw.g() as f32 + 0.0722 * raw.b() as f32;
+        if luminance > 185.0 {
+            let scale = 185.0 / luminance;
+            Color32::from_rgba_unmultiplied(
+                (raw.r() as f32 * scale) as u8,
+                (raw.g() as f32 * scale) as u8,
+                (raw.b() as f32 * scale) as u8,
+                raw.a(),
+            )
+        } else {
+            raw
+        }
     }
 
     pub fn note_hover_c32(&self) -> Color32 {
@@ -569,7 +596,9 @@ impl ThemeConfig {
     }
 
     pub fn card_stroke(&self) -> Stroke {
-        Stroke::new(1.0, self.grid_line_sub_c32())
+        // Cards devem separar grupos de conteúdo sem criar uma caixa pesada
+        // ao redor de cada controle.
+        Stroke::new(0.8, self.grid_line_sub_c32().linear_multiply(0.38))
     }
 
     pub fn card_border_c32(&self) -> Color32 {
@@ -577,7 +606,7 @@ impl ThemeConfig {
     }
 
     pub fn active_border_stroke(&self) -> Stroke {
-        Stroke::new(1.5, self.accent_c32())
+        Stroke::new(1.2, self.accent_c32())
     }
 
     pub fn create_egui_visuals(&self) -> egui::Visuals {
@@ -602,19 +631,32 @@ impl ThemeConfig {
         visuals.window_fill = panel_bg;
         visuals.window_rounding = round;
         visuals.menu_rounding = round;
-        visuals.window_stroke = Stroke::new(1.0, grid_bar);
+        // Softer surfaces: reserve strong borders for focus/selection states.
+        visuals.window_shadow = egui::epaint::Shadow {
+            offset: egui::vec2(0.0, 6.0),
+            blur: 22.0,
+            spread: 0.0,
+            color: Color32::from_black_alpha(36),
+        };
+        visuals.popup_shadow = egui::epaint::Shadow {
+            offset: egui::vec2(0.0, 4.0),
+            blur: 14.0,
+            spread: 0.0,
+            color: Color32::from_black_alpha(30),
+        };
+        visuals.window_stroke = Stroke::new(0.8, grid_bar.linear_multiply(0.30));
         visuals.extreme_bg_color = canvas_bg;
         visuals.faint_bg_color = header_bg;
         visuals.code_bg_color = canvas_bg;
         visuals.hyperlink_color = accent;
 
         visuals.widgets.noninteractive.bg_fill = panel_bg;
-        visuals.widgets.noninteractive.bg_stroke = Stroke::new(1.0, grid_sub);
+        visuals.widgets.noninteractive.bg_stroke = Stroke::new(0.8, grid_sub.linear_multiply(0.30));
         visuals.widgets.noninteractive.fg_stroke = Stroke::new(1.0, text_m);
         visuals.widgets.noninteractive.rounding = round;
 
         visuals.widgets.inactive.bg_fill = header_bg;
-        visuals.widgets.inactive.bg_stroke = Stroke::new(1.0, grid_sub);
+        visuals.widgets.inactive.bg_stroke = Stroke::new(0.8, grid_sub.linear_multiply(0.38));
         visuals.widgets.inactive.fg_stroke = Stroke::new(1.0, text_p);
         visuals.widgets.inactive.rounding = round;
 
@@ -633,7 +675,7 @@ impl ThemeConfig {
         };
         visuals.widgets.hovered.bg_fill = hovered_bg;
         visuals.widgets.hovered.bg_stroke =
-            Stroke::new(1.0, self.c32_alpha(self.accent_color, 0.8));
+            Stroke::new(1.0, self.c32_alpha(self.accent_color, 0.52));
         visuals.widgets.hovered.fg_stroke = Stroke::new(
             1.0,
             if is_light {
@@ -644,7 +686,7 @@ impl ThemeConfig {
         );
         visuals.widgets.hovered.rounding = round;
 
-        visuals.widgets.active.bg_fill = self.c32_alpha(self.accent_color, 0.35);
+        visuals.widgets.active.bg_fill = self.c32_alpha(self.accent_color, 0.26);
         visuals.widgets.active.bg_stroke = Stroke::new(1.2, accent);
         visuals.widgets.active.fg_stroke = Stroke::new(1.2, text_p);
         visuals.widgets.active.rounding = round;
@@ -654,8 +696,12 @@ impl ThemeConfig {
         visuals.widgets.open.fg_stroke = Stroke::new(1.0, text_p);
         visuals.widgets.open.rounding = round;
 
-        visuals.selection.bg_fill = self.c32_alpha(self.accent_color, 0.25);
-        visuals.selection.stroke = Stroke::new(1.0, accent);
+        // Use the note selection palette for egui selections too. The accent
+        // can be neon/near-white in older themes and makes selected labels
+        // unreadable when egui paints its selection layer.
+        visuals.selection.bg_fill = self.note_selected_fill_c32().linear_multiply(0.32);
+        visuals.selection.stroke =
+            Stroke::new(1.0, self.note_selected_stroke_c32().linear_multiply(0.72));
 
         visuals.override_text_color = None;
         visuals.warn_fg_color = Color32::from_rgb(235, 170, 60);

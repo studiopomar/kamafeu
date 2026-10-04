@@ -24,13 +24,8 @@ path = "src/bin/copaiba.rs"
 required-features = ["desktop"]
 
 [[bin]]
-name = "venus-editor"
-path = "src/bin/venus-editor.rs"
-required-features = ["desktop"]
-
-[[bin]]
-name = "venus-corpus"
-path = "src/bin/venus-corpus.rs"
+name = "catalina"
+path = "src/bin/catalina.rs"
 required-features = ["desktop"]
 
 [package.metadata.android]
@@ -56,7 +51,9 @@ theme = "@android:style/Theme.NoTitleBar.Fullscreen"
 
 [package.metadata.android.application.activity]
 label = "Kamafeu Studio"
-orientation = "sensorLandscape"
+# Permite portrait e landscape; o layout seleciona a navegação compacta
+# automaticamente quando a largura disponível é pequena.
+orientation = "sensor"
 
 # Release signing is supplied through CARGO_APK_RELEASE_KEYSTORE and
 # CARGO_APK_RELEASE_KEYSTORE_PASSWORD (see docs/android-signing.md).
@@ -67,6 +64,7 @@ hound = "3.5"
 rand = "0.8"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+pinyin = "0.11"
 yaml_serde = "0.10"
 clap = { version = "4.4", features = ["derive"] }
 midly = "0.5"
@@ -75,10 +73,15 @@ zip = { version = "0.6", default-features = false, features = ["deflate"] }
 tempfile = "3.8"
 flacenc = "0.5.1"
 web-time = "1.1"
+ndarray = "0.17.2"
+rustfft = "6.4"
+world-rs = "0.1.0"
+ort = { version = "2.0.0-rc.13", default-features = false, features = ["std", "ndarray", "download-binaries", "copy-dylibs", "tls-native"] }
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 rayon = "1.10"
 rodio = "0.19"
+ureq = { version = "2.12", default-features = false, features = ["json", "tls"] }
 
 [target.'cfg(not(any(target_os = "android", target_arch = "wasm32")))'.dependencies]
 discord-rich-presence = "0.2.4"

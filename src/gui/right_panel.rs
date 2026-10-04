@@ -230,7 +230,7 @@ pub fn draw_right_panel(
                             Frame::none()
                                 .fill(Color32::from_rgb(36, 27, 53))
                                 .rounding(Rounding::same(4.0))
-                                .stroke(Stroke::new(1.0, Color32::from_rgb(61, 46, 84)))
+                                    .stroke(theme.card_stroke())
                                 .inner_margin(egui::Margin::same(8.0))
                                 .show(ui, |ui| {
                                     ui.label(RichText::new("Informações Básicas").strong().size(11.0).color(Color32::from_rgb(0, 255, 157)));
@@ -246,9 +246,17 @@ pub fn draw_right_panel(
                                         .selected_text(phonemizer_override.as_deref().unwrap_or("Global"))
                                         .show_ui(ui, |ui| {
                                             changed_phonemizer |= ui.selectable_value(&mut phonemizer_override, None, "Global").changed();
+                                            let mut language = None;
                                             for mode in crate::phonemizer::PhonemizerMode::ALL {
+                                                let info = mode.info();
+                                                if language != Some(info.language) {
+                                                    ui.separator();
+                                                    ui.label(egui::RichText::new(info.language).strong());
+                                                    language = Some(info.language);
+                                                }
                                                 let name = format!("{mode:?}");
-                                                changed_phonemizer |= ui.selectable_value(&mut phonemizer_override, Some(name.clone()), name).changed();
+                                                let label = mode.display_name();
+                                                changed_phonemizer |= ui.selectable_value(&mut phonemizer_override, Some(name), label).changed();
                                             }
                                         });
 
@@ -275,7 +283,7 @@ pub fn draw_right_panel(
                             Frame::none()
                                 .fill(Color32::from_rgb(26, 20, 38))
                                 .rounding(Rounding::same(4.0))
-                                .stroke(Stroke::new(1.0, Color32::from_rgb(61, 46, 84)))
+                                .stroke(theme.card_stroke())
                                 .inner_margin(egui::Margin::same(8.0))
                                 .show(ui, |ui| {
                                     ui.label(RichText::new("Parâmetros Vocais").strong().size(11.0).color(Color32::from_rgb(0, 255, 157)));
@@ -327,7 +335,7 @@ pub fn draw_right_panel(
                             Frame::none()
                                 .fill(Color32::from_rgb(26, 20, 38))
                                 .rounding(Rounding::same(4.0))
-                                .stroke(Stroke::new(1.0, Color32::from_rgb(61, 46, 84)))
+                                .stroke(theme.card_stroke())
                                 .inner_margin(egui::Margin::same(8.0))
                                 .show(ui, |ui| {
                                     ui.label(RichText::new("Envelope / Fades").strong().size(11.0).color(Color32::from_rgb(0, 255, 157)));
@@ -374,7 +382,7 @@ pub fn draw_right_panel(
                             Frame::none()
                                 .fill(Color32::from_rgb(26, 20, 38))
                                 .rounding(Rounding::same(4.0))
-                                .stroke(Stroke::new(1.0, Color32::from_rgb(61, 46, 84)))
+                                .stroke(theme.card_stroke())
                                 .inner_margin(egui::Margin::same(8.0))
                                 .show(ui, |ui| {
                                     ui.label(RichText::new("Portamento").strong().size(11.0).color(Color32::from_rgb(0, 255, 157)));
@@ -432,7 +440,7 @@ pub fn draw_right_panel(
                             Frame::none()
                                 .fill(Color32::from_rgb(26, 20, 38))
                                 .rounding(Rounding::same(4.0))
-                                .stroke(Stroke::new(1.0, Color32::from_rgb(61, 46, 84)))
+                                .stroke(theme.card_stroke())
                                 .inner_margin(egui::Margin::same(8.0))
                                 .show(ui, |ui| {
                                     ui.label(RichText::new("Vibrato OpenUtau").strong().size(11.0).color(Color32::from_rgb(0, 255, 157)));
@@ -551,12 +559,20 @@ pub fn draw_right_panel(
                                         .find_executable()
                                         .unwrap_or_else(|| profile.default_path()),
                                 );
-                                if profile == crate::drivers::KnownResampler::HifisamplerRs {
+                                if matches!(
+                                    profile,
+                                    crate::drivers::KnownResampler::Catalina
+                                        | crate::drivers::KnownResampler::HifisamplerRs
+                                ) {
                                     let _ = crate::drivers::resampler_driver::ensure_hifisampler_ready();
                                 }
                             }
 
-                            if profile == crate::drivers::KnownResampler::HifisamplerRs {
+                            if matches!(
+                                profile,
+                                crate::drivers::KnownResampler::Catalina
+                                    | crate::drivers::KnownResampler::HifisamplerRs
+                            ) {
                                 if let Ok(ref msg) = crate::drivers::resampler_driver::ensure_hifisampler_ready() {
                                     ui.label(
                                         RichText::new("pronto (ONNX)")
@@ -582,8 +598,8 @@ pub fn draw_right_panel(
                     }
                     ui.radio_value(
                         selected_resampler,
-                        "VENUS (WORLD)".to_string(),
-                        "VENUS (WORLD)",
+                        "WORLD (Nativo)".to_string(),
+                        "WORLD (Nativo)",
                     );
 
                     ui.add_space(4.0);
@@ -630,7 +646,7 @@ pub fn draw_right_panel(
                                 }
                             }
                         } else {
-                            ui.label(RichText::new("Executável não encontrado. O Kamafeu Studio usará o fallback VENUS/WORLD.").size(10.0).italics().color(Color32::from_rgb(255, 200, 100)));
+                            ui.label(RichText::new("Executável não encontrado. O Kamafeu Studio usará o WORLD nativo em Rust.").size(10.0).italics().color(Color32::from_rgb(255, 200, 100)));
                         }
                     }
 

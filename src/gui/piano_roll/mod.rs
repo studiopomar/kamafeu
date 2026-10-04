@@ -54,6 +54,20 @@ pub fn draw_piano_roll(
         0.0f32
     };
     let is_narrow_screen = ui.available_width() < 720.0;
+    let viewport = ui.ctx().screen_rect();
+    let touch_first = cfg!(target_os = "android")
+        || viewport.width() < 1100.0
+        || (viewport.height() < 600.0 && viewport.width() < 1200.0);
+    let animation_time = ui.input(|input| input.time) as f32;
+    let playback_pulse = if state.ui_animations_enabled {
+        0.5 + 0.5 * (animation_time * std::f32::consts::TAU * 1.2 * state.ui_animation_speed).sin()
+    } else {
+        0.0
+    };
+    if state.is_playing && state.ui_animations_enabled {
+        ui.ctx()
+            .request_repaint_after(std::time::Duration::from_millis(16));
+    }
     let keyboard_width = if is_narrow_screen { 44.0f32 } else { 62.0f32 };
     let navigation = navigation::update(ui, state, ruler_height, keyboard_width);
     let is_mod_zoom = navigation.is_mod_zoom;
@@ -449,12 +463,14 @@ pub fn draw_piano_roll(
     let grid_width = grid_width.max(3000.0);
     let grid_height = key_count as f32 * state.row_height;
 
+    // Em telas estreitas o gesto principal deve navegar pelo canvas. No
+    // desktop, o arrasto primário continua reservado à edição das notas.
+    let compact_view = ui.available_width() < 1100.0;
     let mut scroll_area = egui::ScrollArea::both()
         .id_salt("piano_roll_scroll")
         .auto_shrink([false, false])
         .enable_scrolling(!is_mod_zoom && !is_pinch_zoom)
-        // Primary-button drags edit notes; wheel and scrollbars still navigate.
-        .drag_to_scroll(false);
+        .drag_to_scroll(compact_view);
 
     if !state.initial_scrolled {
         let (first_note_pos, target_midi) = if let Some(first) = notes.iter().min_by(|a, b| {
@@ -670,7 +686,7 @@ pub fn draw_piano_roll(
             pointer.filter(|_| !vibrato_interaction && !state.is_dragging_in_drawer);
         let mut interacted_with_note_or_ui = vibrato_interaction;
         let mut pending_lyric_tags: Vec<(Rect, Color32, String, Color32, bool, Rect)> = Vec::new();
-        let mut pending_phoneme_badges: Vec<(Rect, String, bool, Rect)> = Vec::new();
+        let mut pending_phoneme_badges: Vec<(Rect, String, bool, Rect, bool)> = Vec::new();
         let mut pending_mode_badges: Vec<(Rect, String)> = Vec::new();
 
         struct PendingPitchHandle {
@@ -715,11 +731,18 @@ pub fn draw_piano_roll(
 
             // Velocity dynamic modulation
             let vel_factor = (note.expressions.velocity as f32 / 100.0).clamp(0.65, 1.35);
-            let base_color = if is_selected {
-                theme.note_selected_fill_c32()
-            } else {
-                theme.note_fill_c32()
-            };
+            let regular = theme.note_fill_c32();
+            let selected_base = theme.note_selected_fill_c32();
+            // The selected state must not become a white/cyan slab. Keep the
+            // theme hue, but lower its luminance so the lyric remains the
+            // primary visual element.
+            let selected = Color32::from_rgba_unmultiplied(
+                (selected_base.r() as f32 * 0.28) as u8,
+                (selected_base.g() as f32 * 0.28) as u8,
+                (selected_base.b() as f32 * 0.28) as u8,
+                selected_base.a(),
+            );
+            let base_color = if is_selected { selected } else { regular };
             let note_color = Color32::from_rgba_unmultiplied(
                 ((base_color.r() as f32 * vel_factor).min(255.0)) as u8,
                 ((base_color.g() as f32 * vel_factor).min(255.0)) as u8,
@@ -730,9 +753,12 @@ pub fn draw_piano_roll(
             // Active playback pulsing glow halo
             if is_active_playback {
                 painter.rect_stroke(
-                    note_rect.expand(2.5),
+                    note_rect.expand(2.0 + playback_pulse * 1.5),
                     theme.note_rounding(),
-                    Stroke::new(3.0_f32, theme.playhead_c32()),
+                    Stroke::new(
+                        1.8 + playback_pulse * 1.4,
+                        theme.c32_alpha(theme.playhead_color, 0.30 + playback_pulse * 0.35),
+                    ),
                 );
             }
 
@@ -741,35 +767,19 @@ pub fn draw_piano_roll(
             painter.rect_filled(note_rect, theme.note_rounding(), note_color);
 
             // Borda refinada com realce superior sutil
-            painter.rect_stroke(
-                note_rect,
-                theme.note_rounding(),
-                theme.note_stroke(is_selected),
-            );
-
-            // Brilho superior suave e moderno (sem chanfro duro)
-            if note_rect.height() >= 12.0 && note_rect.width() >= 8.0 {
-                let shine_h = (note_rect.height() * 0.40).min(6.0);
-                let shine_rect = Rect::from_min_max(
-                    Pos2::new(note_rect.min.x + 1.0, note_rect.min.y + 1.0),
-                    Pos2::new(note_rect.max.x - 1.0, note_rect.min.y + shine_h),
-                );
-                painter.rect_filled(
-                    shine_rect,
-                    Rounding {
-                        nw: (theme.note_corner_radius - 1.0).max(0.0),
-                        ne: (theme.note_corner_radius - 1.0).max(0.0),
-                        se: 0.0,
-                        sw: 0.0,
-                    },
-                    Color32::from_rgba_unmultiplied(
-                        255,
-                        255,
-                        255,
-                        if is_selected { 45 } else { 25 },
-                    ),
-                );
-            }
+            painter.rect_stroke(note_rect, theme.note_rounding(), {
+                let regular_stroke = theme.note_stroke(false);
+                // Keep the selected outline in the note palette instead
+                // of switching to a near-white stroke that competes with
+                // the lyric and envelope labels.
+                let selected_stroke =
+                    Stroke::new(theme.note_stroke_width.max(0.5), theme.note_stroke_c32());
+                if is_selected {
+                    selected_stroke
+                } else {
+                    regular_stroke
+                }
+            });
 
             if let Some(ref dragged_alias) = phoneme_state.dragged_phoneme {
                 if let Some(mpos) = mouse_interact_pos {
@@ -803,16 +813,16 @@ pub fn draw_piano_roll(
                     ),
                 );
                 let pill_bg = if is_selected {
-                    Color32::from_rgb(15, 15, 20) // Solid dark for high contrast
+                    theme.c32_alpha(theme.note_selected_stroke, 0.12)
                 } else {
-                    Color32::from_rgb(26, 18, 8) // Opaque dark so pitch line NEVER shows through
+                    theme.c32_alpha(theme.bg_panel, 0.68)
                 };
 
-                let text_color = if is_selected {
-                    Color32::WHITE
-                } else {
-                    theme.text_note_tag_c32()
-                };
+                // Lyric labels sit on saturated note fills. A fixed dark
+                // ink color is more reliable than the global theme text
+                // color, which can be white in both selected and unselected
+                // dark themes.
+                let text_color = Color32::from_rgb(18, 25, 35);
 
                 pending_lyric_tags.push((
                     pill_rect,
@@ -846,6 +856,7 @@ pub fn draw_piano_roll(
                                 phoneme.clone(),
                                 true,
                                 note_rect,
+                                is_selected,
                             ));
                         } else {
                             let marker_rect = Rect::from_center_size(
@@ -857,6 +868,7 @@ pub fn draw_piano_roll(
                                 phoneme.clone(),
                                 false,
                                 note_rect,
+                                is_selected,
                             ));
                         }
                     }
@@ -877,13 +889,10 @@ pub fn draw_piano_roll(
                 painter.rect_filled(
                     crossfade_rect,
                     Rounding::same(2.0),
-                    Color32::from_rgba_unmultiplied(0, 240, 180, if is_selected { 38 } else { 20 }),
+                    theme.c32_alpha(theme.note_stroke, if is_selected { 0.18 } else { 0.10 }),
                 );
-                let cross_color = if is_selected {
-                    Color32::from_rgb(0, 255, 200)
-                } else {
-                    Color32::from_rgba_unmultiplied(0, 220, 180, 140)
-                };
+                let cross_color =
+                    theme.c32_alpha(theme.note_stroke, if is_selected { 0.72 } else { 0.48 });
                 painter.line_segment(
                     [
                         Pos2::new(crossfade_left_x, y_bottom),
@@ -907,7 +916,7 @@ pub fn draw_piano_roll(
                         egui::Align2::CENTER_CENTER,
                         format!("ovl {:.0}ms", e.crossfade_ms),
                         egui::FontId::proportional(8.5),
-                        Color32::from_rgb(200, 255, 235),
+                        theme.text_note_tag_c32().linear_multiply(0.82),
                     );
                 }
             }
@@ -929,19 +938,19 @@ pub fn draw_piano_roll(
                 curve_screen_pts.push(Pos2::new(px_x, px_y));
             }
 
-            if state.show_envelope_handles || is_selected {
+            if state.show_envelope_handles {
                 // 100% (0 dB) Nominal Reference Guide
                 let ref_100_y = y_top;
                 painter.line_segment(
                     [Pos2::new(x_start, ref_100_y), Pos2::new(x_end, ref_100_y)],
-                    Stroke::new(0.8_f32, Color32::from_rgba_unmultiplied(0, 220, 255, 40)),
+                    Stroke::new(0.8_f32, theme.note_stroke_c32().linear_multiply(0.22)),
                 );
 
                 // Translucent filled area under the curve
                 let fill_color = if is_selected {
-                    Color32::from_rgba_unmultiplied(0, 220, 255, 38)
+                    theme.c32_alpha(theme.note_stroke, 0.10)
                 } else {
-                    Color32::from_rgba_unmultiplied(0, 180, 220, 16)
+                    theme.c32_alpha(theme.note_stroke, 0.07)
                 };
 
                 let mut poly_pts = Vec::with_capacity(curve_screen_pts.len() + 2);
@@ -962,32 +971,49 @@ pub fn draw_piano_roll(
 
                 // Smooth glowing outline curve
                 let env_color = if is_selected {
-                    Color32::from_rgba_unmultiplied(0, 240, 255, 235)
+                    theme.c32_alpha(theme.note_stroke, 0.62)
                 } else {
-                    Color32::from_rgba_unmultiplied(0, 190, 230, 110)
+                    theme.c32_alpha(theme.note_stroke, 0.48)
                 };
 
                 for i in 0..curve_screen_pts.len().saturating_sub(1) {
                     painter.line_segment(
                         [curve_screen_pts[i], curve_screen_pts[i + 1]],
-                        Stroke::new(if is_selected { 1.8_f32 } else { 1.3_f32 }, env_color),
+                        Stroke::new(if is_selected { 1.35_f32 } else { 1.3_f32 }, env_color),
                     );
                 }
             }
 
             if is_selected && state.show_envelope_handles {
-                let handle_labels = ["P1 (Ataque)", "P2 (Pico)", "P3 (Decaimento)", "P4 (Sustentação)", "P5 (Soltura)"];
+                let handle_labels = [
+                    "P1 (Ataque)",
+                    "P2 (Pico)",
+                    "P3 (Decaimento)",
+                    "P4 (Sustentação)",
+                    "P5 (Soltura)",
+                ];
                 let handle_descs = ["P1", "P2", "P3", "P4", "P5"];
 
                 for (pt_i, pt) in env_screen_pts.iter().enumerate() {
-                    let is_pt_hover = mouse_interact_pos.is_some_and(|m| m.distance(*pt) <= 13.0);
+                    let is_pt_hover = mouse_interact_pos
+                        .is_some_and(|m| m.distance(*pt) <= if touch_first { 20.0 } else { 13.0 });
                     let is_pt_drag = state.dragging_envelope_pt == Some((idx, pt_i));
                     let radius = if is_pt_drag {
-                        7.0
+                        if touch_first {
+                            9.0
+                        } else {
+                            7.0
+                        }
                     } else if is_pt_hover {
-                        6.0
+                        if touch_first {
+                            8.0
+                        } else {
+                            6.0
+                        }
+                    } else if touch_first {
+                        5.0
                     } else {
-                        4.5
+                        3.5
                     };
 
                     // Outer halo glow
@@ -995,16 +1021,16 @@ pub fn draw_piano_roll(
                         painter.circle_filled(
                             *pt,
                             radius + 4.0,
-                            Color32::from_rgba_unmultiplied(0, 240, 255, 55),
+                            theme.c32_alpha(theme.note_stroke, 0.22),
                         );
                     }
 
                     let fill = if is_pt_drag {
-                        Color32::WHITE
+                        theme.accent_c32()
                     } else if is_pt_hover {
-                        Color32::from_rgb(180, 245, 255)
+                        theme.note_hover_c32()
                     } else {
-                        Color32::from_rgb(0, 225, 255)
+                        theme.note_stroke_c32().linear_multiply(0.78)
                     };
 
                     painter.circle_filled(*pt, radius, fill);
@@ -1014,7 +1040,7 @@ pub fn draw_piano_roll(
                         Stroke::new(
                             1.4_f32,
                             if is_pt_drag {
-                                Color32::from_rgb(0, 210, 240)
+                                theme.note_stroke_c32()
                             } else {
                                 Color32::from_rgb(15, 25, 40)
                             },
@@ -1030,7 +1056,7 @@ pub fn draw_piano_roll(
                         let text_shape = painter.layout_no_wrap(
                             text,
                             egui::FontId::proportional(9.5),
-                            Color32::WHITE,
+                            theme.text_note_tag_c32(),
                         );
                         let pill_rect = Rect::from_center_size(
                             label_pos,
@@ -1044,7 +1070,7 @@ pub fn draw_piano_roll(
                         painter.rect_stroke(
                             pill_rect,
                             Rounding::same(4.0),
-                            Stroke::new(1.0_f32, Color32::from_rgb(0, 225, 255)),
+                            Stroke::new(1.0_f32, theme.note_stroke_c32()),
                         );
                         painter.galley(
                             Pos2::new(
@@ -1052,7 +1078,7 @@ pub fn draw_piano_roll(
                                 pill_rect.center().y - text_shape.size().y * 0.5,
                             ),
                             text_shape,
-                            Color32::WHITE,
+                            theme.text_note_tag_c32(),
                         );
                     }
                 }
@@ -1150,7 +1176,8 @@ pub fn draw_piano_roll(
                         let px_x = x_start + (pt.time_offset_ms * state.px_per_ms as f64) as f32;
                         let px_y =
                             y_center - (pt.pitch_offset_cents / 100.0) as f32 * state.row_height;
-                        mpos.distance(Pos2::new(px_x, px_y)) <= 16.0
+                        mpos.distance(Pos2::new(px_x, px_y))
+                            <= if touch_first { 22.0 } else { 16.0 }
                     });
                 if pitch_anchor_hit {
                     interacted_with_note_or_ui = true;
@@ -1162,9 +1189,9 @@ pub fn draw_piano_roll(
 
                 let hovered_env_pt =
                     if (is_selected || is_drag_this_env) && state.show_envelope_handles {
-                        env_screen_pts
-                            .iter()
-                            .position(|pt| mpos.distance(*pt) <= 14.0)
+                        env_screen_pts.iter().position(|pt| {
+                            mpos.distance(*pt) <= if touch_first { 21.0 } else { 14.0 }
+                        })
                     } else {
                         None
                     };
@@ -1200,8 +1227,7 @@ pub fn draw_piano_roll(
                         interacted_with_note_or_ui = true;
                         ui.ctx().set_cursor_icon(egui::CursorIcon::Grabbing);
                         let duration = note.duration_ms.max(1.0);
-                        let time =
-                            (f64::from(mpos.x - x_start) / f64::from(state.px_per_ms));
+                        let time = f64::from(mpos.x - x_start) / f64::from(state.px_per_ms);
                         let volume = ((y_bottom - mpos.y) / (y_bottom - y_top)).clamp(0.0, 2.0)
                             as f64
                             * 100.0;
@@ -1211,7 +1237,10 @@ pub fn draw_piano_roll(
                 }
 
                 if hovered_env_pt.is_some()
-                    && ui.input(|i| i.pointer.button_double_clicked(egui::PointerButton::Primary))
+                    && ui.input(|i| {
+                        i.pointer
+                            .button_double_clicked(egui::PointerButton::Primary)
+                    })
                 {
                     if let Some(pt_i) = hovered_env_pt {
                         on_before_change();
@@ -1474,18 +1503,14 @@ pub fn draw_piano_roll(
                 global_segments.push(current_segment);
             }
 
-            // Triple-pass glowing vocal pitch rendering
-            let bloom_stroke =
-                Stroke::new(4.2_f32, Color32::from_rgba_unmultiplied(0, 215, 255, 38));
-            let inner_glow_stroke =
-                Stroke::new(2.4_f32, Color32::from_rgba_unmultiplied(60, 235, 255, 110));
-            let core_pitch_stroke =
-                Stroke::new(1.3_f32, Color32::from_rgba_unmultiplied(255, 255, 255, 230));
+            // Uma linha principal e um halo discreto mantêm a curva legível
+            // sem o efeito neon de múltiplas camadas sobrepostas.
+            let bloom_stroke = Stroke::new(2.8_f32, theme.c32_alpha(theme.pitch_curve_color, 0.22));
+            let core_pitch_stroke = Stroke::new(1.35_f32, theme.pitch_curve_c32());
 
             for segment in &global_segments {
                 if segment.len() >= 2 {
                     painter.add(egui::Shape::line(segment.clone(), bloom_stroke));
-                    painter.add(egui::Shape::line(segment.clone(), inner_glow_stroke));
                     painter.add(egui::Shape::line(segment.clone(), core_pitch_stroke));
                 }
             }
@@ -2065,24 +2090,18 @@ pub fn draw_piano_roll(
                 };
 
                 let (bg_color, ring_color) = if is_dragged {
-                    (
-                        Color32::from_rgb(255, 230, 80),
-                        Color32::from_rgb(255, 255, 255),
-                    )
+                    (theme.accent_c32(), theme.note_stroke_c32())
                 } else if is_hovered {
-                    (
-                        Color32::from_rgb(255, 170, 40),
-                        Color32::from_rgb(255, 240, 180),
-                    )
+                    (theme.note_hover_c32(), theme.note_stroke_c32())
                 } else if handle.is_custom {
                     (
-                        Color32::from_rgb(0, 225, 255),
-                        Color32::from_rgb(200, 255, 255),
+                        theme.note_stroke_c32().linear_multiply(0.72),
+                        theme.note_stroke_c32(),
                     )
                 } else {
                     (
-                        Color32::from_rgba_unmultiplied(80, 180, 220, 180),
-                        Color32::from_rgba_unmultiplied(200, 240, 255, 140),
+                        theme.note_stroke_c32().linear_multiply(0.52),
+                        theme.note_stroke_c32().linear_multiply(0.82),
                     )
                 };
 
@@ -2091,7 +2110,7 @@ pub fn draw_piano_roll(
                     painter.circle_filled(
                         handle.pos,
                         radius + 4.0,
-                        Color32::from_rgba_unmultiplied(0, 220, 255, 45),
+                        theme.note_stroke_c32().linear_multiply(0.18),
                     );
                 }
 
@@ -2109,7 +2128,7 @@ pub fn draw_piano_roll(
                     let badge_galley = painter.layout_no_wrap(
                         badge_text.clone(),
                         badge_font.clone(),
-                        Color32::WHITE,
+                        theme.text_note_tag_c32(),
                     );
                     let badge_pos = Pos2::new(
                         handle.pos.x - badge_galley.size().x * 0.5,
@@ -2126,7 +2145,7 @@ pub fn draw_piano_roll(
                     painter.rect_stroke(
                         badge_rect,
                         Rounding::same(3.0),
-                        Stroke::new(1.0, Color32::from_rgba_unmultiplied(0, 220, 255, 120)),
+                        Stroke::new(1.0, theme.note_stroke_c32().linear_multiply(0.62)),
                     );
                     painter.text(
                         badge_rect.center(),
@@ -2139,8 +2158,7 @@ pub fn draw_piano_roll(
             }
         }
 
-        for (_pill_rect, _pill_bg, lyric, _text_color, is_selected, note_rect) in pending_lyric_tags
-        {
+        for (_pill_rect, pill_bg, lyric, text_color, is_selected, note_rect) in pending_lyric_tags {
             if note_rect.width() < 10.0 {
                 continue;
             }
@@ -2159,7 +2177,8 @@ pub fn draw_piano_roll(
             let font = egui::FontId::proportional(font_size);
 
             // Calcula o tamanho do texto para criar uma cápsula/badge suave de fundo
-            let text_galley = painter.layout_no_wrap(lyric.clone(), font.clone(), Color32::WHITE);
+            let text_galley =
+                painter.layout_no_wrap(lyric.clone(), font.clone(), Color32::from_rgb(18, 25, 35));
             let text_size = text_galley.size();
 
             let badge_h = (text_size.y + 2.0).min(note_rect.height() - 4.0).max(12.0);
@@ -2172,16 +2191,12 @@ pub fn draw_piano_roll(
                 Vec2::new(badge_w, badge_h),
             );
 
-            // Fundo escuro sutil com vidro fosco (glassmorphic dark pill) para legibilidade absoluta
-            let badge_bg = if is_selected {
-                Color32::from_rgba_unmultiplied(10, 15, 25, 215)
-            } else {
-                Color32::from_rgba_unmultiplied(12, 16, 20, 175)
-            };
+            // Superfície translúcida baseada no tema, sem caixa preta rígida.
+            let badge_bg = pill_bg;
             let badge_stroke = if is_selected {
-                Stroke::new(1.0, Color32::from_rgba_unmultiplied(255, 255, 255, 90))
+                Stroke::new(1.0, theme.note_stroke_c32().linear_multiply(0.72))
             } else {
-                Stroke::new(0.8, Color32::from_rgba_unmultiplied(255, 255, 255, 30))
+                Stroke::new(0.8, theme.note_stroke(false).color.linear_multiply(0.55))
             };
 
             clipped.rect_filled(badge_rect, Rounding::same(3.5), badge_bg);
@@ -2190,9 +2205,9 @@ pub fn draw_piano_roll(
             let text_pos = Pos2::new(badge_rect.min.x + 4.0, badge_rect.center().y);
 
             let final_text_color = if is_selected {
-                Color32::WHITE
+                theme.text_note_tag_c32().linear_multiply(0.82)
             } else {
-                Color32::WHITE
+                text_color
             };
 
             // Texto com renderização precisa dentro da badge
@@ -2205,7 +2220,7 @@ pub fn draw_piano_roll(
             );
         }
 
-        for (badge_rect, phoneme, integrated, note_rect) in pending_phoneme_badges {
+        for (badge_rect, phoneme, integrated, note_rect, _is_selected) in pending_phoneme_badges {
             if integrated {
                 let clipped = painter.with_clip_rect(note_rect);
                 // Tipografia e cor nítidas em branco para o fonema secundário na parte inferior
@@ -2214,10 +2229,14 @@ pub fn draw_piano_roll(
                     egui::Align2::LEFT_CENTER,
                     phoneme,
                     egui::FontId::proportional(9.0),
-                    Color32::from_rgba_unmultiplied(235, 245, 255, 220),
+                    theme.text_note_tag_c32().linear_multiply(0.82),
                 );
             } else {
-                painter.circle_filled(badge_rect.center(), 2.5, Color32::from_rgb(0, 220, 255));
+                painter.circle_filled(
+                    badge_rect.center(),
+                    2.5,
+                    theme.note_stroke_c32().linear_multiply(0.72),
+                );
                 ui.interact(
                     badge_rect,
                     ui.make_persistent_id((
@@ -2276,7 +2295,7 @@ pub fn draw_piano_roll(
             painter.rect_stroke(
                 edit_rect.expand(2.0),
                 Rounding::same(5.0),
-                Stroke::new(2.0_f32, Color32::from_rgb(0, 220, 255)),
+                Stroke::new(2.0_f32, theme.note_stroke_c32()),
             );
 
             let mut text_lost_focus = false;
@@ -2930,11 +2949,16 @@ pub fn draw_piano_roll(
                                 .clamp(state.min_midi, state.max_midi);
 
                             let new_note = UNote::new(
-                                "ka",
+                                &state.default_note_lyric,
                                 midi_to_note_name(click_midi),
                                 click_start_ms,
-                                50.0,
+                                state.default_note_duration_ms.max(1.0),
                             );
+                            let mut new_note = new_note;
+                            new_note.expressions.dynamics = state.default_note_dynamics;
+                            new_note.expressions.volume = state.default_note_volume;
+                            new_note.expressions.attack = state.default_note_attack;
+                            new_note.expressions.decay = state.default_note_decay;
                             notes.push(new_note);
                             let new_idx = notes.len() - 1;
                             state.creating_note_idx = Some(new_idx);
@@ -2988,12 +3012,12 @@ pub fn draw_piano_roll(
                     painter.rect_filled(
                         hover_rect,
                         Rounding::ZERO,
-                        Color32::from_rgba_premultiplied(0, 255, 157, 18),
+                        theme.c32_alpha(theme.accent_color, 0.08),
                     );
                     painter.rect_stroke(
                         hover_rect,
                         Rounding::ZERO,
-                        Stroke::new(1.0_f32, Color32::from_rgb(0, 255, 157)),
+                        Stroke::new(1.0_f32, theme.c32_alpha(theme.accent_color, 0.62)),
                     );
 
                     if !ui.input(|i| i.pointer.primary_down()) {
@@ -3089,7 +3113,10 @@ pub fn draw_piano_roll(
                     Pos2::new(playhead_x, keys_y_min),
                     Pos2::new(playhead_x, keys_y_max),
                 ],
-                Stroke::new(3.0_f32, theme.c32_alpha(theme.playhead_color, 0.25)),
+                Stroke::new(
+                    2.0 + playback_pulse * 1.2,
+                    theme.c32_alpha(theme.playhead_color, 0.18 + playback_pulse * 0.16),
+                ),
             );
 
             painter.line_segment(

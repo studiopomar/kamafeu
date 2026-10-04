@@ -659,10 +659,20 @@ impl VccvBrapaPhonemizer {
                 } else {
                     let mut total_trans_dur = 0.0;
                     let mut trans_durs = Vec::new();
+                    // Inter-note VC/CC aliases belong to the outgoing note's
+                    // subbank. Their oto.ini timing must be read from the same
+                    // pitch that will render them; looking them up at the new
+                    // note pitch mixes two different recordings and produces
+                    // abrupt, overlong transitions on multipitch banks.
+                    let transition_pitch = if syl_idx == 0 {
+                        prev_pitch.as_deref().unwrap_or(&note.pitch)
+                    } else {
+                        &note.pitch
+                    };
 
                     for alias in &aliases[..aliases.len() - 1] {
                         let base_len = vb
-                            .find_mapped_entry(alias, &note.pitch)
+                            .find_mapped_entry(alias, transition_pitch)
                             .map(|oto| (oto.preutterance - oto.overlap.min(0.0)).max(5.0))
                             .unwrap_or_else(|| Self::get_transition_basic_length_ms(alias))
                             * crate::phonemizer::consonant_velocity_time_scale(
@@ -702,7 +712,7 @@ impl VccvBrapaPhonemizer {
                             }
                         }
 
-                        let trans_pitch = prev_pitch.as_ref().unwrap_or(&note.pitch).clone();
+                        let trans_pitch = transition_pitch.to_string();
                         let mut trans_pos = syl_start_pos - total_trans_dur;
                         for (alias_idx, alias) in aliases[..aliases.len() - 1].iter().enumerate() {
                             let dur = trans_durs[alias_idx];

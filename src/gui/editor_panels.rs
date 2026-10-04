@@ -140,13 +140,23 @@ impl KamafeuStudioApp {
                 self.export_wav();
             }
         };
-        let is_mobile = ctx.screen_rect().width() < 768.0;
+        // Portrait tablets and phones use the touch-first navigation instead of
+        // squeezing desktop side panels into an unusable column.
+        let viewport = ctx.screen_rect();
+        let is_mobile = cfg!(target_os = "android")
+            || viewport.width() < 1100.0
+            || (viewport.height() < 600.0 && viewport.width() < 1200.0);
 
         if is_mobile {
             TopBottomPanel::top("top_unified_control_panel")
-                .exact_height(38.0)
+                .exact_height(52.0)
                 .frame(Frame::none().fill(toolbar_fill))
-                .show(ctx, &mut draw_toolbar);
+                .show(ctx, |ui| {
+                    egui::ScrollArea::horizontal()
+                        .id_salt("mobile_toolbar_scroll")
+                        .auto_shrink([false, true])
+                        .show(ui, |ui| draw_toolbar(ui));
+                });
 
             self.render_mobile_bottom_bar(ctx);
             return;
@@ -566,72 +576,76 @@ impl KamafeuStudioApp {
         let theme = &self.config.theme;
 
         TopBottomPanel::bottom("mobile_bottom_nav_bar")
-            .exact_height(46.0)
+            .exact_height(68.0)
             .frame(
                 Frame::none()
                     .fill(theme.bg_panel_c32())
                     .stroke(egui::Stroke::new(1.0, theme.grid_line_sub_c32())),
             )
             .show(ctx, |ui| {
-                ui.horizontal_centered(|ui| {
-                    let total_width = ui.available_width();
-                    let tab_width = (total_width / 4.0).max(64.0);
+                let tab_width = (ui.available_width() / 4.0).max(64.0);
+                egui::ScrollArea::horizontal()
+                    .id_salt("mobile_bottom_nav_scroll")
+                    .auto_shrink([false, true])
+                    .drag_to_scroll(true)
+                    .show(ui, |ui| {
+                        ui.horizontal(|ui| {
+                            let tabs = [
+                                (
+                                    crate::gui::types::MobileViewTab::PianoRoll,
+                                    "🎹",
+                                    lang.tr("Notas", "Notes"),
+                                ),
+                                (
+                                    crate::gui::types::MobileViewTab::Arrangement,
+                                    "🎚️",
+                                    lang.tr("Faixas", "Tracks"),
+                                ),
+                                (
+                                    crate::gui::types::MobileViewTab::Inspector,
+                                    "ℹ️",
+                                    lang.tr("Inspetor", "Inspector"),
+                                ),
+                                (
+                                    crate::gui::types::MobileViewTab::Settings,
+                                    "⚙️",
+                                    lang.tr("Ajustes", "Settings"),
+                                ),
+                            ];
 
-                    let tabs = [
-                        (
-                            crate::gui::types::MobileViewTab::PianoRoll,
-                            "🎹",
-                            lang.tr("Notas", "Notes"),
-                        ),
-                        (
-                            crate::gui::types::MobileViewTab::Arrangement,
-                            "🎚️",
-                            lang.tr("Faixas", "Tracks"),
-                        ),
-                        (
-                            crate::gui::types::MobileViewTab::Inspector,
-                            "ℹ️",
-                            lang.tr("Inspetor", "Inspector"),
-                        ),
-                        (
-                            crate::gui::types::MobileViewTab::Settings,
-                            "⚙️",
-                            lang.tr("Ajustes", "Settings"),
-                        ),
-                    ];
+                            for (tab, icon, label) in tabs {
+                                let is_selected = self.active_mobile_tab == tab;
+                                let (bg, stroke, text_color) = if is_selected {
+                                    (
+                                        theme.c32_alpha(theme.accent_color, 0.25),
+                                        egui::Stroke::new(1.2, theme.accent_c32()),
+                                        theme.accent_c32(),
+                                    )
+                                } else {
+                                    (
+                                        egui::Color32::TRANSPARENT,
+                                        egui::Stroke::NONE,
+                                        theme.text_muted_c32(),
+                                    )
+                                };
 
-                    for (tab, icon, label) in tabs {
-                        let is_selected = self.active_mobile_tab == tab;
-                        let (bg, stroke, text_color) = if is_selected {
-                            (
-                                theme.c32_alpha(theme.accent_color, 0.25),
-                                egui::Stroke::new(1.2, theme.accent_c32()),
-                                theme.accent_c32(),
-                            )
-                        } else {
-                            (
-                                egui::Color32::TRANSPARENT,
-                                egui::Stroke::NONE,
-                                theme.text_muted_c32(),
-                            )
-                        };
+                                let btn = egui::Button::new(
+                                    egui::RichText::new(format!("{icon}\n{label}"))
+                                        .size(11.0)
+                                        .strong()
+                                        .color(text_color),
+                                )
+                                .min_size(egui::Vec2::new(tab_width - 4.0, 56.0))
+                                .fill(bg)
+                                .stroke(stroke)
+                                .rounding(egui::Rounding::same(6.0));
 
-                        let btn = egui::Button::new(
-                            egui::RichText::new(format!("{icon} {label}"))
-                                .size(11.0)
-                                .strong()
-                                .color(text_color),
-                        )
-                        .min_size(egui::Vec2::new(tab_width - 4.0, 36.0))
-                        .fill(bg)
-                        .stroke(stroke)
-                        .rounding(egui::Rounding::same(6.0));
-
-                        if ui.add(btn).clicked() {
-                            self.active_mobile_tab = tab;
-                        }
-                    }
-                });
+                                if ui.add(btn).clicked() {
+                                    self.active_mobile_tab = tab;
+                                }
+                            }
+                        });
+                    });
             });
     }
 }

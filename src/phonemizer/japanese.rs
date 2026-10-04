@@ -657,14 +657,13 @@ impl JapanesePhonemizer {
                             }
                         }
                     } else {
-                        // CVVC banks can also contain VCV aliases. Prefer the
-                        // complete VCV transition before the CVVC fallback.
-                        let mut cv_cands = vec![format!("* {}", exp.lyric), exp.lyric.to_string()];
-                        if let Some(pv) = prev_vowel {
-                            cv_cands.insert(0, format!("{} {}", pv, exp.lyric));
-                            cv_cands.insert(1, format!("{}_{}", pv, exp.lyric));
-                            cv_cands.insert(2, format!("{}{}", pv, exp.lyric));
-                        }
+                        // A CVVC phrase already receives its V-C transition at
+                        // the end of the preceding note. Selecting a VCV alias
+                        // here repeats that same transition (VC + VCV), which
+                        // sounds like a stuck or doubled consonant in hybrid
+                        // banks. Match OpenUtau's Japanese CVVC contract: use
+                        // the continuous-form CV alias first, then plain CV.
+                        let cv_cands = vec![format!("* {}", exp.lyric), exp.lyric.to_string()];
                         if let Some(found) = Self::find_oto_candidate(vb, &cv_cands, &note.pitch) {
                             current_lyric = found;
                         }
@@ -692,17 +691,16 @@ impl JapanesePhonemizer {
                                     vc_candidates.push(format!("{}{}", vow, sub_con));
                                 }
 
-                                if let Some(vc_alias) = Self::find_oto_candidate(
-                                    vb,
-                                    &vc_candidates,
-                                    &next_exp.note.pitch,
-                                ) {
+                                if let Some(vc_alias) =
+                                    Self::find_oto_candidate(vb, &vc_candidates, &note.pitch)
+                                {
                                     let mut vc_length_ms = 80.0;
-                                    let next_cands = vec![
-                                        format!("- {}", next_exp.lyric),
-                                        format!("-{}", next_exp.lyric),
-                                        next_exp.lyric.to_string(),
-                                    ];
+                                    // The transition length is derived from the
+                                    // ordinary next CV oto, never its phrase-head
+                                    // `- CV` recording. Head aliases commonly
+                                    // have a much larger preutterance and used to
+                                    // consume half of the preceding vowel here.
+                                    let next_cands = vec![next_exp.lyric.to_string()];
                                     let oto_entry = Self::find_oto_candidate(
                                         vb,
                                         &next_cands,
@@ -867,6 +865,96 @@ mod tests {
     }
 
     #[test]
+    fn japanese_cvvc_does_not_repeat_the_transition_with_a_vcv_alias() {
+        let mut vb = build_test_voicebank();
+        vb.entries.insert(
+            "a さ".to_string(),
+            OtoEntry::new(
+                "asa.wav".to_string(),
+                "a さ".to_string(),
+                0.0,
+                100.0,
+                -400.0,
+                80.0,
+                30.0,
+            ),
+        );
+        let notes = vec![
+            UNote::new("か", "C4", 0.0, 400.0),
+            UNote::new("さ", "C4", 400.0, 400.0),
+        ];
+
+        let phones = JapanesePhonemizer::apply_japanese(&notes, &vb, PhonemizerMode::CVVC);
+        assert_eq!(
+            phones
+                .iter()
+                .map(|phone| phone.lyric.as_str())
+                .collect::<Vec<_>>(),
+            ["- か", "a s", "さ"]
+        );
+    }
+
+    #[test]
+    fn japanese_cvvc_uses_plain_cv_timing_instead_of_phrase_head_timing() {
+        let mut vb = build_test_voicebank();
+        vb.entries.insert(
+            "- さ".to_string(),
+            OtoEntry::new(
+                "head-sa.wav".to_string(),
+                "- さ".to_string(),
+                0.0,
+                300.0,
+                -500.0,
+                300.0,
+                100.0,
+            ),
+        );
+        let plain = vb.entries.get_mut("さ").unwrap();
+        plain.preutterance = 60.0;
+        plain.overlap = 20.0;
+        let notes = vec![
+            UNote::new("か", "C4", 0.0, 400.0),
+            UNote::new("さ", "C4", 400.0, 400.0),
+        ];
+
+        let phones = JapanesePhonemizer::apply_japanese(&notes, &vb, PhonemizerMode::CVVC);
+        assert_eq!(phones[1].lyric, "a s");
+        assert!((phones[1].position_ms - 340.0).abs() < 1e-6);
+        assert!((phones[1].duration_ms - 60.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn japanese_cvvc_resolves_the_vc_with_the_outgoing_note_subbank() {
+        let mut vb = build_test_voicebank();
+        vb.prefix_map = crate::oto::PrefixMap::parse_yaml_str(
+            "subbanks:\n  - suffix: _C4\n    tone_ranges: [C4-C4]\n  - suffix: _D4\n    tone_ranges: [D4-D4]\n",
+        );
+        for alias in ["- か_C4", "a s_C4", "さ_D4"] {
+            vb.entries.insert(
+                alias.to_string(),
+                OtoEntry::new(
+                    format!("{alias}.wav"),
+                    alias.to_string(),
+                    0.0,
+                    80.0,
+                    -400.0,
+                    60.0,
+                    20.0,
+                ),
+            );
+        }
+        let notes = vec![
+            UNote::new("か", "C4", 0.0, 400.0),
+            UNote::new("さ", "D4", 400.0, 400.0),
+        ];
+
+        let phones = JapanesePhonemizer::apply_japanese(&notes, &vb, PhonemizerMode::CVVC);
+        assert_eq!(phones[1].lyric, "a s_C4");
+        assert_eq!(phones[1].pitch, "C4");
+        assert_eq!(phones[2].lyric, "さ_D4");
+    }
+
+    #[test]
     fn test_japanese_cvvc_substitute_consonant() {
         let vb = build_test_voicebank();
         let notes = vec![
@@ -912,7 +1000,7 @@ mod tests {
     }
 
     #[test]
-    fn test_cvvc_prefers_vcv_alias_when_available() {
+    fn test_cvvc_keeps_cv_after_the_inserted_vc_even_when_vcv_exists() {
         let mut vb = build_test_voicebank();
         vb.entries.insert(
             "a さ".to_string(),
@@ -931,7 +1019,8 @@ mod tests {
             UNote::new("さ", "C4", 400.0, 400.0),
         ];
         let phones = JapanesePhonemizer::apply_japanese(&notes, &vb, PhonemizerMode::CVVC);
-        assert_eq!(phones[2].lyric, "a さ");
+        assert_eq!(phones[1].lyric, "a s");
+        assert_eq!(phones[2].lyric, "さ");
     }
 
     #[test]

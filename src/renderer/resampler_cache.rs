@@ -325,9 +325,18 @@ fn file_fingerprint(path: &std::path::Path, hasher: &mut impl Hasher) {
     }
 }
 
-fn source_fingerprint(args: &ResamplerArgs, hasher: &mut impl Hasher) {
+fn source_fingerprint(args: &ResamplerArgs, raw_samples: &[f32], hasher: &mut impl Hasher) {
     let input = &args.input_wav;
     file_fingerprint(input, hasher);
+    if !input.is_file() {
+        // Some preview paths provide synthesized source samples without a
+        // persistent WAV. Include those samples so a reused temporary path
+        // cannot return audio from a previous voicebank/alias.
+        raw_samples.len().hash(hasher);
+        for sample in raw_samples {
+            sample.to_bits().hash(hasher);
+        }
+    }
 
     let extension = input
         .extension()
@@ -362,12 +371,17 @@ fn source_fingerprint(args: &ResamplerArgs, hasher: &mut impl Hasher) {
     }
 }
 
-fn cache_key(driver: &dyn ResamplerDriver, sample_rate: u32, args: &ResamplerArgs) -> u64 {
+fn cache_key(
+    driver: &dyn ResamplerDriver,
+    sample_rate: u32,
+    args: &ResamplerArgs,
+    raw_samples: &[f32],
+) -> u64 {
     let mut hasher = DefaultHasher::new();
     CACHE_SCHEMA.hash(&mut hasher);
     driver.cache_identity().hash(&mut hasher);
     sample_rate.hash(&mut hasher);
-    source_fingerprint(args, &mut hasher);
+    source_fingerprint(args, raw_samples, &mut hasher);
     args.pitch_name.hash(&mut hasher);
     hash_f64(args.pitch_freq, &mut hasher);
     hash_f64(args.velocity, &mut hasher);
@@ -435,7 +449,7 @@ pub(crate) fn render_with_cache(
         return Err("renderização cancelada".to_string());
     }
 
-    let key = cache_key(driver, sample_rate, args);
+    let key = cache_key(driver, sample_rate, args, raw_samples);
     let (state_mutex, ready) = cache();
 
     loop {
@@ -646,10 +660,23 @@ mod tests {
         };
         let mut request = args();
         request.input_wav = input;
-        let before = cache_key(&driver, 44_100, &request);
+        let before = cache_key(&driver, 44_100, &request, &[]);
 
         std::fs::write(directory.path().join("sample_wav.frq"), b"analysis").unwrap();
-        let after = cache_key(&driver, 44_100, &request);
+        let after = cache_key(&driver, 44_100, &request, &[]);
         assert_ne!(before, after);
+    }
+
+    #[test]
+    fn temporary_source_samples_invalidate_the_cache_key() {
+        let driver = CountingDriver {
+            id: 5,
+            calls: AtomicUsize::new(0),
+            delay: Duration::ZERO,
+        };
+        let request = args();
+        let first = cache_key(&driver, 44_100, &request, &[0.1, 0.2]);
+        let second = cache_key(&driver, 44_100, &request, &[0.1, 0.3]);
+        assert_ne!(first, second);
     }
 }

@@ -75,6 +75,7 @@ fn executable_cache_identity(name: &str, path: &Path) -> String {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum KnownResampler {
+    Catalina,
     MacRes,
     Organum,
     StraycatRs,
@@ -89,7 +90,8 @@ static CACHE: std::sync::LazyLock<
 > = std::sync::LazyLock::new(|| std::sync::Mutex::new(std::collections::HashMap::new()));
 
 impl KnownResampler {
-    pub const ALL: [Self; 7] = [
+    pub const ALL: [Self; 8] = [
+        Self::Catalina,
         Self::MacRes,
         Self::Organum,
         Self::StraycatRs,
@@ -101,6 +103,7 @@ impl KnownResampler {
 
     pub const fn label(self) -> &'static str {
         match self {
+            Self::Catalina => "Catalina (NSF HiFi-GAN)",
             Self::MacRes => "macres (titinko/macres)",
             Self::Organum => "Organum (KakouLabs/Organum)",
             Self::StraycatRs => "straycat-rs (UtaUtaUtau)",
@@ -113,6 +116,16 @@ impl KnownResampler {
 
     pub const fn executable_names(self) -> &'static [&'static str] {
         match self {
+            Self::Catalina => &[
+                "catalina",
+                "catalina.exe",
+                "hifisampler",
+                "hifisampler.exe",
+                "hifiserver-rust",
+                "hifiserver-rust.exe",
+                "hifisampler-rs",
+                "hifisampler-rs.exe",
+            ],
             Self::MacRes => &["macres", "macres.exe"],
             Self::Organum => &["organum-resampler", "organum-resampler.exe"],
             Self::StraycatRs => &["straycat-rs", "straycat-rs.exe"],
@@ -148,11 +161,17 @@ impl KnownResampler {
 
     pub fn find_executable(self) -> Option<PathBuf> {
         if let Ok(guard) = CACHE.lock() {
-            if let Some(cached) = guard.get(&self) {
-                return cached.clone();
+            if let Some(Some(cached)) = guard.get(&self) {
+                // A resampler can be installed while the application is
+                // running. Never keep a stale path alive after it disappears.
+                if cached.is_file() {
+                    return Some(cached.clone());
+                }
             }
         }
 
+        // Do not short-circuit a cached `None`: a newly copied/downloaded
+        // resampler must become selectable without restarting Kamafeu.
         let result = self.search_executable_uncached();
 
         if let Ok(mut guard) = CACHE.lock() {
@@ -322,6 +341,11 @@ fn load_resampler_output(
                 expected_sample_rate,
             );
         }
+        // External engines are not required to honor the host's floating
+        // point headroom. Normalize at the driver boundary so Catalina,
+        // Venus-compatible binaries, and legacy resamplers all enter the
+        // mixer with finite, bounded PCM.
+        crate::renderer::track::TrackRenderer::apply_soft_limiter(&mut samples, 0.95);
         Ok(samples)
     }
 }
@@ -334,7 +358,11 @@ impl ResamplerDriver for NativeResamplerDriver {
     }
 
     fn cache_identity(&self) -> String {
-        format!("{}:world-fallback-v5-envelope-match", self.name())
+        format!(
+            "{}:world-rs-v9-full-tail-coverage-watchdog:{}",
+            self.name(),
+            crate::dsp::world_resampler::cache_identity()
+        )
     }
 
     fn render_sample(
@@ -344,7 +372,7 @@ impl ResamplerDriver for NativeResamplerDriver {
         args: &ResamplerArgs,
         _cancel: Option<&AtomicBool>,
     ) -> Result<Vec<f32>, String> {
-        let rendered = crate::dsp::VenusResampler::render_sample(
+        let rendered = crate::dsp::SolaResampler::render_sample(
             raw_samples,
             sample_rate,
             args.offset_ms,
@@ -357,84 +385,24 @@ impl ResamplerDriver for NativeResamplerDriver {
             args.loop_start_ms,
             args.loop_end_ms,
             args.tail_start_ms,
-            0.0,
-            0.0,
         );
         Ok(rendered)
     }
 }
 
-#[derive(Debug, Clone, Copy)]
-pub struct NativeVenusResamplerDriver {
-    oversampling_factor: u32,
-    preserve_formants: bool,
-    f0_min_hz: f64,
-    f0_max_hz: f64,
-    f0_method: crate::dsp::F0TrackerMethod,
-}
+#[derive(Debug, Clone, Copy, Default)]
+pub struct NativeWorldResamplerDriver;
 
-impl Default for NativeVenusResamplerDriver {
-    fn default() -> Self {
-        Self::new(1, true, 55.0, 1_100.0, crate::dsp::F0TrackerMethod::Yin)
-    }
-}
-
-impl NativeVenusResamplerDriver {
-    pub fn new(
-        oversampling_factor: u32,
-        preserve_formants: bool,
-        f0_min_hz: f64,
-        f0_max_hz: f64,
-        f0_method: crate::dsp::F0TrackerMethod,
-    ) -> Self {
-        let f0_min_hz = f0_min_hz.clamp(20.0, 2_000.0);
-        let f0_max_hz = f0_max_hz.clamp(f0_min_hz + 1.0, 4_000.0);
-        // Before configurable F0 tracking was wired into VENUS, it always
-        // used this narrower YIN range. Existing configurations contain the
-        // generic DSP defaults (40–1400 Hz), which are too broad for short
-        // voicebank transitions and can select an octave/subharmonic period.
-        // Preserve the established VENUS sound for that untouched default;
-        // explicitly chosen ranges and alternate trackers remain available.
-        let (f0_min_hz, f0_max_hz) = if f0_method == crate::dsp::F0TrackerMethod::Yin
-            && (f0_min_hz - 40.0).abs() < f64::EPSILON
-            && (f0_max_hz - 1_400.0).abs() < f64::EPSILON
-        {
-            (55.0, 1_100.0)
-        } else {
-            (f0_min_hz, f0_max_hz)
-        };
-        Self {
-            oversampling_factor: match oversampling_factor {
-                2 | 4 => oversampling_factor,
-                _ => 1,
-            },
-            preserve_formants,
-            f0_min_hz,
-            f0_max_hz,
-            f0_method,
-        }
-    }
-}
-
-pub type NativeWorldResamplerDriver = NativeVenusResamplerDriver;
-
-impl ResamplerDriver for NativeVenusResamplerDriver {
+impl ResamplerDriver for NativeWorldResamplerDriver {
     fn name(&self) -> &str {
-        "VENUS (Nativo)"
+        "WORLD (Nativo)"
     }
-
     fn cache_identity(&self) -> String {
         format!(
-            "{}:venus-v23-envelope-spectrum-os{}-formants{}-{:?}-f0{:.0}-{:.0}",
-            self.name(),
-            self.oversampling_factor,
-            if self.preserve_formants { "on" } else { "off" },
-            self.f0_method,
-            self.f0_min_hz,
-            self.f0_max_hz
+            "WORLD:native-world-rs-v9-full-tail-coverage-watchdog:{}",
+            crate::dsp::world_resampler::cache_identity()
         )
     }
-
     fn render_sample(
         &self,
         raw_samples: &[f32],
@@ -445,80 +413,87 @@ impl ResamplerDriver for NativeVenusResamplerDriver {
         if cancel.is_some_and(|flag| flag.load(std::sync::atomic::Ordering::Relaxed)) {
             return Err("Renderização cancelada".to_string());
         }
-        let gender = if self.preserve_formants {
-            parse_flag_numeric(&args.flags, "g").unwrap_or(0.0) * 100.0
-        } else {
-            0.0
-        };
-        let breathiness = parse_flag_numeric(&args.flags, "B").unwrap_or(0.0);
-        // A `.venus` sidecar is optional at render time: an unwritable
-        // voicebank must remain renderable, but a valid sidecar contributes
-        // its manually edited alias corrections.
-        let analysis =
-            crate::dsp::venus_analysis::load_or_analyze(&args.input_wav, raw_samples, sample_rate)
-                .unwrap_or_else(|_| {
-                    crate::dsp::venus_analysis::analyze_samples(raw_samples, sample_rate)
-                });
-        let alias_gain = analysis.gain_linear();
-        let formant_shift = analysis.formant_shift_cents as f64;
-        let alias_breathiness = analysis.breathiness as f64;
-        let internal_rate = sample_rate.saturating_mul(self.oversampling_factor);
-        let internal_input = if internal_rate == sample_rate {
-            raw_samples.to_vec()
-        } else {
-            crate::renderer::TrackRenderer::convert_sample_rate(
+        let world = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            crate::dsp::world_resampler::WorldResampler::render_sample_with_oto(
                 raw_samples,
                 sample_rate,
-                internal_rate,
+                args.offset_ms,
+                args.source_consonant_ms,
+                args.consonant_ms,
+                args.duration_ms,
+                args.pitch_freq,
+                &args.pitch_points,
+                args.cutoff_ms,
+                args.loop_start_ms,
+                args.loop_end_ms,
+                args.tail_start_ms,
             )
+        }));
+        let expected_len =
+            ((args.duration_ms.max(0.0) / 1_000.0) * sample_rate as f64).round() as usize;
+        let rendered = match world {
+            Ok(samples) if has_render_coverage(&samples, expected_len, sample_rate) => samples,
+            _ => crate::dsp::SolaResampler::render_sample(
+                raw_samples,
+                sample_rate,
+                args.offset_ms,
+                args.source_consonant_ms,
+                args.consonant_ms,
+                args.cutoff_ms,
+                args.duration_ms,
+                args.pitch_freq,
+                &args.pitch_points,
+                args.loop_start_ms,
+                args.loop_end_ms,
+                args.tail_start_ms,
+            ),
         };
-
-        let rendered = crate::dsp::VenusResampler::with_f0_config(
-            self.f0_min_hz,
-            self.f0_max_hz,
-            self.f0_method,
-            || {
-                crate::dsp::VenusResampler::render_sample(
-                    &internal_input,
-                    internal_rate,
-                    args.offset_ms,
-                    args.source_consonant_ms,
-                    args.consonant_ms,
-                    args.cutoff_ms,
-                    args.duration_ms,
-                    args.pitch_freq,
-                    &args.pitch_points,
-                    args.loop_start_ms,
-                    args.loop_end_ms,
-                    args.tail_start_ms,
-                    gender + formant_shift,
-                    breathiness + alias_breathiness,
-                )
-            },
-        );
         if cancel.is_some_and(|flag| flag.load(std::sync::atomic::Ordering::Relaxed)) {
             return Err("Renderização cancelada".to_string());
-        }
-        let mut rendered = if internal_rate == sample_rate {
-            rendered
-        } else {
-            crate::renderer::TrackRenderer::convert_sample_rate(
-                &rendered,
-                internal_rate,
-                sample_rate,
-            )
-        };
-        if (alias_gain - 1.0).abs() > f32::EPSILON {
-            for sample in &mut rendered {
-                *sample *= alias_gain;
-            }
-            crate::dsp::VenusResampler::apply_output_safety(&mut rendered);
         }
         Ok(rendered)
     }
 }
 
-/// Tokeniza e analisa flags do UTAU evitando colisões entre flags de 1 e 2 caracteres (ex: 'B' vs 'Hb', 'Mb').
+fn has_render_coverage(samples: &[f32], expected_len: usize, sample_rate: u32) -> bool {
+    if expected_len == 0
+        || samples.len() < expected_len.saturating_mul(95) / 100
+        || samples.iter().any(|sample| !sample.is_finite())
+    {
+        return false;
+    }
+    let peak = samples
+        .iter()
+        .map(|sample| sample.abs())
+        .fold(0.0_f32, f32::max);
+    if peak <= 1e-5 {
+        return false;
+    }
+    let window = (sample_rate as usize / 20).max(64); // 50 ms
+    let threshold = (peak * 0.002).max(1e-5);
+    let inspected = &samples[..expected_len.min(samples.len())];
+    let mut windows = 0usize;
+    let mut audible = 0usize;
+    let mut last_window_audible = false;
+    for chunk in inspected.chunks(window) {
+        if chunk.len() < window / 2 {
+            continue;
+        }
+        windows += 1;
+        last_window_audible = chunk.iter().any(|sample| sample.abs() >= threshold);
+        if last_window_audible {
+            audible += 1;
+        }
+    }
+    // A resampler phoneme must provide material through its requested tail;
+    // the wavtool/envelope owns the release. Accepting a loud attack followed
+    // by silence creates the characteristic CVVC "hiccup" at every VC -> CV
+    // handoff. Permit a small amount of internal quiet material, but require
+    // at least 75% coverage and a live final 50 ms window.
+    windows > 0 && audible * 4 >= windows * 3 && last_window_audible
+}
+
+/// Tokeniza flags UTAU sem confundir flags de um e dois caracteres.
 #[derive(Debug, Clone, PartialEq)]
 pub struct UtauFlagToken {
     pub key: String,
@@ -526,57 +501,48 @@ pub struct UtauFlagToken {
 }
 
 pub fn parse_utau_flags(flags: &str) -> Vec<UtauFlagToken> {
-    let mut tokens = Vec::new();
     let chars: Vec<char> = flags.chars().collect();
-    let len = chars.len();
+    let mut tokens = Vec::new();
     let mut i = 0;
-
-    while i < len {
+    while i < chars.len() {
         if chars[i].is_whitespace() || chars[i] == '/' {
             i += 1;
             continue;
         }
-
-        if chars[i].is_alphabetic() {
-            let start = i;
+        if !chars[i].is_alphabetic() {
             i += 1;
-
-            // Suporta flags de 2 caracteres conhecidas (ex: Hb, Mb, Mo, Me, etc.) se o segundo caractere for minúsculo
-            if i < len && chars[i].is_alphabetic() && chars[i].is_ascii_lowercase() {
-                let candidate: String = chars[start..=i].iter().collect();
-                if matches!(
-                    candidate.as_str(),
-                    "Hb" | "Mb" | "Mo" | "Me" | "Mt" | "Ms" | "Nh" | "Te"
-                ) {
-                    i += 1;
-                }
-            }
-
-            let key: String = chars[start..i].iter().collect();
-
-            // Extrair número opcional com sinal
-            let mut num_str = String::new();
-            if i < len && (chars[i] == '+' || chars[i] == '-') {
-                num_str.push(chars[i]);
+            continue;
+        }
+        let start = i;
+        i += 1;
+        if i < chars.len() && chars[i].is_ascii_lowercase() {
+            let candidate: String = chars[start..=i].iter().collect();
+            if matches!(
+                candidate.as_str(),
+                "Hb" | "Mb" | "Mo" | "Me" | "Mt" | "Ms" | "Nh" | "Te"
+            ) {
                 i += 1;
             }
-            while i < len && (chars[i].is_ascii_digit() || chars[i] == '.') {
-                num_str.push(chars[i]);
-                i += 1;
-            }
-
-            let num_val = if !num_str.is_empty() && num_str != "+" && num_str != "-" {
-                num_str.parse::<f64>().ok()
-            } else {
-                None
-            };
-
-            tokens.push(UtauFlagToken { key, num_val });
-        } else {
+        }
+        let key: String = chars[start..i].iter().collect();
+        let number_start = i;
+        if i < chars.len() && matches!(chars[i], '+' | '-') {
             i += 1;
         }
+        while i < chars.len() && (chars[i].is_ascii_digit() || chars[i] == '.') {
+            i += 1;
+        }
+        let num_val = if i > number_start {
+            chars[number_start..i]
+                .iter()
+                .collect::<String>()
+                .parse()
+                .ok()
+        } else {
+            None
+        };
+        tokens.push(UtauFlagToken { key, num_val });
     }
-
     tokens
 }
 
@@ -781,6 +747,13 @@ fn prepare_hifisampler_flags(base_flags: &str, gender: f64, breathiness: f64) ->
     flags
 }
 
+fn uses_nsf_hifigan(profile: Option<KnownResampler>) -> bool {
+    matches!(
+        profile,
+        Some(KnownResampler::Catalina | KnownResampler::HifisamplerRs)
+    )
+}
+
 static HIFISERVER_PROCESS: std::sync::LazyLock<std::sync::Mutex<Option<std::process::Child>>> =
     std::sync::LazyLock::new(|| std::sync::Mutex::new(None));
 
@@ -858,15 +831,9 @@ max_workers = 4
 }
 
 pub fn ensure_hifisampler_ready() -> Result<String, String> {
-    let profile = KnownResampler::HifisamplerRs;
-    let exe = profile.find_executable().or_else(|| {
-        let def = profile.default_path();
-        if def.is_file() {
-            Some(def)
-        } else {
-            None
-        }
-    });
+    let exe = KnownResampler::Catalina
+        .find_executable()
+        .or_else(|| KnownResampler::HifisamplerRs.find_executable());
 
     let Some(exe_path) = exe else {
         return Err("Executável do Hifisampler não encontrado em ./resamplers".to_string());
@@ -928,7 +895,7 @@ impl ResamplerDriver for ExternalResamplerDriver {
     fn prepare_flags(&self, base_flags: &str, gender: f64, breathiness: f64) -> String {
         if self.profile == Some(KnownResampler::StraycatRs) {
             prepare_straycat_flags(base_flags, gender, breathiness)
-        } else if self.profile == Some(KnownResampler::HifisamplerRs) {
+        } else if uses_nsf_hifigan(self.profile) {
             prepare_hifisampler_flags(base_flags, gender, breathiness)
         } else {
             prepare_classic_flags(base_flags, gender, breathiness)
@@ -971,7 +938,7 @@ impl ResamplerDriver for ExternalResamplerDriver {
             .unwrap_or(false);
 
         if let Some(parent) = final_exe.parent() {
-            if self.profile == Some(KnownResampler::HifisamplerRs) {
+            if uses_nsf_hifigan(self.profile) {
                 ensure_hifisampler_environment(&final_exe);
             }
             if is_exe {
@@ -1039,90 +1006,6 @@ impl ResamplerDriver for ExternalResamplerDriver {
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn venus_skips_cancelled_jobs() {
-        let cancelled = AtomicBool::new(true);
-        assert!(NativeVenusResamplerDriver::default()
-            .render_sample(&[0.0; 64], 44100, &sample_args(), Some(&cancelled))
-            .unwrap_err()
-            .contains("cancelada"));
-    }
-
-    #[test]
-    fn venus_cache_identity_changes_when_render_quality_changes() {
-        let standard = NativeVenusResamplerDriver::default();
-        let oversampled = NativeVenusResamplerDriver::new(
-            2,
-            true,
-            55.0,
-            1_100.0,
-            crate::dsp::F0TrackerMethod::Yin,
-        );
-        let no_formants = NativeVenusResamplerDriver::new(
-            2,
-            false,
-            55.0,
-            1_100.0,
-            crate::dsp::F0TrackerMethod::Yin,
-        );
-        let narrow_f0 = NativeVenusResamplerDriver::new(
-            2,
-            false,
-            100.0,
-            400.0,
-            crate::dsp::F0TrackerMethod::Yin,
-        );
-        let pyin = NativeVenusResamplerDriver::new(
-            2,
-            false,
-            100.0,
-            400.0,
-            crate::dsp::F0TrackerMethod::Pyin,
-        );
-        assert_ne!(standard.cache_identity(), oversampled.cache_identity());
-        assert_ne!(oversampled.cache_identity(), no_formants.cache_identity());
-        assert_ne!(no_formants.cache_identity(), narrow_f0.cache_identity());
-        assert_ne!(narrow_f0.cache_identity(), pyin.cache_identity());
-    }
-
-    #[test]
-    fn venus_migrates_the_old_generic_yin_default_to_its_safe_range() {
-        let driver = NativeVenusResamplerDriver::new(
-            1,
-            true,
-            40.0,
-            1_400.0,
-            crate::dsp::F0TrackerMethod::Yin,
-        );
-        assert!(driver.cache_identity().contains("f055-1100"));
-    }
-
-    #[test]
-    fn venus_oversampling_preserves_requested_output_duration() {
-        let sample_rate = 44_100;
-        let source: Vec<f32> = (0..sample_rate)
-            .map(|index| {
-                (std::f32::consts::TAU * 220.0 * index as f32 / sample_rate as f32).sin() * 0.3
-            })
-            .collect();
-        let mut args = sample_args();
-        args.offset_ms = 0.0;
-        args.source_consonant_ms = 0.0;
-        args.consonant_ms = 0.0;
-        args.duration_ms = 500.0;
-        let rendered = NativeVenusResamplerDriver::new(
-            2,
-            true,
-            55.0,
-            1_100.0,
-            crate::dsp::F0TrackerMethod::Yin,
-        )
-        .render_sample(&source, sample_rate, &args, None)
-        .expect("oversampled VENUS render");
-        assert_eq!(rendered.len(), sample_rate as usize / 2);
-        assert!(rendered.iter().all(|sample| sample.is_finite()));
-    }
 
     fn sample_args() -> ResamplerArgs {
         ResamplerArgs {
@@ -1227,6 +1110,70 @@ mod tests {
         let samples = load_resampler_output(&args, 48_000).unwrap();
         assert_eq!(samples.len(), 4_800);
         assert!(output.exists());
+    }
+
+    #[test]
+    fn external_output_is_finite_and_safe_for_the_mixer() {
+        let directory = tempfile::tempdir().unwrap();
+        let output = directory.path().join("unsafe.wav");
+        crate::renderer::TrackRenderer::save_wav_samples(
+            &output,
+            &[f32::NAN, f32::INFINITY, -2.0, 2.0, 0.25],
+            48_000,
+        )
+        .unwrap();
+        let mut args = sample_args();
+        args.output_wav = output;
+        let samples = load_resampler_output(&args, 48_000).unwrap();
+        assert!(samples.iter().all(|sample| sample.is_finite()));
+        assert!(
+            samples
+                .iter()
+                .map(|sample| sample.abs())
+                .fold(0.0, f32::max)
+                <= 0.95
+        );
+    }
+
+    #[test]
+    fn world_watchdog_rejects_a_fragment_that_dies_before_the_note_ends() {
+        let sample_rate = 44_100;
+        let expected_len = sample_rate * 2;
+        let mut fragment = vec![0.0; expected_len];
+        fragment[..sample_rate / 4].fill(0.25);
+
+        assert!(!has_render_coverage(
+            &fragment,
+            expected_len,
+            sample_rate as u32
+        ));
+    }
+
+    #[test]
+    fn world_watchdog_accepts_a_sustained_note() {
+        let sample_rate = 44_100;
+        let expected_len = sample_rate * 2;
+        let sustained = vec![0.25; expected_len];
+
+        assert!(has_render_coverage(
+            &sustained,
+            expected_len,
+            sample_rate as u32
+        ));
+    }
+
+    #[test]
+    fn world_watchdog_rejects_a_short_phone_with_a_silent_tail() {
+        let sample_rate = 44_100;
+        let expected_len = sample_rate / 5;
+        let mut truncated = vec![0.0; expected_len];
+        truncated[..expected_len * 2 / 3].fill(0.25);
+
+        assert!(!has_render_coverage(
+            &truncated,
+            expected_len,
+            sample_rate as u32
+        ));
     }
 
     #[test]

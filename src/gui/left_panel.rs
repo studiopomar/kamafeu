@@ -184,6 +184,32 @@ pub fn draw_left_panel(
                         ui.label(
                             RichText::new("Modo do Fonemizador").color(theme.text_muted_c32()),
                         );
+                        egui::ComboBox::from_id_salt("phonemizer_catalog_cb")
+                            .selected_text(params.phonemizer_mode.display_name())
+                            .width(ui.available_width())
+                            .show_ui(ui, |ui| {
+                                ui.selectable_value(
+                                    &mut params.phonemizer_mode,
+                                    crate::phonemizer::PhonemizerMode::None,
+                                    "Manual — Sem fonemizador [Kamafeu nativo]",
+                                );
+                                let mut language = None;
+                                for mode in crate::phonemizer::PhonemizerMode::ALL {
+                                    let info = mode.info();
+                                    if language != Some(info.language) {
+                                        if language.is_some() { ui.separator(); }
+                                        ui.label(RichText::new(info.language).strong().color(theme.accent_c32()));
+                                        language = Some(info.language);
+                                    }
+                                    ui.selectable_value(
+                                        &mut params.phonemizer_mode,
+                                        mode,
+                                        format!("  {} [{}]", info.name, info.source),
+                                    );
+                                }
+                            });
+                        // Legacy selector kept unreachable temporarily while old layouts are migrated.
+                        if false {
                         egui::ComboBox::from_id_salt("phonemizer_mode_cb")
                             .selected_text(match params.phonemizer_mode {
                                 crate::phonemizer::PhonemizerMode::None => {
@@ -296,7 +322,16 @@ pub fn draw_left_panel(
                                     crate::phonemizer::PhonemizerMode::PortugueseVCV,
                                     "  PT: Portuguese VCV (Fonética Direta)",
                                 );
+                                ui.separator();
+                                ui.label(RichText::new("Outros idiomas — ports OpenUtau").strong().color(theme.accent_c32()));
+                                for mode in crate::phonemizer::PhonemizerMode::ALL {
+                                    let info = mode.info();
+                                    if matches!(info.language, "Francês" | "Alemão" | "Russo" | "Espanhol" | "Turco" | "Chinês" | "Cantonês" | "Árabe" | "Islandês") {
+                                        ui.selectable_value(&mut params.phonemizer_mode, mode, format!("  {} — {} [{}]", info.language, info.name, info.source));
+                                    }
+                                }
                             });
+                        }
                         ui.add_space(4.0);
 
                         ui.label(RichText::new("Volume / Ganho").color(theme.text_muted_c32()));

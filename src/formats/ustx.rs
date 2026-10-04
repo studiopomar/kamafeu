@@ -581,6 +581,7 @@ impl UstxFormat {
             crate::phonemizer::PhonemizerMode::PortugueseG2P => {
                 "OpenUtau.Plugin.Builtin.PortugueseG2pPhonemizer"
             }
+            _ => "Kamafeu.Phonemizer.LanguageG2P",
         }
     }
 

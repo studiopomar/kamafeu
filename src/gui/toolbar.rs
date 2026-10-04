@@ -132,7 +132,24 @@ pub fn draw_unified_toolbar(
     on_envelope_opt: &mut dyn FnMut(),
     on_envelope_reset: &mut dyn FnMut(),
 ) {
-    ui.spacing_mut().item_spacing = Vec2::new(3.0, 0.0);
+    let viewport = ui.ctx().screen_rect();
+    let touch_first = cfg!(target_os = "android")
+        || viewport.width() < 1100.0
+        || (viewport.height() < 600.0 && viewport.width() < 1200.0);
+
+    // Alguns controles do toolbar têm um tamanho mínimo próprio. Reforçamos
+    // aqui a área de interação para que esses valores não deixem alvos
+    // pequenos demais no celular.
+    ui.spacing_mut().item_spacing = if touch_first {
+        Vec2::new(8.0, 4.0)
+    } else {
+        Vec2::new(3.0, 0.0)
+    };
+    ui.spacing_mut().interact_size = if touch_first {
+        Vec2::new(44.0, 40.0)
+    } else {
+        Vec2::new(24.0, 24.0)
+    };
 
     // ==========================================
     // SINGLE COMPACT LINE

@@ -18,6 +18,15 @@ impl WindowedSincResampler {
         WindowedSincResampler
     }
 
+    pub(crate) fn resample_sinc_for_rate(
+        input: &[f32],
+        output_len: usize,
+        input_rate: u32,
+        output_rate: u32,
+    ) -> Vec<f32> {
+        Self::resample_sinc(input, output_len, input_rate, output_rate)
+    }
+
     /// Resample audio samples using windowed sinc interpolation with pitch bend support.
     ///
     /// This function resamples the input audio to match the target duration and pitch,

@@ -1,7 +1,7 @@
 use crate::gui::piano_roll::PianoRollState;
 use crate::gui::KamafeuStudioApp;
 use crate::oto::Voicebank;
-use crate::renderer::ProjectRenderer;
+use crate::renderer::{ProgressiveChunk, ProjectRenderer, RenderedAudio};
 use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
@@ -57,7 +57,14 @@ impl KamafeuStudioApp {
         let active_vb = self.voicebank.clone().unwrap_or(dummy_vb);
         let mut vocal_mode_params = self.vocal_mode_params.clone();
         vocal_mode_params.resampler_instances = self.config.dsp.resampler_instances.max(1);
-        let render_threads = self.render_threads.clamp(1, 16) as usize;
+        // Keep one logical CPU available for egui/CoreAudio.  Using every
+        // core for synthesis makes scrolling the piano roll starve the UI
+        // thread long enough to empty the audio queue.
+        let cpu_count = std::thread::available_parallelism()
+            .map(std::num::NonZeroUsize::get)
+            .unwrap_or(2);
+        let render_threads =
+            (self.render_threads.clamp(1, 16) as usize).min(cpu_count.saturating_sub(1).max(1));
         let progressive_chunk_ms = progressive_chunk_ms(
             self.config.dsp.render_lookahead_ms,
             self.config.dsp.render_chunk_bars,
@@ -138,7 +145,9 @@ impl KamafeuStudioApp {
         let (tx, rx) = std::sync::mpsc::channel();
         self.render_log_channel_rx = Some(rx);
         #[cfg(not(target_arch = "wasm32"))]
-        let (audio_tx, audio_rx) = std::sync::mpsc::sync_channel(4);
+        // Keep several seconds queued so a costly piano-roll frame or a
+        // short resampler stall cannot turn into audible dropouts.
+        let (audio_tx, audio_rx) = std::sync::mpsc::sync_channel(16);
         #[cfg(target_arch = "wasm32")]
         let (audio_tx, audio_rx) = std::sync::mpsc::sync_channel(512);
         self.render_rx = Some(audio_rx);
@@ -180,10 +189,24 @@ impl KamafeuStudioApp {
                 .num_threads(render_threads)
                 .thread_name(|index| format!("kamafeu-render-{index}"))
                 .build();
-            match render_pool {
+            // A panic in a native/ONNX resampler used to only disconnect the
+            // channel, making Play appear to cancel without any explanation.
+            // Keep the worker failure visible to the transport instead.
+            let worker = std::panic::AssertUnwindSafe(|| match render_pool {
                 Ok(pool) => pool.install(render),
                 Err(_) => render(),
-            };
+            });
+            if std::panic::catch_unwind(worker).is_err() {
+                let _ = audio_tx.send(ProgressiveChunk {
+                    audio: RenderedAudio::failed(
+                        sample_rate,
+                        "O worker do Catalina encerrou com panic durante a renderização"
+                            .to_string(),
+                    ),
+                    chunk_start_ms: playhead_ms,
+                    is_final: true,
+                });
+            }
         });
 
         #[cfg(target_arch = "wasm32")]

@@ -12,6 +12,16 @@ O Organum também incorpora componentes WORLD sob licença BSD de 3 cláusulas; 
 
 ## Instalação local do Hifisampler
 
+## Catalina / NSF HiFi-GAN
+
+O executável `catalina` é construído pelo próprio projeto e mantém o protocolo
+clássico de resamplers UTAU. Ele procura um backend NSF HiFi-GAN ao lado dele,
+em `resamplers/` ou no `PATH`; também aceita `CATALINA_BACKEND=/caminho/do/backend`.
+
+O pacote de weights recomendado é `pc_nsf_hifigan_44.1k_hop512_128bin_2025.02.oudep`,
+da release oficial do projeto vocoders. Extraia o arquivo e coloque o ONNX em
+`resamplers/model/`; o Kamafeu cria a configuração padrão automaticamente.
+
 Os executáveis `hifisampler`, `hifisampler-rs`, `hifiserver-rust`, o arquivo
 `hificonfig.ini` e a pasta `model/` são instalações locais opcionais e estão
 ignorados pelo Git. Não são incluídos automaticamente na distribuição.

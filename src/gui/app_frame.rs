@@ -31,6 +31,33 @@ impl eframe::App for KamafeuStudioApp {
             ctx.set_zoom_factor(active_scale);
         }
 
+        // Touch-first density on narrow viewports. Keep desktop compact, but
+        // make every primary control comfortable for a finger on Android.
+        let viewport = ctx.screen_rect();
+        let narrow = cfg!(target_os = "android")
+            || viewport.width() < 1100.0
+            || (viewport.height() < 600.0 && viewport.width() < 1200.0);
+        ctx.style_mut(|style| {
+            // Give hover/focus states a short, quiet interpolation instead of
+            // switching abruptly between high-contrast surfaces.
+            style.animation_time = if self.config.workflow.ui_animations_enabled {
+                0.16 / self.config.workflow.ui_animation_speed.clamp(0.25, 4.0)
+            } else {
+                0.0
+            };
+            if narrow {
+                style.spacing.item_spacing = egui::vec2(8.0, 8.0);
+                style.spacing.button_padding = egui::vec2(12.0, 8.0);
+                style.spacing.interact_size = egui::vec2(44.0, 44.0);
+                style.spacing.menu_margin = egui::Margin::same(8.0);
+            } else {
+                style.spacing.item_spacing = egui::vec2(6.0, 4.0);
+                style.spacing.button_padding = egui::vec2(8.0, 5.0);
+                style.spacing.interact_size = egui::vec2(24.0, 24.0);
+                style.spacing.menu_margin = egui::Margin::same(4.0);
+            }
+        });
+
         let project_name = if let Some(ref path) = self.current_project_path {
             path.file_name()
                 .and_then(|n| n.to_str())
@@ -68,6 +95,49 @@ impl eframe::App for KamafeuStudioApp {
         self.refresh_voicebank_oto();
 
         self.update_background_tasks(ctx);
+
+        if !self.preferences_state.automatic_check_started {
+            self.preferences_state.automatic_check_started = true;
+            let frequency = self.config.updates.frequency.as_str();
+            if self.config.updates.check_enabled && frequency != "never" {
+                let interval = match frequency {
+                    "daily" => 86_400,
+                    "monthly" => 30 * 86_400,
+                    _ => 7 * 86_400,
+                };
+                let now = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|duration| duration.as_secs() as i64)
+                    .unwrap_or_default();
+                if self
+                    .config
+                    .updates
+                    .last_check_unix
+                    .map(|last| now.saturating_sub(last) >= interval)
+                    .unwrap_or(true)
+                {
+                    self.config.updates.last_check_unix = Some(now);
+                    self.preferences_state.request_update_check();
+                    self.persist_config();
+                }
+            }
+        }
+        self.preferences_state.poll_update_check();
+        if matches!(
+            self.preferences_state.update_result,
+            Some(Ok(ref release)) if crate::updater::is_newer(&release.tag_name, crate::APP_VERSION)
+        ) {
+            self.preferences_window_open = true;
+            self.preferences_tab = 10;
+            if self.config.updates.automatic_download
+                && !self.preferences_state.update_opened_automatically
+            {
+                if let Some(Ok(release)) = self.preferences_state.update_result.as_ref() {
+                    crate::gui::open_external_url(&release.html_url);
+                }
+                self.preferences_state.update_opened_automatically = true;
+            }
+        }
 
         #[cfg(target_arch = "wasm32")]
         {

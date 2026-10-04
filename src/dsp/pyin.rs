@@ -35,7 +35,7 @@ impl PitchExtractor {
         let mut gci_marks = Vec::new();
 
         if vowel_slice.len() < frame_size {
-            let extractor = crate::dsp::venus::WorldF0Extractor::default();
+            let extractor = crate::dsp::world_analysis::WorldF0Extractor::default();
             let (f0s, voiced) = extractor.extract_f0(vowel_slice, sample_rate);
             let p0 = f0s
                 .into_iter()

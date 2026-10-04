@@ -90,7 +90,7 @@ impl KamafeuStudioApp {
                 } else if self.selected_resampler.contains("Venus")
                     || self.selected_resampler.contains("venus")
                 {
-                    "Venus"
+                    "WORLD"
                 } else if self.selected_resampler.contains("Organum")
                     || self.selected_resampler.contains("organum")
                 {
@@ -158,6 +158,7 @@ impl KamafeuStudioApp {
                         "PT: G2P",
                         lang.tr("PT: Português G2P", "PT: Portuguese G2P"),
                     ),
+                    _ => ("G2P", "Language G2P"),
                 };
 
                 ui.label(
