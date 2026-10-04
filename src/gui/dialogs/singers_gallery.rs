@@ -194,6 +194,15 @@ impl KamafeuStudioApp {
                                                                         .color(egui::Color32::from_rgb(216, 180, 254)),
                                                                 );
 
+                                                                if let Some(web) = singer.web.as_deref() {
+                                                                    if ui.small_button(lang.tr("Site", "Website")).clicked() {
+                                                                        ui.ctx().open_url(egui::OpenUrl {
+                                                                            url: web.to_string(),
+                                                                            new_tab: true,
+                                                                        });
+                                                                    }
+                                                                }
+
                                                                 ui.add_space(4.0);
                                                                 if is_current {
                                                                     ui.label(

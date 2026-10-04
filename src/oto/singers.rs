@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 pub struct SingerInfo {
     pub name: String,
     pub author: String,
+    pub web: Option<String>,
     pub path: PathBuf,
     pub image_path: Option<PathBuf>,
     pub voice_type: String,
@@ -187,6 +188,7 @@ impl SingerScanner {
             .unwrap_or("Cantor Desconhecido")
             .to_string();
         let mut author = "Desconhecido".to_string();
+        let mut web: Option<String> = None;
         let mut image_path: Option<PathBuf> = None;
         let mut image_rel: Option<String> = None;
 
@@ -239,6 +241,33 @@ impl SingerScanner {
                         }
                     }
                 }
+
+                // character.yaml is the authoritative OpenUtau metadata file.
+                // Parse it as YAML as well as supporting the legacy line
+                // fallback above, so quoted values and comments are handled
+                // correctly and portrait-only singers appear in the gallery.
+                if let Ok(value) = yaml_serde::from_str::<yaml_serde::Value>(&content) {
+                    let yaml_string = |key: &str| {
+                        value
+                            .get(key)
+                            .and_then(|item| item.as_str())
+                            .map(str::to_owned)
+                    };
+                    if let Some(value) = yaml_string("name") {
+                        if !value.is_empty() {
+                            name = value;
+                        }
+                    }
+                    if let Some(value) = yaml_string("author") {
+                        if !value.is_empty() {
+                            author = value;
+                        }
+                    }
+                    web = yaml_string("web");
+                    image_rel = yaml_string("image")
+                        .or_else(|| yaml_string("portrait"))
+                        .or(image_rel);
+                }
             }
         }
 
@@ -283,6 +312,7 @@ impl SingerScanner {
         Some(SingerInfo {
             name,
             author,
+            web,
             path: dir.to_path_buf(),
             image_path,
             voice_type,
@@ -312,5 +342,31 @@ mod tests {
             .expect("DiffSinger metadata");
 
         assert!(SingerScanner::inspect_singer_directory(directory.path()).is_none());
+    }
+
+    #[test]
+    fn openutau_yaml_metadata_is_used_by_singer_gallery() {
+        let directory = tempfile::tempdir().expect("temporary singer directory");
+        fs::write(
+            directory.path().join("oto.ini"),
+            "ka.wav=ka,0,100,-400,80,30\n",
+        )
+        .expect("oto.ini");
+        fs::write(directory.path().join("portrait.png"), b"not-an-image").expect("portrait");
+        fs::write(
+            directory.path().join("character.yaml"),
+            "name: Gallery Singer\nauthor: YAML Author\nportrait: portrait.png\nweb: https://example.test\n",
+        )
+        .expect("character metadata");
+
+        let singer = SingerScanner::inspect_singer_directory(directory.path())
+            .expect("voicebank should be listed");
+        assert_eq!(singer.name, "Gallery Singer");
+        assert_eq!(singer.author, "YAML Author");
+        assert_eq!(singer.web.as_deref(), Some("https://example.test"));
+        assert_eq!(
+            singer.image_path.as_deref(),
+            Some(directory.path().join("portrait.png").as_path())
+        );
     }
 }

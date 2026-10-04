@@ -124,6 +124,7 @@ impl Voicebank {
         let mut character_info = String::new();
         let mut readme_info = String::new();
         let mut image_relative_path: Option<String> = None;
+        let mut portrait_relative_path: Option<String> = None;
 
         let char_path = real_root_path.join("character.txt");
         if char_path.exists() {
@@ -182,7 +183,49 @@ impl Voicebank {
                         }
                     }
                 }
+
+                // OpenUtau's YAML is UTF-8 and may contain quoted values,
+                // comments, localized names and fields in any order. Use the
+                // YAML parser for the fields that are useful to Kamafeu while
+                // keeping the legacy character.txt fallback above.
+                if let Ok(value) = yaml_serde::from_str::<yaml_serde::Value>(&content) {
+                    let yaml_string = |key: &str| {
+                        value
+                            .get(key)
+                            .and_then(|item| item.as_str())
+                            .map(str::to_owned)
+                            .or_else(|| {
+                                value
+                                    .get(key)
+                                    .and_then(|item| item.as_f64())
+                                    .map(|number| number.to_string())
+                            })
+                    };
+
+                    if let Some(value) = yaml_string("name") {
+                        name = value;
+                    }
+                    if let Some(value) = yaml_string("author") {
+                        author = value;
+                    }
+                    image_relative_path = image_relative_path.or_else(|| yaml_string("image"));
+                    portrait_relative_path = yaml_string("portrait");
+
+                    let mut details = Vec::new();
+                    for key in ["voice", "version", "singer_type", "web"] {
+                        if let Some(value) = yaml_string(key) {
+                            details.push(format!("{key}: {value}"));
+                        }
+                    }
+                    if !details.is_empty() {
+                        character_info = details.join("\n");
+                    }
+                }
             }
+        }
+
+        if image_relative_path.is_none() {
+            image_relative_path = portrait_relative_path;
         }
 
         let image_path = if let Some(ref rel) = image_relative_path {
@@ -744,5 +787,28 @@ mod tests {
         assert_eq!(vb.entries["ka"].wav_filename, "root.wav");
         assert_eq!(vb.entries["ka"].preutterance, 80.0);
         assert_eq!(vb.entries["ka_A3"].wav_filename, "A3/sub.wav");
+    }
+
+    #[test]
+    fn reads_openutau_character_yaml_metadata_and_portrait() {
+        let dir = tempdir().unwrap();
+        fs::write(dir.path().join("oto.ini"), "ka.wav=ka,0,100,-400,80,30\n").unwrap();
+        fs::write(dir.path().join("portrait.png"), b"not-an-image").unwrap();
+        fs::write(
+            dir.path().join("character.yaml"),
+            "name: Test Singer\nauthor: Test Author\nportrait: portrait.png\nvoice: Test Voice\nversion: 1.5\nsinger_type: utau\nweb: https://example.test\n",
+        )
+        .unwrap();
+
+        let vb = Voicebank::new(dir.path()).unwrap();
+        assert_eq!(vb.name, "Test Singer");
+        assert_eq!(vb.author, "Test Author");
+        assert_eq!(
+            vb.image_path.as_deref(),
+            Some(dir.path().join("portrait.png").as_path())
+        );
+        assert!(vb.character_info.contains("voice: Test Voice"));
+        assert!(vb.character_info.contains("version: 1.5"));
+        assert!(vb.character_info.contains("web: https://example.test"));
     }
 }
