@@ -637,6 +637,31 @@ pub fn draw_piano_roll(
             snap_option,
         );
 
+        // OpenUtau-compatible portrait backdrop. Keep it subtle so the grid,
+        // notes and pitch curves remain readable, and clip it to the note area
+        // rather than covering the piano keyboard.
+        if let Some(portrait_path) = voicebank.and_then(|bank| bank.image_path.as_deref()) {
+            if let Some(texture) =
+                crate::gui::image_cache::texture_for_path(ui.ctx(), portrait_path)
+            {
+                let portrait_rect = Rect::from_min_max(
+                    Pos2::new(
+                        (rect.min.x + keyboard_width).max(visible_clip.min.x),
+                        visible_clip.min.y,
+                    ),
+                    visible_clip.max,
+                );
+                if portrait_rect.is_positive() {
+                    painter.image(
+                        texture.id(),
+                        portrait_rect,
+                        Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)),
+                        Color32::from_white_alpha(42),
+                    );
+                }
+            }
+        }
+
         let mut note_to_delete: Option<usize> = None;
         let mut note_to_slice: Option<(usize, f64)> = None;
         let mut commit_lyric_edit: Option<(usize, String, Option<usize>)> = None;
