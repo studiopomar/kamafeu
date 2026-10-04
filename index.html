@@ -10,7 +10,6 @@
   <link data-trunk rel="copy-file" href="assets/kamafeu_banner.png" />
   <!-- O deploy WebAssembly compila apenas a biblioteca; os binários desktop
        são protegidos pela feature `desktop` no Cargo.toml. -->
-  <link data-trunk rel="rust" data-wasm-opt="z" data-cargo-no-default-features />
 
   <style>
     :root {
@@ -124,6 +123,25 @@
       font-size: 0.85rem;
       color: var(--text-muted);
       font-family: monospace;
+      line-height: 1.5;
+    }
+
+    .loading-status.error {
+      color: #fda4af;
+      white-space: pre-line;
+      text-align: left;
+    }
+
+    .loading-help {
+      display: none;
+      margin-top: 1rem;
+      color: var(--text-muted);
+      font-size: 0.78rem;
+      line-height: 1.5;
+    }
+
+    .loading-help.visible {
+      display: block;
     }
 
     @keyframes spin {
@@ -144,7 +162,8 @@
       <h1>Kamafeu Studio Web</h1>
       <p class="subtitle">Sintetizador Vocal UTAU em WebAssembly</p>
       <div class="spinner-ring"></div>
-      <div id="status_text" class="loading_status">Carregando módulos WASM...</div>
+      <div id="status_text" class="loading-status">Carregando módulos WASM...</div>
+      <div id="loading_help" class="loading-help">Abra este projeto com <code>trunk serve</code> e acesse <code>http://localhost:8080</code>. Abrir o arquivo diretamente com <code>file://</code> não carrega os módulos WASM.</div>
     </div>
   </div>
 
@@ -153,6 +172,38 @@
   </div>
 
   <script>
+    const status = document.getElementById("status_text");
+    const help = document.getElementById("loading_help");
+    let wasmStarted = false;
+
+    window.kamafeuWasmStarted = () => {
+      wasmStarted = true;
+      if (status) status.textContent = "Interface carregada.";
+    };
+
+    function showLoadingError(message) {
+      if (wasmStarted) return;
+      if (status) {
+        status.classList.add("error");
+        status.textContent = message;
+      }
+      if (help) help.classList.add("visible");
+    }
+
+    if (window.location.protocol === "file:") {
+      showLoadingError("O Kamafeu Web precisa ser aberto por um servidor local.");
+    }
+
+    window.addEventListener("error", (event) => {
+      if (event.filename && (event.filename.includes(".wasm") || event.filename.includes("trunk"))) {
+        showLoadingError("Não foi possível carregar o módulo WASM.\n" + event.message);
+      }
+    });
+
+    window.addEventListener("unhandledrejection", (event) => {
+      showLoadingError("O módulo WASM encontrou um erro ao iniciar.\n" + event.reason);
+    });
+
     // Monitor when egui takes over canvas rendering to fade out the splash screen
     const observer = new MutationObserver(() => {
       const canvas = document.getElementById("kamafeu_canvas");
@@ -174,11 +225,14 @@
       observer.observe(canvas, { attributes: true, attributeFilter: ["width", "height", "style"] });
     }
 
-    // Fallback timer in case mutation doesn't trigger
+    // Fallback timer in case mutation doesn't trigger. Keep the error visible
+    // instead of removing the loading screen and leaving a black page.
     window.addEventListener("load", () => {
       setTimeout(() => {
         const loader = document.getElementById("loading_screen");
-        if (loader && loader.style.opacity !== "0") {
+        if (loader && loader.style.opacity !== "0" && !wasmStarted) {
+          showLoadingError("O Kamafeu Web não terminou de iniciar.");
+        } else if (loader && loader.style.opacity !== "0") {
           loader.style.opacity = "0";
           loader.style.pointerEvents = "none";
           setTimeout(() => loader.remove(), 500);
@@ -186,5 +240,8 @@
       }, 4000);
     });
   </script>
+
+  <!-- Carregado depois do canvas para que o ponto de entrada WASM encontre a interface. -->
+  <link data-trunk rel="rust" data-wasm-opt="z" data-cargo-no-default-features />
 </body>
 </html>
