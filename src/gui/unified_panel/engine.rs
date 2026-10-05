@@ -17,7 +17,7 @@ pub(super) fn draw(
         .show(ui, |ui| {
             // --- MOTOR RESAMPLER ---
             Frame::none()
-                .fill(theme.card_bg_c32())
+                .fill(theme.elevated_surface_c32())
                 .rounding(theme.ui_rounding())
                 .stroke(theme.card_stroke())
                 .inner_margin(egui::Margin::same(8.0))
@@ -220,7 +220,7 @@ pub(super) fn draw(
 
             // --- MOTOR WAVTOOL ---
             Frame::none()
-                .fill(theme.card_bg_c32())
+                .fill(theme.elevated_surface_c32())
                 .rounding(theme.ui_rounding())
                 .stroke(theme.card_stroke())
                 .inner_margin(egui::Margin::same(8.0))
@@ -321,7 +321,7 @@ pub(super) fn draw(
 
             // --- PERFORMANCE & ÁUDIO ---
             Frame::none()
-                .fill(theme.card_bg_c32())
+                .fill(theme.elevated_surface_c32())
                 .rounding(theme.ui_rounding())
                 .stroke(theme.card_stroke())
                 .inner_margin(egui::Margin::same(8.0))

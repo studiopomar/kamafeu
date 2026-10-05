@@ -8,13 +8,24 @@ fn toolbar_card<R>(
     theme: &ThemeConfig,
     add_contents: impl FnOnce(&mut egui::Ui) -> R,
 ) -> R {
-    Frame::none()
-        .fill(theme.card_bg_c32())
+    let frame = Frame::none()
+        .fill(theme.elevated_surface_c32())
         .rounding(theme.ui_rounding())
         .stroke(theme.card_stroke())
-        .inner_margin(Margin::symmetric(5.0, 2.0))
-        .show(ui, add_contents)
-        .inner
+        .inner_margin(Margin::symmetric(6.0, 3.0))
+        .show(ui, add_contents);
+
+    // Um filete de identidade dá orientação visual aos grupos sem recorrer
+    // a bordas fortes em todos os controles. O brilho discreto também ajuda a
+    // separar a barra quando o canvas e o painel têm tons próximos.
+    let rect = frame.response.rect;
+    let rail = Rect::from_min_max(
+        Pos2::new(rect.left() + 5.0, rect.top() + 1.0),
+        Pos2::new(rect.right() - 5.0, rect.top() + 2.0),
+    );
+    ui.painter()
+        .rect_filled(rail, Rounding::same(1.0), theme.accent_soft_c32());
+    frame.inner
 }
 
 fn draw_vu_meter(
@@ -27,10 +38,10 @@ fn draw_vu_meter(
     let painter = ui.painter_at(vu_rect);
 
     // Frame
-    painter.rect_filled(vu_rect, Rounding::same(3.0), theme.bg_canvas_c32());
+    painter.rect_filled(vu_rect, theme.ui_rounding(), theme.bg_canvas_c32());
     painter.rect_stroke(
         vu_rect,
-        Rounding::same(3.0),
+        theme.ui_rounding(),
         Stroke::new(1.0, theme.grid_line_sub_c32()),
     );
 
@@ -166,9 +177,21 @@ pub fn draw_unified_toolbar(
                 toolbar_card(ui, theme, |ui| {
                     ui.spacing_mut().item_spacing = Vec2::new(3.0, 0.0);
 
+                    // O estado de reprodução tem um pulso quase imperceptível:
+                    // ele comunica atividade contínua sem virar decoração
+                    // piscante.
+                    let playback_pulse = if is_playing {
+                        let phase = ui.input(|input| input.time) as f32;
+                        ui.ctx()
+                            .request_repaint_after(std::time::Duration::from_millis(40));
+                        0.18 + 0.10 * (phase * std::f32::consts::TAU * 1.2).sin().abs()
+                    } else {
+                        0.20
+                    };
+
                     let (play_bg, play_text, play_color, play_stroke) = if is_playing {
                         (
-                            theme.c32_alpha(theme.accent_color, 0.2),
+                            theme.c32_alpha(theme.accent_color, playback_pulse),
                             "⏸",
                             theme.accent_c32(),
                             theme.accent_c32(),
@@ -205,11 +228,11 @@ pub fn draw_unified_toolbar(
                         RichText::new("⏹")
                             .strong()
                             .size(12.0)
-                            .color(Color32::from_rgb(255, 110, 110)),
+                            .color(theme.danger_c32()),
                     )
                     .min_size(Vec2::new(24.0, 20.0))
-                    .fill(Color32::from_rgba_unmultiplied(255, 70, 70, 35))
-                    .stroke(Stroke::new(1.0_f32, Color32::from_rgb(180, 50, 50)))
+                    .fill(theme.c32_alpha([235, 85, 85], 0.16))
+                    .stroke(Stroke::new(1.0_f32, theme.danger_c32()))
                     .rounding(Rounding::same(3.0));
 
                     if ui

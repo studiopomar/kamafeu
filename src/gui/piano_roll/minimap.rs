@@ -16,13 +16,17 @@ pub(super) fn draw(
             Sense::click_and_drag(),
         );
         let m_painter = ui.painter_at(minimap_rect);
-        m_painter.rect_filled(minimap_rect, Rounding::ZERO, Color32::from_rgb(14, 11, 20));
+        m_painter.rect_filled(
+            minimap_rect,
+            theme.ui_rounding(),
+            theme.c32_alpha(theme.bg_canvas, 0.94),
+        );
         m_painter.line_segment(
             [
                 Pos2::new(minimap_rect.min.x, minimap_rect.max.y),
                 Pos2::new(minimap_rect.max.x, minimap_rect.max.y),
             ],
-            Stroke::new(1.0, Color32::from_rgb(38, 30, 52)),
+            Stroke::new(1.0, theme.grid_line_bar_c32().linear_multiply(0.72)),
         );
 
         // Corner label
@@ -31,7 +35,7 @@ pub(super) fn draw(
             egui::Align2::LEFT_CENTER,
             "RADAR",
             egui::FontId::monospace(8.0),
-            Color32::from_rgb(150, 130, 180),
+            theme.text_muted_c32(),
         );
 
         let map_span_x = (minimap_rect.width() - keyboard_width).max(10.0);
@@ -94,7 +98,7 @@ pub(super) fn draw(
         let vp_fill = if is_vp_hovered || minimap_resp.dragged() {
             theme.c32_alpha(theme.accent_color, 0.35)
         } else {
-            Color32::from_rgba_unmultiplied(192, 132, 252, 45)
+            theme.focus_glow_c32()
         };
         let vp_stroke = if is_vp_hovered || minimap_resp.dragged() {
             Stroke::new(1.8, theme.accent_c32())
@@ -102,8 +106,8 @@ pub(super) fn draw(
             Stroke::new(1.0, theme.accent_c32())
         };
 
-        m_painter.rect_filled(vp_rect, Rounding::same(3.0), vp_fill);
-        m_painter.rect_stroke(vp_rect, Rounding::same(3.0), vp_stroke);
+        m_painter.rect_filled(vp_rect, theme.ui_rounding(), vp_fill);
+        m_painter.rect_stroke(vp_rect, theme.ui_rounding(), vp_stroke);
 
         // Playhead in minimap
         let playhead_norm = (state.playhead_ms / total_canvas_ms).clamp(0.0, 1.0) as f32;

@@ -17,6 +17,8 @@ impl KamafeuStudioApp {
                 let fade_in = (elapsed * speed / 0.22).clamp(0.0, 1.0);
                 let fade_out = ((25.0 - elapsed) * speed / 0.45).clamp(0.0, 1.0);
                 let visibility = if animated { fade_in.min(fade_out) } else { 1.0 };
+                let success = self.config.theme.success_c32();
+                let muted = self.config.theme.text_muted_c32();
                 if animated && visibility < 0.999 {
                     ctx.request_repaint_after(std::time::Duration::from_millis(16));
                 }
@@ -37,12 +39,7 @@ impl KamafeuStudioApp {
                             .rounding(egui::Rounding::same(8.0))
                             .stroke(egui::Stroke::new(
                                 1.2,
-                                egui::Color32::from_rgba_unmultiplied(
-                                    0,
-                                    255,
-                                    180,
-                                    (220.0 * visibility) as u8,
-                                ),
+                                success.linear_multiply(220.0 * visibility / 255.0),
                             ))
                             .shadow(egui::epaint::Shadow {
                                 offset: egui::Vec2::new(0.0, 5.0),
@@ -57,7 +54,7 @@ impl KamafeuStudioApp {
                                         egui::RichText::new("[OK]")
                                             .strong()
                                             .size(12.0)
-                                            .color(egui::Color32::from_rgb(0, 255, 180)),
+                                            .color(success),
                                     );
                                     ui.vertical(|ui| {
                                         ui.label(
@@ -69,7 +66,7 @@ impl KamafeuStudioApp {
                                         ui.label(
                                             egui::RichText::new(path.to_string_lossy())
                                                 .size(10.0)
-                                                .color(egui::Color32::from_rgb(160, 150, 180)),
+                                                .color(muted),
                                         );
                                     });
 

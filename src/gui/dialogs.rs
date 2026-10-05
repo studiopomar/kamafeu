@@ -1,5 +1,6 @@
 mod autopitch;
 mod batch_lyrics;
+mod command_palette;
 mod copaiba;
 mod export_dialog;
 mod export_options_dialog;
@@ -7,7 +8,10 @@ mod folder_picker;
 mod fx_rack_dialog;
 mod humanize_dialog;
 mod lyrics_dialog;
+mod markers;
 mod project;
+mod project_diagnostics;
+mod recovery_snapshots;
 mod shortcuts_guide;
 mod singers_gallery;
 mod templates;
@@ -20,11 +24,15 @@ use eframe::egui;
 
 impl KamafeuStudioApp {
     pub(crate) fn render_dialogs(&mut self, ctx: &egui::Context) {
+        self.render_command_palette(ctx);
         self.render_theme_customizer_dialog(ctx);
         self.render_preferences_dialog(ctx);
         self.render_project_properties_dialog(ctx);
         self.render_templates_dialog(ctx);
         self.render_voicebank_diagnostic_dialog(ctx);
+        self.render_project_diagnostic_dialog(ctx);
+        self.render_markers_dialog(ctx);
+        self.render_recovery_snapshots_dialog(ctx);
 
         self.show_theme_editor_dialog(ctx);
         self.show_fx_rack_dialog(ctx);

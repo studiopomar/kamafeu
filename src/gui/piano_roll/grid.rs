@@ -196,9 +196,12 @@ pub fn draw_timeline_grid(
     grid_end_y: f32,
     total_canvas_ms: f64,
     bpm: f64,
+    time_signature_numerator: u8,
+    time_signature_denominator: u8,
     snap_option: GridSnapOption,
 ) {
-    let beat_ms = 60000.0 / bpm;
+    let quarter_ms = 60000.0 / bpm;
+    let beat_ms = quarter_ms * 4.0 / f64::from(time_signature_denominator.max(1));
     let grid_step_ms = match snap_option {
         GridSnapOption::Freeform => beat_ms / 4.0,
         _ => snap_option
@@ -211,7 +214,7 @@ pub fn draw_timeline_grid(
         visual_step_ms *= 2.0;
     }
 
-    let bar_ms = beat_ms * 4.0;
+    let bar_ms = beat_ms * f64::from(time_signature_numerator.max(1));
     let visible_time_start =
         ((visible_clip.min.x - (rect.min.x + keyboard_width)) / state.px_per_ms).max(0.0) as f64;
     let visible_time_end =

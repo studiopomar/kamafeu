@@ -102,7 +102,12 @@ impl KamafeuStudioApp {
                 .default_pos((40.0, 370.0))
                 .default_size((820.0, 560.0))
                 .min_size((420.0, 260.0))
-                .frame(Frame::none().fill(bg_canvas));
+                .frame(
+                    Frame::none()
+                        .fill(bg_canvas)
+                        .rounding(self.config.theme.ui_rounding())
+                        .stroke(self.config.theme.card_stroke()),
+                );
             if let Some(rect) = pending_snap {
                 window = window.fixed_rect(rect);
             }
@@ -168,6 +173,8 @@ impl KamafeuStudioApp {
             .position(|p| p.track_index == active_track)
             .unwrap_or(0);
 
+        let markers = self.project.markers.clone();
+        let sections = self.project.sections.clone();
         let active_notes = &mut self.project.parts[part_idx].notes;
 
         // Sync loop state to piano_roll_state
@@ -178,12 +185,16 @@ impl KamafeuStudioApp {
         draw_piano_roll(
             ui,
             active_notes,
+            &markers,
+            &sections,
             &mut self.piano_roll_state,
             &self.config.theme,
             self.voicebank.as_ref(),
             &mut self.phoneme_palette_state,
             self.transport_state.grid_snap,
             self.transport_state.bpm,
+            self.project.time_signature_numerator,
+            self.project.time_signature_denominator,
             self.vocal_mode_params.phonemizer_mode,
             self.config.language,
             &mut |freq| preview_freq = Some(freq),

@@ -595,10 +595,48 @@ impl ThemeConfig {
         }
     }
 
+    /// Superfície ligeiramente elevada para agrupar controles sem transformar
+    /// cada opção avançada em uma caixa visualmente pesada.
+    pub fn elevated_surface_c32(&self) -> Color32 {
+        if self.is_light() {
+            self.c32_alpha(self.bg_header, 0.96)
+        } else {
+            self.c32_alpha(self.bg_panel, 0.72)
+        }
+    }
+
+    /// Cor usada em detalhes de identidade: filetes, indicadores e foco.
+    pub fn accent_soft_c32(&self) -> Color32 {
+        self.c32_alpha(self.accent_color, if self.is_light() { 0.72 } else { 0.52 })
+    }
+
+    pub fn focus_glow_c32(&self) -> Color32 {
+        self.c32_alpha(self.accent_color, if self.is_light() { 0.18 } else { 0.14 })
+    }
+
+    /// Cores semânticas compartilhadas por estados e feedbacks da interface.
+    /// Elas permanecem legíveis em todos os presets, mas não competem com o
+    /// acento autoral do tema.
+    pub fn success_c32(&self) -> Color32 {
+        self.c32([64, 205, 145])
+    }
+
+    pub fn warning_c32(&self) -> Color32 {
+        self.c32([235, 175, 75])
+    }
+
+    pub fn danger_c32(&self) -> Color32 {
+        self.c32([235, 85, 85])
+    }
+
+    pub fn info_c32(&self) -> Color32 {
+        self.c32([90, 190, 235])
+    }
+
     pub fn card_stroke(&self) -> Stroke {
         // Cards devem separar grupos de conteúdo sem criar uma caixa pesada
         // ao redor de cada controle.
-        Stroke::new(0.8, self.grid_line_sub_c32().linear_multiply(0.38))
+        Stroke::new(0.8, self.grid_line_sub_c32().linear_multiply(0.30))
     }
 
     pub fn card_border_c32(&self) -> Color32 {
@@ -651,12 +689,14 @@ impl ThemeConfig {
         visuals.hyperlink_color = accent;
 
         visuals.widgets.noninteractive.bg_fill = panel_bg;
-        visuals.widgets.noninteractive.bg_stroke = Stroke::new(0.8, grid_sub.linear_multiply(0.30));
+        visuals.widgets.noninteractive.bg_stroke = Stroke::new(0.8, grid_sub.linear_multiply(0.24));
         visuals.widgets.noninteractive.fg_stroke = Stroke::new(1.0, text_m);
         visuals.widgets.noninteractive.rounding = round;
 
-        visuals.widgets.inactive.bg_fill = header_bg;
-        visuals.widgets.inactive.bg_stroke = Stroke::new(0.8, grid_sub.linear_multiply(0.38));
+        // Controles inativos ficam próximos da superfície em vez de formar
+        // uma grade de caixas fortes. O contraste aparece quando há ação.
+        visuals.widgets.inactive.bg_fill = self.elevated_surface_c32();
+        visuals.widgets.inactive.bg_stroke = Stroke::new(0.8, grid_sub.linear_multiply(0.26));
         visuals.widgets.inactive.fg_stroke = Stroke::new(1.0, text_p);
         visuals.widgets.inactive.rounding = round;
 
@@ -704,8 +744,8 @@ impl ThemeConfig {
             Stroke::new(1.0, self.note_selected_stroke_c32().linear_multiply(0.72));
 
         visuals.override_text_color = None;
-        visuals.warn_fg_color = Color32::from_rgb(235, 170, 60);
-        visuals.error_fg_color = Color32::from_rgb(235, 85, 85);
+        visuals.warn_fg_color = self.warning_c32();
+        visuals.error_fg_color = self.danger_c32();
 
         visuals
     }
@@ -756,6 +796,34 @@ mod tests {
             assert!(theme.note_opacity >= 0.2 && theme.note_opacity <= 1.0);
             let _visuals = theme.create_egui_visuals();
         }
+    }
+
+    #[test]
+    fn test_semantic_colors_are_usable() {
+        let theme = ThemeConfig::from_preset(ThemePreset::PomarNeon);
+        for color in [
+            theme.success_c32(),
+            theme.warning_c32(),
+            theme.danger_c32(),
+            theme.info_c32(),
+        ] {
+            assert!(color.a() > 0);
+            assert!(color.r() as u16 + color.g() as u16 + color.b() as u16 > 120);
+        }
+    }
+
+    #[test]
+    fn test_visual_states_keep_action_hierarchy() {
+        let theme = ThemeConfig::from_preset(ThemePreset::PomarNeon);
+        let visuals = theme.create_egui_visuals();
+        let inactive = visuals.widgets.inactive.bg_fill;
+        let hovered = visuals.widgets.hovered.bg_fill;
+        let active = visuals.widgets.active.bg_fill;
+
+        assert_ne!(inactive, hovered);
+        assert_ne!(hovered, active);
+        assert_eq!(visuals.widgets.inactive.rounding, theme.ui_rounding());
+        assert_eq!(visuals.widgets.hovered.rounding, theme.ui_rounding());
     }
 
     #[test]

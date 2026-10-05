@@ -55,6 +55,7 @@ impl KamafeuStudioApp {
             let mut do_toggle_mute = false;
             let mut do_reset_zoom = false;
             let mut do_open_help = false;
+            let mut do_toggle_command_palette = false;
 
             ctx.input(|i| {
                 let has_cmd_or_ctrl = i.modifiers.command || i.modifiers.ctrl;
@@ -186,6 +187,9 @@ impl KamafeuStudioApp {
                 if has_cmd_or_ctrl && i.key_pressed(Key::Comma) {
                     do_toggle_prefs = true;
                 }
+                if has_cmd_or_ctrl && i.key_pressed(Key::K) {
+                    do_toggle_command_palette = true;
+                }
                 if has_cmd_or_ctrl && i.key_pressed(Key::A) {
                     if i.modifiers.shift {
                         do_deselect_all = true;
@@ -299,6 +303,13 @@ impl KamafeuStudioApp {
             }
             if do_open_help {
                 self.shortcuts_guide_open = true;
+            }
+            if do_toggle_command_palette {
+                self.command_palette_open = !self.command_palette_open;
+                if self.command_palette_open {
+                    self.command_palette_query.clear();
+                    self.command_palette_selected = 0;
+                }
             }
             if do_toggle_drawer {
                 self.piano_roll_state.show_parameters_drawer =

@@ -25,6 +25,8 @@ fn frame(
                     &ThemeConfig::default(),
                     Rect::from_min_size(Pos2::new(8.0, 8.0), Vec2::new(984.0, 28.0)),
                     120.0,
+                    4,
+                    4,
                     crate::config::AppLanguage::PtBr,
                     None,
                     &mut || {},

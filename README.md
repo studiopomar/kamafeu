@@ -24,7 +24,7 @@ O formato nativo `.aps` preserva discretamente a linhagem do antigo Projeto Satu
 
 O **Kamafeu Studio** é um ambiente completo de composição, edição e síntese de canto voltado para o ecossistema UTAU e OpenUtau. Ele combina piano roll de alta precisão, modelagem contínua de afinação, ajustes fonéticos detalhados e pipeline de áudio multithread, com suporte a motores nativos em Rust e executáveis externos da comunidade.
 
-O nome **Kamafeu** faz referência à tradicional joia em camafeu, esculpida manualmente em relevo. O software não utiliza redes neurais nem difusão (como DiffSinger ou modelos estatísticos de aprendizado profundo). O propósito central do projeto é fornecer controle técnico direto e transparente sobre o processo clássico de amostragem, calibração (*oto.ini*), afinação e transição acústica de bancos de voz gravados.
+O nome **Kamafeu** faz referência à tradicional joia em camafeu, esculpida manualmente em relevo. O propósito central do projeto é fornecer controle técnico direto e transparente sobre o processo clássico de amostragem, calibração (*oto.ini*), afinação e transição acústica de bancos de voz gravados. Além do pipeline UTAU, a versão desktop também reconhece bancos **DiffSinger** e executa pares acústico/vocoder ONNX compatíveis; esse caminho ainda não está disponível na compilação WASM.
 
 ## Sumário
 
@@ -49,9 +49,11 @@ O nome **Kamafeu** faz referência à tradicional joia em camafeu, esculpida man
   - [macOS](#macos)
   - [Windows](#windows)
 - [Interface de linha de comando](#interface-de-linha-de-comando)
+- [Extensões](#extensões)
 - [Tabela de atalhos de teclado](#tabela-de-atalhos-de-teclado)
 - [Estrutura do código-fonte](#estrutura-do-código-fonte)
 - [Guia detalhado dos arquivos](docs/GUIA_DO_CODIGO.md)
+- [Roteiro de produto](docs/roadmap-produto.md)
 - [Licença](#licença)
 
 ## Recursos do sistema
@@ -291,6 +293,14 @@ log de renderização ao abrir um issue.
 Projetos recentes e voicebanks recentes são apenas referências de caminho; mover
 ou renomear esses arquivos pode exigir que sejam selecionados novamente no editor.
 
+Com autosave ativado, projetos com alterações pendentes recebem cópias APS
+recuperáveis no intervalo configurado (30–600 segundos). Para um projeto salvo,
+elas ficam em `.kamafeu_snapshots` ao lado do arquivo; para um projeto ainda sem
+nome, ficam na pasta atual. Em **Arquivo → Recuperar Snapshot...**, escolha uma
+cópia por data e tamanho. Ela abre de forma segura como um projeto novo: use
+**Salvar Como** para preservar a recuperação sem substituir o snapshot. Esse
+mecanismo funciona nas versões desktop; a edição Web não grava snapshots locais.
+
 ## Versão mobile (Android; iOS em avaliação)
 
 O Kamafeu Studio conta com infraestrutura baseada em `winit` e `egui`, permitindo a compilação para Android. O suporte a iOS permanece em avaliação e não faz parte dos artefatos oficiais desta release candidate. O ecossistema mobile impõe desafios arquiteturais e restrições técnicas significativas:
@@ -490,13 +500,159 @@ cargo run --release --bin kamafeu -- --help
 # Inspecionar dados e integridade de um banco de voz
 cargo run --release --bin kamafeu -- voicebank-info "/caminho/do/voicebank"
 
+# Listar bancos UTAU, OpenUTAU e DiffSinger nas pastas padrão do sistema
+cargo run --release --bin kamafeu -- voicebanks
+
+# Ou apontar uma ou mais bibliotecas de cantores explicitamente
+cargo run --release --bin kamafeu -- voicebanks --path "/musica/Cantores" --path "/outros/Cantores"
+
+# Validar WAVs e tempos do oto.ini; retorna erro se houver problemas
+cargo run --release --bin kamafeu -- validate-voicebank "/caminho/do/voicebank"
+
+# Para DiffSinger, carregar os dois ONNX e conferir o contrato do modelo
+cargo run --release --bin kamafeu -- validate-voicebank --verify-runtime "/caminho/do/diffsinger"
+
+# Conferir as faixas, notas e duração de qualquer projeto suportado
+cargo run --release --bin kamafeu -- project-info "musica.svp"
+
+# Encontrar problemas estruturais antes de renderizar ou enviar um projeto
+cargo run --release --bin kamafeu -- validate-project "musica.ustx"
+
+# Em CI, também reprovar avisos vocais, como sobreposições e offsets extremos
+cargo run --release --bin kamafeu -- validate-project --fail-on-warning "musica.ustx"
+
+# Converter um projeto sem abrir a interface; o resultado informa recursos que possam ter sido reduzidos
+cargo run --release --bin kamafeu -- convert "musica.ustx" "musica.ufdata"
+
+# Em CI, falhar quando a auditoria detectar alteração musical
+cargo run --release --bin kamafeu -- convert --fail-on-loss "musica.ustx" "musica.ufdata"
+
+# Verificar manifestos de extensões sem executar código de terceiros
+cargo run --release --bin kamafeu -- extensions "extensions"
+
+# Verificar módulos WASM declarados em sandbox, sem imports do sistema
+cargo run --release --bin kamafeu -- extensions --verify-wasm "extensions"
+
+# Usar saída estruturada em scripts, CI ou outra ferramenta
+cargo run --release --bin kamafeu -- --json validate-voicebank "/caminho/do/voicebank"
+
+# Ver tamanho, localização e eficiência do cache de renderização
+cargo run --release --bin kamafeu -- cache-info
+
+# Remover somente entradas de cache sem uso há mais de 30 dias
+cargo run --release --bin kamafeu -- cache-prune --days 30
+
 # Renderizar um projeto diretamente para áudio WAV
 cargo run --release --bin kamafeu -- render \
   --voicebank "/caminho/do/voicebank" \
   --input "projeto.aps" \
-  --output "saida.wav" \
-  --sample-rate 44100
+  --output "saida.flac" \
+  --sample-rate 44100 \
+  --dither
 ```
+
+`render` e `project-info` aceitam `.aps`, `.ust`, `.ustx`, `.mid`, `.midi`,
+`.vsqx`, `.svp`, `.ufdata` e JSON do Kamafeu. Os três últimos são formatos de
+intercâmbio. Após converter, o Kamafeu reabre o destino e compara tempo, faixas,
+partes, notas, áudio, pitch bend, curvas de dinâmica e expressões. Também
+compara uma assinatura de letra, altura e tempo de cada nota, para detectar
+alterações mesmo quando a contagem não muda. Em scripts, `convert --json`
+retorna o relatório completo. Use `convert --fail-on-loss` em CI quando o
+destino não puder ser aceito com nenhuma alteração detectada; o arquivo ainda é
+criado para inspeção, mas o comando retorna status diferente de zero.
+
+O renderizador de terminal escolhe WAV 16-bit, FLAC 16-bit ou PCM RAW pela
+extensão de saída. Para controle explícito, use `--format wav24`,
+`--format wav32-float`, `--format flac24` ou `--format raw-f32`; nesses casos a
+extensão precisa corresponder ao formato. `--dither` aplica TPDF determinístico
+somente a exportações PCM inteiras.
+
+Ao finalizar, `render --json` e a operação `render` da automação retornam
+duração, pico, RMS, clipping, valores não finitos, maior salto entre amostras e
+detecção de silêncio. Isso permite que um pipeline interrompa exportações
+inseguras ou vazias sem precisar analisar o arquivo manualmente.
+
+Os comandos de inspeção (`voicebank-info`, `voicebanks`, `validate-voicebank`,
+`project-info` e `extensions`) aceitam `--json`. Nesse modo, o terminal recebe exclusivamente
+um documento JSON e `validate-voicebank` continua retornando status diferente de
+zero quando encontrar problemas, o que o torna adequado para CI.
+
+Para um banco DiffSinger, `voicebank-info` e `validate-voicebank` detectam o
+tipo automaticamente e verificam `dsconfig.yaml`, modelo acústico, vocoder,
+fonemas e metadados de idioma, em vez de tratá-lo como um banco UTAU sem
+`oto.ini`. Acrescente `--verify-runtime` quando quiser abrir as sessões ONNX e
+confirmar as entradas e saídas exigidas pelo renderizador antes de renderizar.
+
+Para integrações persistentes, `kamafeu automation` executa um protocolo local
+JSON Lines pelo `stdin`/`stdout`: uma requisição JSON por linha gera exatamente
+uma resposta JSON por linha. As operações disponíveis são `project_info`,
+`validate_project`, `list_voicebanks`, `create_project`, `add_note`, `set_tempo`, `convert`,
+`set_note`, `remove_note`, `apply_lyrics`, `set_pitch_bend`, `render`, `validate_voicebank`, `extensions`,
+`set_expression`, `add_audio_part`, `add_marker`, `remove_marker`, `cache_info` e `cache_prune`.
+
+```json
+{"command":"project_info","path":"musica.ustx"}
+{"command":"validate_project","path":"musica.ustx"}
+{"command":"list_voicebanks","paths":["/musica/Cantores"]}
+{"command":"create_project","output":"rascunho.aps","name":"Ideia","bpm":120}
+{"command":"add_note","input":"rascunho.aps","output":"rascunho-01.aps","lyric":"la","pitch":"C4","position_ms":0,"duration_ms":500}
+{"command":"set_tempo","input":"rascunho-01.aps","output":"rascunho-02.aps","bpm":140}
+{"command":"set_note","input":"rascunho-02.aps","output":"rascunho-03.aps","part_index":0,"note_index":0,"lyric":"li","pitch":"D4"}
+{"command":"remove_note","input":"rascunho-03.aps","output":"rascunho-sem-nota.aps","part_index":0,"note_index":0}
+{"command":"apply_lyrics","input":"rascunho-03.aps","output":"rascunho-com-letra.aps","part_index":0,"text":"ka-ma-feu es-tu-di-o","mode":"hyphens_and_spaces"}
+{"command":"add_marker","input":"rascunho-com-letra.aps","output":"com-refrão.aps","name":"Refrão","position_ms":32000,"color":"#00ffaa"}
+{"command":"set_pitch_bend","input":"rascunho-03.aps","output":"rascunho-04.aps","part_index":0,"note_index":0,"points":[{"time_offset_ms":0,"pitch_offset_cents":-30,"shape":"s"},{"time_offset_ms":200,"pitch_offset_cents":0,"shape":"s"}]}
+{"command":"set_expression","input":"rascunho-04.aps","output":"rascunho-05.aps","part_index":0,"note_index":0,"dynamics":25,"breathiness":20,"gender":-10,"volume":110}
+{"command":"add_audio_part","input":"rascunho-05.aps","output":"arranjo.aps","file_path":"instrumental.wav","position_ms":0,"track_index":1,"volume_db":-3}
+{"command":"convert","input":"musica.ustx","output":"musica.ufdata"}
+{"command":"render","voicebank":"cantor","input":"musica.ustx","output":"mix.flac","dither":true}
+{"command":"cache_info"}
+{"command":"extensions","path":"extensions","verify_wasm":true}
+```
+
+Ele não abre porta de rede nem executa extensões. Um adaptador MCP ou outra
+integração pode iniciar esse processo e falar pelo fluxo padrão, mantendo as
+permissões de arquivos sob controle de quem o invoca.
+
+Para clientes que já falam [Model Context Protocol](https://modelcontextprotocol.io/),
+use `kamafeu mcp`. O servidor MCP local anuncia ferramentas para criar e editar
+projetos, renderizar, validar cantores, gerir cache e verificar extensões. Ele
+usa o mesmo `stdin`/`stdout` e não abre portas de rede.
+
+## Extensões
+
+O Kamafeu expõe um registro de extensões para motores de síntese, formatos de
+projeto, fonemizadores, efeitos e instrumentos. Manifestos são descobertos sem
+executar código. Quando solicitado com `extensions --verify-wasm`, o módulo é
+iniciado em sandbox: não recebe imports do host, acesso a arquivos, rede ou
+processos, e tem orçamento limitado de execução.
+
+Cada extensão ocupa uma pasta e declara `kamafeu-extension.json`:
+
+```json
+{
+  "id": "org.exemplo.meu-motor",
+  "name": "Meu motor",
+  "version": "0.1.0",
+  "api_version": 1,
+  "kind": "synthesis_engine",
+  "entrypoint": "engine.wasm"
+}
+```
+
+Os tipos atuais são `synthesis_engine`, `project_format`, `phonemizer`,
+`effect` e `instrument`. O `entrypoint` deve ser um caminho relativo à pasta da
+extensão; caminhos absolutos ou que escapem da pasta são rejeitados.
+
+Para passar pela verificação inicial, um `entrypoint` `.wasm` deve exportar
+`kamafeu_extension_api_version() -> i32` e retornar `1`. A ABI de execução de
+formatos, fonemizadores e efeitos será acrescentada sobre essa base sem dar ao
+módulo permissões implícitas do sistema.
+
+Os formatos incluídos no aplicativo já usam o mesmo registro de adaptadores de
+`project_format` que será oferecido às extensões. Assim, um novo formato não
+precisa alterar o CLI: ele se registra com suas extensões de arquivo e fornece
+as operações de leitura e gravação para o modelo `UProject`.
 
 ## Tabela de atalhos de teclado
 
@@ -565,6 +721,7 @@ ferramentas, úteis para fraseados e ritmos não binários.
 | `Ctrl + S` / `Cmd + S` | Salvar projeto ativo (`.aps`) |
 | `Ctrl + Shift + S` / `Cmd + Shift + S` | Salvar projeto como novo arquivo |
 | `Ctrl + E` / `Cmd + E` | Abrir diálogo de exportação de áudio (WAV / FLAC) |
+| `Ctrl + K` / `Cmd + K` | Abrir a paleta de comandos com busca por ações do Studio |
 | `Ctrl + ,` / `Cmd + ,` | Abrir diálogo de preferências e configurações |
 | `Ctrl + Alt + P` / `Cmd + Alt + P` | Abrir janela do Pre-tunning (Afinador Orgânico / Auto-Pitch) |
 | `Ctrl + Alt + T` / `Cmd + Alt + T` | Personalizar tema visual, cores de destaque e cantos da interface |

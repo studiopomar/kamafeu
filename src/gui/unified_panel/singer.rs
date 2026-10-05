@@ -33,7 +33,7 @@ pub(super) fn draw(
         .show(ui, |ui| {
             // --- CARD DO CANTOR ATIVO ---
             Frame::none()
-                .fill(theme.card_bg_c32())
+                .fill(theme.elevated_surface_c32())
                 .rounding(theme.ui_rounding())
                 .stroke(theme.card_stroke())
                 .inner_margin(egui::Margin::same(10.0))
@@ -228,7 +228,7 @@ pub(super) fn draw(
 
             // --- LISTA RÁPIDA DE CANTORES ---
             Frame::none()
-                .fill(theme.card_bg_c32())
+                .fill(theme.elevated_surface_c32())
                 .rounding(theme.ui_rounding())
                 .stroke(theme.card_stroke())
                 .inner_margin(egui::Margin::same(8.0))
@@ -412,7 +412,7 @@ pub(super) fn draw(
 
             // --- MODO VOCAL & EXPRESSÃO GLOBAL ---
             Frame::none()
-                .fill(theme.card_bg_c32())
+                .fill(theme.elevated_surface_c32())
                 .rounding(theme.ui_rounding())
                 .stroke(theme.card_stroke())
                 .inner_margin(egui::Margin::same(8.0))

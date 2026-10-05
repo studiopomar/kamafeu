@@ -51,11 +51,32 @@ impl eframe::App for KamafeuStudioApp {
                 style.spacing.interact_size = egui::vec2(44.0, 44.0);
                 style.spacing.menu_margin = egui::Margin::same(8.0);
             } else {
-                style.spacing.item_spacing = egui::vec2(6.0, 4.0);
-                style.spacing.button_padding = egui::vec2(8.0, 5.0);
+                // A densidade continua alta para quem trabalha com muitos
+                // parâmetros, mas os controles deixam de parecer colados.
+                style.spacing.item_spacing = egui::vec2(7.0, 5.0);
+                style.spacing.button_padding = egui::vec2(9.0, 6.0);
                 style.spacing.interact_size = egui::vec2(24.0, 24.0);
-                style.spacing.menu_margin = egui::Margin::same(4.0);
+                style.spacing.menu_margin = egui::Margin::same(6.0);
             }
+
+            // Escala tipográfica deliberada: o editor pode ser denso, mas
+            // seus níveis de informação precisam ser imediatamente distintos.
+            let body_size = if narrow { 13.0 } else { 12.0 };
+            style
+                .text_styles
+                .insert(egui::TextStyle::Body, egui::FontId::proportional(body_size));
+            style.text_styles.insert(
+                egui::TextStyle::Button,
+                egui::FontId::proportional(if narrow { 13.0 } else { 11.5 }),
+            );
+            style.text_styles.insert(
+                egui::TextStyle::Small,
+                egui::FontId::proportional(if narrow { 11.5 } else { 10.0 }),
+            );
+            style.text_styles.insert(
+                egui::TextStyle::Heading,
+                egui::FontId::proportional(if narrow { 17.0 } else { 15.0 }),
+            );
         });
 
         let project_name = if let Some(ref path) = self.current_project_path {
@@ -179,6 +200,14 @@ impl eframe::App for KamafeuStudioApp {
         self.draw_export_notification_toast(ctx);
         self.draw_panel_tips_bubble(ctx);
         self.draw_no_phonemizer_warning_bubble(ctx);
+
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            self.autosave_recovery_snapshot_if_due();
+            if self.is_dirty && self.config.workflow.auto_save_enabled {
+                ctx.request_repaint_after(std::time::Duration::from_secs(1));
+            }
+        }
 
         self.update_activity();
     }

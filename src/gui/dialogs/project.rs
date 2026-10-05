@@ -8,6 +8,7 @@ impl KamafeuStudioApp {
         }
 
         let lang = self.config.language;
+        let project_before = self.project.clone();
         let mut is_open = self.project_properties_open;
         ctx.show_viewport_immediate(
             egui::ViewportId::from_hash_of("project_properties_native_viewport"),
@@ -46,6 +47,28 @@ impl KamafeuStudioApp {
                                 ui.add(egui::DragValue::new(&mut self.project.bpm).range(20.0..=999.0).speed(0.5));
                                 ui.end_row();
 
+                                ui.label(egui::RichText::new(lang.tr("Compasso:", "Time Signature:")).strong());
+                                ui.horizontal(|ui| {
+                                    ui.add(
+                                        egui::DragValue::new(&mut self.project.time_signature_numerator)
+                                            .range(1..=32)
+                                            .speed(0.2),
+                                    );
+                                    ui.label("/");
+                                    egui::ComboBox::from_id_salt("project_time_signature_denominator")
+                                        .selected_text(self.project.time_signature_denominator.to_string())
+                                        .show_ui(ui, |ui| {
+                                            for denominator in [1, 2, 4, 8, 16, 32] {
+                                                ui.selectable_value(
+                                                    &mut self.project.time_signature_denominator,
+                                                    denominator,
+                                                    denominator.to_string(),
+                                                );
+                                            }
+                                        });
+                                });
+                                ui.end_row();
+
                                 ui.label(egui::RichText::new(lang.tr("Arquivo Salvo:", "Saved File:")).strong());
                                 let path_str = self.current_project_path.as_ref().map(|p| p.to_string_lossy().to_string()).unwrap_or_else(|| lang.tr("Não salvo no disco", "Not saved to disk").to_string());
                                 ui.label(egui::RichText::new(path_str).monospace().size(10.5));
@@ -57,6 +80,16 @@ impl KamafeuStudioApp {
 
                                 ui.label(egui::RichText::new(lang.tr("Total de Áudios (Wave Parts):", "Total Audio Parts (Wave Parts):")).strong());
                                 ui.label(format!("{}", self.project.wave_parts.len()));
+                                ui.end_row();
+
+                                ui.label(egui::RichText::new(lang.tr("Marcadores e Seções:", "Markers & Sections:")).strong());
+                                ui.label(format!(
+                                    "{} {} · {} {}",
+                                    self.project.markers.len(),
+                                    lang.tr("marcadores", "markers"),
+                                    self.project.sections.len(),
+                                    lang.tr("seções", "sections"),
+                                ));
                                 ui.end_row();
 
                                 let total_notes: usize = self.project.parts.iter().map(|p| p.notes.len()).sum();
@@ -98,6 +131,17 @@ impl KamafeuStudioApp {
                 }
             },
         );
+        if self.project != project_before {
+            self.project.normalize();
+            self.undo_manager.push_state(project_before);
+            self.is_dirty = true;
+            self.transport_state.status_message = lang
+                .tr(
+                    "Propriedades do projeto atualizadas",
+                    "Project properties updated",
+                )
+                .to_string();
+        }
         self.project_properties_open = is_open;
     }
 }

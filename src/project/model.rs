@@ -472,9 +472,54 @@ impl UWavePart {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct UProjectMarker {
+    pub name: String,
+    pub position_ms: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color: Option<String>,
+}
+
+impl UProjectMarker {
+    pub fn new(name: impl Into<String>, position_ms: f64) -> Self {
+        Self {
+            name: name.into(),
+            position_ms,
+            color: None,
+        }
+    }
+}
+
+/// A named span on the arrangement timeline, useful for verses, choruses and
+/// review ranges. Sections deliberately remain independent from notes so they
+/// survive editing, retiming and track changes.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct UProjectSection {
+    pub name: String,
+    pub start_ms: f64,
+    pub end_ms: f64,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color: Option<String>,
+}
+
+impl UProjectSection {
+    pub fn new(name: impl Into<String>, start_ms: f64, end_ms: f64) -> Self {
+        Self {
+            name: name.into(),
+            start_ms,
+            end_ms,
+            color: None,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct UProject {
     pub name: String,
     pub bpm: f64,
+    #[serde(default = "default_time_signature_numerator")]
+    pub time_signature_numerator: u8,
+    #[serde(default = "default_time_signature_denominator")]
+    pub time_signature_denominator: u8,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub voicebank: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -493,6 +538,18 @@ pub struct UProject {
     pub parts: Vec<UVoicePart>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub wave_parts: Vec<UWavePart>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub markers: Vec<UProjectMarker>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub sections: Vec<UProjectSection>,
+}
+
+fn default_time_signature_numerator() -> u8 {
+    4
+}
+
+fn default_time_signature_denominator() -> u8 {
+    4
 }
 
 impl Default for UProject {
@@ -500,6 +557,8 @@ impl Default for UProject {
         Self {
             name: "Novo Projeto".to_string(),
             bpm: 120.0,
+            time_signature_numerator: 4,
+            time_signature_denominator: 4,
             voicebank: None,
             voicebank_path: None,
             phonemizer: None,
@@ -510,6 +569,8 @@ impl Default for UProject {
             tracks: vec![UTrack::default()],
             parts: vec![UVoicePart::new("Parte Vocal 1", 0)],
             wave_parts: Vec::new(),
+            markers: Vec::new(),
+            sections: Vec::new(),
         }
     }
 }
@@ -552,6 +613,13 @@ impl UProject {
         for wave in &mut self.wave_parts {
             wave.position_ms *= time_scale;
         }
+        for marker in &mut self.markers {
+            marker.position_ms *= time_scale;
+        }
+        for section in &mut self.sections {
+            section.start_ms *= time_scale;
+            section.end_ms *= time_scale;
+        }
 
         self.bpm = new_bpm;
         Some(time_scale)
@@ -563,6 +631,11 @@ impl UProject {
             self.bpm = 120.0;
         }
         self.bpm = self.bpm.clamp(20.0, 999.0);
+        self.time_signature_numerator = self.time_signature_numerator.clamp(1, 32);
+        self.time_signature_denominator = match self.time_signature_denominator {
+            1 | 2 | 4 | 8 | 16 | 32 => self.time_signature_denominator,
+            _ => 4,
+        };
 
         let max_part_track = self
             .parts
@@ -598,6 +671,56 @@ impl UProject {
             }
             wave.volume_db = wave.volume_db.clamp(-60.0, 12.0);
         }
+
+        for (index, marker) in self.markers.iter_mut().enumerate() {
+            if !marker.position_ms.is_finite() {
+                marker.position_ms = 0.0;
+            }
+            marker.position_ms = marker.position_ms.max(0.0);
+            if marker.name.trim().is_empty() {
+                marker.name = format!("Marcador {}", index + 1);
+            }
+            marker.name = marker.name.trim().chars().take(120).collect();
+            marker.color = marker.color.take().filter(|color| {
+                let color = color.trim();
+                color.len() == 7
+                    && color.starts_with('#')
+                    && color.as_bytes()[1..].iter().all(u8::is_ascii_hexdigit)
+            });
+        }
+        self.markers.sort_by(|left, right| {
+            left.position_ms
+                .partial_cmp(&right.position_ms)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| left.name.cmp(&right.name))
+        });
+
+        for (index, section) in self.sections.iter_mut().enumerate() {
+            if !section.start_ms.is_finite() {
+                section.start_ms = 0.0;
+            }
+            if !section.end_ms.is_finite() {
+                section.end_ms = section.start_ms;
+            }
+            section.start_ms = section.start_ms.max(0.0);
+            section.end_ms = section.end_ms.max(section.start_ms);
+            if section.name.trim().is_empty() {
+                section.name = format!("Seção {}", index + 1);
+            }
+            section.name = section.name.trim().chars().take(120).collect();
+            section.color = section.color.take().filter(|color| {
+                let color = color.trim();
+                color.len() == 7
+                    && color.starts_with('#')
+                    && color.as_bytes()[1..].iter().all(u8::is_ascii_hexdigit)
+            });
+        }
+        self.sections.sort_by(|left, right| {
+            left.start_ms
+                .partial_cmp(&right.start_ms)
+                .unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| left.name.cmp(&right.name))
+        });
 
         for track in &mut self.tracks {
             if !track.volume_db.is_finite() {
@@ -813,6 +936,17 @@ mod project_tests {
     }
 
     #[test]
+    fn normalize_restores_a_safe_time_signature() {
+        let mut project = UProject::default();
+        project.time_signature_numerator = 0;
+        project.time_signature_denominator = 3;
+        project.normalize();
+
+        assert_eq!(project.time_signature_numerator, 1);
+        assert_eq!(project.time_signature_denominator, 4);
+    }
+
+    #[test]
     fn tempo_change_preserves_beat_positions() {
         let mut project = UProject {
             bpm: 120.0,
@@ -848,6 +982,58 @@ mod project_tests {
         assert_eq!(project.set_bpm_preserving_beats(f64::NAN), None);
         assert_eq!(project.bpm, 120.0);
         assert_eq!(project.parts[0].position_ms, original);
+    }
+
+    #[test]
+    fn markers_normalize_sort_and_follow_tempo_changes() {
+        let mut project = UProject::default();
+        project.markers = vec![
+            UProjectMarker {
+                name: "  Chorus  ".to_string(),
+                position_ms: 2_000.0,
+                color: Some("#00ffaa".to_string()),
+            },
+            UProjectMarker {
+                name: " ".to_string(),
+                position_ms: f64::NAN,
+                color: Some("not-a-color".to_string()),
+            },
+        ];
+        project.normalize();
+        assert_eq!(project.markers[0].name, "Marcador 2");
+        assert_eq!(project.markers[0].position_ms, 0.0);
+        assert_eq!(project.markers[0].color, None);
+        assert_eq!(project.markers[1].name, "Chorus");
+        assert_eq!(project.markers[1].color.as_deref(), Some("#00ffaa"));
+
+        project.set_bpm_preserving_beats(240.0);
+        assert_eq!(project.markers[1].position_ms, 1_000.0);
+    }
+
+    #[test]
+    fn sections_normalize_and_follow_tempo_changes() {
+        let mut project = UProject::default();
+        project.sections = vec![
+            UProjectSection::new("  Chorus  ", 2_000.0, 1_000.0),
+            UProjectSection {
+                name: " ".to_string(),
+                start_ms: f64::NAN,
+                end_ms: f64::NAN,
+                color: Some("bad".to_string()),
+            },
+        ];
+        project.normalize();
+        assert_eq!(project.sections[0].name, "Seção 2");
+        assert_eq!(project.sections[0].start_ms, 0.0);
+        assert_eq!(project.sections[0].end_ms, 0.0);
+        assert_eq!(project.sections[0].color, None);
+        assert_eq!(project.sections[1].name, "Chorus");
+        assert_eq!(project.sections[1].start_ms, 2_000.0);
+        assert_eq!(project.sections[1].end_ms, 2_000.0);
+
+        project.set_bpm_preserving_beats(240.0);
+        assert_eq!(project.sections[1].start_ms, 1_000.0);
+        assert_eq!(project.sections[1].end_ms, 1_000.0);
     }
 
     #[test]

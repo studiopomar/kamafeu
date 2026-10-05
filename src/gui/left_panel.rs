@@ -25,24 +25,59 @@ pub fn draw_left_panel(
     on_insert_phoneme: &mut dyn FnMut(&str),
 ) {
     ui.vertical(|ui| {
-        ui.horizontal(|ui| {
-            let voice_tab_text = if *active_tab == LeftSidebarTab::VoiceMode {
-                RichText::new("Voz").strong().color(theme.accent_c32())
-            } else {
-                RichText::new("Voz").color(theme.text_muted_c32())
-            };
-            if ui.button(voice_tab_text).clicked() {
-                *active_tab = LeftSidebarTab::VoiceMode;
-            }
-
-            let phonemes_tab_text = if *active_tab == LeftSidebarTab::Phonemes {
-                RichText::new("Fonemas").strong().color(theme.accent_c32())
-            } else {
-                RichText::new("Fonemas").color(theme.text_muted_c32())
-            };
-            if ui.button(phonemes_tab_text).clicked() {
-                *active_tab = LeftSidebarTab::Phonemes;
-            }
+        Frame::none()
+            .fill(theme.elevated_surface_c32())
+            .rounding(theme.ui_rounding())
+            .stroke(theme.card_stroke())
+            .inner_margin(egui::Margin::symmetric(4.0, 4.0))
+            .show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    for (index, (tab, label)) in [
+                        (LeftSidebarTab::VoiceMode, "Voz"),
+                        (LeftSidebarTab::Phonemes, "Fonemas"),
+                    ]
+                    .iter()
+                    .enumerate()
+                    {
+                        let selected = *active_tab == *tab;
+                        let progress = ui.ctx().animate_bool(
+                            egui::Id::new(("left_sidebar_tab", index)),
+                            selected,
+                        );
+                        let response = ui.add(
+                            egui::Button::new(
+                                RichText::new(*label)
+                                    .strong()
+                                    .color(if selected {
+                                        theme.accent_c32()
+                                    } else {
+                                        theme.text_muted_c32()
+                                    }),
+                            )
+                            .fill(theme.c32_alpha(
+                                theme.accent_color,
+                                0.06 + 0.16 * progress,
+                            ))
+                            .rounding(theme.ui_rounding())
+                            .min_size(Vec2::new(72.0, 24.0)),
+                        );
+                        if selected {
+                            let underline = Rect::from_min_max(
+                                Pos2::new(response.rect.left() + 8.0, response.rect.bottom() - 2.0),
+                                Pos2::new(response.rect.right() - 8.0, response.rect.bottom()),
+                            );
+                            ui.painter().rect_filled(
+                                underline,
+                                Rounding::same(1.0),
+                                theme.accent_c32(),
+                            );
+                        }
+                        if response.clicked() {
+                            *active_tab = *tab;
+                        }
+                    }
+                });
+            });
         });
 
         ui.add_space(6.0);
@@ -63,7 +98,11 @@ pub fn draw_left_panel(
                             egui::Sense::hover(),
                         );
                         let painter = ui.painter_at(card_rect);
-                        painter.rect_filled(card_rect, theme.ui_rounding(), theme.card_bg_c32());
+                        painter.rect_filled(
+                            card_rect,
+                            theme.ui_rounding(),
+                            theme.elevated_surface_c32(),
+                        );
                         painter.rect_stroke(card_rect, theme.ui_rounding(), theme.card_stroke());
 
                         let avatar_rect = egui::Rect::from_min_size(

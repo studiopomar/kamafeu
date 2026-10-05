@@ -16,7 +16,8 @@ impl KamafeuStudioApp {
 
         let is_modular = self.config.layout.modular_workspace;
         let toolbar_title = self.config.language.tr("Controles", "Controls");
-        let toolbar_fill = self.config.theme.bg_panel_c32();
+        let toolbar_fill = self.config.theme.elevated_surface_c32();
+        let toolbar_stroke = self.config.theme.card_stroke();
         let mut draw_toolbar = |ui: &mut egui::Ui| {
             let transport_active = self.audio_player.is_playing() || self.render_rx.is_some();
             let bpm_before = self.project.bpm;
@@ -150,7 +151,7 @@ impl KamafeuStudioApp {
         if is_mobile {
             TopBottomPanel::top("top_unified_control_panel")
                 .exact_height(52.0)
-                .frame(Frame::none().fill(toolbar_fill))
+                .frame(Frame::none().fill(toolbar_fill).stroke(toolbar_stroke))
                 .show(ctx, |ui| {
                     egui::ScrollArea::horizontal()
                         .id_salt("mobile_toolbar_scroll")
@@ -168,12 +169,12 @@ impl KamafeuStudioApp {
                 .default_pos((40.0, 28.0))
                 .default_size((820.0, 74.0))
                 .min_size((360.0, 48.0))
-                .frame(Frame::none().fill(toolbar_fill))
+                .frame(Frame::none().fill(toolbar_fill).stroke(toolbar_stroke))
                 .show(ctx, &mut draw_toolbar);
         } else {
             TopBottomPanel::top("top_unified_control_panel")
                 .exact_height(36.0)
-                .frame(Frame::none().fill(toolbar_fill))
+                .frame(Frame::none().fill(toolbar_fill).stroke(toolbar_stroke))
                 .show(ctx, &mut draw_toolbar);
         }
 
@@ -182,6 +183,8 @@ impl KamafeuStudioApp {
             let is_modular = self.config.layout.modular_workspace;
             let inspector_title = self.config.language.tr("Inspetor", "Inspector");
             let bg_panel = self.config.theme.bg_panel_c32();
+            let inspector_rounding = self.config.theme.ui_rounding();
+            let inspector_stroke = self.config.theme.card_stroke();
             let inspector_snap = match self.workspace_snap_rect.take() {
                 Some((crate::gui::workspace::WorkspacePane::Inspector, rect)) if is_modular => {
                     Some(rect)
@@ -203,7 +206,12 @@ impl KamafeuStudioApp {
                     .default_pos((900.0, 110.0))
                     .default_size((300.0, 620.0))
                     .min_width(200.0)
-                    .frame(Frame::none().fill(bg_panel));
+                    .frame(
+                        Frame::none()
+                            .fill(bg_panel)
+                            .rounding(inspector_rounding)
+                            .stroke(inspector_stroke),
+                    );
                 if let Some(rect) = inspector_snap {
                     window = window.fixed_rect(rect);
                 }
@@ -222,7 +230,7 @@ impl KamafeuStudioApp {
                     .default_width(240.0)
                     .min_width(200.0)
                     .max_width(480.0)
-                    .frame(Frame::none().fill(bg_panel))
+                    .frame(Frame::none().fill(bg_panel).stroke(inspector_stroke))
                     .show(ctx, &mut draw_inspector);
             }
             drop(draw_inspector);

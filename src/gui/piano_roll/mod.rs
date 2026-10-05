@@ -14,7 +14,7 @@ use crate::gui::phoneme_palette::PhonemePaletteState;
 use crate::gui::theme::MelodyneTheme;
 use crate::gui::types::{AutoScrollMode, EditTool, GridSnapOption, PitchSubTool};
 use crate::oto::Voicebank;
-use crate::project::model::{UNote, UPitchBendPoint};
+use crate::project::model::{UNote, UPitchBendPoint, UProjectMarker, UProjectSection};
 use eframe::egui::{self, Color32, Key, Pos2, Rect, Rounding, Sense, Stroke, Vec2};
 
 /// One fifth is intentionally reserved for deliberate imported pitch bends,
@@ -31,12 +31,16 @@ use crate::gui::theme::ThemeConfig;
 pub fn draw_piano_roll(
     ui: &mut egui::Ui,
     notes: &mut Vec<UNote>,
+    markers: &[UProjectMarker],
+    sections: &[UProjectSection],
     state: &mut PianoRollState,
     theme: &ThemeConfig,
     voicebank: Option<&Voicebank>,
     phoneme_state: &mut PhonemePaletteState,
     snap_option: GridSnapOption,
     bpm: f64,
+    time_signature_numerator: u8,
+    time_signature_denominator: u8,
     phonemizer_mode: crate::phonemizer::PhonemizerMode,
     lang: crate::config::AppLanguage,
     on_preview_freq: &mut dyn FnMut(f64),
@@ -113,20 +117,20 @@ pub fn draw_piano_roll(
     );
 
     let ruler_painter = ui.painter_at(ruler_rect);
-    ruler_painter.rect_filled(ruler_rect, Rounding::ZERO, MelodyneTheme::BG_HEADER);
+    ruler_painter.rect_filled(ruler_rect, Rounding::ZERO, theme.bg_header_c32());
     ruler_painter.line_segment(
         [
             Pos2::new(ruler_rect.min.x, ruler_rect.max.y),
             Pos2::new(ruler_rect.max.x, ruler_rect.max.y),
         ],
-        Stroke::new(1.5_f32, MelodyneTheme::GRID_LINE_BAR),
+        Stroke::new(1.5_f32, theme.grid_line_bar_c32()),
     );
 
     let corner_rect = Rect::from_min_max(
         Pos2::new(ruler_rect.min.x, ruler_rect.min.y),
         Pos2::new(ruler_rect.min.x + keyboard_width, ruler_rect.max.y),
     );
-    ruler_painter.rect_filled(corner_rect, Rounding::ZERO, MelodyneTheme::BG_PANEL);
+    ruler_painter.rect_filled(corner_rect, Rounding::ZERO, theme.bg_panel_c32());
     ruler_painter.text(
         Pos2::new(
             ruler_rect.min.x + 8.0,
@@ -135,11 +139,11 @@ pub fn draw_piano_roll(
         egui::Align2::LEFT_CENTER,
         "RULER",
         egui::FontId::proportional(10.0),
-        MelodyneTheme::TEXT_GOLD_LABEL,
+        theme.accent_c32(),
     );
 
-    let beat_ms = 60000.0 / bpm;
-    let bar_ms = beat_ms * 4.0;
+    let beat_ms = 60000.0 / bpm * 4.0 / f64::from(time_signature_denominator.max(1));
+    let bar_ms = beat_ms * f64::from(time_signature_numerator.max(1));
     let ruler_visible_width = (ruler_rect.width() - keyboard_width).max(1.0);
     let ruler_start_ms = (timeline_scroll_x / state.px_per_ms).max(0.0) as f64;
     let ruler_end_ms = ruler_start_ms + (ruler_visible_width / state.px_per_ms) as f64 + bar_ms;
@@ -172,6 +176,109 @@ pub fn draw_piano_roll(
         m_ms += bar_ms;
     }
 
+    // Arrangement sections live independently from notes. Their quiet bands
+    // make song structure visible without obscuring beat labels or markers.
+    let mut jumped_to_marker = false;
+    for (section_index, section) in sections.iter().enumerate() {
+        let start_x =
+            ruler_rect.min.x + keyboard_width + (section.start_ms * state.px_per_ms as f64) as f32
+                - timeline_scroll_x;
+        let end_x =
+            ruler_rect.min.x + keyboard_width + (section.end_ms * state.px_per_ms as f64) as f32
+                - timeline_scroll_x;
+        let section_rect = Rect::from_min_max(
+            Pos2::new(
+                start_x.max(ruler_rect.min.x + keyboard_width),
+                ruler_rect.min.y + 1.0,
+            ),
+            Pos2::new(end_x.min(ruler_rect.max.x), ruler_rect.max.y - 1.0),
+        );
+        if section_rect.is_positive() {
+            let color = marker_color(section.color.as_deref());
+            ruler_painter.rect_filled(
+                section_rect,
+                Rounding::same(2.0),
+                Color32::from_rgba_unmultiplied(color.r(), color.g(), color.b(), 34),
+            );
+            ruler_painter.text(
+                Pos2::new(section_rect.min.x + 4.0, section_rect.center().y),
+                egui::Align2::LEFT_CENTER,
+                &section.name,
+                egui::FontId::proportional(9.0),
+                Color32::from_rgba_unmultiplied(color.r(), color.g(), color.b(), 210),
+            );
+            let section_response = ui.interact(
+                section_rect,
+                ui.make_persistent_id(("project_section", section_index)),
+                Sense::click(),
+            );
+            if section_response.hovered() {
+                ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+            }
+            if section_response.clicked() {
+                state.playhead_ms = section.start_ms;
+                state.is_scrubbing_ruler = false;
+                on_playhead_scrubbed(section.start_ms);
+                jumped_to_marker = true;
+            }
+        }
+    }
+
+    // Arrangement markers live in the project timeline, independently of the
+    // current vocal part. Compact flags keep sections readable without
+    // competing with measure labels or loop handles.
+    for (marker_index, marker) in markers.iter().enumerate() {
+        let x = ruler_rect.min.x
+            + keyboard_width
+            + (marker.position_ms * state.px_per_ms as f64) as f32
+            - timeline_scroll_x;
+        if x < ruler_rect.min.x + keyboard_width || x > ruler_rect.max.x {
+            continue;
+        }
+        let color = marker_color(marker.color.as_deref());
+        ruler_painter.line_segment(
+            [
+                Pos2::new(x, ruler_rect.min.y + 1.0),
+                Pos2::new(x, ruler_rect.max.y),
+            ],
+            Stroke::new(1.25, color),
+        );
+        let flag = [
+            Pos2::new(x + 1.0, ruler_rect.min.y + 2.0),
+            Pos2::new(x + 9.0, ruler_rect.min.y + 5.5),
+            Pos2::new(x + 1.0, ruler_rect.min.y + 9.0),
+        ];
+        ruler_painter.add(egui::Shape::convex_polygon(
+            flag.to_vec(),
+            color,
+            Stroke::NONE,
+        ));
+        ruler_painter.text(
+            Pos2::new(x + 11.0, ruler_rect.min.y + 3.0),
+            egui::Align2::LEFT_TOP,
+            &marker.name,
+            egui::FontId::proportional(9.0),
+            color,
+        );
+        let marker_response = ui.interact(
+            Rect::from_min_max(
+                Pos2::new(x - 6.0, ruler_rect.min.y),
+                Pos2::new(x + 12.0, ruler_rect.max.y),
+            ),
+            ui.make_persistent_id(("project_marker", marker_index)),
+            Sense::click(),
+        );
+        if marker_response.hovered() {
+            ui.ctx().set_cursor_icon(egui::CursorIcon::PointingHand);
+        }
+        if marker_response.clicked() {
+            state.playhead_ms = marker.position_ms;
+            state.is_scrubbing_ruler = false;
+            on_playhead_scrubbed(marker.position_ms);
+            jumped_to_marker = true;
+        }
+    }
+
     // Draw Loop Region on Ruler
     if state.loop_end_ms > state.loop_start_ms {
         let loop_start_x = ruler_rect.min.x
@@ -194,19 +301,19 @@ pub fn draw_piano_roll(
                 Pos2::new(visible_loop_right, ruler_rect.max.y - 1.0),
             );
             let banner_bg = if state.loop_enabled {
-                Color32::from_rgba_unmultiplied(0, 255, 157, 45)
+                theme.c32_alpha(theme.accent_color, 0.18)
             } else {
-                Color32::from_rgba_unmultiplied(120, 140, 160, 25)
+                theme.c32_alpha(theme.text_muted, 0.10)
             };
-            ruler_painter.rect_filled(loop_banner_rect, Rounding::same(2.0), banner_bg);
+            ruler_painter.rect_filled(loop_banner_rect, theme.ui_rounding(), banner_bg);
         }
 
         // Loop Start Marker [A
         if loop_start_x >= left_bound && loop_start_x <= right_bound {
             let marker_color = if state.loop_enabled {
-                Color32::from_rgb(0, 255, 157)
+                theme.accent_c32()
             } else {
-                Color32::from_rgb(160, 175, 190)
+                theme.text_muted_c32()
             };
             ruler_painter.line_segment(
                 [
@@ -227,9 +334,9 @@ pub fn draw_piano_roll(
         // Loop End Marker B]
         if loop_end_x >= left_bound && loop_end_x <= right_bound {
             let marker_color = if state.loop_enabled {
-                Color32::from_rgb(0, 255, 157)
+                theme.accent_c32()
             } else {
-                Color32::from_rgb(160, 175, 190)
+                theme.text_muted_c32()
             };
             ruler_painter.line_segment(
                 [
@@ -260,15 +367,15 @@ pub fn draw_piano_roll(
         ];
         ruler_painter.add(egui::Shape::convex_polygon(
             tri,
-            Color32::from_rgb(255, 65, 85),
-            Stroke::new(0.8_f32, Color32::WHITE),
+            theme.playhead_c32(),
+            Stroke::new(0.8_f32, theme.text_primary_c32()),
         ));
         ruler_painter.line_segment(
             [
                 Pos2::new(ruler_playhead_x, ruler_rect.min.y + 10.0),
                 Pos2::new(ruler_playhead_x, ruler_rect.max.y),
             ],
-            Stroke::new(1.0_f32, Color32::from_rgb(255, 65, 85)),
+            Stroke::new(1.0_f32, theme.playhead_c32()),
         );
     }
 
@@ -316,40 +423,40 @@ pub fn draw_piano_roll(
     let (btn_bg, btn_stroke, text_color, icon_symbol) = if state.is_maximized {
         (
             if is_hovered {
-                Color32::from_rgb(52, 42, 20)
+                theme.c32_alpha(theme.accent_color, 0.28)
             } else {
-                Color32::from_rgb(32, 25, 12)
+                theme.c32_alpha(theme.bg_canvas, 0.82)
             },
-            Stroke::new(1.0_f32, MelodyneTheme::ACCENT_GOLD),
-            MelodyneTheme::ACCENT_GOLD,
+            Stroke::new(1.0_f32, theme.accent_c32()),
+            theme.accent_c32(),
             "[v]",
         )
     } else {
         (
             if is_hovered {
-                Color32::from_rgb(25, 45, 38)
+                theme.c32_alpha(theme.accent_color, 0.22)
             } else {
-                Color32::from_rgb(18, 28, 24)
+                theme.c32_alpha(theme.bg_canvas, 0.82)
             },
             Stroke::new(
                 1.0_f32,
                 if is_hovered {
-                    Color32::from_rgb(0, 255, 157)
+                    theme.accent_c32()
                 } else {
-                    Color32::from_rgba_unmultiplied(0, 255, 157, 100)
+                    theme.accent_soft_c32()
                 },
             ),
             if is_hovered {
-                Color32::from_rgb(0, 255, 157)
+                theme.accent_c32()
             } else {
-                Color32::from_rgba_unmultiplied(0, 255, 157, 200)
+                theme.accent_soft_c32()
             },
             "[^]",
         )
     };
 
-    ruler_painter.rect_filled(max_btn_rect, Rounding::same(4.0), btn_bg);
-    ruler_painter.rect_stroke(max_btn_rect, Rounding::same(4.0), btn_stroke);
+    ruler_painter.rect_filled(max_btn_rect, theme.ui_rounding(), btn_bg);
+    ruler_painter.rect_stroke(max_btn_rect, theme.ui_rounding(), btn_stroke);
     ruler_painter.text(
         max_btn_rect.center(),
         egui::Align2::CENTER_CENTER,
@@ -372,7 +479,7 @@ pub fn draw_piano_roll(
         });
     }
 
-    if ruler_response.clicked() || ruler_response.dragged() {
+    if !jumped_to_marker && (ruler_response.clicked() || ruler_response.dragged()) {
         if let Some(mpos) = ruler_response.interact_pointer_pos() {
             let shift_held = ui.input(|i| i.modifiers.shift);
             let raw_t = (mpos.x - (ruler_rect.min.x + keyboard_width) + timeline_scroll_x) as f64
@@ -440,6 +547,8 @@ pub fn draw_piano_roll(
         theme,
         ruler_rect,
         bpm,
+        time_signature_numerator,
+        time_signature_denominator,
         lang,
         voicebank,
         on_note_changed,
@@ -634,50 +743,10 @@ pub fn draw_piano_roll(
             grid_end_y,
             total_canvas_ms,
             bpm,
+            time_signature_numerator,
+            time_signature_denominator,
             snap_option,
         );
-
-        // OpenUtau-compatible portrait backdrop. Keep it subtle so the grid,
-        // notes and pitch curves remain readable, and clip it to the note area
-        // rather than covering the piano keyboard.
-        if let Some(portrait_path) = voicebank.and_then(|bank| bank.image_path.as_deref()) {
-            if let Some(texture) =
-                crate::gui::image_cache::texture_for_path(ui.ctx(), portrait_path)
-            {
-                let portrait_rect = Rect::from_min_max(
-                    Pos2::new(
-                        (rect.min.x + keyboard_width).max(visible_clip.min.x),
-                        visible_clip.min.y,
-                    ),
-                    visible_clip.max,
-                );
-                if portrait_rect.is_positive() {
-                    // Preserve the source aspect ratio. The previous
-                    // implementation mapped the whole image directly to the
-                    // canvas rectangle, stretching portraits horizontally or
-                    // vertically whenever the piano roll had a different
-                    // aspect ratio. Crop the excess UV range instead.
-                    let image_size = texture.size_vec2();
-                    let image_aspect = image_size.x / image_size.y.max(1.0);
-                    let canvas_aspect = portrait_rect.width() / portrait_rect.height().max(1.0);
-                    let uv = if image_aspect > canvas_aspect {
-                        let visible_width = canvas_aspect / image_aspect;
-                        let margin = (1.0 - visible_width) * 0.5;
-                        Rect::from_min_max(Pos2::new(margin, 0.0), Pos2::new(1.0 - margin, 1.0))
-                    } else {
-                        let visible_height = image_aspect / canvas_aspect;
-                        let margin = (1.0 - visible_height) * 0.5;
-                        Rect::from_min_max(Pos2::new(0.0, margin), Pos2::new(1.0, 1.0 - margin))
-                    };
-                    painter.image(
-                        texture.id(),
-                        portrait_rect,
-                        uv,
-                        Color32::from_white_alpha(42),
-                    );
-                }
-            }
-        }
 
         let mut note_to_delete: Option<usize> = None;
         let mut note_to_slice: Option<(usize, f64)> = None;
@@ -3191,4 +3260,22 @@ pub fn draw_piano_roll(
     context_menu::draw(ui, notes, state, lang, on_before_change, on_note_changed);
 
     note_properties::draw(ui, notes, state, lang, on_note_changed);
+}
+
+fn marker_color(value: Option<&str>) -> Color32 {
+    let Some(value) = value else {
+        return Color32::from_rgb(0, 220, 205);
+    };
+    let bytes = value.as_bytes();
+    if bytes.len() == 7 && bytes.first() == Some(&b'#') {
+        let parse = |start| {
+            std::str::from_utf8(&bytes[start..start + 2])
+                .ok()
+                .and_then(|chunk| u8::from_str_radix(chunk, 16).ok())
+        };
+        if let (Some(red), Some(green), Some(blue)) = (parse(1), parse(3), parse(5)) {
+            return Color32::from_rgb(red, green, blue);
+        }
+    }
+    Color32::from_rgb(0, 220, 205)
 }

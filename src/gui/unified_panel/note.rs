@@ -119,7 +119,7 @@ pub(super) fn draw(
 
                     // --- 1. PROPRIEDADES PRINCIPAIS ---
                     Frame::none()
-                        .fill(theme.card_bg_c32())
+                        .fill(theme.elevated_surface_c32())
                         .rounding(theme.ui_rounding())
                         .stroke(theme.card_stroke())
                         .inner_margin(egui::Margin::same(8.0))
@@ -238,7 +238,7 @@ pub(super) fn draw(
 
                     // --- 2. EXPRESSÕES & DINÂMICA (DYN, GEN, PITD, VEL, BRE) ---
                     Frame::none()
-                        .fill(theme.card_bg_c32())
+                        .fill(theme.elevated_surface_c32())
                         .rounding(theme.ui_rounding())
                         .stroke(theme.card_stroke())
                         .inner_margin(egui::Margin::same(8.0))
@@ -390,7 +390,7 @@ pub(super) fn draw(
 
                     // --- 3. ENVELOPE, VOL, ATK, DEC & CROSSFADE ---
                     Frame::none()
-                        .fill(theme.card_bg_c32())
+                        .fill(theme.elevated_surface_c32())
                         .rounding(theme.ui_rounding())
                         .stroke(theme.card_stroke())
                         .inner_margin(egui::Margin::same(8.0))
@@ -548,7 +548,7 @@ pub(super) fn draw(
 
                     // --- 4. PORTAMENTO ---
                     Frame::none()
-                        .fill(theme.card_bg_c32())
+                        .fill(theme.elevated_surface_c32())
                         .rounding(theme.ui_rounding())
                         .stroke(theme.card_stroke())
                         .inner_margin(egui::Margin::same(8.0))
@@ -654,7 +654,7 @@ pub(super) fn draw(
 
                     // --- 5. VIBRATO OPENUTAU ---
                     Frame::none()
-                        .fill(theme.card_bg_c32())
+                        .fill(theme.elevated_surface_c32())
                         .rounding(theme.ui_rounding())
                         .stroke(theme.card_stroke())
                         .inner_margin(egui::Margin::same(8.0))
@@ -785,7 +785,7 @@ pub(super) fn draw(
 
                     // --- 6. VALIDAÇÃO DO VOICEBANK ---
                     Frame::none()
-                        .fill(theme.card_bg_c32())
+                        .fill(theme.elevated_surface_c32())
                         .rounding(theme.ui_rounding())
                         .stroke(theme.card_stroke())
                         .inner_margin(egui::Margin::same(8.0))

@@ -13,6 +13,8 @@ pub(super) fn draw(
     theme: &ThemeConfig,
     ruler_rect: Rect,
     bpm: f64,
+    time_signature_numerator: u8,
+    time_signature_denominator: u8,
     lang: crate::config::AppLanguage,
     voicebank: Option<&Voicebank>,
     on_note_changed: &mut dyn FnMut(),
@@ -38,8 +40,9 @@ pub(super) fn draw(
         .default_height(state.drawer_height)
         .frame(
             egui::Frame::none()
-                .fill(theme.bg_panel_c32())
-                .stroke(Stroke::new(0.8_f32, theme.c32_alpha(theme.accent_color, 0.55))),
+                .fill(theme.elevated_surface_c32())
+                .rounding(theme.ui_rounding())
+                .stroke(Stroke::new(0.8_f32, theme.accent_soft_c32())),
         )
         .show_inside(ui, |ui| {
             let drawer_available_h = ui.available_height().max(50.0);
@@ -245,8 +248,9 @@ pub(super) fn draw(
                     let half_span_y = (graph_rect.height() * 0.44).max(10.0);
 
                     // 1. Grid Musical (Compassos e Tempos sincronizados com o Piano Roll)
-                    let beat_dur_ms = 60_000.0 / bpm.max(10.0);
-                    let beats_per_bar = 4.0_f64;
+                    let beat_dur_ms = 60_000.0 / bpm.max(10.0) * 4.0
+                        / f64::from(time_signature_denominator.max(1));
+                    let beats_per_bar = f64::from(time_signature_numerator.max(1));
                     let bar_dur_ms = beat_dur_ms * beats_per_bar;
 
                     let t_min_visible =
@@ -1167,13 +1171,12 @@ fn draw_envelope_editor(
             white,
         );
 
-        let points = [
-            (note.envelope.p1, note.envelope.v1),
-            (note.envelope.p2, note.envelope.v2),
-            (note.envelope.p3, note.envelope.v3),
-            (note.envelope.p4, note.envelope.v4),
-            (note.envelope.p5, note.envelope.v5),
-        ];
+        // `p1..p5` are UTAU duration fields, not absolute X coordinates.
+        // Rendering them directly folded every envelope toward note start in
+        // the drawer, even though the piano roll used the correct cumulative
+        // geometry. Use the shared effective-point conversion so both views
+        // describe the same editable curve.
+        let points = note.envelope.get_effective_points(duration);
         let screen_points: Vec<Pos2> = points
             .iter()
             .map(|(time, level)| {
@@ -1183,10 +1186,37 @@ fn draw_envelope_editor(
                 )
             })
             .collect();
-        painter.add(egui::Shape::line(
-            screen_points.clone(),
-            Stroke::new(2.0_f32, cyan),
-        ));
+        let visual_curve = note.envelope.generate_visual_curve(duration, 12);
+        let curve_screen_points: Vec<Pos2> = visual_curve
+            .iter()
+            .map(|(time, level)| {
+                Pos2::new(
+                    x_start + (*time * px_per_ms) as f32,
+                    lane_bottom - lane_height * (*level as f32 / 200.0).clamp(0.0, 1.0),
+                )
+            })
+            .collect();
+        if curve_screen_points.len() >= 2 {
+            let mut fill = Vec::with_capacity(curve_screen_points.len() + 2);
+            fill.push(Pos2::new(curve_screen_points[0].x, lane_bottom));
+            fill.extend(curve_screen_points.iter().copied());
+            fill.push(Pos2::new(
+                curve_screen_points
+                    .last()
+                    .map(|point| point.x)
+                    .unwrap_or(x_end),
+                lane_bottom,
+            ));
+            painter.add(egui::Shape::convex_polygon(
+                fill,
+                theme.c32_alpha(theme.note_stroke, 0.09),
+                Stroke::NONE,
+            ));
+            painter.add(egui::Shape::line(
+                curve_screen_points,
+                Stroke::new(2.0_f32, cyan),
+            ));
+        }
         for (point_idx, point) in screen_points.iter().enumerate() {
             if point.x < graph_rect.left() - 12.0 || point.x > graph_rect.right() + 12.0 {
                 continue;

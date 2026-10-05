@@ -82,6 +82,7 @@ rayon = "1.10"
 rodio = "0.19"
 ureq = { version = "2.12", default-features = false, features = ["json", "tls"] }
 ort = { version = "2.0.0-rc.13", default-features = false, features = ["std", "ndarray", "download-binaries", "copy-dylibs", "tls-native"] }
+wasmi = "0.31"
 
 [target.'cfg(not(any(target_os = "android", target_arch = "wasm32")))'.dependencies]
 discord-rich-presence = "0.2.4"

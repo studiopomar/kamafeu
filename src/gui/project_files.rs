@@ -10,6 +10,35 @@ use crate::gui::KamafeuStudioApp;
 use crate::oto::Voicebank;
 use std::path::Path;
 use std::path::PathBuf;
+
+fn is_recovery_snapshot_path(path: &Path) -> bool {
+    path.parent()
+        .and_then(Path::file_name)
+        .is_some_and(|name| name == ".kamafeu_snapshots")
+        && path
+            .file_stem()
+            .and_then(|name| name.to_str())
+            .is_some_and(|name| name.contains("_recovery_"))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_recovery_snapshot_path;
+    use std::path::Path;
+
+    #[test]
+    fn recognizes_only_snapshots_inside_the_recovery_directory() {
+        assert!(is_recovery_snapshot_path(Path::new(
+            "/tmp/.kamafeu_snapshots/song_recovery_123.aps"
+        )));
+        assert!(!is_recovery_snapshot_path(Path::new(
+            "/tmp/song_recovery_123.aps"
+        )));
+        assert!(!is_recovery_snapshot_path(Path::new(
+            "/tmp/.kamafeu_snapshots/song.aps"
+        )));
+    }
+}
 #[cfg(target_arch = "wasm32")]
 static WEB_FILE_QUEUE: std::sync::OnceLock<std::sync::Mutex<Vec<(String, Vec<u8>)>>> =
     std::sync::OnceLock::new();
@@ -20,23 +49,105 @@ pub fn web_file_queue() -> &'static std::sync::Mutex<Vec<(String, Vec<u8>)>> {
 }
 
 impl KamafeuStudioApp {
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(crate) fn recovery_snapshot_paths(&self) -> Result<Vec<PathBuf>, String> {
+        let parent = self
+            .current_project_path
+            .as_ref()
+            .and_then(|path| path.parent().map(Path::to_path_buf))
+            .unwrap_or_else(|| PathBuf::from("."));
+        let snapshot_dir = parent.join(".kamafeu_snapshots");
+        if !snapshot_dir.exists() {
+            return Ok(Vec::new());
+        }
+
+        let mut snapshots = std::fs::read_dir(snapshot_dir)
+            .map_err(|error| error.to_string())?
+            .filter_map(Result::ok)
+            .map(|entry| entry.path())
+            .filter(|path| {
+                path.is_file()
+                    && path
+                        .extension()
+                        .is_some_and(|extension| extension.eq_ignore_ascii_case("aps"))
+                    && is_recovery_snapshot_path(path)
+            })
+            .collect::<Vec<_>>();
+        snapshots.sort_by(|left, right| {
+            let left_time = std::fs::metadata(left)
+                .and_then(|meta| meta.modified())
+                .ok();
+            let right_time = std::fs::metadata(right)
+                .and_then(|meta| meta.modified())
+                .ok();
+            right_time.cmp(&left_time).then_with(|| right.cmp(left))
+        });
+        Ok(snapshots)
+    }
+
     pub fn create_project_snapshot(&mut self) {
-        let snapshot_dir = PathBuf::from(".kamafeu_snapshots");
-        let _ = std::fs::create_dir_all(&snapshot_dir);
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            self.last_autosave_at = web_time::Instant::now();
+            if let Err(error) = self.write_recovery_snapshot(true) {
+                self.transport_state.status_message =
+                    format!("Não foi possível salvar o snapshot: {error}");
+            }
+        }
+        #[cfg(target_arch = "wasm32")]
+        {
+            self.transport_state.status_message =
+                "Snapshots locais não estão disponíveis na edição Web".to_string();
+        }
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    pub(crate) fn autosave_recovery_snapshot_if_due(&mut self) {
+        if !self.config.workflow.auto_save_enabled || !self.is_dirty {
+            return;
+        }
+        let interval = self.config.workflow.auto_save_interval_sec.clamp(30, 600);
+        if self.last_autosave_at.elapsed().as_secs() < u64::from(interval) {
+            return;
+        }
+        self.last_autosave_at = web_time::Instant::now();
+        let _ = self.write_recovery_snapshot(false);
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    fn write_recovery_snapshot(&mut self, notify: bool) -> Result<PathBuf, String> {
+        let parent = self
+            .current_project_path
+            .as_ref()
+            .and_then(|path| path.parent().map(Path::to_path_buf))
+            .unwrap_or_else(|| PathBuf::from("."));
+        let snapshot_dir = parent.join(".kamafeu_snapshots");
+        std::fs::create_dir_all(&snapshot_dir).map_err(|error| error.to_string())?;
         let secs = web_time::SystemTime::now()
             .duration_since(web_time::UNIX_EPOCH)
             .unwrap_or_default()
             .as_secs();
-        let filename = format!("snapshot_{}.kamafeu", secs);
-        let path = snapshot_dir.join(filename);
-        if let Ok(json) = serde_json::to_string_pretty(&self.project) {
-            if std::fs::write(&path, json).is_ok() {
-                let time_str = format!("timestamp {}", secs);
-                self.last_snapshot_time = Some(time_str.clone());
-                self.transport_state.status_message =
-                    format!("Snapshot salvo com sucesso ({})", time_str);
-            }
+        let stem = self
+            .current_project_path
+            .as_ref()
+            .and_then(|path| path.file_stem().and_then(|value| value.to_str()))
+            .filter(|value| !value.trim().is_empty())
+            .unwrap_or("projeto");
+        let base_name = format!("{}_recovery_{}", stem, secs);
+        let mut path = snapshot_dir.join(format!("{base_name}.aps"));
+        let mut suffix = 2;
+        while path.exists() {
+            path = snapshot_dir.join(format!("{base_name}_{suffix}.aps"));
+            suffix += 1;
         }
+        ApsFormat::save_file(&self.project, &path).map_err(|error| error.to_string())?;
+        let time_str = format!("timestamp {}", secs);
+        self.last_snapshot_time = Some(time_str.clone());
+        if notify {
+            self.transport_state.status_message =
+                format!("Snapshot recuperável salvo ({})", time_str);
+        }
+        Ok(path)
     }
 
     pub fn reveal_project_in_finder(&self) {
@@ -242,6 +353,7 @@ impl KamafeuStudioApp {
             return;
         }
 
+        let is_recovery_snapshot = is_recovery_snapshot_path(path);
         let loaded = match extension.as_str() {
             "aps" => ApsFormat::load_file(path)
                 .or_else(|_| UstxFormat::load_file(path))
@@ -283,7 +395,7 @@ impl KamafeuStudioApp {
                 self.undo_manager = UndoManager::default();
                 self.is_dirty = false;
 
-                if extension == "aps" {
+                if extension == "aps" && !is_recovery_snapshot {
                     self.current_project_path = Some(path.to_path_buf());
                 } else {
                     self.current_project_path = None;
@@ -366,9 +478,14 @@ impl KamafeuStudioApp {
                 }
 
                 self.piano_roll_state.initial_scrolled = false;
-                self.config.add_recent_project(path.to_path_buf());
-                self.transport_state.status_message =
-                    format!("Projeto aberto: {:?}", path.file_name().unwrap_or_default());
+                if !is_recovery_snapshot {
+                    self.config.add_recent_project(path.to_path_buf());
+                }
+                self.transport_state.status_message = if is_recovery_snapshot {
+                    "Snapshot recuperado. Use Salvar Como para criar seu projeto.".to_string()
+                } else {
+                    format!("Projeto aberto: {:?}", path.file_name().unwrap_or_default())
+                };
             }
             Err(e) => {
                 self.transport_state.status_message = format!("Erro ao abrir projeto: {}", e);

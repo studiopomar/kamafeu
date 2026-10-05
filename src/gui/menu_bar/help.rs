@@ -6,6 +6,18 @@ impl KamafeuStudioApp {
         ui.menu_button(lang.tr("Ajuda", "Help"), |ui| {
             if ui
                 .button(lang.tr(
+                    "Paleta de comandos... (Ctrl/Cmd+K)",
+                    "Command Palette... (Ctrl/Cmd+K)",
+                ))
+                .clicked()
+            {
+                self.command_palette_open = true;
+                self.command_palette_query.clear();
+                self.command_palette_selected = 0;
+                ui.close_menu();
+            }
+            if ui
+                .button(lang.tr(
                     "Guia de Teclas de Atalho... (F1 / Cmd+?)",
                     "Keyboard Shortcuts Guide... (F1 / Cmd+?)",
                 ))
@@ -26,6 +38,13 @@ impl KamafeuStudioApp {
                 .clicked()
             {
                 self.voicebank_diagnostic_open = true;
+                ui.close_menu();
+            }
+            if ui
+                .button(lang.tr("Validar Projeto...", "Validate Project..."))
+                .clicked()
+            {
+                self.project_diagnostic_open = true;
                 ui.close_menu();
             }
             if ui

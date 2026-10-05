@@ -46,10 +46,10 @@ pub fn draw_unified_panel(
     ui.vertical(|ui| {
         // --- 1. SEGMENTED TABS HEADER ---
         Frame::none()
-            .fill(theme.bg_header_c32())
-            .rounding(Rounding::same(6.0))
+            .fill(theme.elevated_surface_c32())
+            .rounding(theme.ui_rounding())
             .stroke(theme.card_stroke())
-            .inner_margin(egui::Margin::symmetric(3.0, 3.0))
+            .inner_margin(egui::Margin::symmetric(4.0, 4.0))
             .show(ui, |ui| {
                 ui.columns(3, |cols| {
                     let tabs = [
@@ -63,14 +63,27 @@ pub fn draw_unified_panel(
 
                     for (i, (tab, label)) in tabs.iter().enumerate() {
                         let is_selected = *active_tab == *tab;
+                        let selection_progress = cols[i]
+                            .ctx()
+                            .animate_bool(egui::Id::new(("unified_inspector_tab", i)), is_selected);
                         let (bg, text_color, stroke) = if is_selected {
                             (
-                                theme.c32_alpha(theme.accent_color, 0.28),
+                                theme.c32_alpha(
+                                    theme.accent_color,
+                                    0.08 + 0.20 * selection_progress,
+                                ),
                                 theme.accent_c32(),
-                                Stroke::new(1.2, theme.accent_c32()),
+                                Stroke::new(
+                                    0.7 + 0.5 * selection_progress,
+                                    theme.accent_soft_c32(),
+                                ),
                             )
                         } else {
-                            (Color32::TRANSPARENT, theme.text_muted_c32(), Stroke::NONE)
+                            (
+                                theme.c32_alpha(theme.bg_canvas, 0.12),
+                                theme.text_muted_c32(),
+                                Stroke::NONE,
+                            )
                         };
 
                         let btn = egui::Button::new(
@@ -78,10 +91,22 @@ pub fn draw_unified_panel(
                         )
                         .fill(bg)
                         .stroke(stroke)
-                        .rounding(Rounding::same(4.0))
+                        .rounding(theme.ui_rounding())
                         .min_size(Vec2::new(cols[i].available_width(), 22.0));
 
-                        if cols[i].add(btn).clicked() {
+                        let response = cols[i].add(btn);
+                        if is_selected {
+                            let underline = Rect::from_min_max(
+                                Pos2::new(response.rect.left() + 8.0, response.rect.bottom() - 2.0),
+                                Pos2::new(response.rect.right() - 8.0, response.rect.bottom()),
+                            );
+                            cols[i].painter().rect_filled(
+                                underline,
+                                Rounding::same(1.0),
+                                theme.accent_c32(),
+                            );
+                        }
+                        if response.clicked() {
                             *active_tab = *tab;
                         }
                     }

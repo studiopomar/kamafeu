@@ -123,6 +123,13 @@ impl KamafeuStudioApp {
                 ui.close_menu();
             }
             if ui
+                .button(lang.tr("Recuperar Snapshot...", "Recover Snapshot..."))
+                .clicked()
+            {
+                self.recovery_snapshots_open = true;
+                ui.close_menu();
+            }
+            if ui
                 .button(lang.tr("Propriedades do Projeto...", "Project Properties..."))
                 .clicked()
             {
