@@ -29,6 +29,10 @@ jobs:
 
       - name: Set up Android SDK & NDK
         uses: android-actions/setup-android@v3
+        with:
+          # O pacote legado `tools` não existe mais no repositório do SDK.
+          # Os componentes de build são instalados explicitamente abaixo.
+          packages: 'platform-tools'
 
       - name: Install Android NDK & Build Tools
         run: |
