@@ -55,22 +55,6 @@ jobs:
             archive: kamafeu-${{ github.ref_name }}-windows-x64.zip
             use_cross: false
 
-          - name: Windows x86 (32-bit)
-            os: windows-latest
-            target: i686-pc-windows-msvc
-            binary: kamafeu.exe
-            toolkit_binary: copaiba.exe
-            archive: kamafeu-${{ github.ref_name }}-windows-x86.zip
-            use_cross: false
-
-          - name: macOS Intel (x86_64)
-            os: macos-15-intel
-            target: x86_64-apple-darwin
-            binary: kamafeu
-            toolkit_binary: copaiba
-            archive: kamafeu-${{ github.ref_name }}-macos-intel.dmg
-            use_cross: false
-
           - name: macOS Apple Silicon (ARM64)
             os: macos-15
             target: aarch64-apple-darwin
