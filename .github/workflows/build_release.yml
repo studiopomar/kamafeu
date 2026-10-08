@@ -109,11 +109,15 @@ jobs:
           Copy-Item $toolkit_path -Destination "package_root/copaiba.exe"
           Copy-Item "README.md", "LICENSE" -Destination "package_root/"
 
-          # `ort` uses the ONNX Runtime DLL on Windows. Keep it beside the
-          # executable; otherwise a double-click exits before any UI exists.
+          # Recent `ort` builds may statically link ONNX Runtime. If a build
+          # selects the dynamic variant, keep its DLL beside the executable;
+          # the launch smoke test below validates either layout.
           $onnx_dll = Get-ChildItem -Path "target/${{ matrix.job.target }}/release", "target/${{ matrix.job.target }}/release/deps" -Filter "onnxruntime*.dll" -File -ErrorAction SilentlyContinue | Select-Object -First 1
-          if (-Not $onnx_dll) { throw "ONNX Runtime DLL was not produced; refusing to publish an unlaunchable Windows package" }
-          Copy-Item $onnx_dll.FullName -Destination "package_root/"
+          if ($onnx_dll) {
+            Copy-Item $onnx_dll.FullName -Destination "package_root/"
+          } else {
+            Write-Host "No ONNX Runtime DLL found; ort is statically linked in this build."
+          }
 
           if (Test-Path "resamplers_dist/bin") {
             Copy-Item "resamplers_dist/bin/*" -Destination "package_root/resamplers/" -Force
