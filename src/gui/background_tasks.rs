@@ -34,6 +34,11 @@ impl KamafeuStudioApp {
                 let fmt_name = self.export_audio_format.display_name();
                 self.transport_state.status_message = match &result {
                     Ok(()) => format!("Exportação ({fmt_name}) concluída com sucesso!"),
+                    Err(error) if error.to_ascii_lowercase().contains("cancel") => {
+                        format!(
+                            "Exportação ({fmt_name}) cancelada; nenhum resultado foi concluído."
+                        )
+                    }
                     Err(error) => format!("Erro na exportação ({fmt_name}): {error}"),
                 };
                 if let Ok(()) = result {
@@ -52,6 +57,7 @@ impl KamafeuStudioApp {
                 }
                 self.export_result = Some(result);
                 self.export_rx = None;
+                self.export_cancel = None;
             }
         }
 
@@ -64,13 +70,56 @@ impl KamafeuStudioApp {
             for _ in 0..16 {
                 match rx.try_recv() {
                     Ok(mut chunk) => {
+                        let chunk_frames = chunk.audio.frame_count();
+                        self.render_log_messages.push(format!(
+                            "[Chunk] #{} start={:.0}ms end={:.0}ms frames={}{}",
+                            chunk.chunk_index,
+                            chunk.chunk_start_ms,
+                            chunk.end_ms(),
+                            chunk_frames,
+                            if chunk.audio.error.is_some() {
+                                " status=error"
+                            } else {
+                                " status=ready"
+                            }
+                        ));
+                        let render_state = self
+                            .project
+                            .render_state
+                            .get_or_insert_with(Default::default);
+                        render_state
+                            .chunks
+                            .retain(|stored| stored.index != chunk.chunk_index);
+                        render_state
+                            .chunks
+                            .push(crate::project::model::UProjectRenderChunk {
+                                index: chunk.chunk_index,
+                                start_ms: chunk.chunk_start_ms,
+                                end_ms: chunk.end_ms(),
+                                is_final: chunk.is_final,
+                                status: if chunk.audio.error.is_some() {
+                                    "failed"
+                                } else {
+                                    "ready"
+                                }
+                                .to_string(),
+                                error: chunk.audio.error.clone(),
+                            });
+                        render_state.chunks.sort_by_key(|stored| stored.index);
                         if let Some(error) = chunk.audio.error.take() {
+                            self.failed_chunk = Some((
+                                chunk.chunk_index,
+                                chunk.chunk_start_ms,
+                                chunk.end_ms(),
+                                chunk.is_final,
+                            ));
                             self.audio_player.stop();
                             self.piano_roll_state.is_playing = false;
                             self.progressive_playback_started = false;
                             self.transport_state.status_message =
                                 format!("Erro no render: {error}");
-                            self.render_log_messages.push(error);
+                            self.render_log_messages
+                                .push(format!("Chunk #{}: {error}", chunk.chunk_index));
                             drop_rx = true;
                             break;
                         }
@@ -124,14 +173,19 @@ impl KamafeuStudioApp {
                     }
                     Err(std::sync::mpsc::TryRecvError::Empty) => break,
                     Err(std::sync::mpsc::TryRecvError::Disconnected) => {
-                        if !self.progressive_playback_started {
-                            let error =
-                                "O worker de renderização terminou antes de gerar áudio. Verifique o Catalina e o log de renderização.";
-                            self.piano_roll_state.is_playing = false;
-                            self.progressive_playback_started = false;
-                            self.transport_state.status_message = error.to_string();
-                            self.render_log_messages.push(error.to_string());
-                        }
+                        // A disconnected worker is never a successful
+                        // completion: even if earlier chunks reached the
+                        // sink, the remaining timeline is invalid. Stop the
+                        // sink and playhead instead of letting the piano roll
+                        // continue past a partial render.
+                        self.audio_player.stop();
+                        self.piano_roll_state.is_playing = false;
+                        self.progressive_playback_started = false;
+                        self.playback_start_instant = None;
+                        let error =
+                            "O worker de renderização terminou antes do chunk final. Verifique o engine e o log de renderização.";
+                        self.transport_state.status_message = error.to_string();
+                        self.render_log_messages.push(error.to_string());
                         drop_rx = true;
                         break;
                     }

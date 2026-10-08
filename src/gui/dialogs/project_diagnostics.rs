@@ -146,6 +146,14 @@ impl KamafeuStudioApp {
                                     );
                                 });
                                 ui.label(egui::RichText::new(&issue.detail).size(10.0));
+                                if let Some(suggestion) = issue.suggestion() {
+                                    ui.label(
+                                        egui::RichText::new(format!("Sugestão: {suggestion}"))
+                                            .italics()
+                                            .size(9.5)
+                                            .color(egui::Color32::from_rgb(180, 200, 220)),
+                                    );
+                                }
                             });
                             ui.add_space(4.0);
                         }

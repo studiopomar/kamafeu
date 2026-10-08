@@ -15,6 +15,18 @@ pub struct WavtoolArgs {
     pub sample_time_zero_ms: f64,
 }
 
+pub fn describe_wavtool_command(driver: &str, args: &WavtoolArgs) -> String {
+    format!(
+        "{driver} --input-rendered-wav \"{}\" --output-wav \"{}\" --skip-over-ms {:.3} --duration-ms {:.3} --overlap-ms {:.3} --sample-time-zero-ms {:.3}",
+        args.input_rendered_wav.to_string_lossy().replace('"', "\\\""),
+        args.output_wav.to_string_lossy().replace('"', "\\\""),
+        args.skip_over_ms,
+        args.duration_ms,
+        args.overlap_ms,
+        args.sample_time_zero_ms,
+    )
+}
+
 pub trait WavtoolDriver: Send + Sync {
     fn name(&self) -> &str;
     /// Whether this concatenator intentionally performs convergence-style
@@ -356,9 +368,11 @@ impl WavtoolDriver for NativeWavtoolDriver {
             return Ok(());
         }
 
-        // Apply the per-note amplitude envelope. The track mixer performs the
-        // complementary crossfade against the preceding phone.
-        UtauEnvelope::apply_points(
+        // Use the same equal-power S-curve as the phase-aligned native
+        // wavtool. Linear ramps expose the exact handoff point between
+        // phonemes as a sudden change in slope, especially for short VC/CV
+        // aliases.
+        UtauEnvelope::apply_points_cosine(
             note_samples,
             sample_rate,
             args.sample_time_zero_ms,
@@ -806,5 +820,21 @@ mod tests {
         assert_eq!(samples[0], 0.0);
         assert!(samples[100] > 0.9);
         assert!(samples.iter().all(|s| s.is_finite()));
+    }
+
+    #[test]
+    fn native_wavtool_uses_a_soft_curve_at_phoneme_attacks() {
+        let driver = NativeWavtoolDriver;
+        let mut samples = vec![1.0f32; 1_000];
+        let args = yawu_test_args(1_000.0, 0.0);
+
+        driver
+            .process_note(&mut samples, 1_000, &args, None)
+            .unwrap();
+
+        // At -87 ms the attack is one quarter through a -100..-50 ms ramp.
+        // A cosine S-curve is intentionally below the linear 0.5 midpoint.
+        assert!(samples[12] < 0.35);
+        assert!(samples[50] > 0.9);
     }
 }

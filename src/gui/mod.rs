@@ -86,6 +86,14 @@ pub enum RenderLogFilter {
     DspResampler,
     WavOto,
     Info,
+    Timing,
+    Chunks,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) enum PendingProjectAction {
+    New,
+    Open(PathBuf),
 }
 
 pub struct KamafeuStudioApp {
@@ -113,6 +121,10 @@ pub struct KamafeuStudioApp {
     playback_start_offset_ms: f64,
     render_rx: Option<std::sync::mpsc::Receiver<ProgressiveChunk>>,
     render_cancel: Option<Arc<AtomicBool>>,
+    retry_project: Option<UProject>,
+    retry_voicebank: Option<Voicebank>,
+    retry_options: Option<crate::renderer::RenderOptions>,
+    failed_chunk: Option<(usize, f64, f64, bool)>,
     progressive_playback_started: bool,
     render_log_window_open: bool,
     render_log_messages: Vec<String>,
@@ -126,6 +138,7 @@ pub struct KamafeuStudioApp {
     render_status_title: String,
     render_log_channel_rx: Option<std::sync::mpsc::Receiver<(f32, String)>>,
     export_rx: Option<std::sync::mpsc::Receiver<Result<(), String>>>,
+    export_cancel: Option<Arc<AtomicBool>>,
     active_track_index: usize,
     config: KamafeuConfig,
     singers_list: Vec<crate::oto::SingerInfo>,
@@ -173,6 +186,7 @@ pub struct KamafeuStudioApp {
     pub project_diagnostic_fix_confirmation: Option<crate::project::ProjectIssueKind>,
     pub markers_dialog_open: bool,
     pub recovery_snapshots_open: bool,
+    pub(crate) snapshot_restore_confirmation: Option<(std::path::PathBuf, SnapshotRestoreKind)>,
     pub playback_speed_rate: f64,
     pub last_snapshot_time: Option<String>,
     #[cfg(not(target_arch = "wasm32"))]
@@ -192,6 +206,7 @@ pub struct KamafeuStudioApp {
     /// Intercepts the OS close request until the user explicitly saves,
     /// discards, or returns to the editor.
     exit_confirmation_open: bool,
+    pub(crate) pending_project_action: Option<PendingProjectAction>,
     pub panel_tips_created_at: Option<Instant>,
     pub phonemizer_warning_dismissed: bool,
     pub phonemizer_warning_expanded: bool,
@@ -201,6 +216,14 @@ pub struct KamafeuStudioApp {
     workspace_snap_rect: Option<(workspace::WorkspacePane, eframe::egui::Rect)>,
     pub active_mobile_tab: types::MobileViewTab,
     pub mobile_menu_open: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum SnapshotRestoreKind {
+    Notes,
+    Audio,
+    Markers,
+    Sections,
 }
 
 impl Drop for KamafeuStudioApp {

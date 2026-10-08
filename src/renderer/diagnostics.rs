@@ -93,9 +93,29 @@ impl AudioDiagnostics {
     }
 }
 
+/// RMS de uma janela de amostras. A função é usada para comparar a energia
+/// nos limites de fonemas sem alterar o buffer renderizado.
+pub fn window_rms(samples: &[f32], window_samples: usize, from_end: bool) -> f32 {
+    let window_samples = window_samples.max(1).min(samples.len());
+    if window_samples == 0 {
+        return 0.0;
+    }
+    let start = if from_end {
+        samples.len() - window_samples
+    } else {
+        0
+    };
+    let sum = samples[start..start + window_samples]
+        .iter()
+        .filter(|sample| sample.is_finite())
+        .map(|sample| f64::from(*sample) * f64::from(*sample))
+        .sum::<f64>();
+    (sum / window_samples as f64).sqrt() as f32
+}
+
 #[cfg(test)]
 mod tests {
-    use super::AudioDiagnostics;
+    use super::{window_rms, AudioDiagnostics};
 
     #[test]
     fn analyzes_interleaved_audio_per_channel() {
@@ -117,5 +137,13 @@ mod tests {
         assert_eq!(metrics.max_step, 2.5);
         assert_eq!(metrics.max_step_frame, 2);
         assert!(!metrics.is_safe());
+    }
+
+    #[test]
+    fn measures_non_destructive_boundary_windows() {
+        let samples = [1.0, 1.0, 0.0, 0.0];
+        assert_eq!(window_rms(&samples, 2, false), 1.0);
+        assert_eq!(window_rms(&samples, 2, true), 0.0);
+        assert_eq!(samples, [1.0, 1.0, 0.0, 0.0]);
     }
 }

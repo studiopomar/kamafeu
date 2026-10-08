@@ -1,4 +1,6 @@
 use crate::gui::KamafeuStudioApp;
+#[cfg(not(target_arch = "wasm32"))]
+use crate::gui::SnapshotRestoreKind;
 use eframe::egui;
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -33,6 +35,16 @@ impl ProjectShape {
 fn snapshot_shape(path: &std::path::Path) -> Result<ProjectShape, String> {
     crate::formats::ApsFormat::load_file(path)
         .map(|project| ProjectShape::from_project(&project))
+        .map_err(|error| error.to_string())
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn snapshot_diff(
+    path: &std::path::Path,
+    current: &crate::project::UProject,
+) -> Result<crate::project::ProjectDiff, String> {
+    crate::formats::ApsFormat::load_file(path)
+        .map(|project| crate::project::ProjectDiff::between(current, &project))
         .map_err(|error| error.to_string())
 }
 
@@ -106,6 +118,7 @@ impl KamafeuStudioApp {
                                         .map(|metadata| metadata.len())
                                         .unwrap_or(0);
                                     let shape = snapshot_shape(&path);
+                                    let diff = snapshot_diff(&path, &self.project);
                                     ui.group(|ui| {
                                         ui.horizontal(|ui| {
                                             ui.vertical(|ui| {
@@ -139,6 +152,25 @@ impl KamafeuStudioApp {
                                                             .small()
                                                             .color(color),
                                                         );
+                                                        if let Ok(diff) = &diff {
+                                                            let diff_hint = format!(
+                                                                "Notas: {:?}\nÁudios: {:?}",
+                                                                diff.changed_note_indices,
+                                                                diff.changed_wave_part_indices,
+                                                            );
+                                                            ui.label(
+                                                                egui::RichText::new(format!(
+                                                                    "Alterações: {} notas · {} fonemas · {} áudio{}",
+                                                                    diff.added_notes + diff.removed_notes + diff.changed_notes,
+                                                                    diff.changed_phoneme_overrides,
+                                                                    diff.added_wave_parts + diff.removed_wave_parts + diff.changed_wave_parts,
+                                                                    if diff.added_wave_parts + diff.removed_wave_parts + diff.changed_wave_parts == 1 { "" } else { "s" },
+                                                                ))
+                                                                .small()
+                                                                .color(self.config.theme.text_muted_c32()),
+                                                            )
+                                                            .on_hover_text(diff_hint);
+                                                        }
                                                     }
                                                     Err(error) => {
                                                         ui.colored_label(
@@ -156,6 +188,50 @@ impl KamafeuStudioApp {
                                                         .clicked()
                                                     {
                                                         snapshot_to_restore = Some(path.clone());
+                                                    }
+                                                    if let Ok(diff) = &diff {
+                                                        if !diff.changed_note_indices.is_empty()
+                                                            && ui
+                                                                .button(lang.tr(
+                                                                    "Restaurar notas",
+                                                                    "Restore notes",
+                                                                ))
+                                                                .on_hover_text(lang.tr(
+                                                                    "Pede confirmação e registra undo antes de substituir somente as notas alteradas.",
+                                                                    "Asks for confirmation and records undo before replacing only changed notes.",
+                                                                ))
+                                                                .clicked()
+                                                        {
+                                                            self.snapshot_restore_confirmation =
+                                                                Some((path.clone(), SnapshotRestoreKind::Notes));
+                                                        }
+                                                        if !diff.changed_wave_part_indices.is_empty()
+                                                            && ui
+                                                                .button(lang.tr(
+                                                                    "Restaurar áudio",
+                                                                    "Restore audio",
+                                                                ))
+                                                                .on_hover_text(lang.tr(
+                                                                    "Pede confirmação e restaura somente as partes de áudio alteradas.",
+                                                                    "Asks for confirmation and restores only changed audio parts.",
+                                                                ))
+                                                                .clicked()
+                                                        {
+                                                            self.snapshot_restore_confirmation =
+                                                                Some((path.clone(), SnapshotRestoreKind::Audio));
+                                                        }
+                                                        if diff.changed_arrangement {
+                                                            if !diff.changed_marker_indices.is_empty()
+                                                                && ui.button(lang.tr("Restaurar marcadores", "Restore markers")).clicked() {
+                                                                self.snapshot_restore_confirmation =
+                                                                    Some((path.clone(), SnapshotRestoreKind::Markers));
+                                                            }
+                                                            if !diff.changed_section_indices.is_empty()
+                                                                && ui.button(lang.tr("Restaurar seções", "Restore sections")).clicked() {
+                                                                self.snapshot_restore_confirmation =
+                                                                    Some((path.clone(), SnapshotRestoreKind::Sections));
+                                                            }
+                                                        }
                                                     }
                                                 },
                                             );
@@ -181,5 +257,111 @@ impl KamafeuStudioApp {
             is_open = false;
         }
         self.recovery_snapshots_open = is_open;
+
+        #[cfg(not(target_arch = "wasm32"))]
+        if let Some((path, restore_kind)) = self.snapshot_restore_confirmation.clone() {
+            let mut confirm_open = true;
+            egui::Window::new(lang.tr(
+                "Confirmar restauração seletiva",
+                "Confirm selective restore",
+            ))
+            .id(egui::Id::new("snapshot_selective_restore_confirmation"))
+            .open(&mut confirm_open)
+            .show(ctx, |ui| {
+                let diff = snapshot_diff(&path, &self.project);
+                match diff {
+                    Ok(diff)
+                        if !(match restore_kind {
+                            SnapshotRestoreKind::Notes => diff.changed_note_indices.is_empty(),
+                            SnapshotRestoreKind::Audio => diff.changed_wave_part_indices.is_empty(),
+                            SnapshotRestoreKind::Markers => diff.changed_marker_indices.is_empty(),
+                            SnapshotRestoreKind::Sections => diff.changed_section_indices.is_empty(),
+                        }) =>
+                    {
+                        let indices = match restore_kind {
+                            SnapshotRestoreKind::Notes => &diff.changed_note_indices,
+                            SnapshotRestoreKind::Audio => &diff.changed_wave_part_indices,
+                            SnapshotRestoreKind::Markers => &diff.changed_marker_indices,
+                            SnapshotRestoreKind::Sections => &diff.changed_section_indices,
+                        };
+                        let label = match restore_kind {
+                            SnapshotRestoreKind::Notes => "nota(s)",
+                            SnapshotRestoreKind::Audio => "parte(s) de áudio",
+                            SnapshotRestoreKind::Markers => "marcador(es)",
+                            SnapshotRestoreKind::Sections => "seção(ões)",
+                        };
+                        ui.label(format!(
+                            "Substituir {} {} do projeto atual pelo snapshot?",
+                            indices.len(), label
+                        ));
+                        ui.label(
+                            egui::RichText::new(match restore_kind {
+                                SnapshotRestoreKind::Notes => "O arranjo, o áudio e as configurações de render serão preservados.",
+                                SnapshotRestoreKind::Audio => "As notas, fonemas e configurações de render serão preservados.",
+                                SnapshotRestoreKind::Markers | SnapshotRestoreKind::Sections => "Notas, fonemas e áudio serão preservados.",
+                            })
+                            .small(),
+                        );
+                        ui.horizontal(|ui| {
+                            if ui.button(lang.tr("Cancelar", "Cancel")).clicked() {
+                                self.snapshot_restore_confirmation = None;
+                            }
+                            if ui
+                                .button(lang.tr("Restaurar e criar undo", "Restore and undo"))
+                                .clicked()
+                            {
+                                let original = self.project.clone();
+                                let snapshot_project =
+                                    match crate::formats::ApsFormat::load_file(&path) {
+                                        Ok(project) => project,
+                                        Err(error) => {
+                                            self.transport_state.status_message =
+                                                format!("Snapshot inválido: {error}");
+                                            return;
+                                        }
+                                    };
+                                let restored = match restore_kind {
+                                    SnapshotRestoreKind::Notes => crate::project::restore_note_indices(&self.project, &snapshot_project, indices),
+                                    SnapshotRestoreKind::Audio => crate::project::restore_wave_part_indices(&self.project, &snapshot_project, indices),
+                                    SnapshotRestoreKind::Markers => crate::project::restore_marker_indices(&self.project, &snapshot_project, indices),
+                                    SnapshotRestoreKind::Sections => crate::project::restore_section_indices(&self.project, &snapshot_project, indices),
+                                };
+                                match restored {
+                                    Ok(restored) => {
+                                        self.undo_manager.push_state(original);
+                                        self.project = restored;
+                                        self.is_dirty = true;
+                                        self.piano_roll_state.phoneme_cache_hash = 0;
+                                        self.snapshot_restore_confirmation = None;
+                                        self.transport_state.status_message = match restore_kind {
+                                            SnapshotRestoreKind::Notes => "Notas restauradas do snapshot; undo disponível.",
+                                            SnapshotRestoreKind::Audio => "Áudio restaurado do snapshot; undo disponível.",
+                                            SnapshotRestoreKind::Markers => "Marcadores restaurados do snapshot; undo disponível.",
+                                            SnapshotRestoreKind::Sections => "Seções restauradas do snapshot; undo disponível.",
+                                        }
+                                        .to_string();
+                                    }
+                                    Err(error) => {
+                                        self.transport_state.status_message = error;
+                                    }
+                                }
+                            }
+                        });
+                    }
+                    Ok(_) => {
+                        ui.label(lang.tr(
+                            "Não há notas alteradas para restaurar.",
+                            "There are no changed notes to restore.",
+                        ));
+                    }
+                    Err(error) => {
+                        ui.colored_label(egui::Color32::RED, error);
+                    }
+                }
+            });
+            if !confirm_open {
+                self.snapshot_restore_confirmation = None;
+            }
+        }
     }
 }

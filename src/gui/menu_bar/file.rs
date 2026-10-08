@@ -13,7 +13,7 @@ impl KamafeuStudioApp {
                 ))
                 .clicked()
             {
-                self.new_project();
+                self.request_project_action(crate::gui::PendingProjectAction::New);
                 ui.close_menu();
             }
             if ui
@@ -30,7 +30,11 @@ impl KamafeuStudioApp {
                 ))
                 .clicked()
             {
-                self.open_project_dialog();
+                if self.is_dirty && self.config.workflow.confirm_on_exit_dirty {
+                    self.open_project_dialog();
+                } else {
+                    self.open_project_dialog();
+                }
                 ui.close_menu();
             }
 

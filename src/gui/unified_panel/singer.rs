@@ -311,14 +311,47 @@ pub(super) fn draw(
                                         .inner_margin(egui::Margin::symmetric(6.0, 4.0))
                                         .show(ui, |ui| {
                                             ui.horizontal(|ui| {
-                                                let initial =
-                                                    singer.name.chars().next().unwrap_or('V');
-                                                ui.label(
-                                                    RichText::new(format!("[{}]", initial))
-                                                        .size(9.0)
-                                                        .monospace()
-                                                        .color(theme.accent_c32()),
+                                                let (avatar_rect, _) = ui.allocate_exact_size(
+                                                    Vec2::splat(28.0),
+                                                    egui::Sense::hover(),
                                                 );
+                                                let painter = ui.painter_at(avatar_rect);
+                                                painter.rect_filled(
+                                                    avatar_rect,
+                                                    Rounding::same(4.0),
+                                                    theme.bg_header_c32(),
+                                                );
+                                                let mut loaded_image = false;
+                                                if let Some(ref image_path) = singer.image_path {
+                                                    if let Some(texture) =
+                                                        crate::gui::image_cache::texture_for_path(
+                                                            ui.ctx(),
+                                                            image_path,
+                                                        )
+                                                    {
+                                                        painter.image(
+                                                            texture.id(),
+                                                            avatar_rect,
+                                                            egui::Rect::from_min_max(
+                                                                Pos2::ZERO,
+                                                                Pos2::new(1.0, 1.0),
+                                                            ),
+                                                            Color32::WHITE,
+                                                        );
+                                                        loaded_image = true;
+                                                    }
+                                                }
+                                                if !loaded_image {
+                                                    let initial =
+                                                        singer.name.chars().next().unwrap_or('V');
+                                                    painter.text(
+                                                        avatar_rect.center(),
+                                                        egui::Align2::CENTER_CENTER,
+                                                        initial.to_string(),
+                                                        egui::FontId::proportional(11.0),
+                                                        theme.accent_c32(),
+                                                    );
+                                                }
                                                 ui.vertical(|ui| {
                                                     ui.label(
                                                         RichText::new(&singer.name)

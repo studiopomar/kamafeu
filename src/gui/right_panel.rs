@@ -544,6 +544,27 @@ pub fn draw_right_panel(
                 egui::ScrollArea::vertical().id_salt("right_panel_settings_scroll").show(ui, |ui| {
                     ui.label(RichText::new("Motor Resampler").strong().color(theme.accent_c32()));
 
+                    let platform = crate::extensions::current_platform();
+                    if platform != "desktop" {
+                        ui.group(|ui| {
+                            ui.label(
+                                RichText::new(format!(
+                                    "[Aviso] Plataforma {platform}: executáveis externos e Wine não estão disponíveis."
+                                ))
+                                .size(10.0)
+                                .color(Color32::from_rgb(255, 200, 100)),
+                            );
+                            ui.label(
+                                RichText::new(
+                                    "As opções externas permanecem visíveis para preservar projetos, mas o render usa o motor nativo compatível.",
+                                )
+                                .size(9.5)
+                                .color(theme.text_muted_c32()),
+                            );
+                        });
+                        ui.add_space(4.0);
+                    }
+
                     for profile in crate::drivers::KnownResampler::ALL {
                         ui.horizontal(|ui| {
                             if ui

@@ -14,6 +14,9 @@
 /tmp/
 /copaiba-neo/
 
+# Documentação local e artefatos de auditoria
+/docs/
+
 /resamplers/hifisampler
 /resamplers/hifisampler-rs
 /resamplers/hifiserver-rust

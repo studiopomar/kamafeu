@@ -69,6 +69,97 @@ fn install_straycat(target_os: usize) -> Result<String, String> {
     Ok(destination.display().to_string())
 }
 
+/// Downloads a release asset into Kamafeu's private package directory.  The
+/// package catalog contains release pages rather than guessed binary URLs, so
+/// this resolves the asset through GitHub's API and selects the platform build
+/// before downloading it.
+fn install_github_package(package: &Package, target_os: usize) -> Result<String, String> {
+    let parts: Vec<&str> = package.url.trim_end_matches('/').split('/').collect();
+    let github = parts
+        .iter()
+        .position(|part| *part == "github.com")
+        .ok_or("URL do pacote não é um repositório GitHub")?;
+    let owner = parts.get(github + 1).ok_or("proprietário ausente")?;
+    let repo = parts.get(github + 2).ok_or("repositório ausente")?;
+    let api = if let Some(tag_pos) = parts.iter().position(|part| *part == "tag") {
+        let tag = parts.get(tag_pos + 1).ok_or("tag ausente")?;
+        format!("https://api.github.com/repos/{owner}/{repo}/releases/tags/{tag}")
+    } else {
+        format!("https://api.github.com/repos/{owner}/{repo}/releases/latest")
+    };
+    let response = std::process::Command::new("curl")
+        .args(["-fsSL", "-H", "Accept: application/vnd.github+json", &api])
+        .output()
+        .map_err(|e| format!("curl indisponível: {e}"))?;
+    if !response.status.success() {
+        return Err("não foi possível consultar a release do pacote".into());
+    }
+    let json: serde_json::Value = serde_json::from_slice(&response.stdout)
+        .map_err(|e| format!("resposta inválida da release: {e}"))?;
+    let terms: &[&str] = match target_os {
+        0 => &["windows", "win", "x64", "x86_64"],
+        1 => &["macos", "darwin", "osx", "x64", "x86_64"],
+        2 => &["macos", "darwin", "osx", "arm64", "aarch64"],
+        _ => &["linux", "ubuntu", "x64", "x86_64"],
+    };
+    let asset = json["assets"]
+        .as_array()
+        .and_then(|assets| {
+            assets
+                .iter()
+                .filter_map(|asset| {
+                    let name = asset["name"].as_str()?.to_ascii_lowercase();
+                    let score = terms.iter().filter(|term| name.contains(**term)).count();
+                    let archive = name.ends_with(".zip")
+                        || name.ends_with(".tar.gz")
+                        || name.ends_with(".tgz");
+                    (score > 0 && archive).then_some((score, asset))
+                })
+                .max_by_key(|(score, _)| *score)
+                .map(|(_, asset)| asset)
+        })
+        .ok_or_else(|| format!("nenhum arquivo compatível encontrado para {}", package.name))?;
+    let asset_name = asset["name"].as_str().ok_or("asset sem nome")?;
+    let asset_url = asset["browser_download_url"]
+        .as_str()
+        .ok_or("asset sem URL")?;
+    let root = std::env::current_exe()
+        .map_err(|e| e.to_string())?
+        .parent()
+        .ok_or("pasta do executável indisponível")?
+        .join("packages")
+        .join(package.kind.to_ascii_lowercase() + "s")
+        .join(package.name);
+    std::fs::create_dir_all(&root).map_err(|e| e.to_string())?;
+    let archive_path = root.join(asset_name);
+    let status = std::process::Command::new("curl")
+        .args(["-fL", "--retry", "3", "-o"])
+        .arg(&archive_path)
+        .arg(asset_url)
+        .status()
+        .map_err(|e| e.to_string())?;
+    if !status.success() {
+        return Err("falha ao baixar o pacote".into());
+    }
+    if asset_name.ends_with(".zip") {
+        let file = std::fs::File::open(&archive_path).map_err(|e| e.to_string())?;
+        let mut archive = zip::ZipArchive::new(file).map_err(|e| e.to_string())?;
+        archive.extract(&root).map_err(|e| e.to_string())?;
+    } else {
+        let status = std::process::Command::new("tar")
+            .args(["-xzf"])
+            .arg(&archive_path)
+            .arg("-C")
+            .arg(&root)
+            .status()
+            .map_err(|e| e.to_string())?;
+        if !status.success() {
+            return Err("falha ao extrair o pacote".into());
+        }
+    }
+    Ok(root.display().to_string())
+}
+
 const PACKAGES: &[Package] = &[
     Package {
         name: "straycat-rs",
@@ -236,8 +327,8 @@ impl KamafeuStudioApp {
         let lang = self.config.language;
         ui.heading(lang.tr("Pacotes adicionais", "Additional packages"));
         ui.label(lang.tr(
-            "Baixe resamplers e wavtools oficiais. O botão abre a página de release para escolher o executável correto do seu sistema.",
-            "Download official resamplers and wavtools. The button opens the release page so you can choose the executable for your system.",
+            "Baixe e instale resamplers e wavtools oficiais diretamente no Kamafeu, escolhendo o asset compatível com seu sistema.",
+            "Download and install official resamplers and wavtools directly in Kamafeu, selecting the asset compatible with your system.",
         ));
         ui.horizontal(|ui| {
             ui.label(lang.tr("Sistema operacional:", "Operating system:"));
@@ -327,31 +418,17 @@ impl KamafeuStudioApp {
                                     egui::Label::new(RichText::new(compatibility).italics()),
                                 );
                                 if ui.button(lang.tr("Instalar", "Install")).clicked() {
-                                    if package.name == "straycat-rs" {
-                                        match install_straycat(self.packages_target_os) {
-                                            Ok(path) => {
-                                                ui.ctx().copy_text(format!("Instalado: {path}"))
-                                            }
-                                            Err(error) => {
-                                                ui.ctx().copy_text(format!("Erro: {error}"))
-                                            }
+                                    let result = if package.name == "straycat-rs" {
+                                        install_straycat(self.packages_target_os)
+                                    } else {
+                                        install_github_package(package, self.packages_target_os)
+                                    };
+                                    match result {
+                                        Ok(path) => {
+                                            ui.ctx().copy_text(format!("Instalado: {path}"))
                                         }
+                                        Err(error) => ui.ctx().copy_text(format!("Erro: {error}")),
                                     }
-                                    // Until a release publishes a uniquely identifiable
-                                    // asset for this platform, open the official release
-                                    // page as a safe guided installer rather than guessing
-                                    // and installing an incompatible binary.
-                                    #[cfg(target_os = "macos")]
-                                    let _ =
-                                        std::process::Command::new("open").arg(package.url).spawn();
-                                    #[cfg(target_os = "windows")]
-                                    let _ = std::process::Command::new("cmd")
-                                        .args(["/C", "start", "", package.url])
-                                        .spawn();
-                                    #[cfg(all(unix, not(target_os = "macos")))]
-                                    let _ = std::process::Command::new("xdg-open")
-                                        .arg(package.url)
-                                        .spawn();
                                 }
                                 ui.end_row();
                             }

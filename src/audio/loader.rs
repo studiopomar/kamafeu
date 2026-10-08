@@ -1,6 +1,8 @@
 #[cfg(not(target_arch = "wasm32"))]
 use rodio::{Decoder, Source};
+#[cfg(not(target_arch = "wasm32"))]
 use std::fs::File;
+#[cfg(not(target_arch = "wasm32"))]
 use std::io::BufReader;
 use std::path::Path;
 

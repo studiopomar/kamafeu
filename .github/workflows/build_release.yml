@@ -109,6 +109,12 @@ jobs:
           Copy-Item $toolkit_path -Destination "package_root/copaiba.exe"
           Copy-Item "README.md", "LICENSE" -Destination "package_root/"
 
+          # `ort` uses the ONNX Runtime DLL on Windows. Keep it beside the
+          # executable; otherwise a double-click exits before any UI exists.
+          $onnx_dll = Get-ChildItem -Path "target/${{ matrix.job.target }}/release", "target/${{ matrix.job.target }}/release/deps" -Filter "onnxruntime*.dll" -File -ErrorAction SilentlyContinue | Select-Object -First 1
+          if (-Not $onnx_dll) { throw "ONNX Runtime DLL was not produced; refusing to publish an unlaunchable Windows package" }
+          Copy-Item $onnx_dll.FullName -Destination "package_root/"
+
           if (Test-Path "resamplers_dist/bin") {
             Copy-Item "resamplers_dist/bin/*" -Destination "package_root/resamplers/" -Force
           }
@@ -118,6 +124,13 @@ jobs:
           if (Test-Path "resamplers/licenses") {
             Copy-Item "resamplers/licenses" -Destination "package_root/resamplers/" -Recurse -Force
           }
+
+          # Fail the release job if the packaged GUI exits immediately (for
+          # example because a native DLL or graphics dependency is missing).
+          $smoke = Start-Process -FilePath "package_root/kamafeu.exe" -WorkingDirectory "package_root" -PassThru
+          Start-Sleep -Seconds 8
+          if ($smoke.HasExited) { throw "Kamafeu exited during the Windows launch smoke test (exit code $($smoke.ExitCode))" }
+          Stop-Process -Id $smoke.Id -Force
 
           Compress-Archive -Path "package_root/*" -DestinationPath "${{ matrix.job.archive }}" -Force
 

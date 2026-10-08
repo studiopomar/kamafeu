@@ -1,15 +1,17 @@
+#[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
 use crate::drivers::ExternalResamplerDriver;
+#[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
 use crate::drivers::ExternalWavtoolDriver;
 use crate::drivers::GalapagosWavtoolDriver;
-use crate::drivers::KnownResampler;
-use crate::drivers::KnownWavtool;
-use crate::drivers::MacResDriver;
-use crate::drivers::NativeWavtoolDriver;
 use crate::drivers::NativeWorldResamplerDriver;
 use crate::drivers::ResamplerDriver;
 use crate::drivers::WavtoolDriver;
+#[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
 use crate::drivers::WavtoolYawuDriver;
+#[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
+use crate::drivers::{KnownResampler, KnownWavtool, MacResDriver, NativeWavtoolDriver};
 use crate::gui::KamafeuStudioApp;
+#[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
 use std::path::PathBuf;
 
 impl KamafeuStudioApp {

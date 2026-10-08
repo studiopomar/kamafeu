@@ -9,6 +9,20 @@ use super::entry::OtoEntry;
 use super::parser::OtoParser;
 use super::prefix_map::PrefixMap;
 
+#[derive(Debug, Clone, PartialEq, serde::Serialize)]
+pub struct AliasResolutionReport {
+    pub requested_alias: String,
+    pub pitch: String,
+    pub resolved: bool,
+    pub resolved_alias: Option<String>,
+    pub wav_filename: Option<String>,
+    pub offset_ms: Option<f64>,
+    pub consonant_ms: Option<f64>,
+    pub preutterance_ms: Option<f64>,
+    pub overlap_ms: Option<f64>,
+    pub reason: Option<String>,
+}
+
 #[derive(Debug, Clone)]
 pub struct Voicebank {
     pub root_path: PathBuf,
@@ -28,9 +42,19 @@ impl Voicebank {
     /// banks must be rendered as complete phrases with ONNX models and must
     /// never fall through to the classic oto.ini renderer.
     pub fn is_diffsinger(&self) -> bool {
-        self.root_path.join("dsconfig.yaml").is_file()
-            || self.root_path.join("acoustic.onnx").is_file()
-            || self.root_path.join("dsvocoder").is_dir()
+        // An UTAU bank may ship auxiliary folders named "dsvocoder"; that
+        // folder alone must not bypass its oto.ini renderer. A DiffSinger
+        // bank needs its explicit configuration, or characteristic model
+        // assets without a classic oto.ini.
+        if self.root_path.join("oto.ini").is_file() {
+            return false;
+        }
+        if self.root_path.join("dsconfig.yaml").is_file() {
+            return true;
+        }
+        self.root_path.join("acoustic.onnx").is_file()
+            || (self.root_path.join("dsvocoder").is_dir()
+                && self.root_path.join("phonemes.txt").is_file())
     }
 
     pub fn diffsinger_config(&self) -> Result<crate::oto::DiffSingerConfig, String> {
@@ -63,7 +87,10 @@ impl Voicebank {
             };
 
         let native_config_path = real_root_path.join("kamafeu_voicebank.json");
-        if native_config_path.exists() {
+        // oto.ini is the authoritative UTAU source. A generated native
+        // index may be stale after a voicebank update, so never let it hide
+        // aliases that are present in the user's oto.ini.
+        if native_config_path.exists() && !real_root_path.join("oto.ini").is_file() {
             if let Ok(content) = fs::read_to_string(&native_config_path) {
                 if let Ok(cfg) = serde_json::from_str::<crate::copaiba::CopaibaConfig>(&content) {
                     let mut pm = PrefixMap::new();
@@ -404,7 +431,6 @@ impl Voicebank {
         if lyric_trimmed.is_empty() {
             return None;
         }
-
         let (prefix, suffix) = self
             .prefix_map
             .get_prefix_suffix(pitch_name)
@@ -453,6 +479,13 @@ impl Voicebank {
             if let Some(entry) = self.entries.get(cand) {
                 return Some(entry);
             }
+        }
+
+        // Exact authored aliases remain the final local fallback. This keeps
+        // aliases such as "k a" available, while allowing a mapped pitch
+        // subbank such as "a s_C4" to win when the current note has one.
+        if let Some(entry) = self.entries.get(lyric_trimmed) {
+            return Some(entry);
         }
 
         if let Some(target_midi) = crate::dsp::pitch::note_name_to_midi(pitch_name) {
@@ -483,12 +516,91 @@ impl Voicebank {
         None
     }
 
+    /// Content identity for render provenance and cache diagnostics. It uses
+    /// sorted aliases, oto timing and WAV bytes, so replacing a sample at the
+    /// same path cannot preserve the old identity.
+    pub fn content_fingerprint(&self) -> String {
+        let mut hash = 0xcbf29ce484222325u64;
+        let mut entries = self.entries.iter().collect::<Vec<_>>();
+        entries.sort_by(|left, right| left.0.cmp(right.0));
+        for (alias, entry) in entries {
+            for value in [
+                alias.as_bytes(),
+                entry.wav_filename.as_bytes(),
+                format!(
+                    "{:.9},{:.9},{:.9},{:.9},{:.9},{:?},{:?},{:?}",
+                    entry.offset,
+                    entry.consonant,
+                    entry.cutoff,
+                    entry.preutterance,
+                    entry.overlap,
+                    entry.loop_start,
+                    entry.loop_end,
+                    entry.tail_start
+                )
+                .as_bytes(),
+            ] {
+                for byte in value {
+                    hash ^= u64::from(*byte);
+                    hash = hash.wrapping_mul(0x100000001b3);
+                }
+                hash ^= 0xff;
+                hash = hash.wrapping_mul(0x100000001b3);
+            }
+            if let Ok(bytes) = fs::read(self.root_path.join(&entry.wav_filename)) {
+                for byte in bytes {
+                    hash ^= u64::from(byte);
+                    hash = hash.wrapping_mul(0x100000001b3);
+                }
+            }
+            hash ^= 0xfe;
+            hash = hash.wrapping_mul(0x100000001b3);
+        }
+        format!("{hash:016x}")
+    }
+
+    /// Resolves an alias through the same prefix/suffix and case rules used by
+    /// rendering, while returning a stable non-destructive diagnostic.
+    pub fn alias_resolution_report(
+        &self,
+        lyric: impl Into<String>,
+        pitch: impl Into<String>,
+    ) -> AliasResolutionReport {
+        let requested_alias = lyric.into();
+        let pitch = pitch.into();
+        match self.find_mapped_entry(&requested_alias, &pitch) {
+            Some(entry) => AliasResolutionReport {
+                requested_alias,
+                pitch,
+                resolved: true,
+                resolved_alias: Some(entry.alias.clone()),
+                wav_filename: Some(entry.wav_filename.clone()),
+                offset_ms: Some(entry.offset),
+                consonant_ms: Some(entry.consonant),
+                preutterance_ms: Some(entry.preutterance),
+                overlap_ms: Some(entry.overlap),
+                reason: None,
+            },
+            None => AliasResolutionReport {
+                requested_alias,
+                pitch,
+                resolved: false,
+                resolved_alias: None,
+                wav_filename: None,
+                offset_ms: None,
+                consonant_ms: None,
+                preutterance_ms: None,
+                overlap_ms: None,
+                reason: Some("alias ausente ou sem entrada compatível no oto.ini".to_string()),
+            },
+        }
+    }
+
     pub fn find_entry(&self, lyric: &str, pitch_name: &str) -> Option<&OtoEntry> {
         let lyric_trimmed = lyric.trim();
         if lyric_trimmed.is_empty() {
             return None;
         }
-
         let (prefix, suffix) = self
             .prefix_map
             .get_prefix_suffix(pitch_name)
@@ -537,6 +649,10 @@ impl Voicebank {
             if let Some(entry) = self.entries.get(cand) {
                 return Some(entry);
             }
+        }
+
+        if let Some(entry) = self.entries.get(lyric_trimmed) {
+            return Some(entry);
         }
 
         // Try case-insensitive match using a single, lazily-built index. The
@@ -790,6 +906,33 @@ mod tests {
     }
 
     #[test]
+    fn oto_ini_wins_over_a_stale_native_voicebank_index() {
+        let dir = tempdir().unwrap();
+        fs::write(
+            dir.path().join("kamafeu_voicebank.json"),
+            r#"{
+                "version": "1.0",
+                "voicebank_name": "Indexed",
+                "entries": [{
+                    "wav_filename": "old.wav",
+                    "alias": "old",
+                    "corte_inicial_ms": 0.0,
+                    "consoante_ms": 50.0,
+                    "corte_final_ms": -100.0,
+                    "preutterance_ms": 20.0,
+                    "overlap_ms": 10.0
+                }]
+            }"#,
+        )
+        .unwrap();
+        fs::write(dir.path().join("oto.ini"), "ka.wav=k a,0,100,-400,80,30\n").unwrap();
+
+        let vb = Voicebank::new(dir.path()).unwrap();
+        assert!(vb.entries.contains_key("k a"));
+        assert!(!vb.entries.contains_key("old"));
+    }
+
+    #[test]
     fn root_oto_wins_over_duplicate_aliases_in_subbanks() {
         let dir = tempdir().unwrap();
         let subbank = dir.path().join("A3");
@@ -842,5 +985,39 @@ mod tests {
             vb.image_path.as_deref(),
             Some(dir.path().join("image.png").as_path())
         );
+    }
+
+    #[test]
+    fn oto_bank_with_auxiliary_dsvocoder_stays_on_classic_renderer() {
+        let dir = tempdir().unwrap();
+        fs::write(dir.path().join("oto.ini"), "ka.wav=k a,0,100,-400,80,30\n").unwrap();
+        fs::create_dir(dir.path().join("dsvocoder")).unwrap();
+
+        let vb = Voicebank::new(dir.path()).unwrap();
+        assert!(!vb.is_diffsinger());
+        assert_eq!(vb.find_mapped_entry("k a", "C4").unwrap().alias, "k a");
+        let report = vb.alias_resolution_report("k a", "C4");
+        assert!(report.resolved);
+        assert_eq!(report.resolved_alias.as_deref(), Some("k a"));
+        assert_eq!(report.preutterance_ms, Some(80.0));
+        fs::write(dir.path().join("ka.wav"), b"first sample").unwrap();
+        let first_fingerprint = vb.content_fingerprint();
+        fs::write(dir.path().join("ka.wav"), b"replacement sample").unwrap();
+        assert_ne!(first_fingerprint, vb.content_fingerprint());
+    }
+
+    #[test]
+    fn oto_bank_wins_over_diff_singer_metadata() {
+        let dir = tempdir().unwrap();
+        fs::write(dir.path().join("oto.ini"), "ka.wav=k a,0,100,-400,80,30\n").unwrap();
+        fs::write(
+            dir.path().join("dsconfig.yaml"),
+            "phonemes: phonemes.txt\nacoustic: acoustic.onnx\nvocoder: vocoder.onnx\n",
+        )
+        .unwrap();
+
+        let vb = Voicebank::new(dir.path()).unwrap();
+        assert!(!vb.is_diffsinger());
+        assert_eq!(vb.find_mapped_entry("k a", "D4").unwrap().alias, "k a");
     }
 }

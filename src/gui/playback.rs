@@ -1,7 +1,9 @@
 use crate::gui::piano_roll::PianoRollState;
 use crate::gui::KamafeuStudioApp;
 use crate::oto::Voicebank;
-use crate::renderer::{ProgressiveChunk, ProjectRenderer, RenderedAudio};
+use crate::renderer::ProjectRenderer;
+#[cfg(not(target_arch = "wasm32"))]
+use crate::renderer::{ProgressiveChunk, RenderedAudio};
 use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
@@ -16,6 +18,70 @@ fn progressive_chunk_ms(lookahead_ms: f32, render_chunk_bars: u32, bpm: f64) -> 
 }
 
 impl KamafeuStudioApp {
+    pub(crate) fn retry_failed_chunk(&mut self) {
+        #[cfg(target_arch = "wasm32")]
+        {
+            self.transport_state.status_message =
+                "Retry de chunks não está disponível no alvo WASM".to_string();
+            return;
+        }
+
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            if self.render_rx.is_some() {
+                self.transport_state.status_message =
+                    "A prévia já está sendo renderizada".to_string();
+                return;
+            }
+            let Some((chunk_index, start_ms, end_ms, is_final)) = self.failed_chunk else {
+                return;
+            };
+            let (Some(project), Some(voicebank), Some(options)) = (
+                self.retry_project.clone(),
+                self.retry_voicebank.clone(),
+                self.retry_options.clone(),
+            ) else {
+                self.transport_state.status_message =
+                    "Contexto de retry indisponível; inicie uma nova prévia".to_string();
+                return;
+            };
+
+            let (log_tx, log_rx) = std::sync::mpsc::channel();
+            let (audio_tx, audio_rx) = std::sync::mpsc::sync_channel(16);
+            let cancel = Arc::new(AtomicBool::new(false));
+            self.render_log_channel_rx = Some(log_rx);
+            self.render_rx = Some(audio_rx);
+            self.render_cancel = Some(cancel.clone());
+            self.render_progress = 0.0;
+            self.render_status_title = format!("Retry chunk #{chunk_index}");
+            self.failed_chunk = None;
+
+            let resampler_driver = self.create_resampler_driver();
+            let wavtool_driver = self.create_wavtool_driver();
+            let sample_rate = self.sample_rate;
+            std::thread::spawn(move || {
+                let report_progress = move |progress, message: &str| {
+                    let _ = log_tx.send((progress, message.to_string()));
+                };
+                let chunk = ProjectRenderer::retry_progressive_chunk(
+                    &project,
+                    &voicebank,
+                    sample_rate,
+                    chunk_index,
+                    start_ms,
+                    end_ms,
+                    is_final,
+                    resampler_driver.as_ref(),
+                    wavtool_driver.as_ref(),
+                    &options,
+                    Some(&report_progress),
+                    Some(cancel.as_ref()),
+                );
+                let _ = audio_tx.send(chunk);
+            });
+        }
+    }
+
     pub fn play_current_track(&mut self) {
         if let Err(error) = self.audio_player.prepare_for_playback() {
             self.transport_state.status_message = format!("Erro de áudio: {error}");
@@ -138,6 +204,12 @@ impl KamafeuStudioApp {
             self.piano_roll_state.playhead_ms = 0.0;
         }
 
+        self.retry_project = Some(project.clone());
+        self.retry_voicebank = Some(active_vb.clone());
+        self.retry_options = Some(vocal_mode_params.clone());
+        self.failed_chunk = None;
+        self.project.render_state = Some(Default::default());
+
         self.render_log_window_open = false;
         self.render_progress = 0.0;
         self.render_status_title = format!("{} • {:.0}ms", resampler_driver.name(), playhead_ms);
@@ -204,6 +276,7 @@ impl KamafeuStudioApp {
                             .to_string(),
                     ),
                     chunk_start_ms: playhead_ms,
+                    chunk_index: 0,
                     is_final: true,
                 });
             }

@@ -251,18 +251,27 @@ impl KamafeuStudioApp {
 
         if keep_editing {
             self.exit_confirmation_open = false;
+            self.pending_project_action = None;
         } else if save {
             self.save_project();
             // A failed or cancelled Save As must return to the project rather
             // than silently dropping edits.
-            self.exit_confirmation_open = false;
             if !self.is_dirty {
-                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                self.exit_confirmation_open = false;
+                if let Some(action) = self.pending_project_action.take() {
+                    self.apply_project_action(action);
+                } else {
+                    ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+                }
             }
         } else if discard {
             self.exit_confirmation_open = false;
             self.is_dirty = false;
-            ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+            if let Some(action) = self.pending_project_action.take() {
+                self.apply_project_action(action);
+            } else {
+                ctx.send_viewport_cmd(egui::ViewportCommand::Close);
+            }
         }
     }
 }

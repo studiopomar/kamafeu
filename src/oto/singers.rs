@@ -142,15 +142,16 @@ impl SingerScanner {
         // DiffSinger folders use a neural phrase renderer rather than oto.ini.
         // Keep them in the singer catalog so the application can select and
         // route them to the dedicated renderer instead of silently hiding them.
-        let is_diffsinger = dir.join("dsconfig.yaml").exists()
-            || dir.join("dsdict.yaml").exists()
-            || dir.join("acoustic.onnx").exists()
-            || dir.join("variance.onnx").exists()
-            || dir.join("vocoder.onnx").exists()
-            || dir.join("phone_set.json").exists();
+        let is_diffsinger = !has_oto
+            && (dir.join("dsconfig.yaml").exists()
+                || dir.join("dsdict.yaml").exists()
+                || dir.join("acoustic.onnx").exists()
+                || dir.join("variance.onnx").exists()
+                || dir.join("vocoder.onnx").exists()
+                || dir.join("phone_set.json").exists());
 
         let mut is_diffsinger = is_diffsinger;
-        if !is_diffsinger && has_char_yaml {
+        if !is_diffsinger && !has_oto && has_char_yaml {
             if let Ok(content) = fs::read_to_string(dir.join("character.yaml")) {
                 let content_lower = content.to_lowercase();
                 if content_lower.contains("diffsinger")
@@ -375,6 +376,22 @@ mod tests {
             singer.image_path.as_deref(),
             Some(directory.path().join("portrait.png").as_path())
         );
+    }
+
+    #[test]
+    fn oto_bank_is_not_catalogued_as_diffsinger_by_neural_metadata() {
+        let directory = tempfile::tempdir().expect("temporary singer directory");
+        fs::write(
+            directory.path().join("oto.ini"),
+            "ka.wav=k a,0,100,-400,80,30\n",
+        )
+        .expect("oto.ini");
+        fs::write(directory.path().join("dsconfig.yaml"), "phonemes: []")
+            .expect("auxiliary metadata");
+
+        let singer = SingerScanner::inspect_singer_directory(directory.path())
+            .expect("voicebank should be listed");
+        assert_ne!(singer.voice_type, "DiffSinger");
     }
 
     #[test]

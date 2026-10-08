@@ -264,10 +264,14 @@ impl UstxFormat {
                                     .and_then(|value| value.as_i64())
                                     .unwrap_or(0)
                                     .max(0) as usize;
-                                u_note.phoneme_overrides.push(UPhonemeOverride {
+                                let mut item = UPhonemeOverride {
                                     index,
                                     phoneme: override_value
                                         .get("phoneme")
+                                        .and_then(|value| value.as_str())
+                                        .map(str::to_string),
+                                    flags: override_value
+                                        .get("flags")
                                         .and_then(|value| value.as_str())
                                         .map(str::to_string),
                                     offset_ms: number(override_value, "offset", "offset")
@@ -282,8 +286,98 @@ impl UstxFormat {
                                         "overlapDelta",
                                         "overlap_delta",
                                     ),
+                                    consonant_timing_offset_ms: number(
+                                        override_value,
+                                        "consonantTiming",
+                                        "consonant_timing",
+                                    ),
                                     ..UPhonemeOverride::default()
-                                });
+                                };
+                                if let Some(envelope_value) = override_value.get("envelope") {
+                                    let mut envelope =
+                                        crate::dsp::envelope::UtauEnvelope::default();
+                                    let fields = [
+                                        ("p1", &mut envelope.p1),
+                                        ("p2", &mut envelope.p2),
+                                        ("p3", &mut envelope.p3),
+                                        ("p4", &mut envelope.p4),
+                                        ("p5", &mut envelope.p5),
+                                        ("v1", &mut envelope.v1),
+                                        ("v2", &mut envelope.v2),
+                                        ("v3", &mut envelope.v3),
+                                        ("v4", &mut envelope.v4),
+                                        ("v5", &mut envelope.v5),
+                                        ("crossfade", &mut envelope.crossfade_ms),
+                                    ];
+                                    for (key, target) in fields {
+                                        if let Some(value) = number(envelope_value, key, key) {
+                                            *target = value;
+                                        }
+                                    }
+                                    item.envelope = Some(envelope);
+                                }
+                                if let Some(vibrato_value) = override_value.get("vibrato") {
+                                    let mut vibrato = crate::dsp::pitch::VibratoParam::default();
+                                    let fields = [
+                                        ("length", &mut vibrato.length_pct),
+                                        ("period", &mut vibrato.period_ms),
+                                        ("depth", &mut vibrato.depth_cents),
+                                        ("fadeInMs", &mut vibrato.fade_in_ms),
+                                        ("in", &mut vibrato.fade_in_pct),
+                                        ("out", &mut vibrato.fade_out_pct),
+                                        ("shift", &mut vibrato.shift_pct),
+                                        ("drift", &mut vibrato.drift_pct),
+                                        ("volLink", &mut vibrato.volume_link_pct),
+                                    ];
+                                    for (key, target) in fields {
+                                        if let Some(value) = number(vibrato_value, key, key) {
+                                            *target = value;
+                                        }
+                                    }
+                                    item.vibrato = Some(vibrato);
+                                }
+                                if let Some(bend_value) = override_value.get("pitchBend") {
+                                    let mut bend = UPitchBend::default();
+                                    bend.snap_first = bend_value
+                                        .get("snapFirst")
+                                        .or_else(|| bend_value.get("snap_first"))
+                                        .and_then(|value| value.as_bool())
+                                        .unwrap_or(bend.snap_first);
+                                    if let Some(value) = number(bend_value, "start", "start") {
+                                        bend.portamento_start_ms = value;
+                                    }
+                                    if let Some(value) = number(bend_value, "length", "length") {
+                                        bend.portamento_length_ms = value;
+                                    }
+                                    bend.portamento_shape = bend_value
+                                        .get("shape")
+                                        .and_then(|value| value.as_str())
+                                        .unwrap_or(&bend.portamento_shape)
+                                        .to_string();
+                                    if let Some(points) = bend_value
+                                        .get("points")
+                                        .and_then(|value| value.as_sequence())
+                                    {
+                                        bend.points = points
+                                            .iter()
+                                            .filter_map(|point| {
+                                                Some(UPitchBendPoint {
+                                                    time_offset_ms: number(point, "time", "time")?,
+                                                    pitch_offset_cents: number(
+                                                        point, "pitch", "pitch",
+                                                    )?,
+                                                    shape: point
+                                                        .get("shape")
+                                                        .and_then(|value| value.as_str())
+                                                        .unwrap_or("")
+                                                        .to_string(),
+                                                })
+                                            })
+                                            .collect();
+                                    }
+                                    item.pitch_bend = Some(bend);
+                                }
+                                u_note.phoneme_overrides.push(item);
                             }
                         }
 
@@ -710,9 +804,36 @@ impl UstxFormat {
                                 serde_json::json!({
                                     "index": item.index,
                                     "phoneme": item.phoneme,
+                                    "flags": item.flags,
                                     "offset": item.offset_ms.map(|value| value * ticks_per_ms),
                                     "preutterDelta": item.preutter_delta_ms,
                                     "overlapDelta": item.overlap_delta_ms,
+                                    "consonantTiming": item.consonant_timing_offset_ms,
+                                    "envelope": item.envelope.as_ref().map(|envelope| serde_json::json!({
+                                        "p1": envelope.p1, "p2": envelope.p2, "p3": envelope.p3,
+                                        "p4": envelope.p4, "p5": envelope.p5,
+                                        "v1": envelope.v1, "v2": envelope.v2, "v3": envelope.v3,
+                                        "v4": envelope.v4, "v5": envelope.v5,
+                                        "crossfade": envelope.crossfade_ms,
+                                    })),
+                                    "vibrato": item.vibrato.as_ref().map(|vibrato| serde_json::json!({
+                                        "length": vibrato.length_pct, "period": vibrato.period_ms,
+                                        "depth": vibrato.depth_cents, "fadeInMs": vibrato.fade_in_ms,
+                                        "in": vibrato.fade_in_pct, "out": vibrato.fade_out_pct,
+                                        "shift": vibrato.shift_pct, "drift": vibrato.drift_pct,
+                                        "volLink": vibrato.volume_link_pct,
+                                    })),
+                                    "pitchBend": item.pitch_bend.as_ref().map(|bend| serde_json::json!({
+                                        "snapFirst": bend.snap_first,
+                                        "start": bend.portamento_start_ms,
+                                        "length": bend.portamento_length_ms,
+                                        "shape": bend.portamento_shape,
+                                        "points": bend.points.iter().map(|point| serde_json::json!({
+                                            "time": point.time_offset_ms,
+                                            "pitch": point.pitch_offset_cents,
+                                            "shape": point.shape,
+                                        })).collect::<Vec<_>>(),
+                                    })),
                                 })
                             })
                             .collect::<Vec<_>>();
@@ -839,9 +960,24 @@ voice_parts:
         phonemeOverrides:
           - index: 1
             phoneme: "a t"
+            flags: "g-5Xcustom"
             offset: -48
             preutterDelta: 12.5
             overlapDelta: -3.0
+            envelope:
+              p2: 17
+              crossfade: 22
+            vibrato:
+              length: 45
+              period: 130
+            pitchBend:
+              start: -30
+              length: 60
+              shape: s
+              points:
+                - time: -30
+                  pitch: 120
+                  shape: s
         phonemeExpressions:
           - index: 1
             abbr: vol
@@ -857,10 +993,17 @@ voice_parts:
         let item = &note.phoneme_overrides[0];
         assert_eq!(item.index, 1);
         assert_eq!(item.phoneme.as_deref(), Some("a t"));
+        assert_eq!(item.flags.as_deref(), Some("g-5Xcustom"));
         assert!((item.offset_ms.unwrap() + 50.0).abs() < 1e-6);
         assert_eq!(item.preutter_delta_ms, Some(12.5));
         assert_eq!(item.overlap_delta_ms, Some(-3.0));
         assert_eq!(item.volume, Some(73.0));
+        assert_eq!(item.envelope.as_ref().unwrap().p2, 17.0);
+        assert_eq!(item.envelope.as_ref().unwrap().crossfade_ms, 22.0);
+        assert_eq!(item.vibrato.as_ref().unwrap().length_pct, 45.0);
+        assert_eq!(item.vibrato.as_ref().unwrap().period_ms, 130.0);
+        assert_eq!(item.pitch_bend.as_ref().unwrap().portamento_length_ms, 60.0);
+        assert_eq!(item.pitch_bend.as_ref().unwrap().points.len(), 1);
     }
 
     #[test]

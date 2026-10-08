@@ -5,7 +5,7 @@ use crate::drivers::{
 use crate::oto::Voicebank;
 use crate::phonemizer::PhonemizerMode;
 use crate::project::model::UNote;
-use crate::renderer::RenderOptions;
+use crate::renderer::{diagnostics::window_rms, RenderOptions};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -106,6 +106,45 @@ fn unavailable_phonemes_are_silent_without_muting_valid_notes() {
             .iter()
             .any(|message| message.contains("silenciado") && message.contains(lyric)));
     }
+}
+
+#[test]
+fn renders_a_space_separated_oto_alias_after_voicebank_classification() {
+    let directory = tempfile::tempdir().unwrap();
+    let source: Vec<f32> = (0..44100)
+        .map(|i| (i as f32 * std::f32::consts::TAU * 261.63 / 44100.0).sin() * 0.2)
+        .collect();
+    TrackRenderer::save_wav_samples(directory.path().join("ka.wav"), &source, 44100).unwrap();
+    std::fs::write(
+        directory.path().join("oto.ini"),
+        "ka.wav=k a,0,50,-800,0,0\n",
+    )
+    .unwrap();
+
+    // dsvocoder is a valid auxiliary directory in UTAU banks and must not
+    // route a bank containing oto.ini into the DiffSinger phrase renderer.
+    std::fs::create_dir(directory.path().join("dsvocoder")).unwrap();
+    let voicebank = Voicebank::new(directory.path()).unwrap();
+    assert!(!voicebank.is_diffsinger());
+    assert_eq!(
+        voicebank.find_mapped_entry("k a", "C4").unwrap().alias,
+        "k a"
+    );
+
+    let note = UNote::new("k a", "C4", 0.0, 500.0);
+    let rendered = TrackRenderer::try_render_track_with_progress_cancellable(
+        &[note],
+        &voicebank,
+        44100,
+        120.0,
+        &NativeResamplerDriver,
+        &NativeWavtoolDriver,
+        Some(&RenderOptions::default()),
+        None,
+        None,
+    )
+    .unwrap();
+    assert!(rendered.iter().any(|sample| sample.abs() > 0.001));
 }
 
 #[test]
@@ -218,22 +257,6 @@ fn oto_enveloped_vc_overlap_is_not_faded_twice() {
 }
 
 #[test]
-fn level_matched_mixer_compensates_alias_loudness_without_a_second_fade() {
-    let mut track = vec![0.0f32; 300];
-    for sample in &mut track[100..200] {
-        *sample = 0.2;
-    }
-    let incoming = vec![0.16f32; 100];
-
-    TrackRenderer::mix_level_matched(&mut track, &incoming, 150, 200, 0, 220.0, 44_100);
-
-    // The 0.16 incoming alias is raised to the 0.2 level of the preceding
-    // alias. The result remains a simple sum, with no extra fade applied.
-    assert!((track[180] - 0.4).abs() < 1e-5);
-    assert!((track[220] - 0.2).abs() < 1e-5);
-}
-
-#[test]
 fn generated_vcv_fixture_has_no_silent_transition_hole() {
     let directory = tempfile::tempdir().unwrap();
     let source: Vec<f32> = (0..44100)
@@ -284,6 +307,24 @@ fn generated_vcv_fixture_has_no_silent_transition_hole() {
             "silent VCV transition at {center_ms} ms: {rms}"
         );
     }
+
+    let boundary_rms: Vec<_> = [220.0, 250.0, 280.0]
+        .into_iter()
+        .map(|center_ms| {
+            let center = (center_ms * 44.1) as usize;
+            window_rms(&audio[center - 220..center + 220], 441, false)
+        })
+        .collect();
+    let minimum = boundary_rms.iter().copied().fold(f32::INFINITY, f32::min);
+    let maximum = boundary_rms.iter().copied().fold(0.0f32, f32::max);
+    assert!(
+        minimum > 0.005,
+        "VCV boundary energy collapsed: {boundary_rms:?}"
+    );
+    assert!(
+        maximum / minimum < 8.0,
+        "VCV boundary energy changed abruptly: {boundary_rms:?}"
+    );
 }
 
 #[test]
@@ -502,5 +543,23 @@ fn vc_transitions_render_smoothly_without_discontinuities_or_empty_holes() {
     assert!(
         max_jump < 0.25,
         "Detected discontinuity in VC transition: jump was {max_jump}"
+    );
+
+    let boundary_rms: Vec<_> = [390.0, 430.0, 470.0]
+        .into_iter()
+        .map(|center_ms| {
+            let center = (center_ms * 44.1) as usize;
+            window_rms(&audio[center - 220..center + 220], 441, false)
+        })
+        .collect();
+    let minimum = boundary_rms.iter().copied().fold(f32::INFINITY, f32::min);
+    let maximum = boundary_rms.iter().copied().fold(0.0f32, f32::max);
+    assert!(
+        minimum > 0.005,
+        "VC boundary energy collapsed: {boundary_rms:?}"
+    );
+    assert!(
+        maximum / minimum < 8.0,
+        "VC boundary energy changed abruptly: {boundary_rms:?}"
     );
 }

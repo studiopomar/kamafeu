@@ -8,6 +8,7 @@ use crate::renderer::DitherMode;
 use crate::renderer::MasteringOptions;
 use crate::renderer::ProjectRenderer;
 use std::path::PathBuf;
+use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
 impl KamafeuStudioApp {
@@ -148,6 +149,8 @@ impl KamafeuStudioApp {
 
             let (export_tx, export_rx) = std::sync::mpsc::channel();
             self.export_rx = Some(export_rx);
+            let export_cancel = Arc::new(AtomicBool::new(false));
+            self.export_cancel = Some(export_cancel.clone());
 
             let tx = Arc::new(std::sync::Mutex::new(tx));
             let tx_cb = tx.clone();
@@ -192,16 +195,18 @@ impl KamafeuStudioApp {
                                 ),
                             );
 
-                            let mut audio = ProjectRenderer::render_project_with_drivers(
-                                &track_proj,
-                                &active_vb,
-                                sample_rate,
-                                0.0,
-                                resampler_driver.as_ref(),
-                                wavtool_driver.as_ref(),
-                                &vocal_mode_params,
-                                None,
-                            );
+                            let mut audio =
+                                ProjectRenderer::render_project_with_drivers_cancellable(
+                                    &track_proj,
+                                    &active_vb,
+                                    sample_rate,
+                                    0.0,
+                                    resampler_driver.as_ref(),
+                                    wavtool_driver.as_ref(),
+                                    &vocal_mode_params,
+                                    None,
+                                    Some(&export_cancel),
+                                );
                             if let Some(error) = audio.error.take() {
                                 let _ = export_tx.send(Err(error));
                                 return;
@@ -229,7 +234,7 @@ impl KamafeuStudioApp {
                     }
 
                     // Also export full mixdown
-                    let mut audio = ProjectRenderer::render_project_with_drivers(
+                    let mut audio = ProjectRenderer::render_project_with_drivers_cancellable(
                         &project,
                         &active_vb,
                         sample_rate,
@@ -238,6 +243,7 @@ impl KamafeuStudioApp {
                         wavtool_driver.as_ref(),
                         &vocal_mode_params,
                         None,
+                        Some(&export_cancel),
                     );
                     if let Some(error) = audio.error.take() {
                         let _ = export_tx.send(Err(error));
@@ -279,7 +285,7 @@ impl KamafeuStudioApp {
                     let _ = export_tx.send(result);
                 } else {
                     let render = || {
-                        ProjectRenderer::render_project_with_drivers(
+                        ProjectRenderer::render_project_with_drivers_cancellable(
                             &project,
                             &active_vb,
                             sample_rate,
@@ -288,6 +294,7 @@ impl KamafeuStudioApp {
                             wavtool_driver.as_ref(),
                             &vocal_mode_params,
                             Some(&report_progress),
+                            Some(&export_cancel),
                         )
                     };
                     #[cfg(not(target_arch = "wasm32"))]
@@ -546,6 +553,8 @@ impl KamafeuStudioApp {
             self.render_log_channel_rx = Some(rx);
             let (export_tx, export_rx) = std::sync::mpsc::channel();
             self.export_rx = Some(export_rx);
+            let export_cancel = Arc::new(AtomicBool::new(false));
+            self.export_cancel = Some(export_cancel.clone());
 
             let tx = Arc::new(std::sync::Mutex::new(tx));
             let tx_cb = tx.clone();
@@ -559,7 +568,7 @@ impl KamafeuStudioApp {
 
                 report_progress(0.1, "[WIP Demo] Renderizando notas selecionadas...");
 
-                let mut audio = ProjectRenderer::render_project_with_drivers(
+                let mut audio = ProjectRenderer::render_project_with_drivers_cancellable(
                     &export_project,
                     &active_vb,
                     sample_rate,
@@ -568,6 +577,7 @@ impl KamafeuStudioApp {
                     wavtool_driver.as_ref(),
                     &vocal_mode_params,
                     None,
+                    Some(&export_cancel),
                 );
 
                 if let Some(error) = audio.error.take() {

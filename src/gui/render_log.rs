@@ -19,6 +19,8 @@ impl KamafeuStudioApp {
         let mut dsp_count = 0;
         let mut wav_count = 0;
         let mut info_count = 0;
+        let mut timing_count = 0;
+        let mut chunk_count = 0;
 
         for msg in &self.render_log_messages {
             let msg_upper = msg.to_uppercase();
@@ -41,6 +43,12 @@ impl KamafeuStudioApp {
                 || msg.contains("Carregado")
             {
                 info_count += 1;
+            }
+            if msg.contains("[Timing]") {
+                timing_count += 1;
+            }
+            if msg.contains("[Chunk]") {
+                chunk_count += 1;
             }
         }
 
@@ -96,6 +104,25 @@ impl KamafeuStudioApp {
 
                         // Action Buttons
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            if is_rendering
+                                && ui
+                                    .button(egui::RichText::new(lang.tr("Cancelar", "Cancel")).size(11.0))
+                                    .on_hover_text(lang.tr(
+                                        "Solicitar cancelamento do render atual; nenhum arquivo parcial será considerado concluído.",
+                                        "Request cancellation of the current render; partial files are not considered complete.",
+                                    ))
+                                    .clicked()
+                            {
+                                if let Some(cancel) = &self.render_cancel {
+                                    cancel.store(true, std::sync::atomic::Ordering::Relaxed);
+                                }
+                                if let Some(cancel) = &self.export_cancel {
+                                    cancel.store(true, std::sync::atomic::Ordering::Relaxed);
+                                }
+                                self.render_log_messages
+                                    .push("[Cancelamento] Solicitação enviada ao worker.".to_string());
+                            }
+
                             if ui
                                 .button(egui::RichText::new(lang.tr("Limpar", "Clear")).size(11.0))
                                 .on_hover_text(lang.tr("Limpar histórico de mensagens do console", "Clear console message history"))
@@ -123,6 +150,17 @@ impl KamafeuStudioApp {
                             }
                         });
                     });
+
+                    if let Some((chunk_index, start_ms, end_ms, _)) = self.failed_chunk {
+                        ui.horizontal(|ui| {
+                            ui.label(format!(
+                                "Chunk #{chunk_index} falhou ({start_ms:.0}–{end_ms:.0} ms)"
+                            ));
+                            if ui.button(lang.tr("Repetir chunk", "Retry chunk")).clicked() {
+                                self.retry_failed_chunk();
+                            }
+                        });
+                    }
 
                     ui.add_space(4.0);
 
@@ -177,6 +215,15 @@ impl KamafeuStudioApp {
                         let filter_info_label = format!("Info ({})", info_count);
                         if ui.selectable_label(self.render_log_filter == RenderLogFilter::Info, filter_info_label).clicked() {
                             self.render_log_filter = RenderLogFilter::Info;
+                        }
+
+                        let filter_timing_label = format!("Timing ({})", timing_count);
+                        if ui.selectable_label(self.render_log_filter == RenderLogFilter::Timing, filter_timing_label).clicked() {
+                            self.render_log_filter = RenderLogFilter::Timing;
+                        }
+                        let filter_chunk_label = format!("Chunks ({})", chunk_count);
+                        if ui.selectable_label(self.render_log_filter == RenderLogFilter::Chunks, filter_chunk_label).clicked() {
+                            self.render_log_filter = RenderLogFilter::Chunks;
                         }
 
                         ui.add_space(8.0);
@@ -268,6 +315,8 @@ impl KamafeuStudioApp {
                                             let is_dsp = msg.contains("[Resampler]") || msg.contains("[Wavtool]") || msg.contains("[DSP]");
                                             let is_wav = msg.contains("[WAV]") || msg.contains("[Render]") || msg.contains("oto.ini=");
                                             let is_info = msg.contains("[INFO]") || msg.contains("Iniciando") || msg.contains("Concluído") || msg.contains("Carregado");
+                                            let is_timing = msg.contains("[Timing]");
+                                            let is_chunk = msg.contains("[Chunk]");
 
                                             let matches_filter = match self.render_log_filter {
                                                 RenderLogFilter::All => true,
@@ -275,6 +324,8 @@ impl KamafeuStudioApp {
                                                 RenderLogFilter::DspResampler => is_dsp,
                                                 RenderLogFilter::WavOto => is_wav,
                                                 RenderLogFilter::Info => is_info,
+                                                RenderLogFilter::Timing => is_timing,
+                                                RenderLogFilter::Chunks => is_chunk,
                                             };
 
                                             let matches_search = search_lower.is_empty()
@@ -299,6 +350,10 @@ impl KamafeuStudioApp {
                                                         ("[ERR]", egui::Color32::from_rgb(255, 90, 90))
                                                     } else if is_warn {
                                                         ("[WARN]", egui::Color32::from_rgb(255, 200, 60))
+                                                    } else if is_timing {
+                                                        ("[TIME]", egui::Color32::from_rgb(255, 170, 100))
+                                                    } else if is_chunk {
+                                                        ("[CHUNK]", egui::Color32::from_rgb(110, 220, 180))
                                                     } else if is_dsp {
                                                         ("[DSP]", egui::Color32::from_rgb(216, 180, 254))
                                                     } else if is_wav {

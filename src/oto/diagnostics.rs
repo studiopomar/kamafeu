@@ -20,6 +20,19 @@ pub struct VoicebankIssue {
     pub detail: String,
 }
 
+impl VoicebankIssue {
+    pub fn suggestion(&self) -> &'static str {
+        match self.kind {
+            VoicebankIssueKind::MissingWav => "Restaure o WAV ou corrija o caminho no oto.ini.",
+            VoicebankIssueKind::InvalidWav => "Substitua o WAV por um arquivo PCM legível.",
+            VoicebankIssueKind::EmptyWav => "Regrave ou substitua o WAV sem amostras.",
+            VoicebankIssueKind::InvalidOtoTiming => {
+                "Recalibre offset, consonant, preutterance e overlap no Copaiba."
+            }
+        }
+    }
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct VoicebankDiagnosticReport {
     pub root_path: PathBuf,
@@ -200,5 +213,9 @@ mod tests {
         assert_eq!(report.invalid_wav_count, 1);
         assert_eq!(report.invalid_oto_timing_count, 1);
         assert!(!report.is_healthy());
+        assert!(report
+            .issues
+            .iter()
+            .all(|issue| !issue.suggestion().trim().is_empty()));
     }
 }

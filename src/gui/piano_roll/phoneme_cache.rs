@@ -22,6 +22,34 @@ pub(super) fn draw(
             for d in &n.phoneme_durations_ms {
                 d.to_bits().hash(&mut hasher);
             }
+            for override_item in &n.phoneme_overrides {
+                override_item.index.hash(&mut hasher);
+                override_item.phoneme.hash(&mut hasher);
+                override_item.offset_ms.map(f64::to_bits).hash(&mut hasher);
+                override_item
+                    .preutter_delta_ms
+                    .map(f64::to_bits)
+                    .hash(&mut hasher);
+                override_item
+                    .overlap_delta_ms
+                    .map(f64::to_bits)
+                    .hash(&mut hasher);
+                override_item.velocity.map(f64::to_bits).hash(&mut hasher);
+                override_item.volume.map(f64::to_bits).hash(&mut hasher);
+                override_item.attack.map(f64::to_bits).hash(&mut hasher);
+                override_item.decay.map(f64::to_bits).hash(&mut hasher);
+                override_item
+                    .breathiness
+                    .map(f64::to_bits)
+                    .hash(&mut hasher);
+                override_item.gender.map(f64::to_bits).hash(&mut hasher);
+                override_item.modulation.map(f64::to_bits).hash(&mut hasher);
+                override_item
+                    .pitch_delta
+                    .map(f64::to_bits)
+                    .hash(&mut hasher);
+                override_item.dynamics.map(f64::to_bits).hash(&mut hasher);
+            }
             n.expressions
                 .consonant_timing_offset_ms
                 .to_bits()

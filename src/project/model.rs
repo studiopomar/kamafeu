@@ -219,6 +219,9 @@ pub struct UPhonemeOverride {
     pub index: usize,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub phoneme: Option<String>,
+    /// Literal UTAU flags scoped to this phoneme. Unknown tokens are retained.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub flags: Option<String>,
     /// Offset from the position proposed by the phonemizer.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub offset_ms: Option<f64>,
@@ -226,6 +229,8 @@ pub struct UPhonemeOverride {
     pub preutter_delta_ms: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub overlap_delta_ms: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub consonant_timing_offset_ms: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub velocity: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -244,6 +249,56 @@ pub struct UPhonemeOverride {
     pub pitch_delta: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub dynamics: Option<f64>,
+    /// Optional UTAU envelope replacing the note envelope for this phoneme.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub envelope: Option<UtauEnvelope>,
+    /// Optional vibrato curve scoped to this phoneme.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub vibrato: Option<VibratoParam>,
+    /// Optional pitch/portamento curve scoped to this phoneme.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub pitch_bend: Option<UPitchBend>,
+}
+
+impl UPhonemeOverride {
+    /// Repairs values from permissive imports without changing the override's
+    /// presence semantics. `None` continues to mean inheritance.
+    pub fn normalize(&mut self, note_duration_ms: f64) {
+        if let Some(value) = &mut self.consonant_timing_offset_ms {
+            *value = if value.is_finite() {
+                value.clamp(-500.0, 500.0)
+            } else {
+                0.0
+            };
+        }
+        if let Some(envelope) = &mut self.envelope {
+            envelope.normalize(note_duration_ms);
+        }
+        if let Some(vibrato) = &mut self.vibrato {
+            vibrato.normalize();
+        }
+        if let Some(pitch_bend) = &mut self.pitch_bend {
+            if !pitch_bend.portamento_start_ms.is_finite() {
+                pitch_bend.portamento_start_ms = -40.0;
+            }
+            if !pitch_bend.portamento_length_ms.is_finite() {
+                pitch_bend.portamento_length_ms = 80.0;
+            }
+            pitch_bend.portamento_start_ms = pitch_bend.portamento_start_ms.clamp(-2000.0, 2000.0);
+            pitch_bend.portamento_length_ms = pitch_bend.portamento_length_ms.clamp(1.0, 2000.0);
+            if pitch_bend.portamento_shape.trim().is_empty() {
+                pitch_bend.portamento_shape = "io".to_string();
+            }
+            pitch_bend.points.retain(|point| {
+                point.time_offset_ms.is_finite() && point.pitch_offset_cents.is_finite()
+            });
+            pitch_bend.points.sort_by(|left, right| {
+                left.time_offset_ms
+                    .partial_cmp(&right.time_offset_ms)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            });
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -393,6 +448,10 @@ pub struct UTrack {
     pub resampler: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub wavtool: Option<String>,
+    /// Flags inherited by notes on this track. Unknown UTAU flags are kept
+    /// verbatim and merged by `EffectiveFlags` at render time.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub flags: String,
     pub volume_db: f64,
     pub pan: f64,
     pub mute: bool,
@@ -410,6 +469,7 @@ impl Default for UTrack {
             phonemizer: None,
             resampler: None,
             wavtool: None,
+            flags: String::new(),
             volume_db: 0.0,
             pan: 0.0,
             mute: false,
@@ -501,6 +561,49 @@ pub struct UProjectSection {
     pub color: Option<String>,
 }
 
+/// Persisted, non-musical state from the most recent progressive render.
+/// Keeping this separate from notes means an interrupted preview can be
+/// inspected or retried without changing the composition.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct UProjectRenderState {
+    pub pipeline_fingerprint: String,
+    pub chunks: Vec<UProjectRenderChunk>,
+}
+
+impl Default for UProjectRenderState {
+    fn default() -> Self {
+        Self {
+            pipeline_fingerprint: String::new(),
+            chunks: Vec::new(),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
+pub struct UProjectRenderChunk {
+    pub index: usize,
+    pub start_ms: f64,
+    pub end_ms: f64,
+    pub is_final: bool,
+    pub status: String,
+    pub error: Option<String>,
+}
+
+impl Default for UProjectRenderChunk {
+    fn default() -> Self {
+        Self {
+            index: 0,
+            start_ms: 0.0,
+            end_ms: 0.0,
+            is_final: false,
+            status: "unknown".to_string(),
+            error: None,
+        }
+    }
+}
+
 impl UProjectSection {
     pub fn new(name: impl Into<String>, start_ms: f64, end_ms: f64) -> Self {
         Self {
@@ -514,6 +617,9 @@ impl UProjectSection {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct UProject {
+    /// Version of the native APS data contract. Missing in legacy projects.
+    #[serde(default = "default_project_schema_version")]
+    pub schema_version: u32,
     pub name: String,
     pub bpm: f64,
     #[serde(default = "default_time_signature_numerator")]
@@ -530,10 +636,20 @@ pub struct UProject {
     pub resampler: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub wavtool: Option<String>,
+    /// Project-level literal UTAU flags. More specific scopes override the
+    /// same token while preserving tokens unknown to Kamafeu.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub flags: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub sample_rate: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub render_threads: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub render_state: Option<UProjectRenderState>,
+    /// Extensions associated with this project. The host may keep entries
+    /// visible even when they are currently unavailable or incompatible.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub extensions: Vec<UProjectExtension>,
     pub tracks: Vec<UTrack>,
     pub parts: Vec<UVoicePart>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -544,8 +660,22 @@ pub struct UProject {
     pub sections: Vec<UProjectSection>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UProjectExtension {
+    pub id: String,
+    pub version: String,
+    pub origin: String,
+    pub manifest_fingerprint: String,
+}
+
 fn default_time_signature_numerator() -> u8 {
     4
+}
+
+pub const CURRENT_PROJECT_SCHEMA_VERSION: u32 = 4;
+
+fn default_project_schema_version() -> u32 {
+    CURRENT_PROJECT_SCHEMA_VERSION
 }
 
 fn default_time_signature_denominator() -> u8 {
@@ -555,6 +685,7 @@ fn default_time_signature_denominator() -> u8 {
 impl Default for UProject {
     fn default() -> Self {
         Self {
+            schema_version: CURRENT_PROJECT_SCHEMA_VERSION,
             name: "Novo Projeto".to_string(),
             bpm: 120.0,
             time_signature_numerator: 4,
@@ -564,8 +695,11 @@ impl Default for UProject {
             phonemizer: None,
             resampler: None,
             wavtool: None,
+            flags: String::new(),
             sample_rate: None,
             render_threads: None,
+            render_state: None,
+            extensions: Vec::new(),
             tracks: vec![UTrack::default()],
             parts: vec![UVoicePart::new("Parte Vocal 1", 0)],
             wave_parts: Vec::new(),
@@ -627,6 +761,11 @@ impl UProject {
 
     /// Restore invariants after loading permissive third-party project files.
     pub fn normalize(&mut self) {
+        if self.schema_version == 0 {
+            self.schema_version = CURRENT_PROJECT_SCHEMA_VERSION;
+        }
+        // Future documents may be opened read-only by older hosts. The APS
+        // writer rejects them instead of silently downgrading their schema.
         if !self.bpm.is_finite() || self.bpm <= 0.0 {
             self.bpm = 120.0;
         }
@@ -636,6 +775,21 @@ impl UProject {
             1 | 2 | 4 | 8 | 16 | 32 => self.time_signature_denominator,
             _ => 4,
         };
+
+        for extension in &mut self.extensions {
+            extension.id = extension.id.trim().to_string();
+            extension.version = extension.version.trim().to_string();
+            extension.origin = extension.origin.trim().to_string();
+            extension.manifest_fingerprint = extension.manifest_fingerprint.trim().to_string();
+        }
+        self.extensions.sort_by(|left, right| {
+            left.id
+                .cmp(&right.id)
+                .then_with(|| left.version.cmp(&right.version))
+                .then_with(|| left.origin.cmp(&right.origin))
+                .then_with(|| left.manifest_fingerprint.cmp(&right.manifest_fingerprint))
+        });
+        self.extensions.dedup();
 
         let max_part_track = self
             .parts
@@ -747,6 +901,9 @@ impl UProject {
                 }
                 note.position_ms = note.position_ms.max(0.0);
                 note.duration_ms = note.duration_ms.max(1.0);
+                for phoneme_override in &mut note.phoneme_overrides {
+                    phoneme_override.normalize(note.duration_ms);
+                }
                 note.envelope.normalize(note.duration_ms);
                 if !note.envelope.crossfade_ms.is_finite() {
                     note.envelope.crossfade_ms = 0.0;
@@ -936,6 +1093,46 @@ mod project_tests {
     }
 
     #[test]
+    fn normalize_repairs_per_phoneme_vocal_controls() {
+        let mut project = UProject::default();
+        let mut note = UNote::new("k a", "C4", 0.0, 400.0);
+        note.phoneme_overrides.push(UPhonemeOverride {
+            index: 0,
+            envelope: Some(UtauEnvelope {
+                p2: f64::NAN,
+                ..Default::default()
+            }),
+            vibrato: Some(VibratoParam {
+                period_ms: f64::NAN,
+                ..Default::default()
+            }),
+            pitch_bend: Some(UPitchBend {
+                portamento_length_ms: f64::INFINITY,
+                points: vec![UPitchBendPoint {
+                    time_offset_ms: f64::NAN,
+                    pitch_offset_cents: 0.0,
+                    shape: String::new(),
+                }],
+                ..Default::default()
+            }),
+            consonant_timing_offset_ms: Some(f64::INFINITY),
+            ..Default::default()
+        });
+        project.parts[0].notes.push(note);
+
+        project.normalize();
+        let override_ = &project.parts[0].notes[0].phoneme_overrides[0];
+        assert_eq!(override_.envelope.as_ref().unwrap().p2, 5.0);
+        assert_eq!(override_.vibrato.as_ref().unwrap().period_ms, 175.0);
+        assert_eq!(
+            override_.pitch_bend.as_ref().unwrap().portamento_length_ms,
+            80.0
+        );
+        assert!(override_.pitch_bend.as_ref().unwrap().points.is_empty());
+        assert_eq!(override_.consonant_timing_offset_ms, Some(0.0));
+    }
+
+    #[test]
     fn normalize_restores_a_safe_time_signature() {
         let mut project = UProject::default();
         project.time_signature_numerator = 0;
@@ -944,6 +1141,36 @@ mod project_tests {
 
         assert_eq!(project.time_signature_numerator, 1);
         assert_eq!(project.time_signature_denominator, 4);
+    }
+
+    #[test]
+    fn normalize_deduplicates_and_orders_project_extensions() {
+        let mut project = UProject::default();
+        project.extensions = vec![
+            UProjectExtension {
+                id: " org.example.b ".into(),
+                version: "1".into(),
+                origin: "b".into(),
+                manifest_fingerprint: "2".into(),
+            },
+            UProjectExtension {
+                id: "org.example.a".into(),
+                version: "1".into(),
+                origin: "a".into(),
+                manifest_fingerprint: "1".into(),
+            },
+            UProjectExtension {
+                id: "org.example.b".into(),
+                version: "1".into(),
+                origin: "b".into(),
+                manifest_fingerprint: "2".into(),
+            },
+        ];
+        project.normalize();
+
+        assert_eq!(project.extensions.len(), 2);
+        assert_eq!(project.extensions[0].id, "org.example.a");
+        assert_eq!(project.extensions[1].id, "org.example.b");
     }
 
     #[test]

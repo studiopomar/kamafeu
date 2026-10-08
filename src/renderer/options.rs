@@ -13,6 +13,9 @@ pub enum VocalRenderPreset {
 /// Rendering parameters that apply to a singer independently of the GUI.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct RenderOptions {
+    /// Literal project/track flags merged before each note's flags.
+    #[serde(default)]
+    pub flags: String,
     pub loudness: f64,
     pub tension: f64,
     pub breathiness: f64,
@@ -28,6 +31,7 @@ pub struct RenderOptions {
 impl Default for RenderOptions {
     fn default() -> Self {
         Self {
+            flags: String::new(),
             loudness: 0.0,
             tension: 20.0,
             // Zero means "preserve the resampler's natural balance". Each
@@ -74,6 +78,7 @@ mod tests {
     #[test]
     fn render_options_roundtrip_through_config_serialization() {
         let options = RenderOptions {
+            flags: "P86g-3Unknown".to_string(),
             loudness: 2.5,
             tension: 68.0,
             breathiness: 11.0,

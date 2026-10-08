@@ -153,6 +153,27 @@ fn resample_interleaved(
 }
 
 impl AudioExporter {
+    /// Writes the provenance next to an exported audio file. The sidecar is
+    /// deliberately opt-in so existing export workflows remain unchanged.
+    pub fn write_provenance_sidecar<P: AsRef<Path>>(
+        audio_path: P,
+        provenance: &crate::renderer::RenderProvenance,
+    ) -> Result<std::path::PathBuf, String> {
+        let audio_path = audio_path.as_ref();
+        let mut sidecar = audio_path.to_path_buf();
+        let extension = sidecar.extension().and_then(|value| value.to_str());
+        match extension {
+            Some(extension) => sidecar.set_extension(format!("{extension}.kamafeu.json")),
+            None => sidecar.set_extension("kamafeu.json"),
+        };
+        let json = provenance
+            .to_pretty_json()
+            .map_err(|error| format!("falha ao serializar proveniência: {error}"))?;
+        std::fs::write(&sidecar, json)
+            .map_err(|error| format!("falha ao gravar proveniência: {error}"))?;
+        Ok(sidecar)
+    }
+
     /// Export f32 samples to file using the specified format.
     pub fn export_audio<P: AsRef<Path>>(
         path: P,
@@ -401,6 +422,30 @@ mod tests {
         assert!(result
             .expect_err("must reject invalid PCM")
             .contains("não finita"));
+    }
+
+    #[test]
+    fn provenance_sidecar_uses_audio_extension_and_roundtrips() {
+        let dir = tempfile::tempdir().unwrap();
+        let audio_path = dir.path().join("vocal.wav");
+        let provenance = crate::renderer::RenderProvenance::new(
+            "project",
+            "voicebank",
+            "VENUS",
+            "Andromeda",
+            44_100,
+            2,
+            crate::renderer::RenderOptions::default(),
+        );
+
+        let sidecar = AudioExporter::write_provenance_sidecar(&audio_path, &provenance).unwrap();
+        assert_eq!(
+            sidecar.file_name().and_then(|name| name.to_str()),
+            Some("vocal.wav.kamafeu.json")
+        );
+        let contents = std::fs::read_to_string(sidecar).unwrap();
+        let parsed: crate::renderer::RenderProvenance = serde_json::from_str(&contents).unwrap();
+        assert_eq!(parsed, provenance);
     }
 
     #[test]

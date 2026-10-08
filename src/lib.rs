@@ -10,6 +10,10 @@
 )]
 #![allow(unknown_lints)]
 #![allow(clippy::all)]
+// Shared modules retain desktop-only branches in the WASM crate so project
+// files and UI state remain compatible. Their inactive process/disk/window
+// branches are intentionally not reachable on this target.
+#![cfg_attr(target_arch = "wasm32", allow(dead_code, deprecated, unused_variables))]
 
 pub mod audio;
 pub mod config;

@@ -929,11 +929,10 @@ pub fn draw_piano_roll(
                     theme.c32_alpha(theme.bg_panel, 0.68)
                 };
 
-                // Lyric labels sit on saturated note fills. A fixed dark
-                // ink color is more reliable than the global theme text
-                // color, which can be white in both selected and unselected
-                // dark themes.
-                let text_color = Color32::from_rgb(18, 25, 35);
+                // Keep the lyric color theme-controlled. A fixed dark color
+                // made labels unreadable on dark themes and made the theme
+                // editor's text controls appear to do nothing.
+                let text_color = theme.text_note_tag_c32();
 
                 pending_lyric_tags.push((
                     pill_rect,
@@ -1996,8 +1995,10 @@ pub fn draw_piano_roll(
                                                 };
                                                 let curr =
                                                     note.pitch_bend.points[pt_i].pitch_offset_cents;
+                                                let target = (prev_cents + next_cents) * 0.5;
+                                                let intensity = state.pitch_smooth_intensity as f64;
                                                 note.pitch_bend.points[pt_i].pitch_offset_cents =
-                                                    curr * 0.7 + (prev_cents + next_cents) * 0.15;
+                                                    curr * (1.0 - intensity) + target * intensity;
                                             }
                                         }
                                         state.continuous_edit_dirty = true;
@@ -2029,8 +2030,14 @@ pub fn draw_piano_roll(
                         state.pitch_brush_raw_stroke.clear();
 
                         if stroke.len() >= 2 {
-                            let s_min_t = stroke.first().map(|p| p.0).unwrap_or(0.0);
-                            let s_max_t = stroke.last().map(|p| p.0).unwrap_or(0.0);
+                            let s_min_t = stroke
+                                .iter()
+                                .map(|point| point.0)
+                                .fold(f64::INFINITY, f64::min);
+                            let s_max_t = stroke
+                                .iter()
+                                .map(|point| point.0)
+                                .fold(f64::NEG_INFINITY, f64::max);
 
                             for (n_idx, note) in notes.iter_mut().enumerate() {
                                 let n_start = note.position_ms;
@@ -2288,8 +2295,7 @@ pub fn draw_piano_roll(
             let font = egui::FontId::proportional(font_size);
 
             // Calcula o tamanho do texto para criar uma cápsula/badge suave de fundo
-            let text_galley =
-                painter.layout_no_wrap(lyric.clone(), font.clone(), Color32::from_rgb(18, 25, 35));
+            let text_galley = painter.layout_no_wrap(lyric.clone(), font.clone(), text_color);
             let text_size = text_galley.size();
 
             let badge_h = (text_size.y + 2.0).min(note_rect.height() - 4.0).max(12.0);

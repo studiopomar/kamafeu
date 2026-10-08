@@ -205,6 +205,7 @@ pub fn consonant_velocity_time_scale(velocity: f64) -> f64 {
     2.0f64.powf(1.0 - velocity.clamp(-100.0, 200.0) / 100.0)
 }
 
+#[derive(Debug, Clone)]
 pub struct RenderPhone {
     pub note_index: usize,
     pub lyric: String,
@@ -458,6 +459,16 @@ impl JapanesePhonemizer {
                     {
                         phone.lyric = alias.clone();
                     }
+                    if let Some(flags) = phoneme_override
+                        .flags
+                        .as_deref()
+                        .filter(|flags| !flags.trim().is_empty())
+                    {
+                        phone.flags = crate::drivers::resampler_driver::merge_utau_flags(&[
+                            phone.flags.as_str(),
+                            flags,
+                        ]);
+                    }
                     if let Some(offset) = phoneme_override.offset_ms.filter(|v| v.is_finite()) {
                         phone.position_ms += offset;
                     }
@@ -472,6 +483,12 @@ impl JapanesePhonemizer {
                         .filter(|value| value.is_finite())
                     {
                         phone.expressions.overlap_offset_ms += delta;
+                    }
+                    if let Some(value) = phoneme_override
+                        .consonant_timing_offset_ms
+                        .filter(|value| value.is_finite())
+                    {
+                        phone.expressions.consonant_timing_offset_ms = value;
                     }
                     if let Some(value) = phoneme_override.velocity {
                         phone.expressions.velocity = value;
@@ -500,6 +517,15 @@ impl JapanesePhonemizer {
                     }
                     if let Some(value) = phoneme_override.dynamics {
                         phone.expressions.dynamics = value;
+                    }
+                    if let Some(envelope) = &phoneme_override.envelope {
+                        phone.envelope = envelope.clone();
+                    }
+                    if let Some(vibrato) = &phoneme_override.vibrato {
+                        phone.vibrato = vibrato.clone();
+                    }
+                    if let Some(pitch_bend) = &phoneme_override.pitch_bend {
+                        phone.pitch_bend = pitch_bend.clone();
                     }
                 }
             }
@@ -1676,6 +1702,50 @@ mod tests {
         assert_eq!(phones[0].position_ms, 0.0);
         assert_eq!(phones[1].lyric, "- sa");
         assert_eq!(phones[1].position_ms, 600.0);
+    }
+
+    #[test]
+    fn phoneme_override_applies_alias_and_advanced_vocal_controls() {
+        let vb = Voicebank {
+            root_path: std::path::PathBuf::from("/tmp"),
+            name: "Test VB".to_string(),
+            author: "Test".to_string(),
+            character_info: String::new(),
+            readme_info: String::new(),
+            image_path: None,
+            entries: std::collections::HashMap::new(),
+            case_insensitive_entries: Default::default(),
+            prefix_map: crate::oto::PrefixMap::default(),
+            temp_dir: None,
+        };
+        let mut note = UNote::new("original", "C4", 0.0, 400.0);
+        note.phoneme_overrides
+            .push(crate::project::model::UPhonemeOverride {
+                index: 0,
+                phoneme: Some("k a".to_string()),
+                envelope: Some(crate::dsp::envelope::UtauEnvelope {
+                    p2: 19.0,
+                    ..Default::default()
+                }),
+                vibrato: Some(crate::dsp::pitch::VibratoParam {
+                    length_pct: 33.0,
+                    ..Default::default()
+                }),
+                pitch_bend: Some(crate::project::model::UPitchBend {
+                    portamento_length_ms: 77.0,
+                    ..Default::default()
+                }),
+                consonant_timing_offset_ms: Some(14.0),
+                ..Default::default()
+            });
+
+        let phones = JapanesePhonemizer::apply_phonemizer(&[note], &vb, PhonemizerMode::None);
+        assert_eq!(phones.len(), 1);
+        assert_eq!(phones[0].lyric, "k a");
+        assert_eq!(phones[0].envelope.p2, 19.0);
+        assert_eq!(phones[0].vibrato.length_pct, 33.0);
+        assert_eq!(phones[0].pitch_bend.portamento_length_ms, 77.0);
+        assert_eq!(phones[0].expressions.consonant_timing_offset_ms, 14.0);
     }
 
     #[test]

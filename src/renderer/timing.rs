@@ -1,4 +1,5 @@
 use crate::phonemizer::consonant_velocity_time_scale;
+use serde::{Deserialize, Serialize};
 
 /// Timing resolved for one rendered phoneme.  This mirrors the invariants used
 /// by OpenUtau's `UPhoneme.ValidateOverlap`, expressed in milliseconds because
@@ -31,6 +32,55 @@ pub struct PhonemeTimingInput {
     pub overlap_delta_ms: f64,
 }
 
+/// Stable, serializable inspection record for diagnostics and render
+/// provenance. It deliberately contains both source timing and resolved
+/// timing, so users can distinguish an oto.ini value from a safety clamp or
+/// manual override.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct PhonemeTimingDiagnostic {
+    pub index: usize,
+    pub position_ms: f64,
+    pub duration_ms: f64,
+    pub oto_preutter_ms: f64,
+    pub oto_overlap_ms: f64,
+    pub preutter_delta_ms: f64,
+    pub overlap_delta_ms: f64,
+    pub adjacent: bool,
+    pub preutter_ms: f64,
+    pub overlap_ms: f64,
+    pub leading_ms: f64,
+    pub skip_over_ms: f64,
+    pub tail_intrude_ms: f64,
+    pub tail_overlap_ms: f64,
+}
+
+pub fn diagnostics(
+    inputs: &[PhonemeTimingInput],
+    timings: &[PhonemeTiming],
+) -> Vec<PhonemeTimingDiagnostic> {
+    inputs
+        .iter()
+        .zip(timings.iter())
+        .enumerate()
+        .map(|(index, (input, timing))| PhonemeTimingDiagnostic {
+            index,
+            position_ms: input.position_ms,
+            duration_ms: input.duration_ms,
+            oto_preutter_ms: input.oto_preutter_ms,
+            oto_overlap_ms: input.oto_overlap_ms,
+            preutter_delta_ms: input.preutter_delta_ms,
+            overlap_delta_ms: input.overlap_delta_ms,
+            adjacent: timing.adjacent,
+            preutter_ms: timing.preutter_ms,
+            overlap_ms: timing.overlap_ms,
+            leading_ms: timing.leading_ms,
+            skip_over_ms: timing.skip_over_ms,
+            tail_intrude_ms: timing.tail_intrude_ms,
+            tail_overlap_ms: timing.tail_overlap_ms,
+        })
+        .collect()
+}
+
 /// A modest handoff keeps automatically expanded phonemes (G2P, CVVC, VCCV
 /// and BRAPA clusters) from becoming a sequence of hard cuts when an otherwise
 /// valid voicebank has no overlap recorded for those internal aliases.  It is
@@ -59,7 +109,7 @@ pub fn plan_inputs(
                     <= 0.001;
             let manual_overlap = if phone.envelope.crossfade_ms > 0.0 {
                 Some(phone.envelope.crossfade_ms)
-            } else if raw_overlap.abs() <= f64::EPSILON && crossfade_ms > 0.0 {
+            } else if raw_overlap.abs() <= f64::EPSILON && same_note_handoff && crossfade_ms > 0.0 {
                 Some(crossfade_ms)
             } else if raw_overlap.abs() <= f64::EPSILON
                 && same_note_handoff
@@ -296,7 +346,7 @@ mod tests {
 
         // But for an entry with 0 overlap, fallback to the global crossfade.
         let cv_phone = crate::phonemizer::RenderPhone {
-            note_index: 1,
+            note_index: 0,
             lyric: "ka".to_string(),
             pitch: "C4".to_string(),
             position_ms: 1000.0,
@@ -307,8 +357,52 @@ mod tests {
             vibrato: crate::dsp::pitch::VibratoParam::default(),
             flags: String::new(),
         };
-        let cv_inputs = plan_inputs(&[cv_phone], &vb, 15.0);
-        assert!((cv_inputs[0].overlap_delta_ms - 15.0).abs() < 1e-6);
+        let cv_inputs = plan_inputs(
+            &[
+                crate::phonemizer::RenderPhone {
+                    position_ms: 0.0,
+                    duration_ms: 500.0,
+                    ..cv_phone.clone()
+                },
+                crate::phonemizer::RenderPhone {
+                    position_ms: 500.0,
+                    ..cv_phone
+                },
+            ],
+            &vb,
+            15.0,
+        );
+        assert!((cv_inputs[1].overlap_delta_ms - 15.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn global_crossfade_does_not_make_inter_note_consonants_intrude_without_oto_overlap() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("oto.ini"),
+            "sample.wav=a,0,100,-600,40,0\nsample.wav=ka,0,100,-600,50,0\n",
+        )
+        .unwrap();
+        let vb = crate::oto::Voicebank::new(dir.path()).unwrap();
+        let first = crate::phonemizer::RenderPhone {
+            note_index: 0,
+            lyric: "a".into(),
+            pitch: "C4".into(),
+            position_ms: 0.0,
+            duration_ms: 400.0,
+            envelope: crate::dsp::envelope::UtauEnvelope::default(),
+            expressions: crate::project::model::UExpressions::default(),
+            pitch_bend: crate::project::model::UPitchBend::default(),
+            vibrato: crate::dsp::pitch::VibratoParam::default(),
+            flags: String::new(),
+        };
+        let mut second = first.clone();
+        second.note_index = 1;
+        second.lyric = "ka".into();
+        second.position_ms = 400.0;
+        let inputs = plan_inputs(&[first, second], &vb, 42.0);
+
+        assert_eq!(inputs[1].overlap_delta_ms, 0.0);
     }
 
     #[test]
@@ -401,5 +495,41 @@ mod tests {
         assert_eq!(timing[1].overlap_ms, -160.0);
         assert_eq!(timing[0].tail_intrude_ms, 260.0);
         assert_eq!(timing[0].tail_overlap_ms, 0.0);
+    }
+
+    #[test]
+    fn diagnostics_pair_source_and_resolved_geometry_deterministically() {
+        let inputs = vec![
+            PhonemeTimingInput {
+                position_ms: 0.0,
+                duration_ms: 100.0,
+                oto_preutter_ms: 10.0,
+                oto_overlap_ms: 2.0,
+                velocity: 100.0,
+                preutter_delta_ms: 3.0,
+                overlap_delta_ms: -1.0,
+            },
+            PhonemeTimingInput {
+                position_ms: 100.0,
+                duration_ms: 200.0,
+                oto_preutter_ms: 20.0,
+                oto_overlap_ms: 5.0,
+                velocity: 100.0,
+                preutter_delta_ms: 0.0,
+                overlap_delta_ms: 0.0,
+            },
+        ];
+        let timings = resolve_phoneme_timings(&inputs);
+        let report = diagnostics(&inputs, &timings);
+        assert_eq!(report.len(), 2);
+        assert_eq!(report[1].index, 1);
+        assert_eq!(report[1].oto_overlap_ms, 5.0);
+        assert!(report[1].adjacent);
+        assert_eq!(report[0].tail_intrude_ms, report[1].preutter_ms);
+        assert_eq!(report[0].tail_overlap_ms, report[1].overlap_ms.max(0.0));
+        let json = serde_json::to_value(&report).expect("timing diagnostics JSON");
+        assert_eq!(json[1]["oto_overlap_ms"], serde_json::json!(5.0));
+        assert_eq!(json[1]["adjacent"], serde_json::json!(true));
+        assert!(json[0].get("tail_intrude_ms").is_some());
     }
 }

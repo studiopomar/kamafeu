@@ -26,6 +26,29 @@ pub struct ResamplerArgs {
     pub tail_start_ms: Option<f64>,
 }
 
+/// Human-readable command description used by diagnostics and render manifests.
+/// It is intentionally not an executable shell command: paths are quoted for
+/// display and no interpolation is ever passed back to a shell.
+pub fn describe_resampler_command(driver: &str, args: &ResamplerArgs) -> String {
+    format!(
+        "{driver} --input {} --output {} --pitch {} --velocity {:.0} --flags '{}' --offset-ms {:.3} --duration-ms {:.3} --consonant-ms {:.3} --cutoff-ms {:.3} --tempo {:.3}",
+        quote_path(&args.input_wav),
+        quote_path(&args.output_wav),
+        args.pitch_name,
+        args.velocity,
+        args.flags,
+        args.offset_ms,
+        args.duration_ms,
+        args.consonant_ms,
+        args.cutoff_ms,
+        args.tempo,
+    )
+}
+
+fn quote_path(path: &Path) -> String {
+    format!("\"{}\"", path.to_string_lossy().replace('"', "\\\""))
+}
+
 pub trait ResamplerDriver: Send + Sync {
     fn name(&self) -> &str;
     fn prepare_flags(&self, base_flags: &str, gender: f64, breathiness: f64) -> String {
@@ -61,16 +84,21 @@ fn prepare_classic_flags(base_flags: &str, gender: f64, breathiness: f64) -> Str
 }
 
 fn executable_cache_identity(name: &str, path: &Path) -> String {
-    let mut identity = format!("{name}:{}", path.display());
-    if let Ok(metadata) = std::fs::metadata(path) {
-        identity.push_str(&format!(":{}", metadata.len()));
-        if let Ok(modified) = metadata.modified() {
-            if let Ok(duration) = modified.duration_since(std::time::UNIX_EPOCH) {
-                identity.push_str(&format!(":{}", duration.as_nanos()));
-            }
-        }
+    let content = std::fs::read(path);
+    let fingerprint = content
+        .as_deref()
+        .map(content_fingerprint)
+        .unwrap_or_else(|_| "missing".to_string());
+    format!("{name}:{}:content:{fingerprint}", path.display())
+}
+
+fn content_fingerprint(bytes: &[u8]) -> String {
+    let mut hash = 0xcbf29ce484222325u64;
+    for byte in bytes {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x100000001b3);
     }
-    identity
+    format!("{hash:016x}")
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -546,6 +574,50 @@ pub fn parse_utau_flags(flags: &str) -> Vec<UtauFlagToken> {
     tokens
 }
 
+/// Merges UTAU flags from least to most specific scope. The last value for a
+/// known token wins, while tokens unknown to Kamafeu are retained verbatim.
+/// This is intentionally independent from a particular resampler so the GUI,
+/// preview and final renderer share the same precedence rule.
+pub fn merge_utau_flags(scopes: &[&str]) -> String {
+    let mut merged: Vec<UtauFlagToken> = Vec::new();
+    for scope in scopes {
+        for token in parse_utau_flags(scope) {
+            if let Some(previous) = merged.iter_mut().find(|item| item.key == token.key) {
+                *previous = token;
+            } else {
+                merged.push(token);
+            }
+        }
+    }
+    format_tokens(&merged)
+}
+
+/// Sets or removes one structured flag without discarding tokens that this
+/// version of Kamafeu does not understand. `None` removes all occurrences of
+/// the requested token; the remaining token order is stable.
+pub fn set_utau_flag(flags: &str, key: &str, value: Option<f64>) -> String {
+    let mut tokens = parse_utau_flags(flags);
+    tokens.retain(|token| token.key != key);
+    if let Some(value) = value {
+        tokens.push(UtauFlagToken {
+            key: key.to_string(),
+            num_val: Some(value),
+        });
+    }
+    format_tokens(&tokens)
+}
+
+fn format_tokens(tokens: &[UtauFlagToken]) -> String {
+    tokens
+        .iter()
+        .map(|token| match token.num_val {
+            Some(value) if value.fract() == 0.0 => format!("{}{value:.0}", token.key),
+            Some(value) => format!("{}{}", token.key, value),
+            None => token.key.clone(),
+        })
+        .collect()
+}
+
 pub fn parse_flag_numeric(flags: &str, target_flag: &str) -> Option<f64> {
     let tokens = parse_utau_flags(flags);
     for token in tokens.into_iter().rev() {
@@ -1007,6 +1079,18 @@ impl ResamplerDriver for ExternalResamplerDriver {
 mod tests {
     use super::*;
 
+    #[test]
+    fn executable_cache_identity_uses_content_not_metadata() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("resampler.bin");
+        std::fs::write(&path, b"first").unwrap();
+        let first = executable_cache_identity("test", &path);
+        std::fs::write(&path, b"second").unwrap();
+        let second = executable_cache_identity("test", &path);
+        assert_ne!(first, second);
+        assert!(first.contains(":content:"));
+    }
+
     fn sample_args() -> ResamplerArgs {
         ResamplerArgs {
             input_wav: PathBuf::from("input.wav"),
@@ -1201,5 +1285,31 @@ mod tests {
         // Test flag removal without touching composite prefixes
         assert_eq!(remove_flag("g-5Hb140B50P86", "B"), "g-5Hb140P86");
         assert_eq!(remove_flag("g-5Hb140B50P86", "Hb"), "g-5B50P86");
+    }
+
+    #[test]
+    fn flag_scopes_use_specific_values_and_preserve_unknown_tokens() {
+        assert_eq!(
+            merge_utau_flags(&["P86g-5Q5", "g10Hb140", "Q8"]),
+            "P86g10Q8Hb140"
+        );
+    }
+
+    #[test]
+    fn structured_flag_updates_keep_other_tokens_and_can_remove_one() {
+        assert_eq!(set_utau_flag("P86Q5g-2", "g", Some(12.5)), "P86Q5g12.5");
+        assert_eq!(set_utau_flag("P86Q5g-2", "g", None), "P86Q5");
+    }
+
+    #[test]
+    fn structured_flag_updates_preserve_unknown_and_case_sensitive_tokens() {
+        let original = "Q7b-3B40Mt20x99";
+        let updated = set_utau_flag(original, "b", Some(8.0));
+
+        assert_eq!(updated, "Q7B40Mt20x99b8");
+        assert_eq!(parse_flag_numeric(&updated, "B"), Some(40.0));
+        assert_eq!(parse_flag_numeric(&updated, "b"), Some(8.0));
+        assert_eq!(parse_flag_numeric(&updated, "Mt"), Some(20.0));
+        assert_eq!(parse_flag_numeric(&updated, "x"), Some(99.0));
     }
 }

@@ -119,6 +119,7 @@ pub fn draw_unified_toolbar(
     log_open: &mut bool,
     current_tool: &mut EditTool,
     pitch_sub_tool: &mut PitchSubTool,
+    pitch_smooth_intensity: &mut f32,
     auto_scroll_mode: &mut AutoScrollMode,
     vertical_pitch_follow: &mut bool,
     active_scale: &mut MusicalScale,
@@ -516,6 +517,12 @@ pub fn draw_unified_toolbar(
                         ] {
                             ui.selectable_value(pitch_sub_tool, subtool, label)
                                 .on_hover_text(tip);
+                        }
+                        if *pitch_sub_tool == PitchSubTool::Smooth {
+                            ui.add(
+                                egui::Slider::new(pitch_smooth_intensity, 0.05..=1.0)
+                                    .text(lang.tr("Intensidade", "Intensity")),
+                            );
                         }
                     }
                 });

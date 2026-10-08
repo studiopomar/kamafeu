@@ -20,6 +20,11 @@ impl KamafeuStudioApp {
             self.theme_editor_dialog_state = state;
             if changed {
                 self.config.theme = theme;
+                // The theme editor mutates the persisted config, but egui
+                // keeps its own Visuals snapshot. Apply the new snapshot
+                // immediately so global text and widget colors change without
+                // requiring an application restart.
+                ctx.set_visuals(self.config.theme.create_egui_visuals());
                 self.persist_config();
             }
         }

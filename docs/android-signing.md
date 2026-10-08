@@ -18,6 +18,29 @@ O cargo-apk usa caminho e senha do keystore; os campos `key_alias`, `key_name`
 e `key_password` anteriormente escritos no manifesto não configuravam essa API.
 Use um keystore compatível com a assinatura do cargo-apk.
 
+### Verificação local sem assinar
+
+Para validar somente a compilação do alvo, sem gerar APK nem usar keystore:
+
+```sh
+rustup target add aarch64-linux-android
+cargo check --target aarch64-linux-android --no-default-features
+```
+
+O comando exige um NDK instalado e os compiladores exportados para o alvo. No
+NDK 26.1, por exemplo:
+
+```sh
+export ANDROID_NDK_ROOT="$ANDROID_HOME/ndk/26.1.10909125"
+export PATH="$ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin:$PATH"
+export CC_aarch64_linux_android="$ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android30-clang"
+export CXX_aarch64_linux_android="$ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin/aarch64-linux-android30-clang++"
+```
+
+Sem esses executáveis, o erro `failed to find tool
+aarch64-linux-android-clang` indica falta de toolchain local, não uma falha do
+código Rust. O workflow de CI instala essa versão do NDK antes do build.
+
 ## Credenciais anteriores
 
 A configuração removida apontava para o keystore de depuração padrão do Android.

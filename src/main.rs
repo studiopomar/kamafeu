@@ -9,17 +9,19 @@ use std::path::PathBuf;
 use kamafeu::{
     drivers::{
         NativeResamplerDriver, NativeWavtoolDriver, NativeWorldResamplerDriver, ResamplerDriver,
+        WavtoolDriver,
     },
     extensions::{
-        built_in_capabilities, default_project_format_registry, discover, verify_wasm_extension,
-        DiscoveredExtension,
+        built_in_capabilities, default_project_format_registry, diagnose_project_extensions,
+        diagnose_project_extensions_structured, discover, platform_capability_matrix,
+        verify_wasm_extension_with_policy, DiscoveredExtension, ExtensionPermissionPolicy,
     },
     gui::KamafeuStudioApp,
     oto::{SingerScanner, Voicebank},
     project::model::{UNote, UProject},
     renderer::{
         AudioDiagnostics, AudioExportFormat, AudioExporter, DitherMode, ProjectRenderer,
-        RenderOptions,
+        RenderOptions, RenderProvenance,
     },
 };
 
@@ -44,6 +46,14 @@ enum Commands {
     VoicebankInfo {
         /// Path to the UTAU voicebank root folder
         path: PathBuf,
+
+        /// Resolve one alias through prefix/suffix mapping and report its oto.ini entry
+        #[arg(long)]
+        alias: Option<String>,
+
+        /// Pitch used when resolving `--alias`
+        #[arg(long, default_value = "C4")]
+        pitch: String,
     },
 
     /// List UTAU, OpenUTAU and DiffSinger voicebanks found in singer folders
@@ -73,6 +83,20 @@ enum Commands {
         path: PathBuf,
     },
 
+    /// Compare two project revisions without modifying either input
+    Diff {
+        /// Earlier project revision
+        before: PathBuf,
+        /// Later project revision
+        after: PathBuf,
+    },
+
+    /// Inspect a render provenance sidecar without opening the project
+    ProvenanceInfo {
+        /// Path to a *.kamafeu.json sidecar
+        path: PathBuf,
+    },
+
     /// Validate project structure before rendering or committing an import
     ValidateProject {
         /// Project or score file to validate
@@ -81,6 +105,10 @@ enum Commands {
         /// Also return a failure status for warnings, useful in CI before rendering
         #[arg(long)]
         fail_on_warning: bool,
+
+        /// Optional extension catalog used to validate plugins persisted in APS
+        #[arg(long)]
+        extensions_path: Option<PathBuf>,
     },
 
     /// Convert a project between supported score formats without opening the GUI
@@ -105,7 +133,42 @@ enum Commands {
         /// Start each declared WASM module inside the isolated compatibility runtime
         #[arg(long)]
         verify_wasm: bool,
+
+        /// Explicitly grant a manifest permission for this verification run.
+        #[arg(long = "grant-permission")]
+        grant_permissions: Vec<String>,
+
+        /// Show only extensions declaring this format
+        #[arg(long)]
+        format_filter: Option<String>,
+
+        /// Show only extensions declaring this phonemizer
+        #[arg(long)]
+        phonemizer_filter: Option<String>,
+
+        /// Explicitly execute one discovered WASM extension by manifest ID
+        #[arg(long)]
+        invoke_id: Option<String>,
+
+        /// Export name used with --invoke-id
+        #[arg(long, default_value = "analyze")]
+        invoke_export: String,
+
+        /// Integer argument passed to the selected export
+        #[arg(long, default_value_t = 0)]
+        invoke_argument: i32,
+
+        /// Read the selected export as the bounded pointer/length bytes ABI
+        #[arg(long)]
+        invoke_bytes: bool,
+
+        /// JSON parameter passed to the plugin (repeatable: key=value)
+        #[arg(long = "invoke-parameter")]
+        invoke_parameters: Vec<String>,
     },
+
+    /// Report the checked-in feature matrix for desktop, Android and WASM
+    PlatformInfo,
 
     /// Show render-cache location, size and hit statistics
     CacheInfo,
@@ -223,6 +286,10 @@ enum AutomationRequest {
     ProjectInfo {
         path: PathBuf,
     },
+    Diff {
+        before: PathBuf,
+        after: PathBuf,
+    },
     ListVoicebanks {
         #[serde(default)]
         paths: Option<Vec<PathBuf>>,
@@ -231,6 +298,8 @@ enum AutomationRequest {
     },
     ValidateProject {
         path: PathBuf,
+        #[serde(default)]
+        extensions_path: Option<PathBuf>,
     },
     Convert {
         input: PathBuf,
@@ -373,6 +442,22 @@ enum AutomationRequest {
         path: Option<PathBuf>,
         #[serde(default)]
         verify_wasm: bool,
+        #[serde(default)]
+        grant_permissions: Vec<String>,
+        #[serde(default)]
+        format_filter: Option<String>,
+        #[serde(default)]
+        phonemizer_filter: Option<String>,
+        #[serde(default)]
+        invoke_id: Option<String>,
+        #[serde(default)]
+        invoke_export: Option<String>,
+        #[serde(default)]
+        invoke_argument: Option<i32>,
+        #[serde(default)]
+        invoke_bytes: bool,
+        #[serde(default)]
+        invoke_parameters: serde_json::Map<String, Value>,
     },
     CacheInfo,
     CachePrune {
@@ -414,7 +499,21 @@ fn automation_lyrics_split_mode(
     }
 }
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+fn main() {
+    if let Err(error) = real_main() {
+        #[cfg(target_os = "windows")]
+        {
+            let _ = rfd::MessageDialog::new()
+                .set_title("Kamafeu Studio")
+                .set_description(format!("O Kamafeu não pôde iniciar:\n\n{error}"))
+                .show();
+        }
+        eprintln!("Kamafeu: {error}");
+        std::process::exit(1);
+    }
+}
+
+fn real_main() -> Result<(), Box<dyn std::error::Error>> {
     let Cli {
         command,
         json: json_output,
@@ -453,7 +552,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             )?;
         }
 
-        Some(Commands::VoicebankInfo { path }) => {
+        Some(Commands::VoicebankInfo { path, alias, pitch }) => {
             let vb = Voicebank::new(&path)?;
             if vb.is_diffsinger() {
                 let config = vb.diffsinger_config().map_err(Error::other)?;
@@ -486,12 +585,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         })
                     })
                     .collect::<Vec<_>>();
+                let resolution = alias.as_deref().map(|alias| {
+                    serde_json::to_value(vb.alias_resolution_report(alias, &pitch))
+                        .expect("alias resolution report is serializable")
+                });
                 print_json(&json!({
                     "path": path,
                     "name": vb.name,
                     "author": vb.author,
                     "entry_count": vb.entries.len(),
                     "aliases": aliases,
+                    "resolution": resolution,
                 }))?;
             } else {
                 println!("Loading voicebank from: {:?}", path);
@@ -505,6 +609,26 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         "  - Alias: {:<10} -> WAV: {:<12} (offset: {}ms, preutter: {}ms)",
                         alias, entry.wav_filename, entry.offset, entry.preutterance
                     );
+                }
+                if let Some(alias) = alias {
+                    let report = vb.alias_resolution_report(alias, &pitch);
+                    match report.resolved_alias {
+                        Some(resolved) => println!(
+                            "\nResolution: '{}' @ {} -> '{}' / {} (preutter: {}ms, overlap: {}ms)",
+                            report.requested_alias,
+                            report.pitch,
+                            resolved,
+                            report.wav_filename.unwrap_or_default(),
+                            report.preutterance_ms.unwrap_or_default(),
+                            report.overlap_ms.unwrap_or_default()
+                        ),
+                        None => println!(
+                            "\nResolution: '{}' @ {} -> {}",
+                            report.requested_alias,
+                            report.pitch,
+                            report.reason.unwrap_or_else(|| "não resolvido".to_string())
+                        ),
+                    }
                 }
             }
         }
@@ -580,6 +704,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             "wav": issue.wav_filename,
                             "detail": issue.detail,
                             "kind": format!("{:?}", issue.kind),
+                            "suggestion": issue.suggestion(),
                         })
                     })
                     .collect::<Vec<_>>();
@@ -627,6 +752,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             "  - [{}] {}: {}",
                             issue.alias, issue.wav_filename, issue.detail
                         );
+                        println!("      sugestão: {}", issue.suggestion());
                     }
                 }
             }
@@ -707,11 +833,75 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
 
+        Some(Commands::Diff { before, after }) => {
+            let before_project = load_project(&before)?;
+            let after_project = load_project(&after)?;
+            let diff = kamafeu::project::ProjectDiff::between(&before_project, &after_project);
+            if json_output {
+                print_json(&serde_json::to_value(&diff)?)?;
+            } else {
+                println!("=== Project diff ===");
+                println!("Before: {}", before.display());
+                println!("After:  {}", after.display());
+                println!(
+                    "Project metadata changed: {}",
+                    diff.changed_project_metadata
+                );
+                println!("Arrangement changed:       {}", diff.changed_arrangement);
+                println!(
+                    "Render settings changed:   {}",
+                    diff.changed_render_settings
+                );
+                println!("Notes added:              {}", diff.added_notes);
+                println!("Notes removed:            {}", diff.removed_notes);
+                println!("Notes changed:            {}", diff.changed_notes);
+                println!(
+                    "Phoneme overrides changed:{}",
+                    diff.changed_phoneme_overrides
+                );
+                println!("Wave parts added:         {}", diff.added_wave_parts);
+                println!("Wave parts removed:       {}", diff.removed_wave_parts);
+                println!("Wave parts changed:       {}", diff.changed_wave_parts);
+                println!(
+                    "Result: {}",
+                    if diff.is_empty() {
+                        "identical"
+                    } else {
+                        "changed"
+                    }
+                );
+            }
+        }
+
+        Some(Commands::ProvenanceInfo { path }) => {
+            let contents = fs::read_to_string(&path)?;
+            let provenance: RenderProvenance = serde_json::from_str(&contents)
+                .map_err(|error| Error::new(ErrorKind::InvalidData, error))?;
+            if json_output {
+                print_json(&serde_json::to_value(&provenance)?)?;
+            } else {
+                println!("=== Render provenance ===");
+                println!("Pipeline:       {}", provenance.pipeline_version);
+                println!("Schema:         {}", provenance.schema);
+                println!("Resampler:      {}", provenance.resampler);
+                println!("Wavtool:        {}", provenance.wavtool);
+                println!("Cache hit:      {}", provenance.cache_hit);
+                println!("Artifacts:      {}", provenance.artifacts.len());
+                println!("Timing records: {}", provenance.timing_diagnostics.len());
+                println!(
+                    "Timing boundaries: {}",
+                    provenance.timing_boundary_diagnostics.len()
+                );
+                println!("Warnings:       {}", provenance.warnings.len());
+            }
+        }
+
         Some(Commands::ValidateProject {
             path,
             fail_on_warning,
+            extensions_path,
         }) => {
-            let report = project_validation_json(&path)?;
+            let report = project_validation_json(&path, extensions_path.as_ref())?;
             if json_output {
                 print_json(&report)?;
             } else {
@@ -732,14 +922,26 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             issue["location"].as_str().unwrap_or("project"),
                             issue["detail"].as_str().unwrap_or("unknown issue")
                         );
+                        if let Some(suggestion) = issue["suggestion"].as_str() {
+                            println!("      sugestão: {suggestion}");
+                        }
                     }
+                }
+                for diagnostic in report["extension_diagnostics"]
+                    .as_array()
+                    .into_iter()
+                    .flatten()
+                {
+                    println!("  - [warning] extension: {}", diagnostic);
                 }
             }
             let has_warnings = report["issues"].as_array().is_some_and(|issues| {
                 issues
                     .iter()
                     .any(|issue| issue["severity"].as_str() == Some("warning"))
-            });
+            }) || report["extension_diagnostics"]
+                .as_array()
+                .is_some_and(|diagnostics| !diagnostics.is_empty());
             if report["valid"].as_bool() != Some(true) || (fail_on_warning && has_warnings) {
                 return Err(Error::new(ErrorKind::InvalidData, "project validation failed").into());
             }
@@ -776,11 +978,78 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
 
-        Some(Commands::Extensions { path, verify_wasm }) => {
+        Some(Commands::Extensions {
+            path,
+            verify_wasm,
+            grant_permissions,
+            format_filter,
+            phonemizer_filter,
+            invoke_id,
+            invoke_export,
+            invoke_argument,
+            invoke_bytes,
+            invoke_parameters,
+        }) => {
             let discovery = discover(&path);
             let built_ins = built_in_capabilities();
+            let policy = permission_policy(grant_permissions);
+            if let Some(invoke_id) = invoke_id {
+                let extension = discovery
+                    .extensions
+                    .iter()
+                    .find(|extension| extension.manifest.id == invoke_id)
+                    .ok_or_else(|| {
+                        Error::new(
+                            ErrorKind::NotFound,
+                            format!("extensão não encontrada: {invoke_id}"),
+                        )
+                    })?;
+                let parameters = parse_extension_parameters(&invoke_parameters)?;
+                if invoke_bytes {
+                    let output = kamafeu::extensions::invoke_wasm_bytes(
+                        extension,
+                        &policy,
+                        &invoke_export,
+                        invoke_argument,
+                        &parameters,
+                    )
+                    .map_err(Error::other)?;
+                    print_json(&json!({
+                        "id": invoke_id,
+                        "export": invoke_export,
+                        "argument": invoke_argument,
+                        "bytes_length": output.len(),
+                        "utf8": String::from_utf8_lossy(&output),
+                        "hex": output.iter().map(|byte| format!("{byte:02x}")).collect::<String>(),
+                    }))?;
+                } else {
+                    let output = kamafeu::extensions::invoke_wasm_i32_with_parameters(
+                        extension,
+                        &policy,
+                        &invoke_export,
+                        invoke_argument,
+                        &parameters,
+                    )
+                    .map_err(Error::other)?;
+                    print_json(&json!({
+                        "id": invoke_id,
+                        "export": invoke_export,
+                        "argument": invoke_argument,
+                        "result": output,
+                    }))?;
+                }
+                return Ok(());
+            }
+            let matches_filter = |extension: &&DiscoveredExtension| {
+                format_filter
+                    .as_deref()
+                    .is_none_or(|value| extension.manifest.formats.contains(value))
+                    && phonemizer_filter
+                        .as_deref()
+                        .is_none_or(|value| extension.manifest.phonemizers.contains(value))
+            };
             let wasm_verification =
-                verify_wasm.then(|| wasm_verification_json(&discovery.extensions));
+                verify_wasm.then(|| wasm_verification_json(&discovery.extensions, &policy));
             if json_output {
                 print_json(&json!({
                     "path": path,
@@ -790,15 +1059,35 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         "kind": capability.kind,
                         "description": capability.description,
                     })).collect::<Vec<_>>(),
-                    "extensions": discovery.extensions.iter().map(|extension| json!({
+                    "format_filter": format_filter,
+                    "phonemizer_filter": phonemizer_filter,
+                    "extensions": discovery.extensions.iter().filter(matches_filter).map(|extension| json!({
                         "manifest_path": extension.manifest_path,
+                        "manifest_fingerprint": extension
+                            .render_identity()
+                            .ok()
+                            .map(|identity| identity.manifest_fingerprint),
                         "id": extension.manifest.id,
                         "name": extension.manifest.name,
                         "version": extension.manifest.version,
+                        "api_version": extension.manifest.api_version,
                         "kind": extension.manifest.kind,
+                        "capabilities": extension.manifest.capabilities,
+                        "formats": extension.manifest.formats,
+                        "phonemizers": extension.manifest.phonemizers,
+                        "permissions": extension.manifest.permissions,
+                        "platforms": extension.manifest.platforms,
+                        "limitations": extension.manifest.limitations,
+                        "parameters": extension.manifest.parameters,
+                        "entrypoint": extension.manifest.entrypoint,
+                        "entrypoint_status": extension_entrypoint_status(extension),
+                        "platform_compatible": extension
+                            .manifest
+                            .supports_platform(kamafeu::extensions::current_platform()),
                         "description": extension.manifest.description,
                     })).collect::<Vec<_>>(),
                     "diagnostics": discovery.diagnostics,
+                    "diagnostic_records": discovery.diagnostic_records,
                     "wasm_verification": wasm_verification,
                 }))?;
             } else {
@@ -814,7 +1103,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 if discovery.extensions.is_empty() {
                     println!("No compatible extensions found.");
                 }
-                for extension in discovery.extensions {
+                for extension in discovery.extensions.iter().filter(matches_filter) {
                     println!(
                         "- {} {} ({:?}) [{}]",
                         extension.manifest.name,
@@ -822,6 +1111,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         extension.manifest.kind,
                         extension.manifest.id
                     );
+                    println!(
+                        "  entrypoint: {} ({})",
+                        extension
+                            .manifest
+                            .entrypoint
+                            .as_deref()
+                            .unwrap_or("não declarado"),
+                        extension_entrypoint_status(extension)
+                    );
+                    if !extension.manifest.limitations.is_empty() {
+                        println!(
+                            "  limitations: {}",
+                            extension.manifest.limitations.join("; ")
+                        );
+                    }
                 }
                 if !discovery.diagnostics.is_empty() {
                     println!("Diagnostics:");
@@ -842,6 +1146,31 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             );
                         }
                     }
+                }
+            }
+        }
+
+        Some(Commands::PlatformInfo) => {
+            let matrix = platform_capability_matrix();
+            if json_output {
+                print_json(&json!({
+                    "current_platform": kamafeu::extensions::current_platform(),
+                    "capabilities": matrix,
+                }))?;
+            } else {
+                println!(
+                    "Current platform: {}",
+                    kamafeu::extensions::current_platform()
+                );
+                for capability in matrix {
+                    println!(
+                        "- {}: desktop={} android={} wasm={} — {}",
+                        capability.id,
+                        capability.desktop,
+                        capability.android,
+                        capability.wasm,
+                        capability.note
+                    );
                 }
             }
         }
@@ -1120,6 +1449,10 @@ fn mcp_tools() -> Vec<Value> {
             "Read project metadata, tracks, notes and duration.",
         ),
         (
+            "diff",
+            "Compare two project revisions without modifying either input.",
+        ),
+        (
             "list_voicebanks",
             "Scan singer folders and list UTAU, OpenUTAU and DiffSinger voicebanks.",
         ),
@@ -1216,6 +1549,13 @@ fn handle_automation_request(
             Ok(json!({ "output": output, "name": project.name, "bpm": project.bpm }))
         }
         AutomationRequest::ProjectInfo { path } => project_info_json(&path),
+        AutomationRequest::Diff { before, after } => {
+            let before_project = load_project(&before)?;
+            let after_project = load_project(&after)?;
+            Ok(serde_json::to_value(
+                kamafeu::project::ProjectDiff::between(&before_project, &after_project),
+            )?)
+        }
         AutomationRequest::ListVoicebanks {
             paths,
             include_default,
@@ -1223,7 +1563,10 @@ fn handle_automation_request(
             paths.unwrap_or_default(),
             include_default,
         )),
-        AutomationRequest::ValidateProject { path } => project_validation_json(&path),
+        AutomationRequest::ValidateProject {
+            path,
+            extensions_path,
+        } => project_validation_json(&path, extensions_path.as_ref()),
         AutomationRequest::Convert { input, output } => convert_project(&input, &output),
         AutomationRequest::AddNote {
             input,
@@ -1793,10 +2136,39 @@ fn handle_automation_request(
             path,
             verify_runtime,
         } => voicebank_validation_json(&path, verify_runtime),
-        AutomationRequest::Extensions { path, verify_wasm } => Ok(extension_catalog_json(
-            &path.unwrap_or_else(|| PathBuf::from("extensions")),
+        AutomationRequest::Extensions {
+            path,
             verify_wasm,
-        )),
+            grant_permissions,
+            format_filter,
+            phonemizer_filter,
+            invoke_id,
+            invoke_export,
+            invoke_argument,
+            invoke_bytes,
+            invoke_parameters,
+        } => {
+            let path = path.unwrap_or_else(|| PathBuf::from("extensions"));
+            if let Some(id) = invoke_id {
+                invoke_extension_json(
+                    &path,
+                    &id,
+                    invoke_export.as_deref().unwrap_or("analyze"),
+                    invoke_argument.unwrap_or(0),
+                    invoke_bytes,
+                    &grant_permissions,
+                    &invoke_parameters,
+                )
+            } else {
+                Ok(extension_catalog_json(
+                    &path,
+                    verify_wasm,
+                    &grant_permissions,
+                    format_filter.as_deref(),
+                    phonemizer_filter.as_deref(),
+                ))
+            }
+        }
         AutomationRequest::CacheInfo => Ok(cache_info_json()),
         AutomationRequest::CachePrune { days } => {
             let days = days.unwrap_or(30);
@@ -1883,10 +2255,12 @@ struct ConversionFingerprint {
     wave_part_count: usize,
     marker_count: usize,
     section_count: usize,
+    extension_count: usize,
     note_count: usize,
     duration_ms: f64,
     pitch_bend_point_count: usize,
     dynamics_curve_point_count: usize,
+    phoneme_override_count: usize,
     non_default_expression_count: usize,
     note_content_signature: u64,
 }
@@ -1902,10 +2276,12 @@ impl ConversionFingerprint {
             wave_part_count: project.wave_parts.len(),
             marker_count: project.markers.len(),
             section_count: project.sections.len(),
+            extension_count: project.extensions.len(),
             note_count: 0,
             duration_ms: 0.0,
             pitch_bend_point_count: 0,
             dynamics_curve_point_count: 0,
+            phoneme_override_count: 0,
             non_default_expression_count: 0,
             note_content_signature: 0xcbf2_9ce4_8422_2325,
         };
@@ -1919,6 +2295,7 @@ impl ConversionFingerprint {
                     .max(part.position_ms + note.position_ms + note.duration_ms.max(0.0));
                 fingerprint.pitch_bend_point_count += note.pitch_bend.points.len();
                 fingerprint.dynamics_curve_point_count += note.expressions.dynamics_curve.len();
+                fingerprint.phoneme_override_count += note.phoneme_overrides.len();
                 if note.expressions != kamafeu::project::UExpressions::default() {
                     fingerprint.non_default_expression_count += 1;
                 }
@@ -1926,6 +2303,10 @@ impl ConversionFingerprint {
                 fingerprint.hash_text(&note.pitch);
                 fingerprint.hash_f64(note.position_ms);
                 fingerprint.hash_f64(note.duration_ms);
+                for phoneme_override in &note.phoneme_overrides {
+                    fingerprint
+                        .hash_text(&serde_json::to_string(phoneme_override).unwrap_or_default());
+                }
             }
         }
         for wave in &project.wave_parts {
@@ -1966,10 +2347,12 @@ impl ConversionFingerprint {
             "wave_part_count": self.wave_part_count,
             "marker_count": self.marker_count,
             "section_count": self.section_count,
+            "extension_count": self.extension_count,
             "note_count": self.note_count,
             "duration_ms": self.duration_ms,
             "pitch_bend_point_count": self.pitch_bend_point_count,
             "dynamics_curve_point_count": self.dynamics_curve_point_count,
+            "phoneme_override_count": self.phoneme_override_count,
             "non_default_expression_count": self.non_default_expression_count,
             "note_content_signature": format!("{:016x}", self.note_content_signature),
         })
@@ -2081,9 +2464,23 @@ fn convert_project(input: &PathBuf, output: &PathBuf) -> Result<Value, Box<dyn s
     );
     compare_conversion_feature(
         &mut warnings,
+        "overrides persistidos por fonema",
+        before.phoneme_override_count,
+        after.phoneme_override_count,
+        |left, right| left != right,
+    );
+    compare_conversion_feature(
+        &mut warnings,
         "notas com expressões não padrão",
         before.non_default_expression_count,
         after.non_default_expression_count,
+        |left, right| left != right,
+    );
+    compare_conversion_feature(
+        &mut warnings,
+        "extensões associadas ao projeto",
+        before.extension_count,
+        after.extension_count,
         |left, right| left != right,
     );
 
@@ -2097,15 +2494,13 @@ fn convert_project(input: &PathBuf, output: &PathBuf) -> Result<Value, Box<dyn s
     }))
 }
 
-fn compare_conversion_feature<T: std::fmt::Display>(
+fn compare_conversion_feature<T: std::fmt::Display + Copy>(
     warnings: &mut Vec<String>,
     label: &str,
     source: T,
     destination: T,
     differs: impl FnOnce(T, T) -> bool,
-) where
-    T: Copy,
-{
+) {
     if differs(source, destination) {
         warnings.push(format!(
             "{label}: origem {source}, destino {destination}; revise este recurso após a conversão"
@@ -2113,9 +2508,20 @@ fn compare_conversion_feature<T: std::fmt::Display>(
     }
 }
 
-fn project_validation_json(path: &PathBuf) -> Result<Value, Box<dyn std::error::Error>> {
+fn project_validation_json(
+    path: &PathBuf,
+    extensions_path: Option<&PathBuf>,
+) -> Result<Value, Box<dyn std::error::Error>> {
     let project = load_project(path)?;
     let report = project.diagnostic_report();
+    let extension_diagnostics = extensions_path
+        .map(|catalog_path| {
+            let discovery = discover(catalog_path);
+            let mut diagnostics = diagnose_project_extensions(&project.extensions, &discovery);
+            diagnostics.extend(discovery.diagnostics);
+            diagnostics
+        })
+        .unwrap_or_default();
     Ok(json!({
         "path": path,
         "valid": report.is_valid(),
@@ -2126,11 +2532,29 @@ fn project_validation_json(path: &PathBuf) -> Result<Value, Box<dyn std::error::
         "error_count": report.error_count(),
         "warning_count": report.warning_count(),
         "vocal_health_score": report.vocal_health_score(),
+        "extension_diagnostics": extension_diagnostics,
+        "extension_diagnostic_records": extensions_path.map(|catalog_path| {
+            let discovery = discover(catalog_path);
+            let mut records = diagnose_project_extensions_structured(&project.extensions, &discovery)
+                .into_iter()
+                .map(|record| serde_json::to_value(record).unwrap_or_else(|_| serde_json::json!({})))
+                .collect::<Vec<_>>();
+            records.extend(discovery.diagnostic_records.into_iter().map(|diagnostic| {
+                serde_json::json!({
+                    "extension_id": serde_json::Value::Null,
+                    "kind": "discovery",
+                    "detail": diagnostic.reason,
+                    "manifest_path": diagnostic.manifest_path,
+                })
+            }));
+            serde_json::to_value(records).unwrap_or_else(|_| serde_json::json!([]))
+        }).unwrap_or_else(|| serde_json::json!([])),
         "issues": report.issues.iter().map(|issue| json!({
             "severity": format!("{:?}", issue.severity).to_ascii_lowercase(),
             "kind": format!("{:?}", issue.kind),
             "location": issue.location,
             "detail": issue.detail,
+            "suggestion": issue.suggestion(),
         })).collect::<Vec<_>>(),
     }))
 }
@@ -2146,6 +2570,7 @@ struct RenderSummary {
     silent: bool,
 }
 
+#[allow(clippy::too_many_arguments)]
 fn render_project_to_file(
     voicebank_path: &PathBuf,
     input: &PathBuf,
@@ -2180,8 +2605,51 @@ fn render_project_to_file(
     };
     let native_wavtool = NativeWavtoolDriver;
     let render_options = RenderOptions {
+        flags: project.flags.clone(),
         phonemizer_mode: project.phonemizer.unwrap_or_default(),
         ..RenderOptions::default()
+    };
+    let timing_diagnostics = std::sync::Arc::new(std::sync::Mutex::new(Vec::<
+        kamafeu::renderer::timing::PhonemeTimingDiagnostic,
+    >::new()));
+    let timing_boundary_diagnostics = std::sync::Arc::new(std::sync::Mutex::new(Vec::<
+        kamafeu::renderer::provenance::TimingBoundaryDiagnostic,
+    >::new()));
+    let render_commands = std::sync::Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+    let cache_stats = std::sync::Arc::new(std::sync::Mutex::new((0usize, 0usize)));
+    let timing_capture = std::sync::Arc::clone(&timing_diagnostics);
+    let timing_boundary_capture = std::sync::Arc::clone(&timing_boundary_diagnostics);
+    let commands_capture = std::sync::Arc::clone(&render_commands);
+    let cache_capture = std::sync::Arc::clone(&cache_stats);
+    let progress_callback = move |_progress: f32, message: &str| {
+        if let Some(payload) = message.strip_prefix("[Timing] ") {
+            if let Ok(diagnostic) = serde_json::from_str(payload) {
+                if let Ok(mut captured) = timing_capture.lock() {
+                    captured.push(diagnostic);
+                }
+            }
+        }
+        if let Some(diagnostic) = kamafeu::renderer::provenance::parse_timing_boundary_log(message)
+        {
+            if let Ok(mut captured) = timing_boundary_capture.lock() {
+                captured.push(diagnostic);
+            }
+        }
+        if let Some(command) = message
+            .strip_prefix("  [Resampler Command] ")
+            .or_else(|| message.strip_prefix("  [Wavtool Command] "))
+        {
+            if let Ok(mut commands) = commands_capture.lock() {
+                commands.push(command.to_string());
+            }
+        }
+        if let Ok(mut stats) = cache_capture.lock() {
+            if message.contains("[Resampler Cache] hit") {
+                stats.0 += 1;
+            } else if message.contains("[Resampler Cache] miss") {
+                stats.1 += 1;
+            }
+        }
     };
     let rendered = ProjectRenderer::render_project_with_drivers(
         &project,
@@ -2191,7 +2659,7 @@ fn render_project_to_file(
         resampler,
         &native_wavtool,
         &render_options,
-        None,
+        Some(&progress_callback),
     );
     if let Some(error) = rendered.error {
         return Err(std::io::Error::other(error).into());
@@ -2213,6 +2681,62 @@ fn render_project_to_file(
         },
     )
     .map_err(Error::other)?;
+    let project_bytes = serde_json::to_vec(&project)?;
+    let timing_diagnostics = timing_diagnostics
+        .lock()
+        .map(|diagnostics| diagnostics.clone())
+        .unwrap_or_default();
+    let timing_boundary_diagnostics = timing_boundary_diagnostics
+        .lock()
+        .map(|diagnostics| diagnostics.clone())
+        .unwrap_or_default();
+    let render_commands = render_commands
+        .lock()
+        .map(|commands| commands.clone())
+        .unwrap_or_default();
+    let (cache_hits, cache_misses) = cache_stats.lock().map(|stats| *stats).unwrap_or_default();
+    let mut provenance = RenderProvenance::new(
+        kamafeu::renderer::provenance::content_fingerprint(&project_bytes),
+        voicebank.content_fingerprint(),
+        resampler.name(),
+        native_wavtool.name(),
+        sample_rate,
+        rendered.channels,
+        render_options.clone(),
+    )
+    .with_timing_diagnostics(timing_diagnostics)
+    .with_timing_boundary_diagnostics(timing_boundary_diagnostics)
+    .with_commands(render_commands)
+    .with_cache_stats(cache_hits, cache_misses)
+    .with_extension_details(project.extensions.iter().map(|extension| {
+        kamafeu::renderer::RenderExtension {
+            id: extension.id.clone(),
+            version: extension.version.clone(),
+            origin: extension.origin.clone(),
+            manifest_fingerprint: extension.manifest_fingerprint.clone(),
+        }
+    }))
+    .with_artifact_bytes("project", input.display().to_string(), &project_bytes);
+    provenance
+        .warnings
+        .extend(provenance.timing_boundary_warnings());
+    provenance.warnings.sort();
+    provenance.warnings.dedup();
+    let oto_path = voicebank.root_path.join("oto.ini");
+    if oto_path.is_file() {
+        provenance = provenance.with_artifact_file("oto", &oto_path)?;
+    }
+    let mut wav_paths = std::collections::BTreeSet::new();
+    for entry in voicebank.entries.values() {
+        let wav_path = voicebank.root_path.join(&entry.wav_filename);
+        if wav_path.is_file() {
+            wav_paths.insert(wav_path);
+        }
+    }
+    for wav_path in wav_paths {
+        provenance = provenance.with_artifact_file("voicebank_wav", wav_path)?;
+    }
+    AudioExporter::write_provenance_sidecar(output, &provenance).map_err(Error::other)?;
     let diagnostics = AudioDiagnostics::analyze(&rendered.samples, rendered.channels);
     Ok(RenderSummary {
         output: output.clone(),
@@ -2332,6 +2856,7 @@ fn voicebank_validation_json(
                 "wav": issue.wav_filename,
                 "detail": issue.detail,
                 "kind": format!("{:?}", issue.kind),
+                "suggestion": issue.suggestion(),
             })
         })
         .collect::<Vec<_>>();
@@ -2398,31 +2923,176 @@ fn diffsinger_info_json(
     })
 }
 
-fn extension_catalog_json(path: &PathBuf, verify_wasm: bool) -> Value {
+fn extension_catalog_json(
+    path: &PathBuf,
+    verify_wasm: bool,
+    grant_permissions: &[String],
+    format_filter: Option<&str>,
+    phonemizer_filter: Option<&str>,
+) -> Value {
     let discovery = discover(path);
     let built_ins = built_in_capabilities();
+    let policy = permission_policy(grant_permissions.to_vec());
+    let matches_filter = |extension: &&DiscoveredExtension| {
+        format_filter.is_none_or(|value| extension.manifest.formats.contains(value))
+            && phonemizer_filter.is_none_or(|value| extension.manifest.phonemizers.contains(value))
+    };
+    let filtered_extensions = discovery
+        .extensions
+        .iter()
+        .filter(matches_filter)
+        .cloned()
+        .collect::<Vec<_>>();
     json!({
         "path": path,
+        "format_filter": format_filter,
+        "phonemizer_filter": phonemizer_filter,
         "built_in_capabilities": built_ins.iter().map(|capability| json!({
             "id": capability.id,
             "name": capability.name,
             "kind": capability.kind,
             "description": capability.description,
         })).collect::<Vec<_>>(),
-        "extensions": discovery.extensions.iter().map(|extension| json!({
+        "extensions": filtered_extensions.iter().map(|extension| json!({
             "manifest_path": extension.manifest_path,
+            "manifest_fingerprint": extension
+                .render_identity()
+                .ok()
+                .map(|identity| identity.manifest_fingerprint),
             "id": extension.manifest.id,
             "name": extension.manifest.name,
             "version": extension.manifest.version,
+            "api_version": extension.manifest.api_version,
             "kind": extension.manifest.kind,
+            "capabilities": extension.manifest.capabilities,
+            "formats": extension.manifest.formats,
+            "phonemizers": extension.manifest.phonemizers,
+            "permissions": extension.manifest.permissions,
+            "platforms": extension.manifest.platforms,
+            "limitations": extension.manifest.limitations,
+            "parameters": extension.manifest.parameters,
+            "entrypoint": extension.manifest.entrypoint,
+            "entrypoint_status": extension_entrypoint_status(extension),
+            "platform_compatible": extension
+                .manifest
+                .supports_platform(kamafeu::extensions::current_platform()),
             "description": extension.manifest.description,
         })).collect::<Vec<_>>(),
         "diagnostics": discovery.diagnostics,
-        "wasm_verification": verify_wasm.then(|| wasm_verification_json(&discovery.extensions)),
+        "diagnostic_records": discovery.diagnostic_records,
+        "wasm_verification": verify_wasm.then(|| wasm_verification_json(&filtered_extensions, &policy)),
     })
 }
 
-fn wasm_verification_json(extensions: &[DiscoveredExtension]) -> Vec<Value> {
+fn invoke_extension_json(
+    path: &std::path::Path,
+    id: &str,
+    export_name: &str,
+    argument: i32,
+    bytes: bool,
+    granted_permissions: &[String],
+    parameters: &serde_json::Map<String, Value>,
+) -> Result<Value, Box<dyn std::error::Error>> {
+    let discovery = discover(path);
+    let extension = discovery
+        .extensions
+        .iter()
+        .find(|extension| extension.manifest.id == id)
+        .ok_or_else(|| {
+            Error::new(
+                ErrorKind::NotFound,
+                format!("extensão não encontrada: {id}"),
+            )
+        })?;
+    let policy = permission_policy(granted_permissions.to_vec());
+    if bytes {
+        let output = kamafeu::extensions::invoke_wasm_bytes(
+            extension,
+            &policy,
+            export_name,
+            argument,
+            parameters,
+        )
+        .map_err(Error::other)?;
+        Ok(json!({
+            "id": id,
+            "export": export_name,
+            "argument": argument,
+            "bytes_length": output.len(),
+            "utf8": String::from_utf8_lossy(&output),
+            "hex": output.iter().map(|byte| format!("{byte:02x}")).collect::<String>(),
+        }))
+    } else {
+        let output = kamafeu::extensions::invoke_wasm_i32_with_parameters(
+            extension,
+            &policy,
+            export_name,
+            argument,
+            parameters,
+        )
+        .map_err(Error::other)?;
+        Ok(json!({
+            "id": id,
+            "export": export_name,
+            "argument": argument,
+            "result": output,
+        }))
+    }
+}
+
+fn extension_entrypoint_status(extension: &DiscoveredExtension) -> &'static str {
+    let Some(entrypoint) = extension.manifest.entrypoint.as_deref() else {
+        return "not_declared";
+    };
+    if !entrypoint.to_ascii_lowercase().ends_with(".wasm") {
+        return "not_wasm";
+    }
+    let Some(root) = extension.manifest_path.parent() else {
+        return "missing";
+    };
+    if root.join(entrypoint).is_file() {
+        "available"
+    } else {
+        "missing"
+    }
+}
+
+fn permission_policy(granted: Vec<String>) -> ExtensionPermissionPolicy {
+    ExtensionPermissionPolicy {
+        granted: granted.into_iter().collect(),
+    }
+}
+
+fn parse_extension_parameters(
+    values: &[String],
+) -> Result<serde_json::Map<String, serde_json::Value>, Box<dyn std::error::Error>> {
+    let mut parameters = serde_json::Map::new();
+    for value in values {
+        let (name, raw) = value.split_once('=').ok_or_else(|| {
+            Error::new(
+                ErrorKind::InvalidInput,
+                format!("parâmetro de extensão inválido '{value}'; use chave=valor JSON"),
+            )
+        })?;
+        if name.trim().is_empty() {
+            return Err(Error::new(ErrorKind::InvalidInput, "nome de parâmetro vazio").into());
+        }
+        let parsed = serde_json::from_str(raw).unwrap_or_else(|_| Value::String(raw.to_string()));
+        if parameters.insert(name.to_string(), parsed).is_some() {
+            return Err(Error::new(
+                ErrorKind::InvalidInput,
+                format!("parâmetro de extensão duplicado: '{name}'"),
+            )
+            .into());
+        }
+    }
+    Ok(parameters)
+}
+
+fn wasm_verification_json(
+    extensions: &[DiscoveredExtension],
+    policy: &ExtensionPermissionPolicy,
+) -> Vec<Value> {
     extensions
         .iter()
         .filter(|extension| {
@@ -2432,15 +3102,17 @@ fn wasm_verification_json(extensions: &[DiscoveredExtension]) -> Vec<Value> {
                 .as_deref()
                 .is_some_and(|entrypoint| entrypoint.to_ascii_lowercase().ends_with(".wasm"))
         })
-        .map(|extension| match verify_wasm_extension(extension) {
-            Ok(info) => json!({
-                "id": info.id,
-                "ok": true,
-                "entrypoint": info.entrypoint,
-                "api_version": info.api_version,
-            }),
-            Err(error) => json!({ "id": extension.manifest.id, "ok": false, "error": error }),
-        })
+        .map(
+            |extension| match verify_wasm_extension_with_policy(extension, policy) {
+                Ok(info) => json!({
+                    "id": info.id,
+                    "ok": true,
+                    "entrypoint": info.entrypoint,
+                    "api_version": info.api_version,
+                }),
+                Err(error) => json!({ "id": extension.manifest.id, "ok": false, "error": error }),
+            },
+        )
         .collect()
 }
 
@@ -2455,17 +3127,149 @@ fn save_project(project: &UProject, path: &PathBuf) -> Result<(), Box<dyn std::e
 #[cfg(test)]
 mod tests {
     use super::*;
+    use kamafeu::extensions::{ExtensionKind, ExtensionManifest, EXTENSION_API_VERSION};
+
+    #[test]
+    fn extension_cli_parameters_parse_json_and_reject_duplicates() {
+        let parameters = parse_extension_parameters(&[
+            "mix=0.75".to_string(),
+            "enabled=true".to_string(),
+            "mode=fast".to_string(),
+        ])
+        .expect("parse extension parameters");
+        assert_eq!(parameters["mix"], json!(0.75));
+        assert_eq!(parameters["enabled"], json!(true));
+        assert_eq!(parameters["mode"], json!("fast"));
+
+        let duplicate = parse_extension_parameters(&["mix=1".to_string(), "mix=2".to_string()])
+            .expect_err("duplicate parameters must be rejected");
+        assert!(duplicate.to_string().contains("duplicado"));
+    }
+
+    #[test]
+    fn automation_extension_invocation_returns_structured_bytes() {
+        let directory = tempfile::tempdir().expect("temporary automation extension directory");
+        let extension_dir = directory.path().join("example");
+        std::fs::create_dir(&extension_dir).expect("extension directory");
+        std::fs::write(
+            extension_dir.join("kamafeu-extension.json"),
+            serde_json::to_vec(&json!({
+                "id": "org.kamafeu.automation-test",
+                "name": "Automation test",
+                "version": "0.1.0",
+                "api_version": 1,
+                "kind": "analysis",
+                "permissions": [],
+                "parameters": {
+                    "mix": {"kind": "number", "minimum": 0.0, "maximum": 1.0}
+                },
+                "entrypoint": "plugin.wasm"
+            }))
+            .expect("manifest JSON"),
+        )
+        .expect("manifest");
+        let module = wat::parse_str(
+            r#"(module
+                (memory (export "memory") 1)
+                (data (i32.const 0) "hello")
+                (func (export "kamafeu_extension_api_version") (result i32) i32.const 1)
+                (func (export "analyze") (param i32) (result i64) i64.const 5)
+            )"#,
+        )
+        .expect("WAT fixture");
+        std::fs::write(extension_dir.join("plugin.wasm"), module).expect("plugin");
+
+        let mut parameters = serde_json::Map::new();
+        parameters.insert("mix".to_string(), json!(0.5));
+        let result = invoke_extension_json(
+            directory.path(),
+            "org.kamafeu.automation-test",
+            "analyze",
+            0,
+            true,
+            &[],
+            &parameters,
+        )
+        .expect("automation invocation");
+        assert_eq!(result["bytes_length"], json!(5));
+        assert_eq!(result["utf8"], json!("hello"));
+        assert_eq!(result["hex"], json!("68656c6c6f"));
+    }
+
+    #[test]
+    fn extension_catalog_reports_entrypoint_states_without_execution() {
+        let directory = tempfile::tempdir().expect("temporary extension directory");
+        let manifest_path = directory.path().join("kamafeu-extension.json");
+        let wasm = directory.path().join("plugin.wasm");
+        std::fs::write(&wasm, [0_u8]).expect("entrypoint fixture");
+        let mut extension = DiscoveredExtension {
+            manifest_path,
+            manifest: ExtensionManifest {
+                id: "org.kamafeu.catalog-test".to_string(),
+                name: "Catalog test".to_string(),
+                version: "0.1.0".to_string(),
+                api_version: EXTENSION_API_VERSION,
+                abi_min_version: None,
+                abi_max_version: None,
+                kind: ExtensionKind::Analysis,
+                capabilities: Default::default(),
+                formats: Default::default(),
+                phonemizers: Default::default(),
+                permissions: Default::default(),
+                platforms: Default::default(),
+                limitations: Default::default(),
+                parameters: Default::default(),
+                description: String::new(),
+                entrypoint: Some("plugin.wasm".to_string()),
+            },
+        };
+        std::fs::write(
+            &extension.manifest_path,
+            serde_json::to_vec(&extension.manifest).expect("catalog manifest"),
+        )
+        .expect("catalog manifest file");
+        let invalid_dir = directory.path().join("invalid");
+        std::fs::create_dir_all(&invalid_dir).expect("invalid extension directory");
+        std::fs::write(invalid_dir.join("kamafeu-extension.json"), "{not json}")
+            .expect("invalid manifest fixture");
+        let catalog =
+            extension_catalog_json(&directory.path().to_path_buf(), false, &[], None, None);
+        let catalog_extension = &catalog["extensions"][0];
+        assert_eq!(catalog_extension["id"], "org.kamafeu.catalog-test");
+        assert_eq!(catalog_extension["version"], "0.1.0");
+        assert_eq!(catalog_extension["limitations"], json!([]));
+        assert!(catalog_extension["manifest_fingerprint"].is_string());
+        assert_eq!(catalog["diagnostic_records"].as_array().unwrap().len(), 1);
+        assert!(catalog["diagnostic_records"][0]["manifest_path"]
+            .as_str()
+            .unwrap()
+            .ends_with("invalid/kamafeu-extension.json"));
+        assert_eq!(extension_entrypoint_status(&extension), "available");
+        extension.manifest.entrypoint = Some("missing.wasm".to_string());
+        assert_eq!(extension_entrypoint_status(&extension), "missing");
+        extension.manifest.entrypoint = Some("plugin.txt".to_string());
+        assert_eq!(extension_entrypoint_status(&extension), "not_wasm");
+        extension.manifest.entrypoint = None;
+        assert_eq!(extension_entrypoint_status(&extension), "not_declared");
+    }
 
     #[test]
     fn converts_between_native_and_interchange_formats() {
         let directory = tempfile::tempdir().expect("temporary project directory");
         let aps = directory.path().join("source.aps");
         let ufdata = directory.path().join("converted.ufdata");
-        let mut project = UProject::default();
-        project.name = "CLI conversion".to_string();
-        project.parts[0]
-            .notes
-            .push(UNote::new("a", "C4", 0.0, 500.0));
+        let mut project = UProject {
+            name: "CLI conversion".to_string(),
+            ..UProject::default()
+        };
+        let mut note = UNote::new("a", "C4", 0.0, 500.0);
+        note.phoneme_overrides
+            .push(kamafeu::project::UPhonemeOverride {
+                index: 0,
+                phoneme: Some("k a".into()),
+                ..Default::default()
+            });
+        project.parts[0].notes.push(note);
 
         save_project(&project, &aps).expect("save APS");
         let loaded = load_project(&aps).expect("load APS");
@@ -2483,9 +3287,14 @@ mod tests {
         let input = directory.path().join("source.aps");
         let output = directory.path().join("copy.aps");
         let mut project = UProject::default();
-        project.parts[0]
-            .notes
-            .push(UNote::new("a", "C4", 0.0, 500.0));
+        let mut note = UNote::new("a", "C4", 0.0, 500.0);
+        note.phoneme_overrides
+            .push(kamafeu::project::UPhonemeOverride {
+                index: 0,
+                phoneme: Some("k a".into()),
+                ..Default::default()
+            });
+        project.parts[0].notes.push(note);
         save_project(&project, &input).expect("save source");
 
         let report = convert_project(&input, &output).expect("convert and inspect");
@@ -2499,17 +3308,32 @@ mod tests {
         let directory = tempfile::tempdir().expect("temporary meter conversion directory");
         let input = directory.path().join("source.aps");
         let output = directory.path().join("converted.ust");
-        let mut project = UProject::default();
-        project.time_signature_numerator = 3;
-        project.time_signature_denominator = 4;
+        let mut project = UProject {
+            time_signature_numerator: 3,
+            time_signature_denominator: 4,
+            ..UProject::default()
+        };
         project
             .sections
             .push(kamafeu::project::UProjectSection::new(
                 "Verse", 0.0, 1_500.0,
             ));
-        project.parts[0]
-            .notes
-            .push(UNote::new("a", "C4", 0.0, 500.0));
+        project
+            .extensions
+            .push(kamafeu::project::UProjectExtension {
+                id: "org.example.transform".into(),
+                version: "1.0.0".into(),
+                origin: "extensions/transform/manifest.json".into(),
+                manifest_fingerprint: "abc".into(),
+            });
+        let mut note = UNote::new("a", "C4", 0.0, 500.0);
+        note.phoneme_overrides
+            .push(kamafeu::project::UPhonemeOverride {
+                index: 0,
+                phoneme: Some("k a".into()),
+                ..Default::default()
+            });
+        project.parts[0].notes.push(note);
         save_project(&project, &input).expect("save source");
 
         let report = convert_project(&input, &output).expect("convert UST");
@@ -2527,6 +3351,20 @@ mod tests {
                 warning
                     .as_str()
                     .is_some_and(|warning| warning.contains("seções de projeto"))
+            })));
+        assert!(report["warnings"]
+            .as_array()
+            .is_some_and(|warnings| warnings.iter().any(|warning| {
+                warning
+                    .as_str()
+                    .is_some_and(|warning| warning.contains("overrides persistidos por fonema"))
+            })));
+        assert!(report["warnings"]
+            .as_array()
+            .is_some_and(|warnings| warnings.iter().any(|warning| {
+                warning
+                    .as_str()
+                    .is_some_and(|warning| warning.contains("extensões associadas"))
             })));
     }
 
@@ -2569,6 +3407,67 @@ mod tests {
     }
 
     #[test]
+    fn diff_cli_accepts_two_project_revisions() {
+        let cli = Cli::try_parse_from(["kamafeu", "diff", "before.aps", "after.aps"])
+            .expect("diff command");
+        assert!(matches!(cli.command, Some(Commands::Diff { .. })));
+    }
+
+    #[test]
+    fn automation_diff_is_read_only_and_structured() {
+        let directory = tempfile::tempdir().expect("diff directory");
+        let before = directory.path().join("before.aps");
+        let after = directory.path().join("after.aps");
+        let mut changed = UProject::default();
+        changed.parts[0]
+            .notes
+            .push(UNote::new("a", "C4", 0.0, 400.0));
+        save_project(&UProject::default(), &before).expect("before");
+        save_project(&changed, &after).expect("after");
+        let result = handle_automation_request(AutomationRequest::Diff { before, after })
+            .expect("diff response");
+        assert_eq!(result["added_notes"], serde_json::json!(1));
+        assert!(result["changed_notes"].is_number());
+    }
+
+    #[test]
+    fn project_validation_includes_persisted_extension_diagnostics() {
+        let directory = tempfile::tempdir().expect("validation directory");
+        let catalog = directory.path().join("extensions");
+        std::fs::create_dir_all(&catalog).expect("catalog");
+        std::fs::write(
+            catalog.join("kamafeu-extension.json"),
+            r#"{
+                "id": "org.example.validation",
+                "name": "Validation extension",
+                "version": "1.0.0",
+                "api_version": 1,
+                "kind": "analysis"
+            }"#,
+        )
+        .expect("manifest");
+
+        let project_path = directory.path().join("project.aps");
+        let mut project = UProject::default();
+        project
+            .extensions
+            .push(kamafeu::project::UProjectExtension {
+                id: "org.example.validation".into(),
+                version: "1.0.0".into(),
+                origin: "extensions/kamafeu-extension.json".into(),
+                manifest_fingerprint: "stale".into(),
+            });
+        save_project(&project, &project_path).expect("project");
+
+        let report = project_validation_json(&project_path, Some(&catalog)).expect("report");
+        assert!(report["extension_diagnostics"]
+            .as_array()
+            .is_some_and(|diagnostics| diagnostics.iter().any(|diagnostic| diagnostic
+                .as_str()
+                .is_some_and(|value| value.contains("alterado")))));
+    }
+
+    #[test]
     fn validate_project_cli_accepts_strict_warning_mode() {
         let cli = Cli::try_parse_from([
             "kamafeu",
@@ -2590,8 +3489,10 @@ mod tests {
     fn automation_returns_structured_project_information() {
         let directory = tempfile::tempdir().expect("temporary project directory");
         let path = directory.path().join("project.aps");
-        let mut project = UProject::default();
-        project.name = "Automation test".to_string();
+        let mut project = UProject {
+            name: "Automation test".to_string(),
+            ..UProject::default()
+        };
         project.parts[0]
             .notes
             .push(UNote::new("a", "C4", 0.0, 500.0));
@@ -2922,7 +3823,18 @@ mod tests {
 
         let input = directory.path().join("project.aps");
         let output = directory.path().join("render.flac");
-        let mut project = UProject::default();
+        let mut project = UProject {
+            flags: "P86g-4Xcustom".to_string(),
+            ..UProject::default()
+        };
+        project
+            .extensions
+            .push(kamafeu::project::model::UProjectExtension {
+                id: "org.example.render-engine".to_string(),
+                version: "2.0.0".to_string(),
+                origin: "extensions/render-engine/kamafeu-extension.json".to_string(),
+                manifest_fingerprint: "manifest-test".to_string(),
+            });
         project.parts[0]
             .notes
             .push(UNote::new("a", "C4", 0.0, 350.0));
@@ -2944,6 +3856,25 @@ mod tests {
         assert!(summary.diagnostics.is_safe());
         assert!(!summary.silent);
         assert_eq!(fs::read(&output).expect("FLAC")[..4], *b"fLaC");
+        let provenance = fs::read_to_string(output.with_extension("flac.kamafeu.json"))
+            .expect("render provenance");
+        assert!(provenance.contains("P86g-4Xcustom"));
+        assert!(provenance.contains("voicebank_wav"));
+        assert!(provenance.contains("timing_diagnostics"));
+        let provenance_json: serde_json::Value =
+            serde_json::from_str(&provenance).expect("provenance JSON");
+        let commands = provenance_json["commands"].as_array().expect("commands");
+        assert!(commands.len() >= 2);
+        assert!(commands.iter().all(serde_json::Value::is_string));
+        assert!(
+            provenance_json["cache_hits"].as_u64().unwrap_or(0)
+                + provenance_json["cache_misses"].as_u64().unwrap_or(0)
+                >= 1
+        );
+        assert!(provenance.contains("oto_preutter_ms"));
+        assert!(provenance.contains("extension_details"));
+        assert!(provenance.contains("org.example.render-engine"));
+        assert!(provenance.contains("manifest-test"));
     }
 
     #[test]

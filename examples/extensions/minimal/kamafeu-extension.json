@@ -1,0 +1,25 @@
+{
+  "id": "org.kamafeu.example-minimal",
+  "name": "Kamafeu Minimal Extension",
+  "version": "0.1.0",
+  "api_version": 1,
+  "abi_min_version": 1,
+  "abi_max_version": 1,
+  "kind": "analysis",
+  "capabilities": ["analysis.example"],
+  "formats": [],
+  "phonemizers": [],
+  "permissions": [],
+  "platforms": ["desktop", "wasm"],
+  "limitations": [],
+  "parameters": {
+    "mix": {
+      "kind": "number",
+      "default": 1.0,
+      "minimum": 0.0,
+      "maximum": 1.0
+    }
+  },
+  "description": "Extensão mínima sem imports nem permissões.",
+  "entrypoint": "extension.wasm"
+}

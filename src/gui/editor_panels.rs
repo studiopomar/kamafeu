@@ -4,7 +4,7 @@ use crate::gui::unified_panel::draw_unified_panel;
 use crate::gui::KamafeuStudioApp;
 use crate::oto::Voicebank;
 use crate::project::model::UNote;
-use crate::renderer::TrackRenderer;
+use crate::renderer::{PreviewTarget, ProjectRenderer, TrackRenderer};
 use eframe::egui;
 use eframe::egui::Frame;
 use eframe::egui::SidePanel;
@@ -42,6 +42,7 @@ impl KamafeuStudioApp {
                 &mut self.render_log_window_open,
                 &mut self.piano_roll_state.active_tool,
                 &mut self.piano_roll_state.pitch_sub_tool,
+                &mut self.piano_roll_state.pitch_smooth_intensity,
                 &mut self.piano_roll_state.auto_scroll_mode,
                 &mut self.piano_roll_state.vertical_pitch_follow,
                 &mut self.piano_roll_state.active_scale,
@@ -469,17 +470,55 @@ impl KamafeuStudioApp {
 
         if let Some(alias) = preview_alias {
             let mut played = false;
-            if let Some(ref vb) = self.voicebank {
-                if let Some(entry) = vb
-                    .find_entry(&alias, "C4")
-                    .or_else(|| vb.find_entry(&alias, "A3"))
-                {
-                    let wav_path = vb.root_path.join(&entry.wav_filename);
-                    if let Ok((samples, sr)) = TrackRenderer::load_wav_samples(&wav_path) {
-                        let max_s = (sr as usize).min(samples.len());
+            if let (Some(note_index), Some(vb)) = (selected_idx, self.voicebank.as_ref()) {
+                let previews_selected_note = self
+                    .project
+                    .parts
+                    .get(part_idx)
+                    .and_then(|part| part.notes.get(note_index))
+                    .is_some_and(|note| note.lyric == alias);
+                if !previews_selected_note {
+                    // A palette alias that is not the selected note remains a
+                    // direct sample preview; never render unrelated music.
+                } else {
+                    let resampler = self.create_resampler_driver();
+                    let wavtool = self.create_wavtool_driver();
+                    let mut options = self.vocal_mode_params.clone();
+                    options.resampler_instances = self.config.dsp.resampler_instances.max(1);
+                    let preview = ProjectRenderer::render_preview_target_with_drivers(
+                        &self.project,
+                        vb,
+                        self.sample_rate,
+                        PreviewTarget::Note {
+                            part_index: part_idx,
+                            note_index,
+                        },
+                        resampler.as_ref(),
+                        wavtool.as_ref(),
+                        &options,
+                        None,
+                        None,
+                    );
+                    if preview.error.is_none() && !preview.samples.is_empty() {
                         self.audio_player
-                            .play_samples(samples[..max_s].to_vec(), sr);
+                            .play_samples(preview.samples, preview.sample_rate);
                         played = true;
+                    }
+                }
+            }
+            if let Some(ref vb) = self.voicebank {
+                if !played {
+                    if let Some(entry) = vb
+                        .find_entry(&alias, "C4")
+                        .or_else(|| vb.find_entry(&alias, "A3"))
+                    {
+                        let wav_path = vb.root_path.join(&entry.wav_filename);
+                        if let Ok((samples, sr)) = TrackRenderer::load_wav_samples(&wav_path) {
+                            let max_s = (sr as usize).min(samples.len());
+                            self.audio_player
+                                .play_samples(samples[..max_s].to_vec(), sr);
+                            played = true;
+                        }
                     }
                 }
             }

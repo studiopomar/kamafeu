@@ -106,6 +106,9 @@ console_log = { version = "1.0", features = ["color"] }
 getrandom = { version = "0.2", features = ["js"] }
 log = "0.4"
 
+[dev-dependencies]
+wat = "1.0"
+
 
 
 # --------------------------------------------------------------------------

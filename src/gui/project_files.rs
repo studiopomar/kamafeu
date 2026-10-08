@@ -6,7 +6,7 @@ use crate::formats::UstFormat;
 use crate::formats::UstxFormat;
 use crate::formats::VsqxFormat;
 use crate::gui::history::UndoManager;
-use crate::gui::KamafeuStudioApp;
+use crate::gui::{KamafeuStudioApp, PendingProjectAction};
 use crate::oto::Voicebank;
 use std::path::Path;
 use std::path::PathBuf;
@@ -49,6 +49,23 @@ pub fn web_file_queue() -> &'static std::sync::Mutex<Vec<(String, Vec<u8>)>> {
 }
 
 impl KamafeuStudioApp {
+    pub(crate) fn request_project_action(&mut self, action: PendingProjectAction) {
+        if self.is_dirty && self.config.workflow.confirm_on_exit_dirty {
+            self.pending_project_action = Some(action);
+            self.exit_confirmation_open = true;
+        } else {
+            self.apply_project_action(action);
+        }
+    }
+
+    pub(crate) fn apply_project_action(&mut self, action: PendingProjectAction) {
+        match action {
+            PendingProjectAction::New => self.new_project(),
+            PendingProjectAction::Open(path) => self.open_project_from_path(&path),
+        }
+        self.pending_project_action = None;
+    }
+
     #[cfg(not(target_arch = "wasm32"))]
     pub(crate) fn recovery_snapshot_paths(&self) -> Result<Vec<PathBuf>, String> {
         let parent = self
@@ -328,6 +345,14 @@ impl KamafeuStudioApp {
     }
 
     pub fn new_project(&mut self) {
+        if self.is_dirty
+            && self.config.workflow.confirm_on_exit_dirty
+            && self.pending_project_action.is_none()
+        {
+            self.pending_project_action = Some(PendingProjectAction::New);
+            self.exit_confirmation_open = true;
+            return;
+        }
         self.audio_player.stop();
         self.project = crate::project::model::UProject::default();
         self.current_project_path = None;
@@ -342,6 +367,14 @@ impl KamafeuStudioApp {
     }
 
     pub fn open_project_from_path(&mut self, path: &Path) {
+        if self.is_dirty
+            && self.config.workflow.confirm_on_exit_dirty
+            && self.pending_project_action.is_none()
+        {
+            self.pending_project_action = Some(PendingProjectAction::Open(path.to_path_buf()));
+            self.exit_confirmation_open = true;
+            return;
+        }
         let extension = path
             .extension()
             .and_then(|s| s.to_str())
@@ -714,6 +747,11 @@ impl KamafeuStudioApp {
         self.project.wavtool = Some(self.selected_wavtool.clone());
         self.project.sample_rate = Some(self.sample_rate);
         self.project.render_threads = Some(self.render_threads);
+        // Render progress is diagnostic/session state, but it is part of APS
+        // so an interrupted preview remains inspectable after reopening.
+        if self.project.render_state.is_none() && self.failed_chunk.is_some() {
+            self.project.render_state = Some(Default::default());
+        }
 
         if let Some(ref vb) = self.voicebank {
             self.project.voicebank = Some(vb.name.clone());

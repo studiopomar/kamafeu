@@ -161,6 +161,38 @@ fn failed_phone_invalidates_the_project_instead_of_substituting_raw_audio() {
     assert!(error.contains("'a'") && error.contains("intentional failure"));
 }
 
+#[test]
+fn space_separated_oto_alias_is_discovered_and_rendered_audibly() {
+    let (_dir, vb) = bank(&["k a"]);
+    let entry = vb
+        .find_mapped_entry("k a", "C4")
+        .expect("the literal composite alias must be discoverable");
+    assert_eq!(entry.alias, "k a");
+
+    let mut project = UProject::default();
+    project.parts[0].notes = vec![UNote::new("k a", "C4", 0.0, 500.0)];
+    let rendered = ProjectRenderer::render_project_with_drivers(
+        &project,
+        &vb,
+        44_100,
+        0.0,
+        &NativeResamplerDriver,
+        &NativeWavtoolDriver,
+        &RenderOptions::default(),
+        None,
+    );
+
+    assert!(
+        rendered.error.is_none(),
+        "render failed: {:?}",
+        rendered.error
+    );
+    assert!(
+        rendered.samples.iter().any(|sample| sample.abs() > 1e-5),
+        "a resolved k a alias must not render as silence"
+    );
+}
+
 #[cfg(unix)]
 #[test]
 fn external_wavtool_gets_one_output_and_corrected_lengths() {

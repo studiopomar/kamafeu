@@ -8,6 +8,7 @@ pub(super) fn draw(
     sample_rate: &mut u32,
     selected_resampler: &mut String,
     selected_wavtool: &mut String,
+    render_flags: &mut String,
     custom_resampler_path: &mut Option<PathBuf>,
     custom_wavtool_path: &mut Option<PathBuf>,
     discord_rpc_enabled: &mut bool,
@@ -29,6 +30,19 @@ pub(super) fn draw(
                             .color(theme.accent_c32()),
                     );
                     ui.separator();
+
+                    ui.label(RichText::new(lang.tr(
+                        "Flags padrão do perfil de render",
+                        "Render profile default flags",
+                    )).size(10.0));
+                    ui.add(
+                        egui::TextEdit::singleline(render_flags)
+                            .hint_text("ex: P86g-5Hb140"),
+                    )
+                    .on_hover_text(lang.tr(
+                        "Estas flags são herdadas por todas as notas; a nota pode substituir tokens individualmente.",
+                        "These flags are inherited by every note; notes can override individual tokens.",
+                    ));
 
                     ui.horizontal(|ui| {
                         if ui

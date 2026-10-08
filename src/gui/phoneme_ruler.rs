@@ -584,6 +584,28 @@ pub fn draw_phoneme_ruler(
                                     ),
                                     Stroke::NONE,
                                 ));
+                                let timing_rect = Rect::from_min_max(
+                                    Pos2::new(base_start, y_top),
+                                    Pos2::new(base_end.max(base_start + 1.0), y_bottom),
+                                );
+                                let timing_response = ui.interact(
+                                    timing_rect,
+                                    ui.id().with((
+                                        "phoneme_timing",
+                                        note_index,
+                                        phone.alias.as_str(),
+                                        phone.relative_position_ms.to_bits(),
+                                    )),
+                                    Sense::hover(),
+                                );
+                                timing_response.on_hover_text(format!(
+                                    "{}\nPreutter: {:.1} ms\nOverlap: {:.1} ms\nTail intrude: {:.1} ms\nTail overlap: {:.1} ms",
+                                    phone.alias,
+                                    phone.preutter_ms,
+                                    phone.overlap_ms,
+                                    phone.tail_intrude_ms,
+                                    phone.tail_overlap_ms,
+                                ));
                                 for pair in points.windows(2) {
                                     painter.line_segment(
                                         [pair[0], pair[1]],

@@ -70,13 +70,158 @@ pub struct ProgressiveChunk {
     pub audio: RenderedAudio,
     /// The absolute project time (ms) where this chunk begins.
     pub chunk_start_ms: f64,
+    /// Zero-based position in the progressive render sequence.
+    pub chunk_index: usize,
     /// `true` when this is the last chunk in the progressive sequence.
     pub is_final: bool,
 }
 
+impl ProgressiveChunk {
+    /// Absolute project time immediately after this chunk.
+    pub fn end_ms(&self) -> f64 {
+        self.chunk_start_ms
+            + self.audio.frame_count() as f64 * 1000.0 / self.audio.sample_rate.max(1) as f64
+    }
+}
+
 pub struct ProjectRenderer;
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub enum PreviewTarget {
+    Range {
+        start_ms: f64,
+        end_ms: f64,
+    },
+    Note {
+        part_index: usize,
+        note_index: usize,
+    },
+    Phoneme {
+        part_index: usize,
+        note_index: usize,
+        phoneme_index: usize,
+    },
+    Transition {
+        part_index: usize,
+        left_note_index: usize,
+        right_note_index: usize,
+    },
+}
+
 impl ProjectRenderer {
+    /// Resolves an isolated preview target to an absolute project interval.
+    /// This is geometry-only and intentionally does not invoke a phonemizer or
+    /// engine, so every frontend can present the same selection before audio
+    /// work begins.
+    pub fn preview_bounds(project: &UProject, target: PreviewTarget) -> Option<(f64, f64)> {
+        let bounds = |part_index: usize, note_index: usize| {
+            let part = project.parts.get(part_index)?;
+            let note = part.notes.get(note_index)?;
+            let start = part.position_ms + note.position_ms;
+            Some((start, start + note.duration_ms.max(0.0)))
+        };
+
+        match target {
+            PreviewTarget::Range { start_ms, end_ms }
+                if start_ms.is_finite() && end_ms.is_finite() && end_ms > start_ms =>
+            {
+                Some((start_ms.max(0.0), end_ms.max(0.0)))
+            }
+            PreviewTarget::Range { .. } => None,
+            PreviewTarget::Note {
+                part_index,
+                note_index,
+            } => bounds(part_index, note_index),
+            PreviewTarget::Phoneme {
+                part_index,
+                note_index,
+                phoneme_index,
+            } => {
+                let part = project.parts.get(part_index)?;
+                let note = part.notes.get(note_index)?;
+                let (note_start, note_end) = bounds(part_index, note_index)?;
+                let durations =
+                    note.resolved_phoneme_durations(note.phoneme_durations_ms.len().max(1));
+                if phoneme_index >= durations.len() {
+                    return None;
+                }
+                let offset: f64 = durations[..phoneme_index].iter().sum();
+                let start = (note_start + offset).min(note_end);
+                Some((start, (start + durations[phoneme_index]).min(note_end)))
+            }
+            PreviewTarget::Transition {
+                part_index,
+                left_note_index,
+                right_note_index,
+            } => {
+                let (left_start, left_end) = bounds(part_index, left_note_index)?;
+                let (right_start, right_end) = bounds(part_index, right_note_index)?;
+                (right_start >= left_start && right_end >= left_end)
+                    .then_some((left_start.min(right_start), left_end.max(right_end)))
+            }
+        }
+    }
+
+    /// Renders only the requested preview target while retaining enough
+    /// preceding context for VCV/VCVC transitions. The returned buffer starts
+    /// exactly at the target start, never at the internal context boundary.
+    #[allow(clippy::too_many_arguments)]
+    pub fn render_preview_target_with_drivers(
+        project: &UProject,
+        voicebank: &Voicebank,
+        sample_rate: u32,
+        target: PreviewTarget,
+        resampler_driver: &dyn ResamplerDriver,
+        wavtool_driver: &dyn WavtoolDriver,
+        options: &RenderOptions,
+        on_progress: Option<&(dyn Fn(f32, &str) + Send + Sync)>,
+        cancel: Option<&AtomicBool>,
+    ) -> RenderedAudio {
+        let Some((start_ms, end_ms)) = Self::preview_bounds(project, target) else {
+            return RenderedAudio::failed(sample_rate, "alvo de prévia inválido".to_string());
+        };
+        let context_start = Self::preview_context_start(project, start_ms, 0.0);
+        let rendered = Self::render_project_range_with_drivers_cancellable(
+            project,
+            voicebank,
+            sample_rate,
+            context_start,
+            Some(end_ms),
+            resampler_driver,
+            wavtool_driver,
+            options,
+            on_progress,
+            cancel,
+        );
+        if rendered.error.is_some() {
+            return rendered;
+        }
+        let channels = usize::from(rendered.channels.max(1));
+        let offset_frames = (((start_ms - context_start).max(0.0) / 1000.0)
+            * f64::from(sample_rate))
+        .round() as usize;
+        let target_frames =
+            (((end_ms - start_ms).max(0.0) / 1000.0) * f64::from(sample_rate)).round() as usize;
+        let offset = offset_frames.saturating_mul(channels);
+        let length = target_frames.saturating_mul(channels);
+        let mut samples = if offset < rendered.samples.len() {
+            rendered.samples[offset..]
+                .iter()
+                .copied()
+                .take(length)
+                .collect()
+        } else {
+            Vec::new()
+        };
+        samples.resize(length, 0.0);
+        RenderedAudio {
+            samples,
+            sample_rate: rendered.sample_rate,
+            channels: rendered.channels,
+            error: None,
+        }
+    }
+
     pub fn set_render_limiter(enabled: bool, peak_db: f32) {
         if let Ok(mut config) = render_limiter_config().write() {
             config.enabled = enabled;
@@ -235,6 +380,13 @@ impl ProjectRenderer {
                     }
                 };
 
+                let mut track_options = options.clone();
+                track_options.flags = crate::drivers::resampler_driver::merge_utau_flags(&[
+                    project.flags.as_str(),
+                    track.flags.as_str(),
+                    options.flags.as_str(),
+                ]);
+
                 let mono = TrackRenderer::try_render_track_with_progress_cancellable(
                     &notes,
                     voicebank,
@@ -242,7 +394,7 @@ impl ProjectRenderer {
                     project.bpm,
                     resampler_driver,
                     wavtool_driver,
-                    Some(options),
+                    Some(&track_options),
                     Some(&track_cb),
                     cancel,
                 );
@@ -280,6 +432,13 @@ impl ProjectRenderer {
                     }
                 };
 
+                let mut track_options = options.clone();
+                track_options.flags = crate::drivers::resampler_driver::merge_utau_flags(&[
+                    project.flags.as_str(),
+                    track.flags.as_str(),
+                    options.flags.as_str(),
+                ]);
+
                 let mono = TrackRenderer::try_render_track_with_progress_cancellable(
                     &notes,
                     voicebank,
@@ -287,7 +446,7 @@ impl ProjectRenderer {
                     project.bpm,
                     resampler_driver,
                     wavtool_driver,
-                    Some(options),
+                    Some(&track_options),
                     Some(&track_cb),
                     cancel,
                 );
@@ -395,6 +554,68 @@ impl ProjectRenderer {
     /// sent, the complete render provides the following chunks with the same
     /// phrase context as export.
     #[allow(clippy::too_many_arguments)]
+    pub fn retry_progressive_chunk(
+        project: &UProject,
+        voicebank: &Voicebank,
+        sample_rate: u32,
+        chunk_index: usize,
+        start_ms: f64,
+        end_ms: f64,
+        is_final: bool,
+        resampler_driver: &dyn ResamplerDriver,
+        wavtool_driver: &dyn WavtoolDriver,
+        options: &RenderOptions,
+        on_progress: Option<&(dyn Fn(f32, &str) + Send + Sync)>,
+        cancel: Option<&AtomicBool>,
+    ) -> ProgressiveChunk {
+        let start_ms = start_ms.max(0.0);
+        let end_ms = end_ms.max(start_ms);
+        let context_start = Self::preview_context_start(project, start_ms, 0.0);
+        let rendered = Self::render_project_range_with_drivers_cancellable(
+            project,
+            voicebank,
+            sample_rate,
+            context_start,
+            Some(end_ms),
+            resampler_driver,
+            wavtool_driver,
+            options,
+            on_progress,
+            cancel,
+        );
+        if rendered.error.is_some() {
+            return ProgressiveChunk {
+                audio: rendered,
+                chunk_start_ms: start_ms,
+                chunk_index,
+                is_final,
+            };
+        }
+        let channels = usize::from(rendered.channels.max(1));
+        let offset = (((start_ms - context_start).max(0.0) / 1000.0) * sample_rate as f64).round()
+            as usize
+            * channels;
+        let requested =
+            (((end_ms - start_ms) / 1000.0) * sample_rate as f64).round() as usize * channels;
+        let mut samples = vec![0.0; requested];
+        if offset < rendered.samples.len() {
+            let available = samples.len().min(rendered.samples.len() - offset);
+            samples[..available].copy_from_slice(&rendered.samples[offset..offset + available]);
+        }
+        ProgressiveChunk {
+            audio: RenderedAudio {
+                samples,
+                sample_rate,
+                channels: rendered.channels,
+                error: None,
+            },
+            chunk_start_ms: start_ms,
+            chunk_index,
+            is_final,
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
     pub fn render_project_progressive(
         project: &UProject,
         voicebank: &Voicebank,
@@ -448,6 +669,7 @@ impl ProjectRenderer {
             let _ = chunk_tx.send(ProgressiveChunk {
                 audio: priority_audio,
                 chunk_start_ms: cursor,
+                chunk_index: 0,
                 is_final: true,
             });
             return;
@@ -479,6 +701,7 @@ impl ProjectRenderer {
             .send(ProgressiveChunk {
                 audio: priority_chunk,
                 chunk_start_ms: cursor,
+                chunk_index: 0,
                 is_final: first_end >= max_end_ms,
             })
             .is_err()
@@ -494,6 +717,7 @@ impl ProjectRenderer {
         // the two-second sink buffer and create silence / apparently eaten
         // phonemes while a distant verse was still rendering.
         cursor = first_end;
+        let mut chunk_index = 1;
         while cursor < max_end_ms {
             if cancel.is_some_and(|c| c.load(Ordering::Relaxed)) {
                 return;
@@ -516,6 +740,7 @@ impl ProjectRenderer {
                 let _ = chunk_tx.send(ProgressiveChunk {
                     audio: page_audio,
                     chunk_start_ms: cursor,
+                    chunk_index,
                     is_final: true,
                 });
                 return;
@@ -543,12 +768,14 @@ impl ProjectRenderer {
                 .send(ProgressiveChunk {
                     audio: page_chunk,
                     chunk_start_ms: cursor,
+                    chunk_index,
                     is_final: end >= max_end_ms,
                 })
                 .is_err()
             {
                 return;
             }
+            chunk_index += 1;
             cursor = end;
         }
     }
@@ -844,6 +1071,27 @@ mod tests {
         let cancel = AtomicBool::new(false);
         let options = RenderOptions::default();
 
+        cancel.store(true, Ordering::Relaxed);
+        ProjectRenderer::render_project_progressive(
+            &project,
+            &vb,
+            44100,
+            0.0,
+            3000.0,
+            1000.0,
+            &crate::drivers::NativeResamplerDriver,
+            &crate::drivers::NativeWavtoolDriver,
+            &options,
+            None,
+            Some(&cancel),
+            &tx,
+        );
+        assert!(
+            rx.try_recv().is_err(),
+            "cancelled render must not publish chunks"
+        );
+        cancel.store(false, Ordering::Relaxed);
+
         ProjectRenderer::render_project_progressive(
             &project,
             &vb,
@@ -871,6 +1119,40 @@ mod tests {
         assert_eq!(chunks[0].chunk_start_ms, 0.0);
         assert!(chunks.last().unwrap().is_final);
         assert_eq!(chunks.len(), 3);
+        let retried = ProjectRenderer::retry_progressive_chunk(
+            &project,
+            &vb,
+            44100,
+            1,
+            1000.0,
+            2000.0,
+            false,
+            &crate::drivers::NativeResamplerDriver,
+            &crate::drivers::NativeWavtoolDriver,
+            &options,
+            None,
+            None,
+        );
+        assert_eq!(retried.chunk_index, 1);
+        assert_eq!(retried.chunk_start_ms, 1000.0);
+        assert_eq!(retried.end_ms(), 2000.0);
+        assert_eq!(retried.audio.frame_count(), 44_100);
+        assert!(retried.audio.error.is_none());
+        let retried_final = ProjectRenderer::retry_progressive_chunk(
+            &project,
+            &vb,
+            44100,
+            2,
+            2000.0,
+            3000.0,
+            true,
+            &crate::drivers::NativeResamplerDriver,
+            &crate::drivers::NativeWavtoolDriver,
+            &options,
+            None,
+            None,
+        );
+        assert!(retried_final.is_final);
         let full = ProjectRenderer::render_project_with_drivers(
             &project,
             &vb,
@@ -899,7 +1181,9 @@ mod tests {
             .all(|chunk| chunk.audio.frame_count() == 44_100));
         for i in 1..chunks.len() {
             assert!(chunks[i].chunk_start_ms > chunks[i - 1].chunk_start_ms);
+            assert_eq!(chunks[i].chunk_index, i);
         }
+        assert_eq!(chunks[0].chunk_index, 0);
     }
 
     #[test]
@@ -959,5 +1243,100 @@ mod tests {
                 .sqrt();
             assert!(rms > 0.005, "progressive WORLD chunk cut at {center_ms}ms");
         }
+    }
+
+    #[test]
+    fn preview_bounds_cover_notes_phonemes_transitions_and_ranges() {
+        let mut project = UProject::default();
+        let mut first = UNote::new("ka", "C4", 100.0, 400.0);
+        first.phoneme_durations_ms = vec![120.0, 280.0];
+        project.parts[0].notes = vec![first, UNote::new("a", "D4", 500.0, 300.0)];
+
+        assert_eq!(
+            ProjectRenderer::preview_bounds(
+                &project,
+                PreviewTarget::Note {
+                    part_index: 0,
+                    note_index: 0,
+                }
+            ),
+            Some((100.0, 500.0))
+        );
+        assert_eq!(
+            ProjectRenderer::preview_bounds(
+                &project,
+                PreviewTarget::Phoneme {
+                    part_index: 0,
+                    note_index: 0,
+                    phoneme_index: 1,
+                }
+            ),
+            Some((220.0, 500.0))
+        );
+        assert_eq!(
+            ProjectRenderer::preview_bounds(
+                &project,
+                PreviewTarget::Transition {
+                    part_index: 0,
+                    left_note_index: 0,
+                    right_note_index: 1,
+                }
+            ),
+            Some((100.0, 800.0))
+        );
+        assert_eq!(
+            ProjectRenderer::preview_bounds(
+                &project,
+                PreviewTarget::Range {
+                    start_ms: 50.0,
+                    end_ms: 250.0,
+                }
+            ),
+            Some((50.0, 250.0))
+        );
+        assert!(ProjectRenderer::preview_bounds(
+            &project,
+            PreviewTarget::Phoneme {
+                part_index: 0,
+                note_index: 0,
+                phoneme_index: 2,
+            }
+        )
+        .is_none());
+    }
+
+    #[test]
+    fn isolated_preview_returns_exact_target_length() {
+        let directory = tempfile::tempdir().unwrap();
+        let source: Vec<f32> = (0..44_100)
+            .map(|index| (index as f32 * 0.03).sin() * 0.2)
+            .collect();
+        TrackRenderer::save_wav_samples(directory.path().join("source.wav"), &source, 44_100)
+            .unwrap();
+        std::fs::write(
+            directory.path().join("oto.ini"),
+            "source.wav=a,0,50,-400,30,10\n",
+        )
+        .unwrap();
+        let voicebank = Voicebank::new(directory.path()).unwrap();
+        let mut project = UProject::default();
+        project.parts[0].notes = vec![UNote::new("a", "C4", 0.0, 500.0)];
+        let audio = ProjectRenderer::render_preview_target_with_drivers(
+            &project,
+            &voicebank,
+            44_100,
+            PreviewTarget::Range {
+                start_ms: 100.0,
+                end_ms: 250.0,
+            },
+            &crate::drivers::NativeResamplerDriver,
+            &crate::drivers::NativeWavtoolDriver,
+            &RenderOptions::default(),
+            None,
+            None,
+        );
+        assert!(audio.error.is_none(), "preview failed: {:?}", audio.error);
+        assert_eq!(audio.frame_count(), 6_615);
+        assert!(audio.samples.iter().any(|sample| sample.abs() > 1e-5));
     }
 }

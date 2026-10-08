@@ -1,18 +1,23 @@
 #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
 use discord_rich_presence::{activity, DiscordIpc, DiscordIpcClient};
+#[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
 use std::sync::mpsc::{channel, Receiver, Sender};
 #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
 use std::thread;
 #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
+#[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
 const DISCORD_APP_ID: &str = "1535402147045183600";
 /// These names must match the Rich Presence Art Assets in the Discord portal.
+#[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
 const LARGE_ASSET: &str = "kamafeu_logo";
 const EDIT_ASSET: &str = "status_edit";
 const PLAY_ASSET: &str = "status_play";
 const RENDER_ASSET: &str = "status_render";
+#[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
 const PROJECT_URL: &str = "https://github.com/studiopomar/kamafeu";
+#[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
 const RELEASES_URL: &str = "https://github.com/studiopomar/kamafeu/releases";
 
 #[derive(Debug, Clone, PartialEq, Eq)]

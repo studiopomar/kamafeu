@@ -7,6 +7,268 @@ e este projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR
 
 ---
 
+## [Não lançado]
+
+### Contratos e extensibilidade
+- O comando `diff` compara revisões APS e formatos suportados por dados
+  musicais, arranjo, configurações de render, fonemas e áudio, sem alterar os
+  arquivos de entrada.
+- O navegador de snapshots mostra o resumo semântico de cada revisão e os
+  índices afetados ao passar o mouse, antes de abrir uma cópia.
+- O diff semântico também está disponível no protocolo JSON Lines e na
+  ferramenta MCP `kamafeu_diff`, sempre em modo somente leitura.
+- O navegador de snapshots permite restaurar somente as notas alteradas após
+  confirmação explícita, preservando arranjo/áudio e registrando undo.
+- O mesmo fluxo permite restaurar partes de áudio alteradas, preservando notas
+  e fonemas e mantendo undo transacional.
+- A camada de domínio agora oferece restauração seletiva validada de marcadores
+  e seções, preservando notas e áudio para a próxima integração de arranjo na GUI.
+- Exportações completas, vocais e stems agora podem ser canceladas pelo
+  terminal de renderização; o cancelamento é propagado ao renderer e não é
+  apresentado como conclusão bem-sucedida.
+- O terminal de renderização agora filtra diagnósticos de timing e identifica
+  cada ocorrência com o badge `[TIME]`, facilitando a revisão de preutterance,
+  overlap e intrusões por fonema.
+- Cada fonema renderizado registra também RMS de 10 ms no início e no fim do
+  áudio, permitindo comparar a energia nas junções sem alterar o render.
+- Fixtures de transição VCV e VC agora verificam energia mínima e variação
+  limitada nas janelas de junção, além de procurar silêncio artificial.
+- O manifesto de render agora preserva `timing_boundary_diagnostics`, com RMS
+  de início/fim por fonema, inclusive para aliases compostos como `k a`.
+- `provenance-info` exibe a quantidade de diagnósticos de fronteira, mantendo a
+  auditoria disponível tanto em JSON quanto na saída textual do CLI.
+- Fronteiras com RMS não finito ou simultaneamente silencioso geram aviso no
+  manifesto, sem alterar o áudio nem aplicar nivelamento automático.
+- Manifestos WASM agora podem declarar `limitations` informativas, exibidas
+  antes da ativação sem alterar a política de sandbox.
+- O catálogo JSON preserva e expõe essas limitações, com testes de round-trip
+  do manifesto e de descoberta metadata-only.
+- A saída textual de `extensions` também exibe as limitações declaradas, sem
+  exigir que o usuário alterne para JSON.
+- A validação de manifestos rejeita limitações vazias, mantendo diagnósticos de
+  compatibilidade úteis e determinísticos.
+- Diagnósticos de projeto agora incluem sugestões de correção estáveis na GUI
+  e no JSON, sem alterar o projeto automaticamente.
+- `validate-project` em modo textual também mostra essas sugestões, mantendo
+  o mesmo diagnóstico entre CLI, automação e interface.
+- Diagnósticos de voicebank agora sugerem restauração de WAV ou recalibração de
+  `oto.ini`, com a mesma regra não destrutiva.
+- O diálogo de integridade do voicebank também exibe essas sugestões junto de
+  cada alias problemático.
+- Chunks de prévia progressiva agora carregam índice sequencial explícito,
+  preparando retry seletivo de trechos sem alterar o áudio atual.
+- `ProjectRenderer::retry_progressive_chunk` já re-renderiza um intervalo
+  identificado, preservando contexto fonético e índice do chunk.
+- O log da GUI identifica cada chunk recebido, seu início, tamanho e estado de
+  erro, tornando falhas localizáveis antes da repetição seletiva.
+- O terminal ganhou filtro `Chunks` e badge `[CHUNK]` para revisar somente a
+  sequência progressiva recebida.
+- `ProgressiveChunk::end_ms()` fornece o fim temporal do intervalo, e o log da
+  GUI passa a exibir início e fim prontos para retry.
+- O retry seletivo preserva explicitamente o estado `is_final` do chunk,
+  incluindo reexecuções do último intervalo.
+- O painel de logs agora oferece `Repetir chunk` para falhas progressivas,
+  reutilizando o projeto, voicebank, opções e sample rate da prévia original.
+- APS v4 persiste o estado não musical dos chunks progressivos, incluindo
+  intervalo, índice, status, erro e indicação do último chunk.
+- O pacote deixou de incluir o vocoder DiffSinger `.oudep`/ONNX do Catalina,
+  reduzindo o tamanho da distribuição; ao faltar a dependência, o diagnóstico
+  mostra o catálogo oficial para instalação manual.
+- O artefato Windows agora empacota explicitamente a DLL do ONNX Runtime e
+  executa um smoke test de inicialização no GitHub Actions; falhas de início
+  também exibem uma caixa de diálogo em vez de desaparecerem no duplo clique.
+- O exemplo de extensão WASM mínima agora inclui um `extension.wasm` real,
+  validado pelo catálogo e executável pelo ABI de bytes (`analyze` retorna
+  `hello`).
+- A seção de extensões do README foi alinhada à ABI atual, incluindo tipos
+  não-renderizantes e `limitations`.
+- `docs/render-provenance.md` agora documenta os mapeamentos de flags de
+  breathiness/gender por perfil de resampler e sua precedência literal.
+- A interface informa as limitações de engines externas em Android/WASM e
+  oferece a matriz verificável por `kamafeu platform-info --json`.
+- O inspetor vocal exibe prévias não executáveis dos comandos efetivos de
+  resampler e wavtool, incluindo envelope e flags do escopo selecionado.
+- Manifestos de render agora persistem descrições não executáveis dos comandos
+  finais de resampler e wavtool, com compatibilidade para sidecars antigos.
+- APS avançou para o schema v3; a migração de v2 preserva projetos e registra
+  a herança dos controles avançados por fonema ausentes.
+- APS agora possui `schema_version` e migração compatível de arquivos legados.
+- O parser APS pode retornar um relatório de migração sem alterar a origem.
+- Manifestos de extensão aceitam intervalo explícito de ABI.
+- A proveniência de render registra versão do pipeline, avisos e cache, usando
+  uma impressão digital determinística entre processos.
+- Flags possuem campos persistentes no projeto e na faixa, com mesclagem por
+  escopo e preservação de tokens desconhecidos antes do resampler.
+- A ativação WASM ganhou uma política de permissões deny-by-default, separada da
+  descoberta e da verificação do módulo.
+- O contrato de extensões passou a reconhecer ferramentas de análise,
+  transformação musical, presets e painéis opcionais do editor.
+- Adicionada API estruturada para alterar ou remover uma flag individual sem
+  perder flags de terceiros.
+- O painel de nota agora oferece edição estruturada para as principais flags
+  numéricas UTAU (`g`, `B`, `b`, `C`, `D`, `E`, `e`, `H`, `Hb`, `Mb`, `Mt`,
+  `N`, `O`, `P`, `R`, `S`, `T`, `V`, `W` e `Y`), mantendo também a edição
+  literal completa para flags proprietárias.
+- A documentação passou a incluir um comando reproduzível para inspecionar
+  aliases compostos como `k a`, incluindo resolução por pitch e timing do
+  `oto.ini` em JSON.
+- A chave do cache visual de fonemas agora inclui todos os overrides por
+  fonema, evitando que a régua mostre alias ou timing antigo após uma edição.
+- A proveniência serializada do render agora registra flags efetivas de perfil
+  e identidades de extensões participantes.
+- A identidade de extensão agora inclui versão, origem e fingerprint do
+  manifesto; o catálogo JSON também expõe esse fingerprint sem executar o
+  plugin.
+- Projetos APS persistem as extensões associadas com versão, origem e
+  fingerprint, mantendo a leitura de projetos legados sem esse campo.
+- O render headless copia essas associações para `extension_details` no
+  manifesto ao lado do áudio, mantendo projeto e resultado auditáveis juntos.
+- O contrato APS avançou para a versão 2 para persistir extensões associadas;
+  a migração de APS v1 informa quando esse campo não existia.
+- A migração APS agora também atualiza `schema_version` no modelo em memória,
+  evitando que um arquivo antigo continue sendo tratado como v1 após a leitura.
+- Referências de extensão são normalizadas com ordenação estável, trim de
+  campos e deduplicação antes de salvar o projeto.
+- Adicionado diagnóstico metadata-only para extensões persistidas ausentes,
+  com versão divergente ou manifesto alterado, sem executar WASM.
+- A auditoria de conversão agora informa quando um formato de intercâmbio
+  descarta extensões associadas ao projeto.
+- `validate-project` ganhou `--extensions-path` para verificar referências de
+  plugins persistidas contra um catálogo escolhido, inclusive em CI.
+- Adicionado teste de integração do relatório JSON de validação para detectar
+  manifestos de plugin alterados.
+- Adicionada API de limites de prévia isolada para trecho, nota, subfonema e
+  transição, compartilhável entre GUI e renderização.
+- A API de prévia agora também renderiza exatamente o intervalo selecionado,
+  preservando contexto vocal anterior para transições VCV/VCVC.
+- A prévia de uma nota selecionada no painel agora usa o pipeline vocal real;
+  aliases da paleta que não correspondem à nota continuam usando amostra direta.
+- Adicionado guia inicial do SDK WASM, com manifesto, ABI mínima, permissões e
+  ciclo de ativação.
+- O comando `extensions` agora aceita `--grant-permission` para verificações
+  WASM autorizadas explicitamente; sem a opção, permissões continuam negadas.
+- Adicionado teste de renderização real para aliases com espaço, incluindo o
+  caso `k a` em voicebank UTAU que também contém `dsvocoder` auxiliar.
+- O runtime WASM agora oferece `invoke_wasm_i32` para entrypoints simples de
+  plugins, mantendo validação de ABI, fuel e imports proibidos.
+- O SDK WASM agora oferece `invoke_wasm_bytes` para análise e transformação,
+  com retorno ponteiro/tamanho, memória exportada obrigatória e limite de 1 MiB.
+- O catálogo de extensões agora informa o estado do entrypoint (`available`,
+  `missing`, `not_wasm` ou `not_declared`) sem executar o plugin.
+- O CLI agora permite executar explicitamente um export WASM por ID, com
+  argumento inteiro ou ABI de bytes, mantendo o sandbox e as permissões exigidas.
+- A execução explícita do CLI aceita parâmetros repetíveis `chave=valor`, com
+  conversão JSON e validação pelo manifesto antes da execução.
+- O protocolo de automação agora pode executar o mesmo ABI WASM com parâmetros
+  JSON estruturados e retorno uniforme.
+- A resolução de timing vocal agora expõe diagnóstico serializável por fonema,
+  distinguindo valores de oto.ini, overrides, clamps e geometria de junção.
+- O render vocal emite esses diagnósticos como linhas JSON `[Timing]` no fluxo
+  de progresso, sem alterar o áudio produzido.
+- Sidecars de proveniência agora aceitam `timing_diagnostics` com migração
+  compatível de arquivos antigos.
+- A ordem dos diagnósticos no sidecar agora é normalizada após renders
+  paralelos, mantendo manifestos reproduzíveis.
+- A normalização foi centralizada no construtor de proveniência, garantindo o
+  mesmo resultado para GUI, CLI e automação.
+- Adicionado `provenance-info` para inspecionar sidecars e diagnósticos de
+  timing sem abrir o projeto ou reexecutar o render.
+- O ruler de fonemas agora oferece tooltip por subfonema com alias,
+  preutterance, overlap, `tail_intrude` e `tail_overlap` resolvidos.
+- Manifestos de plugins podem declarar plataformas suportadas, permitindo
+  diagnosticar incompatibilidades antes da ativação.
+- A ativação WASM agora recusa extensões incompatíveis com a plataforma
+  declarada, mesmo quando suas permissões foram concedidas.
+- O salvamento APS agora recusa schemas futuros em vez de rebaixá-los
+  silenciosamente para a versão conhecida pelo host.
+- A proveniência de render agora pode registrar artefatos por hash de conteúdo,
+  permitindo detectar alterações reais em `oto.ini`, modelos e executáveis.
+- A renderização headless da CLI passou a gravar automaticamente o manifesto de
+  proveniência ao lado do áudio exportado.
+- O runtime WASM passou a limitar explicitamente fuel, memória linear,
+  instâncias, memórias e tabelas durante verificação e execução.
+- Overrides de fonema agora preservam e aplicam flags UTAU literais no nível do
+  fonema, inclusive no round-trip USTX.
+- O painel de nota passou a exibir e editar as flags do fonema selecionado,
+  incluindo a linha efetiva resultante da precedência de escopos.
+- Manifestos WASM agora podem declarar parâmetros tipados, faixas e valores
+  padrão; o catálogo CLI expõe esse contrato sem executar o plugin.
+- O host valida valores de parâmetros antes da execução, rejeitando chaves
+  desconhecidas, tipos incompatíveis, ausências obrigatórias e faixas inválidas.
+- A invocação WASM agora integra essa validação antes da instanciação do módulo,
+  com `invoke_wasm_i32_with_parameters` para entrypoints parametrizados.
+- `voicebank-info` agora oferece diagnóstico estruturado de resolução por alias
+  e pitch, incluindo WAV, preutterance, overlap e motivo de falha.
+- Logs de render agora mostram descrições seguras dos comandos finais de
+  resampler e wavtool, com caminhos, flags e parâmetros temporais.
+- A identidade de cache de resamplers externos agora usa o conteúdo do
+  executável, não apenas tamanho e timestamp.
+- Defaults de parâmetros de plugins agora são valores JSON tipados, permitindo
+  defaults booleanos e textuais além dos numéricos.
+- O manifesto de render agora identifica o voicebank por aliases, timing e
+  conteúdo dos WAVs, em vez de usar somente o nome do cantor.
+- O manifesto headless agora registra as flags do projeto efetivamente usadas
+  pelo renderer, incluindo tokens UTAU desconhecidos.
+- Sidecars de render agora listam os WAVs do voicebank encontrados como artefatos
+  individuais, além do fingerprint agregado do banco.
+- Manifestos de extensão agora declaram explicitamente formatos e fonemizadores
+  suportados, além das capabilities genéricas.
+- O catálogo de extensões ganhou filtros CLI por formato e fonemizador, sem
+  executar módulos WASM.
+- Os mesmos filtros foram adicionados à requisição de automação `Extensions`,
+  mantendo CLI, JSON e MCP alinhados.
+
+### Transições e legibilidade
+- Fonemas sem overlap real deixaram de receber nivelamento automático comparado
+  ao fim da nota anterior, evitando consoantes artificialmente audíveis na
+  passagem entre notas.
+- Letras dentro das notas agora usam a cor `text_note_tag` do tema em vez de uma
+  cor preta fixa; a alteração no editor de temas passa a ser visível no canvas.
+- O crossfade global não é mais aplicado automaticamente entre notas diferentes
+  sem overlap calibrado no `oto.ini`; isso evita que consoantes invadam a nota
+  seguinte e fiquem excessivamente audíveis.
+- O editor de temas agora reaplica os `Visuals` do egui imediatamente após uma
+  alteração, fazendo a cor global de texto e demais cores da interface mudarem
+  sem reiniciar o aplicativo.
+- O wavtool nativo agora usa a mesma curva S de potência igual do caminho
+  alinhado por fase, suavizando ataques e releases de fonemas curtos em vez de
+  expor uma mudança linear brusca no ponto de transição.
+- O merge final deixou de aplicar ganho RMS automático nas transições; a energia
+  agora permanece sob controle exclusivo do envelope do wavtool, impedindo que
+  fonemas VC/CV sejam artificialmente elevados durante o overlap.
+- Adicionado o plano de ação e os critérios de aceite em
+  `docs/plano-acao-transicoes-e-tema.md`.
+
+### Reprodutibilidade e extensões
+- Corrigida a reprodução progressiva: se o worker de renderização desconectar
+  antes do chunk final, o áudio e o playhead são interrompidos em vez de o
+  piano roll continuar avançando sobre uma renderização parcial.
+- Novo projeto e abertura de outro projeto agora respeitam alterações não
+  salvas: o diálogo permite salvar, descartar ou cancelar antes da troca.
+- A biblioteca rápida de cantores agora exibe miniaturas dos portraits
+  encontrados, usando a inicial apenas como fallback.
+- O pincel de pitch agora normaliza traços desenhados da direita para a esquerda,
+  consolida amostras no mesmo instante e evita saltos artificiais na extremidade
+  da curva, mantendo os valores dentro do limite manual do editor.
+- O subpincel de suavização agora oferece controle de intensidade diretamente na
+  barra de ferramentas, permitindo preservar mais ou menos a curva original.
+- O gerenciador de pacotes agora consulta releases GitHub e baixa/extrai assets
+  compatíveis diretamente no diretório de pacotes do Kamafeu, sem exigir que o
+  usuário abra o navegador para instalar resamplers e wavtools.
+- Corrigida a seleção de engine para voicebanks UTAU que possuem uma pasta
+  auxiliar 'dsvocoder' ou metadados DiffSinger: a presença desses arquivos não
+  desvia mais bancos com 'oto.ini' para o renderer DiffSinger, preservando
+  aliases como 'k a'.
+- Corrigido o carregamento de índices nativos antigos: quando existe 'oto.ini',
+  ele passa a ser a fonte autoritativa e não pode ser ocultado por
+  'kamafeu_voicebank.json'.
+- Adicionado manifesto de proveniência de renderização com fingerprint estável,
+  parâmetros do motor e identificação de resampler/wavtool.
+- Exportações podem gerar sidecars '.kamafeu.json' para auditoria e reprodução.
+- Manifests de extensão agora declaram 'capabilities' e 'permissions', com
+  validação de identificadores e exposição no catálogo CLI.
+- Documentado o contrato de extensões em 'docs/extensoes.md'.
+
 ## [1.0.2-rc.1] - 2026-09-19
 
 ### Pré-lançamento

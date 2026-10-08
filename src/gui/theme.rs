@@ -145,6 +145,40 @@ pub struct ThemeConfig {
     pub panel_opacity: f32,
 }
 
+/// Retorna a razão de contraste WCAG entre duas cores RGB opacas.
+///
+/// A função é deliberadamente independente do egui para também poder ser
+/// usada por validações, temas importados e testes de snapshot.
+pub fn contrast_ratio_rgb(foreground: [u8; 3], background: [u8; 3]) -> f32 {
+    fn relative_luminance(rgb: [u8; 3]) -> f32 {
+        let linear = |channel: u8| {
+            let value = channel as f32 / 255.0;
+            if value <= 0.04045 {
+                value / 12.92
+            } else {
+                ((value + 0.055) / 1.055).powf(2.4)
+            }
+        };
+
+        0.2126 * linear(rgb[0]) + 0.7152 * linear(rgb[1]) + 0.0722 * linear(rgb[2])
+    }
+
+    let foreground_luminance = relative_luminance(foreground);
+    let background_luminance = relative_luminance(background);
+    let (lighter, darker) = if foreground_luminance >= background_luminance {
+        (foreground_luminance, background_luminance)
+    } else {
+        (background_luminance, foreground_luminance)
+    };
+
+    (lighter + 0.05) / (darker + 0.05)
+}
+
+/// Contraste mínimo para texto normal segundo WCAG AA.
+pub fn meets_text_contrast(foreground: [u8; 3], background: [u8; 3]) -> bool {
+    contrast_ratio_rgb(foreground, background) >= 4.5
+}
+
 impl Default for ThemeConfig {
     fn default() -> Self {
         Self::from_preset(ThemePreset::PomarNeon)
@@ -834,5 +868,36 @@ mod tests {
         assert_eq!(deserialized.preset, ThemePreset::Cyberpunk);
         assert_eq!(deserialized.note_fill, [210, 55, 120]);
         assert_eq!(deserialized.accent_color, [70, 205, 230]);
+    }
+
+    #[test]
+    fn note_text_color_is_taken_from_the_editable_theme_field() {
+        let mut theme = ThemeConfig::from_preset(ThemePreset::PomarNeon);
+        theme.text_note_tag = [12, 34, 56];
+
+        assert_eq!(theme.text_note_tag_c32(), Color32::from_rgb(12, 34, 56));
+    }
+
+    #[test]
+    fn contrast_ratio_follows_wcag_reference_values() {
+        assert!((contrast_ratio_rgb([255, 255, 255], [0, 0, 0]) - 21.0).abs() < 0.01);
+        assert!((contrast_ratio_rgb([128, 128, 128], [128, 128, 128]) - 1.0).abs() < 0.01);
+        assert!(meets_text_contrast([255, 255, 255], [0, 0, 0]));
+        assert!(!meets_text_contrast([128, 128, 128], [128, 128, 128]));
+    }
+
+    #[test]
+    fn preset_primary_text_keeps_readable_surface_contrast() {
+        for preset in ThemePreset::ALL {
+            let theme = ThemeConfig::from_preset(preset);
+            assert!(
+                meets_text_contrast(theme.text_primary, theme.bg_canvas),
+                "{preset:?}: primary text must contrast with canvas"
+            );
+            assert!(
+                meets_text_contrast(theme.text_primary, theme.bg_panel),
+                "{preset:?}: primary text must contrast with panel"
+            );
+        }
     }
 }

@@ -9,6 +9,14 @@ use std::collections::HashMap;
 use std::fs;
 use std::path::{Path, PathBuf};
 
+pub const DIFFSINGER_DEPENDENCY_URL: &str = "https://www.openutau.com/Dependency/";
+
+pub fn dependency_install_message(vocoder: &str) -> String {
+    format!(
+        "Vocoder DiffSinger '{vocoder}' não encontrado. Instale manualmente a dependência .oudep compatível em {DIFFSINGER_DEPENDENCY_URL} e reinicie o Kamafeu."
+    )
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DiffSingerConfig {
     pub root: PathBuf,
@@ -109,11 +117,7 @@ impl DiffSingerConfig {
                 resolved
             }
         };
-        let vocoder = local_vocoder.ok_or_else(|| {
-            format!(
-                "vocoder DiffSinger não encontrado localmente ({vocoder_value}); dependências compartilhadas ainda não são resolvidas"
-            )
-        })?;
+        let vocoder = local_vocoder.ok_or_else(|| dependency_install_message(vocoder_value))?;
         let languages = value
             .get("languages")
             .and_then(|item| item.as_str())
@@ -294,5 +298,12 @@ mod tests {
         .unwrap();
         let error = DiffSingerConfig::load(dir.path()).unwrap_err();
         assert!(error.contains("caminho inválido"));
+    }
+
+    #[test]
+    fn missing_shared_vocoder_explains_manual_oudep_install() {
+        let message = dependency_install_message("nsf_hifigan");
+        assert!(message.contains(".oudep"));
+        assert!(message.contains(DIFFSINGER_DEPENDENCY_URL));
     }
 }

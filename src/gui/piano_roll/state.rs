@@ -275,6 +275,8 @@ pub struct PianoRollState {
     pub oto_overlap_cache: Vec<f64>,
     pub phoneme_cache_hash: u64,
     pub pitch_brush_raw_stroke: Vec<(f64, f64)>, // (abs_time_ms, abs_midi)
+    /// Blend applied by the interactive pitch smoother (0 = none, 1 = full).
+    pub pitch_smooth_intensity: f32,
     pub dragging_phoneme_handle: Option<(usize, u8, f32, f64)>,
     pub dragging_subphoneme_boundary: Option<(usize, usize, f32, f64)>,
     pub right_click_reset_active: bool,
@@ -290,8 +292,29 @@ pub fn smooth_pitch_points(raw_points: &[(f64, f64)]) -> Vec<UPitchBendPoint> {
     if raw_points.is_empty() {
         return Vec::new();
     }
-    if raw_points.len() <= 2 {
-        return raw_points
+
+    // Pointer samples are not guaranteed to arrive in chronological order:
+    // the user may draw from right to left.  Smoothing an unsorted stroke can
+    // create a large backward segment and an apparent loop in the curve.
+    let mut normalized = raw_points.to_vec();
+    normalized.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+    let mut ordered: Vec<(f64, f64)> = Vec::with_capacity(normalized.len());
+    for (time, cents) in normalized {
+        let cents = cents.clamp(-600.0, 600.0);
+        if let Some(last) = ordered.last_mut() {
+            if (last.0 - time).abs() < 0.001 {
+                last.1 = (last.1 + cents) * 0.5;
+                continue;
+            }
+        }
+        ordered.push((time, cents));
+    }
+
+    if ordered.is_empty() {
+        return Vec::new();
+    }
+    if ordered.len() <= 2 {
+        return ordered
             .iter()
             .map(|&(t, c)| UPitchBendPoint {
                 time_offset_ms: t,
@@ -301,19 +324,19 @@ pub fn smooth_pitch_points(raw_points: &[(f64, f64)]) -> Vec<UPitchBendPoint> {
             .collect();
     }
 
-    let n = raw_points.len();
+    let n = ordered.len();
     let mut smoothed = Vec::with_capacity(n);
     let kernel = [0.06136, 0.24477, 0.38774, 0.24477, 0.06136]; // 5-tap Gaussian kernel
 
     for i in 0..n {
-        let t_center = raw_points[i].0;
+        let t_center = ordered[i].0;
         let mut weighted_cents = 0.0;
         let mut weight_sum = 0.0;
 
         for (k_idx, &weight) in kernel.iter().enumerate() {
             let offset = k_idx as isize - 2;
             let sample_idx = (i as isize + offset).clamp(0, n as isize - 1) as usize;
-            weighted_cents += raw_points[sample_idx].1 * weight;
+            weighted_cents += ordered[sample_idx].1 * weight;
             weight_sum += weight;
         }
 
@@ -348,19 +371,6 @@ pub fn smooth_pitch_points(raw_points: &[(f64, f64)]) -> Vec<UPitchBendPoint> {
             pitch_offset_cents: c,
             shape: "s".to_string(),
         });
-    }
-
-    if let Some(&(last_t, last_c)) = raw_points.last() {
-        if result
-            .last()
-            .is_none_or(|p| (p.time_offset_ms - last_t).abs() > 5.0)
-        {
-            result.push(UPitchBendPoint {
-                time_offset_ms: last_t,
-                pitch_offset_cents: last_c,
-                shape: "s".to_string(),
-            });
-        }
     }
 
     result
@@ -664,6 +674,7 @@ impl Default for PianoRollState {
             oto_overlap_cache: Vec::new(),
             phoneme_cache_hash: 0,
             pitch_brush_raw_stroke: Vec::new(),
+            pitch_smooth_intensity: 0.30,
             dragging_phoneme_handle: None,
             dragging_subphoneme_boundary: None,
             right_click_reset_active: false,
@@ -819,6 +830,23 @@ mod tests {
         assert_eq!(state.waveform_amplitude_at(50.0), Some(0.5));
         assert_eq!(state.waveform_amplitude_at(150.0), Some(0.25));
         assert_eq!(state.waveform_amplitude_at(250.0), None);
+    }
+
+    #[test]
+    fn pitch_brush_normalizes_reverse_strokes_without_an_endpoint_jump() {
+        let points =
+            smooth_pitch_points(&[(120.0, 0.0), (80.0, 300.0), (40.0, 0.0), (40.0, 900.0)]);
+
+        assert!(!points.is_empty());
+        assert!(points
+            .windows(2)
+            .all(|pair| { pair[0].time_offset_ms < pair[1].time_offset_ms }));
+        assert!(points
+            .iter()
+            .all(|point| point.pitch_offset_cents.abs() <= 600.0));
+        assert!(points
+            .last()
+            .is_none_or(|point| (point.time_offset_ms - 120.0).abs() < 0.001));
     }
 
     #[test]

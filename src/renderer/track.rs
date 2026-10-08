@@ -387,6 +387,11 @@ impl TrackRenderer {
 
         let timing_inputs = super::timing::plan_inputs(&phones, voicebank, crossfade_ms);
         let timings = resolve_phoneme_timings(&timing_inputs);
+        for diagnostic in super::timing::diagnostics(&timing_inputs, &timings) {
+            let serialized = serde_json::to_string(&diagnostic)
+                .expect("phoneme timing diagnostic is serializable");
+            log(0.0, &format!("[Timing] {serialized}"));
+        }
 
         let total_phones = phones.len().max(1);
 
@@ -485,7 +490,6 @@ impl TrackRenderer {
                     active_consonant_ms
                 ),
             ));
-
             let combined_pitch = Self::combined_pitch_points(
                 &phone,
                 pitch_notes_ref,
@@ -501,8 +505,13 @@ impl TrackRenderer {
 
             let total_gender = phone.expressions.gender + gender_offset;
             let total_breathiness = phone.expressions.breathiness + breathiness_offset;
+            let inherited_flags = vocal_mode.map(|mode| mode.flags.as_str()).unwrap_or("");
+            let effective_flags = crate::drivers::resampler_driver::merge_utau_flags(&[
+                inherited_flags,
+                &phone.flags,
+            ]);
             let flags =
-                resampler_driver.prepare_flags(&phone.flags, total_gender, total_breathiness);
+                resampler_driver.prepare_flags(&effective_flags, total_gender, total_breathiness);
 
             let res_args = ResamplerArgs {
                 input_wav: wav_full_path.clone(),
@@ -528,7 +537,23 @@ impl TrackRenderer {
 
             logs.push((
                 progress,
-                format!("  [Resampler] Motor: '{}'", resampler_driver.name()),
+                format!(
+                    "  [Resampler] Motor: '{}' | flags finais: '{}' | pitch: {} | duração: {:.1}ms",
+                    resampler_driver.name(),
+                    res_args.flags,
+                    res_args.pitch_name,
+                    res_args.duration_ms
+                ),
+            ));
+            logs.push((
+                progress,
+                format!(
+                    "  [Resampler Command] {}",
+                    crate::drivers::resampler_driver::describe_resampler_command(
+                        resampler_driver.name(),
+                        &res_args,
+                    )
+                ),
             ));
 
             let rendered_or_cached = {
@@ -632,7 +657,26 @@ impl TrackRenderer {
                 sample_time_zero_ms: -timing.pitch_leading_ms,
             };
 
+            logs.push((
+                progress,
+                format!(
+                    "  [Wavtool Command] {}",
+                    crate::drivers::wavtool_driver::describe_wavtool_command(
+                        wavtool_driver.name(),
+                        &wav_args,
+                    )
+                ),
+            ));
+
             let external_phrase = wavtool_driver.phrase_executable().is_some();
+            logs.push((
+                progress,
+                format!(
+                    "  [Wavtool] Motor: '{}' | modo: {}",
+                    wavtool_driver.name(),
+                    if external_phrase { "externo" } else { "nativo" }
+                ),
+            ));
             let wavtool_consumed_skip = if external_phrase {
                 false
             } else {
@@ -688,6 +732,19 @@ impl TrackRenderer {
                     .volume_multiplier_at(time_ms, phone.duration_ms);
                 *sample *= (dyn_gain * vibrato_volume) as f32;
             }
+
+            let boundary_window = ((sample_rate as f64 * 0.010).round() as usize).max(1);
+            let head_rms =
+                crate::renderer::diagnostics::window_rms(&note_rendered, boundary_window, false);
+            let tail_rms =
+                crate::renderer::diagnostics::window_rms(&note_rendered, boundary_window, true);
+            logs.push((
+                progress,
+                format!(
+                    "  [Timing] boundary-rms phone='{}' head={:.6} tail={:.6} window_ms=10.0",
+                    phone.lyric, head_rms, tail_rms
+                ),
+            ));
 
             let mut source_skip_ms = if wavtool_consumed_skip {
                 0.0
@@ -814,12 +871,18 @@ impl TrackRenderer {
                 .unwrap_or(&[]);
             let start_sample_idx =
                 ((result.actual_start_ms / 1000.0) * sample_rate as f64).round() as usize;
-            previous_phone_end_sample = Self::mix_level_matched(
+            let crossfade_samples =
+                ((result.crossfade_ms / 1000.0) * sample_rate as f64).round() as usize;
+            // The wavtool envelope is the authority for transition energy.
+            // Do not apply RMS matching here: even a synthetic safety overlap
+            // can otherwise raise a consonant by up to 1.5x and make it sound
+            // like a separate, overly loud phoneme.
+            previous_phone_end_sample = Self::mix_phase_aligned(
                 &mut track_buffer,
                 audible_samples,
                 start_sample_idx,
                 previous_phone_end_sample,
-                ((result.crossfade_ms / 1000.0) * sample_rate as f64).round() as usize,
+                crossfade_samples,
                 result.pitch_freq,
                 sample_rate,
             );

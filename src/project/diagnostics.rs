@@ -24,6 +24,7 @@ pub enum ProjectIssueKind {
     VeryShortNote,
     NoteOverlap,
     ExtremePhonemeTiming,
+    InvalidPhonemeOverride,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -32,6 +33,35 @@ pub struct ProjectIssue {
     pub kind: ProjectIssueKind,
     pub location: String,
     pub detail: String,
+}
+
+impl ProjectIssue {
+    /// Suggested action only; diagnostics never mutate the project.
+    pub fn suggestion(&self) -> Option<&'static str> {
+        Some(match self.kind {
+            ProjectIssueKind::InvalidTempo => "Defina um BPM entre 20 e 999.",
+            ProjectIssueKind::MissingTracks => "Crie uma faixa antes de inserir material.",
+            ProjectIssueKind::InvalidTrackReference => "Associe a parte a uma faixa existente.",
+            ProjectIssueKind::InvalidPosition | ProjectIssueKind::InvalidMarkerPosition => {
+                "Ajuste a posição para um valor finito não negativo."
+            }
+            ProjectIssueKind::InvalidDuration => "Ajuste a duração para um valor positivo.",
+            ProjectIssueKind::InvalidPitch => "Escolha uma nota como C4 ou uma chave MIDI válida.",
+            ProjectIssueKind::EmptyLyric => "Digite uma letra ou fonema renderizável.",
+            ProjectIssueKind::MissingWaveFile => "Selecione um arquivo WAV existente.",
+            ProjectIssueKind::InvalidSectionRange => "Ajuste início e fim da seção.",
+            ProjectIssueKind::VeryShortNote => "Aumente a duração ou una a nota à vizinha.",
+            ProjectIssueKind::NoteOverlap => {
+                "Use Legato ou corrija as sobreposições se não forem intencionais."
+            }
+            ProjectIssueKind::ExtremePhonemeTiming => {
+                "Revise preutterance, overlap e timing de consoante."
+            }
+            ProjectIssueKind::InvalidPhonemeOverride => {
+                "Limpe o override ou restaure a herança do fonema."
+            }
+        })
+    }
 }
 
 #[derive(Debug, Clone, Default)]
@@ -163,6 +193,82 @@ impl UProject {
                         &location,
                         "offset de consoante, preutterance ou overlap excede ±300 ms; revise a transição antes de renderizar",
                     ));
+                }
+                for (override_index, phoneme_override) in note.phoneme_overrides.iter().enumerate()
+                {
+                    let override_location =
+                        format!("{location} / phoneme override {}", override_index + 1);
+                    if note.phoneme_durations_ms.len() > phoneme_override.index {
+                        // The index is structurally meaningful when authored
+                        // sub-phoneme durations are present.
+                    } else if !note.phoneme_durations_ms.is_empty() {
+                        report.issues.push(warning(
+                            ProjectIssueKind::InvalidPhonemeOverride,
+                            &override_location,
+                            "o índice do override não corresponde a uma divisão de subfonema persistida",
+                        ));
+                    }
+                    if phoneme_override
+                        .phoneme
+                        .as_deref()
+                        .is_some_and(|phoneme| phoneme.trim().is_empty())
+                    {
+                        report.issues.push(warning(
+                            ProjectIssueKind::InvalidPhonemeOverride,
+                            &override_location,
+                            "alias/fonema vazio será tratado como herança",
+                        ));
+                    }
+                    let numeric_invalid =
+                        phoneme_override.envelope.as_ref().is_some_and(|envelope| {
+                            [
+                                envelope.p1,
+                                envelope.p2,
+                                envelope.p3,
+                                envelope.p4,
+                                envelope.p5,
+                                envelope.v1,
+                                envelope.v2,
+                                envelope.v3,
+                                envelope.v4,
+                                envelope.v5,
+                                envelope.crossfade_ms,
+                            ]
+                            .iter()
+                            .any(|value| !value.is_finite())
+                        }) || phoneme_override
+                            .consonant_timing_offset_ms
+                            .is_some_and(|value| !value.is_finite() || value.abs() > 300.0)
+                            || phoneme_override.vibrato.as_ref().is_some_and(|vibrato| {
+                                [
+                                    vibrato.length_pct,
+                                    vibrato.period_ms,
+                                    vibrato.depth_cents,
+                                    vibrato.fade_in_ms,
+                                    vibrato.fade_in_pct,
+                                    vibrato.fade_out_pct,
+                                    vibrato.shift_pct,
+                                    vibrato.drift_pct,
+                                    vibrato.volume_link_pct,
+                                ]
+                                .iter()
+                                .any(|value| !value.is_finite())
+                            })
+                            || phoneme_override.pitch_bend.as_ref().is_some_and(|bend| {
+                                !bend.portamento_start_ms.is_finite()
+                                    || !bend.portamento_length_ms.is_finite()
+                                    || bend.points.iter().any(|point| {
+                                        !point.time_offset_ms.is_finite()
+                                            || !point.pitch_offset_cents.is_finite()
+                                    })
+                            });
+                    if numeric_invalid {
+                        report.issues.push(warning(
+                            ProjectIssueKind::InvalidPhonemeOverride,
+                            &override_location,
+                            "o override contém valores não finitos e será normalizado ao salvar",
+                        ));
+                    }
                 }
             }
 
@@ -341,6 +447,41 @@ mod tests {
     }
 
     #[test]
+    fn reports_invalid_phoneme_override_without_mutating_project() {
+        let mut project = UProject::default();
+        let mut note = UNote::new("a", "C4", 0.0, 200.0);
+        note.phoneme_durations_ms = vec![100.0];
+        note.phoneme_overrides
+            .push(crate::project::model::UPhonemeOverride {
+                index: 4,
+                phoneme: Some("   ".to_string()),
+                vibrato: Some(crate::dsp::pitch::VibratoParam {
+                    period_ms: f64::NAN,
+                    ..Default::default()
+                }),
+                ..Default::default()
+            });
+        project.parts[0].notes.push(note);
+
+        let report = project.diagnostic_report();
+        assert!(
+            report
+                .issues
+                .iter()
+                .filter(|issue| issue.kind == ProjectIssueKind::InvalidPhonemeOverride)
+                .count()
+                >= 3
+        );
+        assert_eq!(project.parts[0].notes[0].phoneme_overrides[0].index, 4);
+        assert!(project.parts[0].notes[0].phoneme_overrides[0]
+            .vibrato
+            .as_ref()
+            .unwrap()
+            .period_ms
+            .is_nan());
+    }
+
+    #[test]
     fn health_score_distinguishes_advisory_warnings_from_errors() {
         let mut project = UProject::default();
         project.parts[0]
@@ -350,6 +491,7 @@ mod tests {
         assert_eq!(report.error_count(), 0);
         assert_eq!(report.warning_count(), 1);
         assert_eq!(report.vocal_health_score(), 92);
+        assert!(report.issues[0].suggestion().is_some());
     }
 
     #[test]

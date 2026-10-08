@@ -91,6 +91,14 @@ impl KamafeuStudioApp {
                                 }
                                 Err(error) => {
                                     ui.label(egui::RichText::new(format!("{}: {error}", lang.tr("[Erro] Configuração DiffSinger inválida", "[Error] Invalid DiffSinger configuration"))).color(egui::Color32::from_rgb(255, 100, 90)));
+                                    if error.contains(".oudep") {
+                                        ui.add_space(6.0);
+                                        ui.label(lang.tr(
+                                            "Para usar este banco, instale manualmente o vocoder DiffSinger compatível:",
+                                            "To use this singer, manually install the compatible DiffSinger vocoder:",
+                                        ));
+                                        ui.hyperlink(crate::oto::DIFFSINGER_DEPENDENCY_URL);
+                                    }
                                 }
                             }
                         } else if let Some(report) = self.voicebank_diagnostic_report.as_ref() {
@@ -144,6 +152,7 @@ impl KamafeuStudioApp {
                             egui::ScrollArea::vertical().max_height(120.0).show(ui, |ui| {
                                 for issue in report.issues.iter().take(100) {
                                     ui.label(egui::RichText::new(format!("{} · {} · {}", issue.alias, issue.wav_filename, issue.detail)).size(10.0).color(egui::Color32::from_rgb(255, 190, 120)));
+                                    ui.label(egui::RichText::new(format!("  Sugestão: {}", issue.suggestion())).size(9.0).italics().color(egui::Color32::from_rgb(180, 200, 220)));
                                 }
                             });
                         }

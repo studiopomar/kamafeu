@@ -152,6 +152,7 @@ pub fn draw_unified_panel(
                     selected_ruler_alias,
                     selected_resampler,
                     selected_wavtool,
+                    &vocal_mode_params.flags,
                     on_edit_selected_ruler_alias,
                 );
             }
@@ -168,6 +169,7 @@ pub fn draw_unified_panel(
                     sample_rate,
                     selected_resampler,
                     selected_wavtool,
+                    &mut vocal_mode_params.flags,
                     custom_resampler_path,
                     custom_wavtool_path,
                     discord_rpc_enabled,

@@ -50,10 +50,12 @@ O nome **Kamafeu** faz referência à tradicional joia em camafeu, esculpida man
   - [Windows](#windows)
 - [Interface de linha de comando](#interface-de-linha-de-comando)
 - [Extensões](#extensões)
+- [Contrato de extensões](docs/extensoes.md)
 - [Tabela de atalhos de teclado](#tabela-de-atalhos-de-teclado)
 - [Estrutura do código-fonte](#estrutura-do-código-fonte)
 - [Guia detalhado dos arquivos](docs/GUIA_DO_CODIGO.md)
 - [Roteiro de produto](docs/roadmap-produto.md)
+- [Auditoria comparativa](docs/upstream-improvement-audit.md)
 - [Licença](#licença)
 
 ## Recursos do sistema
@@ -64,6 +66,13 @@ O nome **Kamafeu** faz referência à tradicional joia em camafeu, esculpida man
 - **Suporte a escalas musicais e guia tonal:** Assistente de escalas (Maior, Menor Natural, Harmônica, Melódica, Pentatônicas, Blues, Dórico e Mixolídio) com destaque visual das notas dentro do tom e marcação da tônica.
 - **Indicação visual da tonalidade:** As linhas do piano roll mudam de cor conforme a escala e a tônica escolhidas, facilitando a criação de harmonias; também é possível selecionar notas fora da escala ativa.
 - **Expressões por nota:** Painel inferior retrátil para edição de dinâmica, modulação, velocidade de consoante, sopro (*breathiness*), formante de gênero (*gender*) e envelopes UTAU de amplitude em 5 pontos.
+- **Controles por fonema:** Com um fonema selecionado, o inspetor permite
+  direcionar alias, flags literais, timing de consoante, envelope UTAU,
+  vibrato e portamento ao subfonema, mantendo visíveis os valores herdados da
+  nota e os overrides persistentes.
+- **Auditoria de render:** O inspetor mostra os comandos efetivos de resampler
+  e wavtool com flags, timing e envelope; os caminhos são placeholders e a
+  prévia nunca executa shell.
 - **Navegação sincronizada:** Playhead compartilhada entre arranjo, RADAR e piano roll, com acompanhamento horizontal durante a reprodução e opção de acompanhamento vertical das notas.
 - **RADAR interativo:** Mini mapa com notas e janela de viewport arrastável para navegar rapidamente por projetos longos, inclusive quando o ponteiro sai dos limites do radar.
 - **Navegação por mouse e trackpad:** Scroll vertical no arranjo, `Shift + scroll` para deslocamento horizontal e suporte a gestos de dois eixos de trackpads.
@@ -94,6 +103,12 @@ O nome **Kamafeu** faz referência à tradicional joia em camafeu, esculpida man
 ### Personalização e temas visuais
 
 O Kamafeu Studio conta com um motor completo de temas e customização de interface (`Ctrl + Alt + T` / `Cmd + Alt + T`), permitindo alternar instantaneamente paletas de cores, cantos arredondados, contraste de notas e densidade de elementos:
+
+As paletas oficiais são verificadas automaticamente com a razão de contraste WCAG AA
+(4,5:1 para texto normal) entre o texto primário e as superfícies de canvas e painel.
+Temas personalizados não são sobrescritos: a mesma regra fica disponível no núcleo
+como `contrast_ratio_rgb` e `meets_text_contrast`, permitindo que a interface e plugins
+diagnostiquem combinações de baixo contraste sem alterar a escolha do usuário.
 
 #### Pomar Neon (Esmeralda)
 <img src="assets/themes/theme_pomar_neon.png" alt="Tema Pomar Neon (Esmeralda)" width="100%" />
@@ -500,6 +515,10 @@ cargo run --release --bin kamafeu -- --help
 # Inspecionar dados e integridade de um banco de voz
 cargo run --release --bin kamafeu -- voicebank-info "/caminho/do/voicebank"
 
+# Inspecionar diretamente um alias composto e seus tempos do oto.ini
+cargo run --release --bin kamafeu -- voicebank-info "/caminho/do/voicebank" \
+  --alias "k a" --pitch C4 --json
+
 # Listar bancos UTAU, OpenUTAU e DiffSinger nas pastas padrão do sistema
 cargo run --release --bin kamafeu -- voicebanks
 
@@ -515,8 +534,16 @@ cargo run --release --bin kamafeu -- validate-voicebank --verify-runtime "/camin
 # Conferir as faixas, notas e duração de qualquer projeto suportado
 cargo run --release --bin kamafeu -- project-info "musica.svp"
 
+# Comparar duas revisões sem modificar nenhum dos arquivos
+cargo run --release --bin kamafeu -- diff "musica.aps" "musica-revisada.aps"
+cargo run --release --bin kamafeu -- --json diff "musica.aps" "musica-revisada.aps"
+
 # Encontrar problemas estruturais antes de renderizar ou enviar um projeto
 cargo run --release --bin kamafeu -- validate-project "musica.ustx"
+
+# Também verificar extensões persistidas no APS contra um catálogo local
+cargo run --release --bin kamafeu -- validate-project "musica.aps" \
+  --extensions-path "extensions"
 
 # Em CI, também reprovar avisos vocais, como sobreposições e offsets extremos
 cargo run --release --bin kamafeu -- validate-project --fail-on-warning "musica.ustx"
@@ -532,6 +559,14 @@ cargo run --release --bin kamafeu -- extensions "extensions"
 
 # Verificar módulos WASM declarados em sandbox, sem imports do sistema
 cargo run --release --bin kamafeu -- extensions --verify-wasm "extensions"
+
+# Conceder uma permissão somente para esta verificação, após consentimento
+cargo run --release --bin kamafeu -- extensions --verify-wasm \
+  --grant-permission read_voicebank "extensions"
+
+O manifesto e o exemplo mínimo de plugin estão em
+[`docs/plugin-sdk.md`](docs/plugin-sdk.md) e
+[`examples/extensions/minimal`](examples/extensions/minimal).
 
 # Usar saída estruturada em scripts, CI ou outra ferramenta
 cargo run --release --bin kamafeu -- --json validate-voicebank "/caminho/do/voicebank"
@@ -573,7 +608,7 @@ detecção de silêncio. Isso permite que um pipeline interrompa exportações
 inseguras ou vazias sem precisar analisar o arquivo manualmente.
 
 Os comandos de inspeção (`voicebank-info`, `voicebanks`, `validate-voicebank`,
-`project-info` e `extensions`) aceitam `--json`. Nesse modo, o terminal recebe exclusivamente
+`project-info`, `diff`, `platform-info` e `extensions`) aceitam `--json`. Nesse modo, o terminal recebe exclusivamente
 um documento JSON e `validate-voicebank` continua retornando status diferente de
 zero quando encontrar problemas, o que o torna adequado para CI.
 
@@ -583,12 +618,21 @@ fonemas e metadados de idioma, em vez de tratá-lo como um banco UTAU sem
 `oto.ini`. Acrescente `--verify-runtime` quando quiser abrir as sessões ONNX e
 confirmar as entradas e saídas exigidas pelo renderizador antes de renderizar.
 
+O vocoder `.oudep` não é incluído no pacote do Kamafeu para manter o download
+pequeno. Ao usar um banco DiffSinger sem essa dependência instalada, a
+interface informa o problema e abre o catálogo oficial para instalação manual:
+<https://www.openutau.com/Dependency/>.
+
 Para integrações persistentes, `kamafeu automation` executa um protocolo local
 JSON Lines pelo `stdin`/`stdout`: uma requisição JSON por linha gera exatamente
 uma resposta JSON por linha. As operações disponíveis são `project_info`,
-`validate_project`, `list_voicebanks`, `create_project`, `add_note`, `set_tempo`, `convert`,
+`validate_project`, `diff`, `list_voicebanks`, `create_project`, `add_note`, `set_tempo`, `convert`,
 `set_note`, `remove_note`, `apply_lyrics`, `set_pitch_bend`, `render`, `validate_voicebank`, `extensions`,
 `set_expression`, `add_audio_part`, `add_marker`, `remove_marker`, `cache_info` e `cache_prune`.
+
+`diff` recebe `before` e `after`, retorna os mesmos dados semânticos da CLI e
+não modifica nenhum dos projetos. O servidor MCP oferece a mesma operação por
+meio da ferramenta `kamafeu_diff`.
 
 ```json
 {"command":"project_info","path":"musica.ustx"}
@@ -636,13 +680,17 @@ Cada extensão ocupa uma pasta e declara `kamafeu-extension.json`:
   "version": "0.1.0",
   "api_version": 1,
   "kind": "synthesis_engine",
+  "limitations": ["requer um modelo compatível instalado"],
   "entrypoint": "engine.wasm"
 }
 ```
 
-Os tipos atuais são `synthesis_engine`, `project_format`, `phonemizer`,
-`effect` e `instrument`. O `entrypoint` deve ser um caminho relativo à pasta da
-extensão; caminhos absolutos ou que escapem da pasta são rejeitados.
+Os tipos atuais incluem `synthesis_engine`, `project_format`, `phonemizer`,
+`effect`, `instrument`, `analysis`, `transform`, `preset` e `editor_panel`. O
+`entrypoint` deve ser um caminho relativo à pasta da extensão; caminhos
+absolutos ou que escapem da pasta são rejeitados. `limitations` é informativo:
+fica visível no catálogo e no consentimento, mas não concede permissões nem
+altera o sandbox.
 
 Para passar pela verificação inicial, um `entrypoint` `.wasm` deve exportar
 `kamafeu_extension_api_version() -> i32` e retornar `1`. A ABI de execução de
@@ -732,6 +780,19 @@ ferramentas, úteis para fraseados e ritmos não binários.
 | `Ctrl + B` / `Cmd + B` | Exibir ou ocultar inspetor lateral direito |
 | `F1` / `Cmd + ?` | Abrir guia interativo de teclas de atalho |
 | `F11` | Alternar modo de tela cheia |
+
+## Auditoria de renders
+
+Exportações headless geram um sidecar JSON ao lado do áudio (`*.kamafeu.json`).
+Além dos hashes de projeto, voicebank e artefatos, o campo
+`timing_diagnostics` registra por fonema os valores de `oto.ini`, overrides,
+preutterance, overlap e `tail_intrude`. Durante a execução, os mesmos registros
+aparecem como linhas `[Timing]` no fluxo de progresso; ferramentas podem
+filtrá-las sem interpretar mensagens humanas. O render também emite uma linha
+`boundary-rms` por fonema, com RMS de janelas de 10 ms no início e no fim do
+áudio já processado pelo wavtool. Esses valores são diagnósticos: não alteram
+ganho, envelope ou o resultado exportado.
+O contrato completo está em [`docs/render-provenance.md`](docs/render-provenance.md).
 
 ## Estrutura do código-fonte
 
