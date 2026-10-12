@@ -700,14 +700,15 @@ impl TrackRenderer {
                 .windows(2)
                 .all(|pair| pair[0].time_offset_ms <= pair[1].time_offset_ms);
             let mut dynamics_curve_index = 0usize;
+            let sample_time_step_ms = 1000.0 / sample_rate as f64;
+            let time_base_ms = -timing.pitch_leading_ms
+                + if wavtool_consumed_skip {
+                    timing.skip_over_ms
+                } else {
+                    0.0
+                };
             for (sample_index, sample) in note_rendered.iter_mut().enumerate() {
-                let time_ms = sample_index as f64 * 1000.0 / sample_rate as f64
-                    - timing.pitch_leading_ms
-                    + if wavtool_consumed_skip {
-                        timing.skip_over_ms
-                    } else {
-                        0.0
-                    };
+                let time_ms = sample_index as f64 * sample_time_step_ms + time_base_ms;
                 let t = time_ms.max(0.0);
                 let curve_value = if dynamics_curve.is_empty() {
                     phone.expressions.dynamics
