@@ -20,8 +20,10 @@ impl KamafeuStudioApp {
                     "Personalizar Tema e Aparência - Kamafeu Studio",
                     "Customize Theme & Appearance - Kamafeu Studio",
                 ))
-                .with_inner_size([720.0, 590.0])
-                .with_min_inner_size([580.0, 480.0]),
+                // The tab controls, live preview and action footer need to
+                // coexist without the footer being clipped on first launch.
+                .with_inner_size([720.0, 720.0])
+                .with_min_inner_size([580.0, 600.0]),
             |ctx, _class| {
                 egui::CentralPanel::default().show(ctx, |ui| {
                     ui.horizontal(|ui| {
