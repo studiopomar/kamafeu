@@ -377,6 +377,14 @@ impl JapanesePhonemizer {
             return None;
         }
 
+        // The sokuon (small tsu) is a consonant-closure/pause marker.  It
+        // has no vowel of its own.  Letting it fall through to the generic
+        // kana/romaji lookup can make it inherit `u` from `つ` in some
+        // converted aliases, which then corrupts VCV/CVVC transitions.
+        if trimmed == "っ" || trimmed == "ッ" {
+            return None;
+        }
+
         if let Some(&v) = VOWEL_LOOKUP.get(trimmed) {
             return Some(v);
         }
@@ -398,6 +406,13 @@ impl JapanesePhonemizer {
         let trimmed = lyric.trim();
         if trimmed.is_empty() {
             return None;
+        }
+
+        // Keep sokuon out of vowel-to-consonant transition inference.  A
+        // voicebank may still provide an explicit `っ`/closure alias, but
+        // the marker itself must never be interpreted as the vowel `u`.
+        if trimmed == "っ" || trimmed == "ッ" {
+            return Some("cl");
         }
 
         if let Some(&c) = CONSONANT_LOOKUP.get(trimmed) {
@@ -800,6 +815,14 @@ mod tests {
         assert_eq!(cv_to_vcv_lyric("あ", None), "- あ");
         assert_eq!(cv_to_vcv_lyric("a さ", Some("か")), "a さ");
         assert_eq!(remove_non_hiragana("KA カ か!"), " か か");
+    }
+
+    #[test]
+    fn sokuon_is_a_closure_without_a_vowel() {
+        assert_eq!(JapanesePhonemizer::extract_vowel("っ"), None);
+        assert_eq!(JapanesePhonemizer::extract_vowel("ッ"), None);
+        assert_eq!(JapanesePhonemizer::extract_consonant("っ"), Some("cl"));
+        assert_eq!(JapanesePhonemizer::extract_vowel("っか"), Some("a"));
     }
 
     fn build_test_voicebank() -> Voicebank {
