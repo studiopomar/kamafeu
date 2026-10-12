@@ -98,7 +98,7 @@ impl KamafeuStudioApp {
                         let tabs = [
                             lang.tr("Cores Gerais", "General Colors"),
                             lang.tr("Notas & Bordas", "Notes & Borders"),
-                            lang.tr("Teclado & Grid", "Keyboard & Grid"),
+                            lang.tr("Teclado, Linhas & Grid", "Keyboard, Rows & Grid"),
                             lang.tr("Pitch & Playhead", "Pitch & Playhead"),
                             lang.tr("Janelas & Painéis", "Windows & Panels"),
                         ];
@@ -125,8 +125,8 @@ impl KamafeuStudioApp {
                                         .spacing([24.0, 10.0])
                                         .show(ui, |ui| {
                                             ui.label(lang.tr(
-                                                "Fundo do Piano Roll (Canvas):",
-                                                "Piano Roll Background (Canvas):",
+                                                "Fundo do Piano Roll:",
+                                                "Piano Roll Background:",
                                             ));
                                             if egui::color_picker::color_edit_button_srgb(
                                                 ui,
@@ -549,22 +549,6 @@ impl KamafeuStudioApp {
                                             ui.end_row();
 
                                             ui.label(lang.tr(
-                                                "Pontos de Ancoragem do Pitch:",
-                                                "Pitch Anchor Points:",
-                                            ));
-                                            if egui::color_picker::color_edit_button_srgb(
-                                                ui,
-                                                &mut self.config.theme.pitch_anchor_color,
-                                            )
-                                            .changed()
-                                            {
-                                                self.config.theme.preset =
-                                                    crate::gui::theme::ThemePreset::Custom;
-                                                theme_modified = true;
-                                            }
-                                            ui.end_row();
-
-                                            ui.label(lang.tr(
                                                 "Cursor de Reprodução (Playhead):",
                                                 "Playhead Cursor:",
                                             ));
@@ -857,8 +841,8 @@ impl KamafeuStudioApp {
                             [p1, p2],
                             egui::Stroke::new(2.0, self.config.theme.pitch_curve_c32()),
                         );
-                        painter.circle_filled(p1, 4.0, self.config.theme.pitch_anchor_c32());
-                        painter.circle_filled(p2, 4.0, self.config.theme.pitch_anchor_c32());
+                        painter.circle_filled(p1, 4.0, self.config.theme.pitch_curve_c32());
+                        painter.circle_filled(p2, 4.0, self.config.theme.pitch_curve_c32());
 
                         // Sample Playhead
                         let ph_x = rect.min.x + key_w + 180.0;
