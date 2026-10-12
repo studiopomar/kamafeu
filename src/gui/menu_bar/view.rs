@@ -187,7 +187,9 @@ impl KamafeuStudioApp {
                         .selectable_label(is_active, preset.display_name_for(lang))
                         .clicked()
                     {
-                        self.config.theme.apply_preset(preset);
+                        if preset != crate::gui::theme::ThemePreset::Custom {
+                            self.config.theme.apply_preset(preset);
+                        }
                         ctx.set_visuals(self.config.theme.create_egui_visuals());
                         self.persist_config();
                         ui.close_menu();

@@ -430,8 +430,12 @@ impl KamafeuStudioApp {
                                 .selectable_label(is_sel, preset.display_name_for(lang))
                                 .clicked()
                             {
-                                self.config.theme =
-                                    crate::gui::theme::ThemeConfig::from_preset(preset);
+                                if preset != crate::gui::theme::ThemePreset::Custom {
+                                    self.config.theme =
+                                        crate::gui::theme::ThemeConfig::from_preset(preset);
+                                } else {
+                                    self.config.theme.preset = preset;
+                                }
                                 self.persist_config();
                             }
                         }

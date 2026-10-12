@@ -81,7 +81,11 @@ impl KamafeuStudioApp {
                                         .on_hover_text(preset.description())
                                         .clicked()
                                     {
-                                        self.config.theme.apply_preset(preset);
+                                        if preset != crate::gui::theme::ThemePreset::Custom {
+                                            self.config.theme.apply_preset(preset);
+                                        } else {
+                                            self.config.theme.preset = preset;
+                                        }
                                         theme_modified = true;
                                         visuals_modified = true;
                                     }
@@ -882,6 +886,11 @@ impl KamafeuStudioApp {
                                             &content,
                                         )
                                     {
+                                        let mut imported = imported;
+                                        // Imported files represent the user's
+                                        // saved custom scheme, even if the
+                                        // serialized file came from a built-in preset.
+                                        imported.preset = crate::gui::theme::ThemePreset::Custom;
                                         self.config.theme = imported;
                                         theme_modified = true;
                                         visuals_modified = true;

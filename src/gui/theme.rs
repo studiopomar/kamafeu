@@ -15,7 +15,7 @@ pub enum ThemePreset {
 }
 
 impl ThemePreset {
-    pub const ALL: [ThemePreset; 7] = [
+    pub const ALL: [ThemePreset; 8] = [
         ThemePreset::PomarNeon,
         ThemePreset::MelodyneGold,
         ThemePreset::Cyberpunk,
@@ -23,6 +23,7 @@ impl ThemePreset {
         ThemePreset::MikanTeal,
         ThemePreset::SolarizedDark,
         ThemePreset::CleanLight,
+        ThemePreset::Custom,
     ];
 
     pub fn display_name(&self) -> &'static str {

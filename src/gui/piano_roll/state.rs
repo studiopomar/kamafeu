@@ -300,7 +300,7 @@ pub fn smooth_pitch_points(raw_points: &[(f64, f64)]) -> Vec<UPitchBendPoint> {
     normalized.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
     let mut ordered: Vec<(f64, f64)> = Vec::with_capacity(normalized.len());
     for (time, cents) in normalized {
-        let cents = cents.clamp(-600.0, 600.0);
+        let cents = cents.clamp(-2400.0, 2400.0);
         if let Some(last) = ordered.last_mut() {
             if (last.0 - time).abs() < 0.001 {
                 last.1 = (last.1 + cents) * 0.5;
@@ -843,7 +843,7 @@ mod tests {
             .all(|pair| { pair[0].time_offset_ms < pair[1].time_offset_ms }));
         assert!(points
             .iter()
-            .all(|point| point.pitch_offset_cents.abs() <= 600.0));
+            .all(|point| point.pitch_offset_cents.abs() <= 2400.0));
         assert!(points
             .last()
             .is_none_or(|point| (point.time_offset_ms - 120.0).abs() < 0.001));

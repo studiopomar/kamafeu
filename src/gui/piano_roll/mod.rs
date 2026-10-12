@@ -19,7 +19,7 @@ use eframe::egui::{self, Color32, Key, Pos2, Rect, Rounding, Sense, Stroke, Vec2
 
 /// One fifth is intentionally reserved for deliberate imported pitch bends,
 /// but mouse editing should not let a tiny vertical miss jump an octave.
-const MAX_MANUAL_PITCH_CENTS: f64 = 600.0;
+const MAX_MANUAL_PITCH_CENTS: f64 = 2400.0;
 use std::collections::HashSet;
 pub mod grid;
 pub mod state;
@@ -1277,8 +1277,10 @@ pub fn draw_piano_roll(
                     || state.active_tool == EditTool::Pointer)
                     && pitch_curve.iter().any(|pt| {
                         let px_x = x_start + (pt.time_offset_ms * state.px_per_ms as f64) as f32;
-                        let px_y =
-                            y_center - (pt.pitch_offset_cents / 100.0) as f32 * state.row_height;
+                        let px_y = y_center
+                            - ((pt.pitch_offset_cents + note.expressions.pitch_delta) / 100.0)
+                                as f32
+                                * state.row_height;
                         mpos.distance(Pos2::new(px_x, px_y))
                             <= if touch_first { 22.0 } else { 16.0 }
                     });
@@ -1400,7 +1402,10 @@ pub fn draw_piano_roll(
                                     let px_x = x_start
                                         + (pt.time_offset_ms * state.px_per_ms as f64) as f32;
                                     let px_y = y_center
-                                        - (pt.pitch_offset_cents / 100.0) as f32 * state.row_height;
+                                        - ((pt.pitch_offset_cents + note.expressions.pitch_delta)
+                                            / 100.0)
+                                            as f32
+                                            * state.row_height;
                                     mpos.distance(Pos2::new(px_x, px_y)) <= 16.0
                                 }));
 
@@ -1777,9 +1782,12 @@ pub fn draw_piano_roll(
                     }) || (ui.input(|i| i.pointer.primary_clicked()) && is_shift))
                 {
                     // Find note at timeline_time_ms
+                    let notes_len = notes.len();
                     for (n_idx, note) in notes.iter_mut().enumerate() {
-                        if timeline_time_ms >= note.position_ms - 200.0
-                            && timeline_time_ms <= note.position_ms + note.duration_ms + 100.0
+                        let note_end = note.position_ms + note.duration_ms;
+                        let owns_time = timeline_time_ms >= note.position_ms
+                            && (timeline_time_ms < note_end || n_idx + 1 == notes_len);
+                        if owns_time
                         {
                             if note.pitch_bend.points.is_empty() {
                                 let (prev_m, is_adj) = if n_idx > 0 {

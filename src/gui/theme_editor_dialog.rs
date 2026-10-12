@@ -64,7 +64,11 @@ pub fn draw_theme_editor_dialog(
                                 )
                                 .clicked()
                             {
-                                *theme = ThemeConfig::from_preset(preset);
+                                if preset != ThemePreset::Custom {
+                                    *theme = ThemeConfig::from_preset(preset);
+                                } else {
+                                    theme.preset = preset;
+                                }
                                 modified = true;
                             }
                         }
