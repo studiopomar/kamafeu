@@ -9,6 +9,83 @@ use rayon::prelude::*;
 
 use super::{RenderOptions, TrackRenderer};
 
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+#[inline]
+fn accumulate_stereo_scaled(
+    destination: &mut [f32],
+    source: &[f32],
+    left_gain: f32,
+    right_gain: f32,
+) {
+    if std::is_x86_feature_detected!("sse2") {
+        // SAFETY: SSE2 is checked immediately above and the slices are valid
+        // for the unaligned four-float loads/stores below.
+        unsafe { accumulate_stereo_scaled_sse2(destination, source, left_gain, right_gain) };
+        return;
+    }
+
+    accumulate_stereo_scaled_scalar(destination, source, left_gain, right_gain);
+}
+
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+#[target_feature(enable = "sse2")]
+unsafe fn accumulate_stereo_scaled_sse2(
+    destination: &mut [f32],
+    source: &[f32],
+    left_gain: f32,
+    right_gain: f32,
+) {
+    #[cfg(target_arch = "x86")]
+    use std::arch::x86::{_mm_add_ps, _mm_loadu_ps, _mm_mul_ps, _mm_set_ps, _mm_storeu_ps};
+    #[cfg(target_arch = "x86_64")]
+    use std::arch::x86_64::{_mm_add_ps, _mm_loadu_ps, _mm_mul_ps, _mm_set_ps, _mm_storeu_ps};
+
+    let gains = _mm_set_ps(right_gain, left_gain, right_gain, left_gain);
+    let vector_len = destination.len().min(source.len()) / 4 * 4;
+    for index in (0..vector_len).step_by(4) {
+        let mixed = _mm_mul_ps(_mm_loadu_ps(source.as_ptr().add(index)), gains);
+        let existing = _mm_loadu_ps(destination.as_ptr().add(index));
+        _mm_storeu_ps(
+            destination.as_mut_ptr().add(index),
+            _mm_add_ps(existing, mixed),
+        );
+    }
+
+    accumulate_stereo_scaled_scalar(
+        &mut destination[vector_len..],
+        &source[vector_len..],
+        left_gain,
+        right_gain,
+    );
+}
+
+#[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
+#[inline]
+fn accumulate_stereo_scaled(
+    destination: &mut [f32],
+    source: &[f32],
+    left_gain: f32,
+    right_gain: f32,
+) {
+    accumulate_stereo_scaled_scalar(destination, source, left_gain, right_gain);
+}
+
+#[inline]
+fn accumulate_stereo_scaled_scalar(
+    destination: &mut [f32],
+    source: &[f32],
+    left_gain: f32,
+    right_gain: f32,
+) {
+    let frames = destination.len().min(source.len()) / 2;
+    for frame in 0..frames {
+        let source = &source[frame * 2..frame * 2 + 2];
+        let destination = &mut destination[frame * 2..frame * 2 + 2];
+        destination[0] += source[0] * left_gain;
+        destination[1] += source[1] * right_gain;
+    }
+}
+
 #[derive(Clone, Copy)]
 struct RenderLimiterConfig {
     enabled: bool,
@@ -926,14 +1003,16 @@ impl ProjectRenderer {
             stereo.resize(required_len, 0.0);
         }
 
-        for i in 0..frames_to_mix {
-            let src_f = src_start_frame + i;
-            let dest_f = dest_start_frame + i;
-            let l = decoded_stereo[src_f * 2];
-            let r = decoded_stereo[src_f * 2 + 1];
-            stereo[dest_f * 2] += l * left_gain;
-            stereo[dest_f * 2 + 1] += r * right_gain;
-        }
+        let source_start = src_start_frame * 2;
+        let source_end = source_start + frames_to_mix * 2;
+        let destination_start = dest_start_frame * 2;
+        let destination_end = destination_start + frames_to_mix * 2;
+        accumulate_stereo_scaled(
+            &mut stereo[destination_start..destination_end],
+            &decoded_stereo[source_start..source_end],
+            left_gain,
+            right_gain,
+        );
     }
 }
 
