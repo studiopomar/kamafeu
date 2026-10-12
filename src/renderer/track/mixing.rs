@@ -1,6 +1,50 @@
 use super::TrackRenderer;
 use std::sync::{OnceLock, RwLock};
 
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+#[inline]
+fn accumulate_samples(destination: &mut [f32], source: &[f32]) {
+    if std::is_x86_feature_detected!("sse2") {
+        // SAFETY: the feature is checked immediately above and both slices
+        // are valid for the unaligned four-float loads/stores used below.
+        unsafe { accumulate_samples_sse2(destination, source) };
+        return;
+    }
+
+    accumulate_samples_scalar(destination, source);
+}
+
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+#[target_feature(enable = "sse2")]
+unsafe fn accumulate_samples_sse2(destination: &mut [f32], source: &[f32]) {
+    #[cfg(target_arch = "x86")]
+    use std::arch::x86::{_mm_add_ps, _mm_loadu_ps, _mm_storeu_ps};
+    #[cfg(target_arch = "x86_64")]
+    use std::arch::x86_64::{_mm_add_ps, _mm_loadu_ps, _mm_storeu_ps};
+
+    let vector_len = destination.len().min(source.len()) / 4 * 4;
+    for index in (0..vector_len).step_by(4) {
+        let dst = _mm_loadu_ps(destination.as_ptr().add(index));
+        let src = _mm_loadu_ps(source.as_ptr().add(index));
+        _mm_storeu_ps(destination.as_mut_ptr().add(index), _mm_add_ps(dst, src));
+    }
+
+    accumulate_samples_scalar(&mut destination[vector_len..], &source[vector_len..]);
+}
+
+#[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
+#[inline]
+fn accumulate_samples(destination: &mut [f32], source: &[f32]) {
+    accumulate_samples_scalar(destination, source);
+}
+
+#[inline]
+fn accumulate_samples_scalar(destination: &mut [f32], source: &[f32]) {
+    for (dst, &src) in destination.iter_mut().zip(source) {
+        *dst += src;
+    }
+}
+
 fn crossfade_curve() -> &'static RwLock<String> {
     static CURVE: OnceLock<RwLock<String>> = OnceLock::new();
     CURVE.get_or_init(|| RwLock::new("Equal Power S-Curve".to_string()))
@@ -111,18 +155,9 @@ impl TrackRenderer {
             .min(track_buffer.len());
         let available = (track_buffer.len() - start_sample).min(note_samples.len());
 
-        for (index, &sample) in note_samples.iter().take(available).enumerate() {
-            let track_index = start_sample + index;
-            // Native and external wavtools have already applied the oto.ini
-            // envelope. Applying another fade here creates a hole at every
-            // VC/VCV join (and two holes in a VCCV sequence).
-            // The resampler/wavtool already applied the oto.ini envelope.
-            // Never apply a second fade here: doing so creates an energy dip
-            // at every VC/VCV boundary. The configured crossfade curve is
-            // reserved for engines that explicitly request an un-enveloped
-            // segment; native and classic UTAU paths both provide envelopes.
-            track_buffer[track_index] += sample;
-        }
+        let destination = &mut track_buffer[start_sample..start_sample + available];
+        let source = &note_samples[..available];
+        accumulate_samples(destination, source);
 
         previous_end_sample.max(start_sample + available)
     }
