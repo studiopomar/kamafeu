@@ -28,6 +28,19 @@ pub struct TrackRenderer;
 static LAZY_WAV_LOADING: AtomicBool = AtomicBool::new(false);
 static NEXT_RENDER_SESSION_ID: AtomicU64 = AtomicU64::new(1);
 
+fn is_sibilant_alias(alias: &str) -> bool {
+    let normalized = alias.to_lowercase();
+    normalized
+        .split(|character: char| character.is_whitespace() || character == '_' || character == '-')
+        .any(|token| matches!(token, "s" | "z" | "sh" | "zh" | "ch" | "ts" | "dz"))
+        || normalized.chars().any(|character| {
+            matches!(
+                character,
+                'さ' | 'し' | 'す' | 'せ' | 'そ' | 'ざ' | 'じ' | 'ず' | 'ぜ' | 'ぞ'
+            )
+        })
+}
+
 fn io_thread_count() -> &'static RwLock<usize> {
     static THREADS: OnceLock<RwLock<usize>> = OnceLock::new();
     THREADS.get_or_init(|| RwLock::new(4))
@@ -839,6 +852,18 @@ impl TrackRenderer {
                     .vibrato
                     .volume_multiplier_at(time_ms, phone.duration_ms);
                 *sample *= (dyn_gain * vibrato_volume) as f32;
+            }
+
+            if is_sibilant_alias(&phone.lyric) {
+                let reduction_db =
+                    crate::renderer::diagnostics::de_ess(&mut note_rendered, sample_rate, 6.0);
+                logs.push((
+                    progress,
+                    format!(
+                        "  [De-esser] phone='{}' max_reduction_db={reduction_db:.2}",
+                        phone.lyric
+                    ),
+                ));
             }
 
             let boundary_window = ((sample_rate as f64 * 0.010).round() as usize).max(1);
