@@ -695,7 +695,7 @@ impl TrackRenderer {
                 ),
             ));
 
-            let dynamics_curve = phone.expressions.dynamics_curve.clone();
+            let dynamics_curve = &phone.expressions.dynamics_curve;
             let dynamics_curve_sorted = dynamics_curve
                 .windows(2)
                 .all(|pair| pair[0].time_offset_ms <= pair[1].time_offset_ms);
