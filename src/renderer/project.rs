@@ -1126,6 +1126,30 @@ mod tests {
     }
 
     #[test]
+    fn simd_mix_paths_preserve_stereo_layout_and_tail() {
+        let mono = [1.0, 0.5, -0.25, 0.75, 0.125];
+        let mut stereo = vec![0.0; mono.len() * 2];
+        accumulate_mono_to_stereo(&mut stereo, &mono, 0.5, -0.25);
+        for (frame, &sample) in mono.iter().enumerate() {
+            assert_eq!(stereo[frame * 2], sample * 0.5);
+            assert_eq!(stereo[frame * 2 + 1], sample * -0.25);
+        }
+
+        let source = [
+            1.0, -1.0, 0.5, -0.5, 0.25, -0.25, 0.125, -0.125, 0.0625, -0.0625,
+        ];
+        let mut destination = vec![0.25; source.len()];
+        accumulate_stereo_scaled(&mut destination, &source, 2.0, 0.5);
+        for frame in 0..source.len() / 2 {
+            assert_eq!(destination[frame * 2], 0.25 + source[frame * 2] * 2.0);
+            assert_eq!(
+                destination[frame * 2 + 1],
+                0.25 + source[frame * 2 + 1] * 0.5
+            );
+        }
+    }
+
+    #[test]
     fn preview_range_only_selects_notes_needed_by_the_chunk() {
         let mut project = UProject::default();
         project.parts[0].notes = vec![
