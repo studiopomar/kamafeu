@@ -254,6 +254,52 @@ impl TrackRenderer {
         );
         let mut phones =
             crate::phonemizer::JapanesePhonemizer::apply_phonemizer(notes, voicebank, mode);
+        log(
+            0.02,
+            &format!(
+                "[Phonemizer][Input] mode={mode:?} notes_in={} phones_out={}",
+                notes.len(),
+                phones.len(),
+            ),
+        );
+        for (index, note) in notes.iter().enumerate() {
+            log(
+                0.02,
+                &format!(
+                    "[Phonemizer][Note {}/{}] lyric='{}' pitch='{}' position_ms={:.3} duration_ms={:.3} flags='{}' voicebank_pitch={:?} timbre={:?} phonemizer_override={:?} phoneme_durations={:?} overrides={}",
+                    index + 1,
+                    notes.len(),
+                    note.lyric,
+                    note.pitch,
+                    note.position_ms,
+                    note.duration_ms,
+                    note.flags,
+                    note.voicebank_pitch,
+                    note.timbre,
+                    note.phonemizer_override,
+                    note.phoneme_durations_ms,
+                    note.phoneme_overrides.len(),
+                ),
+            );
+        }
+        for (index, phone) in phones.iter().enumerate() {
+            log(
+                0.03,
+                &format!(
+                    "[Phonemizer][Phone {}/{}] note_index={} alias='{}' pitch='{}' position_ms={:.3} duration_ms={:.3} flags='{}' envelope={:?} expressions={:?}",
+                    index + 1,
+                    phones.len(),
+                    phone.note_index,
+                    phone.lyric,
+                    phone.pitch,
+                    phone.position_ms,
+                    phone.duration_ms,
+                    phone.flags,
+                    phone.envelope,
+                    phone.expressions,
+                ),
+            );
+        }
         let pitch_notes = Self::phrase_pitch_notes(notes);
 
         // ------------------------------------------------------------------

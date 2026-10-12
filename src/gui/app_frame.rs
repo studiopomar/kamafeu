@@ -4,6 +4,61 @@ use web_time::Instant;
 
 impl eframe::App for KamafeuStudioApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        let (primary_pressed, secondary_pressed, middle_pressed, pointer_pos, modifiers) = ctx
+            .input(|input| {
+                (
+                    input.pointer.primary_pressed(),
+                    input.pointer.secondary_pressed(),
+                    input.pointer.button_pressed(egui::PointerButton::Middle),
+                    input.pointer.latest_pos(),
+                    input.modifiers,
+                )
+            });
+        if primary_pressed || secondary_pressed || middle_pressed {
+            eprintln!(
+                "[UI][Pointer] button={} position={:?} modifiers=shift:{} ctrl:{} alt:{} command:{}",
+                if primary_pressed {
+                    "primary"
+                } else if secondary_pressed {
+                    "secondary"
+                } else {
+                    "middle"
+                },
+                pointer_pos,
+                modifiers.shift,
+                modifiers.ctrl,
+                modifiers.alt,
+                modifiers.command,
+            );
+        }
+
+        let key_events: Vec<String> = ctx.input(|input| {
+            input
+                .events
+                .iter()
+                .filter_map(|event| match event {
+                    egui::Event::Key {
+                        key,
+                        physical_key,
+                        pressed,
+                        repeat,
+                        modifiers,
+                    } => Some(format!(
+                        "key={key:?} physical={physical_key:?} pressed={pressed} repeat={repeat} modifiers=shift:{} ctrl:{} alt:{} command:{}",
+                        modifiers.shift,
+                        modifiers.ctrl,
+                        modifiers.alt,
+                        modifiers.command,
+                    )),
+                    egui::Event::Text(text) => Some(format!("text={text:?}")),
+                    _ => None,
+                })
+                .collect()
+        });
+        for event in key_events {
+            eprintln!("[UI][Keyboard] {event}");
+        }
+
         #[cfg(target_os = "macos")]
         for action in crate::gui::macos_menu::drain_actions() {
             use crate::gui::macos_menu::Action;
