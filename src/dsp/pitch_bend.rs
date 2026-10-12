@@ -3,6 +3,13 @@ use crate::project::model::UPitchBendPoint;
 pub struct PitchBendSolver;
 
 impl PitchBendSolver {
+    #[inline]
+    fn shape_is(shape: &str, aliases: &[&str]) -> bool {
+        aliases
+            .iter()
+            .any(|alias| shape.eq_ignore_ascii_case(alias))
+    }
+
     pub fn get_pitch_offset_cents(time_ms: f64, points: &[UPitchBendPoint]) -> f64 {
         if points.is_empty() {
             return 0.0;
@@ -60,35 +67,32 @@ impl PitchBendSolver {
         };
 
         if time_ms >= p1.time_offset_ms && time_ms <= p2.time_offset_ms {
-            let shape = p1.shape.to_lowercase();
-            match shape.as_str() {
-                "h" | "hermite" | "c" | "catmull" | "catmull-rom" | "cubic" => {
-                    return Self::hermite_interpolate(time_ms, p1, p2, p0_opt, p3_opt);
-                }
-                _ => {
-                    let duration = (p2.time_offset_ms - p1.time_offset_ms).max(1e-3);
-                    let norm_t = ((time_ms - p1.time_offset_ms) / duration).clamp(0.0, 1.0);
-
-                    let factor = match shape.as_str() {
-                        // OpenUtau names followed by their UTAU Mode 2 aliases.
-                        "l" | "linear" => norm_t,
-                        "s" | "io" | "s-curve" | "smooth" => {
-                            0.5 - 0.5 * (norm_t * std::f64::consts::PI).cos()
-                        }
-                        "i" | "j" | "easein" | "ease-in" | "exponential" => {
-                            1.0 - (norm_t * std::f64::consts::FRAC_PI_2).cos()
-                        }
-                        "o" | "r" | "easeout" | "ease-out" | "logarithmic" => {
-                            (norm_t * std::f64::consts::FRAC_PI_2).sin()
-                        }
-                        "" => 0.5 - 0.5 * (norm_t * std::f64::consts::PI).cos(),
-                        _ => 0.5 - 0.5 * (norm_t * std::f64::consts::PI).cos(),
-                    };
-
-                    return p1.pitch_offset_cents
-                        + factor * (p2.pitch_offset_cents - p1.pitch_offset_cents);
-                }
+            let shape = p1.shape.as_str();
+            if Self::shape_is(
+                shape,
+                &["h", "hermite", "c", "catmull", "catmull-rom", "cubic"],
+            ) {
+                return Self::hermite_interpolate(time_ms, p1, p2, p0_opt, p3_opt);
             }
+
+            let duration = (p2.time_offset_ms - p1.time_offset_ms).max(1e-3);
+            let norm_t = ((time_ms - p1.time_offset_ms) / duration).clamp(0.0, 1.0);
+
+            // OpenUtau names followed by their UTAU Mode 2 aliases.
+            let factor = if Self::shape_is(shape, &["l", "linear"]) {
+                norm_t
+            } else if Self::shape_is(shape, &["s", "io", "s-curve", "smooth"]) {
+                0.5 - 0.5 * (norm_t * std::f64::consts::PI).cos()
+            } else if Self::shape_is(shape, &["i", "j", "easein", "ease-in", "exponential"]) {
+                1.0 - (norm_t * std::f64::consts::FRAC_PI_2).cos()
+            } else if Self::shape_is(shape, &["o", "r", "easeout", "ease-out", "logarithmic"]) {
+                (norm_t * std::f64::consts::FRAC_PI_2).sin()
+            } else {
+                0.5 - 0.5 * (norm_t * std::f64::consts::PI).cos()
+            };
+
+            return p1.pitch_offset_cents
+                + factor * (p2.pitch_offset_cents - p1.pitch_offset_cents);
         }
 
         0.0
