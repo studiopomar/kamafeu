@@ -990,5 +990,4 @@ mod tests {
         fs::write(dir.path().join("ka.wav"), b"replacement sample").unwrap();
         assert_ne!(first_fingerprint, vb.content_fingerprint());
     }
-
 }

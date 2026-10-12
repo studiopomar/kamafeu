@@ -70,10 +70,7 @@ unsafe fn scale_samples_sse2(buffer: &mut [f32], scale: f32) {
     let vector_len = buffer.len() / 4 * 4;
     for index in (0..vector_len).step_by(4) {
         let samples = _mm_loadu_ps(buffer.as_ptr().add(index));
-        _mm_storeu_ps(
-            buffer.as_mut_ptr().add(index),
-            _mm_mul_ps(samples, factor),
-        );
+        _mm_storeu_ps(buffer.as_mut_ptr().add(index), _mm_mul_ps(samples, factor));
     }
 
     scale_samples_scalar(&mut buffer[vector_len..], scale);

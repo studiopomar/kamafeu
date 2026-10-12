@@ -1787,8 +1787,7 @@ pub fn draw_piano_roll(
                         let note_end = note.position_ms + note.duration_ms;
                         let owns_time = timeline_time_ms >= note.position_ms
                             && (timeline_time_ms < note_end || n_idx + 1 == notes_len);
-                        if owns_time
-                        {
+                        if owns_time {
                             if note.pitch_bend.points.is_empty() {
                                 let (prev_m, is_adj) = if n_idx > 0 {
                                     let (pm, pp, pd, _) = note_info[n_idx - 1];

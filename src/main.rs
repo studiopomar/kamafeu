@@ -71,7 +71,6 @@ enum Commands {
     ValidateVoicebank {
         /// Path to the UTAU voicebank root folder
         path: PathBuf,
-
     },
 
     /// Print project metadata, tracks and note counts without opening the GUI
@@ -1463,10 +1462,7 @@ fn mcp_tools() -> Vec<Value> {
             "render",
             "Render a project with a voicebank to WAV, FLAC or RAW.",
         ),
-        (
-            "validate_voicebank",
-            "Validate UTAU voicebank assets.",
-        ),
+        ("validate_voicebank", "Validate UTAU voicebank assets."),
         (
             "extensions",
             "List extensions and optionally verify their WASM modules.",
@@ -2788,9 +2784,7 @@ fn project_info_json(path: &PathBuf) -> Result<Value, Box<dyn std::error::Error>
     }))
 }
 
-fn voicebank_validation_json(
-    path: &PathBuf,
-) -> Result<Value, Box<dyn std::error::Error>> {
+fn voicebank_validation_json(path: &PathBuf) -> Result<Value, Box<dyn std::error::Error>> {
     let vb = Voicebank::new(path)?;
     let report = vb.diagnostic_report();
     let issues = report
@@ -3775,5 +3769,4 @@ mod tests {
         assert!(provenance.contains("org.example.render-engine"));
         assert!(provenance.contains("manifest-test"));
     }
-
 }

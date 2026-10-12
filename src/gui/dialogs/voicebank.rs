@@ -8,10 +8,10 @@ impl KamafeuStudioApp {
         }
 
         let refresh_report = self.voicebank.as_ref().is_some_and(|voicebank| {
-                self.voicebank_diagnostic_report
-                    .as_ref()
-                    .is_none_or(|report| report.root_path != voicebank.root_path)
-            });
+            self.voicebank_diagnostic_report
+                .as_ref()
+                .is_none_or(|report| report.root_path != voicebank.root_path)
+        });
         if refresh_report {
             self.voicebank_diagnostic_report = self
                 .voicebank
