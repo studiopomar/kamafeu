@@ -665,6 +665,22 @@ impl TrackRenderer {
                 ));
             }
 
+            let resampler_diagnostics =
+                crate::renderer::diagnostics::AudioDiagnostics::analyze(&note_rendered, 1);
+            let repaired_discontinuities =
+                crate::renderer::diagnostics::repair_discontinuities(&mut note_rendered, 0.45, 32);
+            let repaired_diagnostics =
+                crate::renderer::diagnostics::AudioDiagnostics::analyze(&note_rendered, 1);
+            logs.push((
+                progress,
+                format!(
+                    "  [Resampler Diagnostics] before={} after={} repaired_jumps={} threshold=0.45 window=32",
+                    resampler_diagnostics.render_log_line("raw"),
+                    repaired_diagnostics.render_log_line("repaired"),
+                    repaired_discontinuities
+                ),
+            ));
+
             // `dur_required` is intentionally longer than the musical
             // duration: classic UTAU resamplers need that head/tail so
             // the wavtool can discard `skip_over` and apply its envelope.
