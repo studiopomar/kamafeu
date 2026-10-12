@@ -857,9 +857,10 @@ pub fn draw_piano_roll(
             // Velocity dynamic modulation
             let vel_factor = (note.expressions.velocity as f32 / 100.0).clamp(0.65, 1.35);
             let regular = theme.note_fill_c32();
-            // Selection must not replace a note with a brighter or darker
-            // slab. Edit controls convey selection; the body remains readable.
-            let selected = regular;
+            // Use the same selected-note color exposed by the theme editor.
+            // Previously this accidentally pointed back to `regular`, making
+            // the selected-note color appear to have no effect in the Piano Roll.
+            let selected = theme.note_selected_fill_c32();
             let base_color = if is_selected { selected } else { regular };
             let note_color = Color32::from_rgba_unmultiplied(
                 ((base_color.r() as f32 * vel_factor).min(255.0)) as u8,
