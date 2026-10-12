@@ -153,9 +153,10 @@ impl TrackRenderer {
         }
 
         let log = |progress: f32, msg: &str| {
-            if on_progress.is_none() {
-                eprintln!("{}", msg);
-            }
+            // Keep the complete trace in the terminal even when the GUI also
+            // receives progress updates. This is essential for diagnosing
+            // missing aliases, timing gaps and external tool failures.
+            eprintln!("{}", msg);
             if let Some(ref cb) = on_progress {
                 cb(progress, msg);
             }
@@ -222,9 +223,28 @@ impl TrackRenderer {
         } else {
             crate::phonemizer::PhonemizerMode::BasicCV
         };
+        let phase_alignment = wavtool_driver.phase_alignment();
+        log(
+            0.0,
+            &format!(
+                "[Render][Start] notes={} sample_rate={}Hz tempo={:.3}BPM voicebank='{}' root='{}' resampler='{}' wavtool='{}' phonemizer={:?} flags='{}' crossfade_ms={:.3} resampler_instances={} lazy_wav_loading={} phase_alignment={}",
+                notes.len(),
+                sample_rate,
+                tempo_bpm,
+                voicebank.name,
+                voicebank.root_path.display(),
+                resampler_driver.name(),
+                wavtool_driver.name(),
+                mode,
+                vocal_mode.map(|value| value.flags.as_str()).unwrap_or(""),
+                crossfade_ms,
+                resampler_instances,
+                LAZY_WAV_LOADING.load(Ordering::Relaxed),
+                phase_alignment,
+            ),
+        );
         let mut phones =
             crate::phonemizer::JapanesePhonemizer::apply_phonemizer(notes, voicebank, mode);
-        let phase_alignment = wavtool_driver.phase_alignment();
         let pitch_notes = Self::phrase_pitch_notes(notes);
 
         // ------------------------------------------------------------------
@@ -924,6 +944,18 @@ impl TrackRenderer {
         } else {
             log(1.0, "[Render] WARNING: Entire track buffer is silent!");
         }
+
+        let final_diagnostics =
+            crate::renderer::diagnostics::AudioDiagnostics::analyze(&track_buffer, 1);
+        log(
+            1.0,
+            &format!(
+                "[Render][Complete] output_samples={} output_duration_ms={:.3} {}",
+                track_buffer.len(),
+                track_buffer.len() as f64 * 1000.0 / sample_rate.max(1) as f64,
+                final_diagnostics.render_log_line("final output"),
+            ),
+        );
 
         Ok(track_buffer)
     }
