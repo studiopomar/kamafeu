@@ -27,19 +27,9 @@ use std::path::PathBuf;
 
 impl KamafeuStudioApp {
     pub(crate) fn render_menu_bar(&mut self, ctx: &egui::Context) {
-        #[cfg(target_os = "macos")]
-        {
-            // macOS owns the application menu bar. Keeping a second copy in
-            // the window wastes vertical space and breaks platform convention.
-            let _ = ctx;
-            return;
-        }
-
-        #[cfg(not(target_os = "macos"))]
         self.render_in_window_menu_bar(ctx);
     }
 
-    #[cfg(not(target_os = "macos"))]
     fn render_in_window_menu_bar(&mut self, ctx: &egui::Context) {
         let screen_width = ctx.screen_rect().width();
         let viewport = ctx.screen_rect();

@@ -19,8 +19,6 @@ pub mod image_cache;
 pub mod inspector;
 mod keyboard_shortcuts;
 pub mod lyrics_dialog;
-#[cfg(target_os = "macos")]
-mod macos_menu;
 mod marquee;
 pub mod menu_bar;
 mod note_actions;
