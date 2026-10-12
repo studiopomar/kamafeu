@@ -362,7 +362,7 @@ impl Voicebank {
         };
 
         let mut entries = HashMap::new();
-        Self::scan_oto_files(&real_root_path, &real_root_path, &mut entries);
+        Self::scan_oto_files(&real_root_path, &real_root_path, &mut entries)?;
 
         Ok(Self {
             root_path: real_root_path,
@@ -378,7 +378,11 @@ impl Voicebank {
         })
     }
 
-    fn scan_oto_files(root: &Path, current_dir: &Path, entries: &mut HashMap<String, OtoEntry>) {
+    fn scan_oto_files(
+        root: &Path,
+        current_dir: &Path,
+        entries: &mut HashMap<String, OtoEntry>,
+    ) -> Result<(), std::io::Error> {
         if let Ok(read_dir) = fs::read_dir(current_dir) {
             let mut directory_entries = read_dir.flatten().collect::<Vec<_>>();
             directory_entries.sort_by_key(|entry| entry.file_name());
@@ -398,31 +402,39 @@ impl Voicebank {
                 if entry.file_type().is_ok_and(|kind| kind.is_symlink()) {
                     continue;
                 }
-                if let Ok(file_entries) = OtoParser::parse_file(&path) {
-                    let rel_sub_dir = path
-                        .parent()
-                        .and_then(|parent| parent.strip_prefix(root).ok())
-                        .unwrap_or(Path::new(""));
-                    for (alias, mut oto) in file_entries {
-                        if !is_safe_relative_path(Path::new(&oto.wav_filename)) {
-                            continue;
-                        }
-                        if rel_sub_dir != Path::new("") {
-                            oto.wav_filename = rel_sub_dir
-                                .join(&oto.wav_filename)
-                                .to_string_lossy()
-                                .to_string();
-                        }
-                        entries.entry(alias).or_insert(oto);
+                let (file_entries, parse_errors) = OtoParser::parse_file_lossy(&path)?;
+                if !parse_errors.is_empty() {
+                    eprintln!(
+                        "[Voicebank] ignorando {} linha(s) inválida(s) em {}: {}",
+                        parse_errors.len(),
+                        path.display(),
+                        parse_errors.join("; ")
+                    );
+                }
+                let rel_sub_dir = path
+                    .parent()
+                    .and_then(|parent| parent.strip_prefix(root).ok())
+                    .unwrap_or(Path::new(""));
+                for (alias, mut oto) in file_entries {
+                    if !is_safe_relative_path(Path::new(&oto.wav_filename)) {
+                        continue;
                     }
+                    if rel_sub_dir != Path::new("") {
+                        oto.wav_filename = rel_sub_dir
+                            .join(&oto.wav_filename)
+                            .to_string_lossy()
+                            .to_string();
+                    }
+                    entries.entry(alias).or_insert(oto);
                 }
             }
             for entry in directory_entries {
                 if entry.file_type().is_ok_and(|kind| kind.is_dir()) {
-                    Self::scan_oto_files(root, &entry.path(), entries);
+                    Self::scan_oto_files(root, &entry.path(), entries)?;
                 }
             }
         }
+        Ok(())
     }
 
     /// Exact phonetic lookup with pitch and candidate mapping. Never changes case or drops a VC/VCV prefix.

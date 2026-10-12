@@ -1,12 +1,22 @@
+#[cfg_attr(target_os = "macos", allow(dead_code))]
 mod edit;
+#[cfg_attr(target_os = "macos", allow(dead_code))]
 mod file;
+#[cfg_attr(target_os = "macos", allow(dead_code))]
 mod help;
+#[cfg_attr(target_os = "macos", allow(dead_code))]
 mod language;
+#[cfg_attr(target_os = "macos", allow(dead_code))]
 mod playback;
+#[cfg_attr(target_os = "macos", allow(dead_code))]
 mod singers;
+#[cfg_attr(target_os = "macos", allow(dead_code))]
 mod tools;
+#[cfg_attr(target_os = "macos", allow(dead_code))]
 mod tracks;
+#[cfg_attr(target_os = "macos", allow(dead_code))]
 mod view;
+#[cfg_attr(target_os = "macos", allow(dead_code))]
 mod vocal_modes;
 use super::KamafeuStudioApp;
 use crate::gui::theme::MelodyneTheme;
@@ -17,6 +27,20 @@ use std::path::PathBuf;
 
 impl KamafeuStudioApp {
     pub(crate) fn render_menu_bar(&mut self, ctx: &egui::Context) {
+        #[cfg(target_os = "macos")]
+        {
+            // macOS owns the application menu bar. Keeping a second copy in
+            // the window wastes vertical space and breaks platform convention.
+            let _ = ctx;
+            return;
+        }
+
+        #[cfg(not(target_os = "macos"))]
+        self.render_in_window_menu_bar(ctx);
+    }
+
+    #[cfg(not(target_os = "macos"))]
+    fn render_in_window_menu_bar(&mut self, ctx: &egui::Context) {
         let screen_width = ctx.screen_rect().width();
         let viewport = ctx.screen_rect();
         let is_mobile = cfg!(target_os = "android")
@@ -32,11 +56,38 @@ impl KamafeuStudioApp {
         }
 
         TopBottomPanel::top("top_menu_bar")
-            .exact_height(56.0)
+            .exact_height(42.0)
             .frame(Frame::none().fill(self.config.theme.bg_panel_c32()))
             .show(ctx, |ui| {
-                ui.horizontal_wrapped(|ui| {
-                    ui.spacing_mut().item_spacing = egui::Vec2::new(4.0, 2.0);
+                // The main menu is navigation, not a toolbar: leave its
+                // surface quiet and reveal a soft pill only on hover/open.
+                ui.style_mut().spacing.button_padding = egui::vec2(8.0, 4.0);
+                ui.scope(|ui| {
+                    let theme = &self.config.theme;
+                    let visuals = ui.visuals_mut();
+                    visuals.widgets.inactive.bg_fill = egui::Color32::TRANSPARENT;
+                    visuals.widgets.inactive.weak_bg_fill = egui::Color32::TRANSPARENT;
+                    visuals.widgets.inactive.bg_stroke = egui::Stroke::NONE;
+                    visuals.widgets.inactive.rounding = egui::Rounding::same(6.0);
+                    visuals.widgets.hovered.bg_fill = theme.c32_alpha(theme.bg_header, 0.82);
+                    visuals.widgets.hovered.weak_bg_fill =
+                        theme.c32_alpha(theme.bg_header, 0.82);
+                    visuals.widgets.hovered.bg_stroke = egui::Stroke::new(
+                        0.7,
+                        theme.c32_alpha(theme.accent_color, 0.30),
+                    );
+                    visuals.widgets.hovered.rounding = egui::Rounding::same(6.0);
+                    visuals.widgets.open.bg_fill = theme.c32_alpha(theme.accent_color, 0.14);
+                    visuals.widgets.open.weak_bg_fill =
+                        theme.c32_alpha(theme.accent_color, 0.14);
+                    visuals.widgets.open.bg_stroke = egui::Stroke::new(
+                        0.8,
+                        theme.c32_alpha(theme.accent_color, 0.46),
+                    );
+                    visuals.widgets.open.rounding = egui::Rounding::same(6.0);
+
+                    ui.horizontal_wrapped(|ui| {
+                    ui.spacing_mut().item_spacing = egui::Vec2::new(1.0, 2.0);
                             self.menu_file(ui);
                             self.menu_edit(ui);
                             self.menu_tracks(ui);
@@ -179,9 +230,17 @@ impl KamafeuStudioApp {
                         }
                     });
                 });
+                });
+
+                let menu_rect = ui.max_rect();
+                ui.painter().line_segment(
+                    [menu_rect.left_bottom(), menu_rect.right_bottom()],
+                    egui::Stroke::new(0.7, self.config.theme.c32_alpha(self.config.theme.grid_line_sub, 0.55)),
+                );
             });
     }
 
+    #[cfg_attr(target_os = "macos", allow(dead_code))]
     fn render_mobile_menu_bar(&mut self, ctx: &egui::Context) {
         let lang = self.config.language;
         let bg_panel = self.config.theme.bg_panel_c32();
@@ -269,6 +328,7 @@ impl KamafeuStudioApp {
             });
     }
 
+    #[cfg_attr(target_os = "macos", allow(dead_code))]
     fn render_mobile_menu_drawer(&mut self, ctx: &egui::Context) {
         let lang = self.config.language;
         let theme = &self.config.theme;

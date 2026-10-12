@@ -811,35 +811,12 @@ impl SolaResampler {
             }
         }
 
-        // Different aliases often have very different consonant and tail
-        // levels; measuring those edges here caused audible per-alias pumping.
-        let stable_rms = |samples: &[f32]| -> f64 {
-            if samples.is_empty() {
-                return 0.0;
-            }
-            let margin = samples.len() / 10;
-            let start = margin.min(samples.len().saturating_sub(1));
-            let end = samples.len().saturating_sub(margin).max(start + 1);
-            (samples[start..end]
-                .iter()
-                .map(|sample| f64::from(*sample).powi(2))
-                .sum::<f64>()
-                / (end - start) as f64)
-                .sqrt()
-        };
-        let source_rms = stable_rms(analysis_slice);
-        let output_rms = stable_rms(&output);
-        if source_rms > 1e-6 && output_rms > 1e-6 {
-            // Tighter clamp (0.75–1.35) compared to the old 0.6–1.6.
-            // The wider range allowed per-alias gain swings of ×2.67,
-            // which contributed to volume non-uniformity across notes.
-            let level_gain = (source_rms / output_rms).clamp(0.75, 1.35) as f32;
-            for sample in &mut output {
-                *sample *= level_gain;
-            }
-        }
-
-        // Peak limiter: prevent any overshoot from clipping
+        // Do not RMS-normalize each alias here. VC fragments are intentionally
+        // quieter than sustained CV material, and their short analysis window
+        // is not a reliable loudness reference. Matching it to the source RMS
+        // could apply up to 1.35x gain and make VC transitions jump above the
+        // neighbouring CV phonemes. The wavtool envelope remains authoritative;
+        // only the peak safety bound below is applied here.
         let source_peak = vowel
             .iter()
             .map(|s| s.abs())

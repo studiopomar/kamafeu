@@ -8,23 +8,14 @@ fn toolbar_card<R>(
     theme: &ThemeConfig,
     add_contents: impl FnOnce(&mut egui::Ui) -> R,
 ) -> R {
+    // Toolbar groups should read as one continuous control surface, rather
+    // than a row of heavy outlined boxes.
     let frame = Frame::none()
-        .fill(theme.elevated_surface_c32())
-        .rounding(theme.ui_rounding())
-        .stroke(theme.card_stroke())
+        .fill(theme.c32_alpha(theme.bg_header, 0.58))
+        .rounding(Rounding::same(theme.ui_corner_radius.max(5.0)))
+        .stroke(Stroke::new(0.6, theme.c32_alpha(theme.grid_line_sub, 0.34)))
         .inner_margin(Margin::symmetric(6.0, 3.0))
         .show(ui, add_contents);
-
-    // Um filete de identidade dá orientação visual aos grupos sem recorrer
-    // a bordas fortes em todos os controles. O brilho discreto também ajuda a
-    // separar a barra quando o canvas e o painel têm tons próximos.
-    let rect = frame.response.rect;
-    let rail = Rect::from_min_max(
-        Pos2::new(rect.left() + 5.0, rect.top() + 1.0),
-        Pos2::new(rect.right() - 5.0, rect.top() + 2.0),
-    );
-    ui.painter()
-        .rect_filled(rail, Rounding::same(1.0), theme.accent_soft_c32());
     frame.inner
 }
 

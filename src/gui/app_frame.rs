@@ -4,6 +4,50 @@ use web_time::Instant;
 
 impl eframe::App for KamafeuStudioApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
+        #[cfg(target_os = "macos")]
+        for action in crate::gui::macos_menu::drain_actions() {
+            use crate::gui::macos_menu::Action;
+            match action {
+                Action::NewProject => self.new_project(),
+                Action::OpenProject => self.open_project_dialog(),
+                Action::SaveProject => self.save_project(),
+                Action::ExportAudio => self.export_wav(),
+                Action::Undo => {
+                    self.pending_edit_snapshot = None;
+                    if let Some(project) = self.undo_manager.undo(self.project.clone()) {
+                        self.project = project;
+                    }
+                }
+                Action::Redo => {
+                    self.pending_edit_snapshot = None;
+                    if let Some(project) = self.undo_manager.redo(self.project.clone()) {
+                        self.project = project;
+                    }
+                }
+                Action::Cut => self.cut_selected_notes(),
+                Action::Copy => self.copy_selected_notes(),
+                Action::Paste => self.paste_notes(),
+                Action::SingerGallery => self.singers_gallery_window_open = true,
+                Action::Preferences => self.preferences_window_open = true,
+                Action::Packages => self.packages_window_open = true,
+                Action::CommandPalette => {
+                    self.command_palette_open = true;
+                    self.command_palette_query.clear();
+                    self.command_palette_selected = 0;
+                }
+                Action::Help => self.shortcuts_guide_open = true,
+                Action::Portuguese => {
+                    self.config.language = crate::config::AppLanguage::PtBr;
+                    self.persist_config();
+                }
+                Action::English => {
+                    self.config.language = crate::config::AppLanguage::EnUs;
+                    self.persist_config();
+                }
+            }
+            ctx.request_repaint();
+        }
+
         if ctx.input(|input| input.viewport().close_requested())
             && self.is_dirty
             && self.config.workflow.confirm_on_exit_dirty

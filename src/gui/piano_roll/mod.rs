@@ -28,6 +28,14 @@ pub use state::*;
 
 use crate::gui::theme::ThemeConfig;
 
+fn format_timeline_time(ms: f64) -> String {
+    let total_ms = ms.max(0.0).round() as u64;
+    let minutes = total_ms / 60_000;
+    let seconds = (total_ms / 1_000) % 60;
+    let millis = total_ms % 1_000;
+    format!("{minutes}:{seconds:02}.{millis:03}")
+}
+
 pub fn draw_piano_roll(
     ui: &mut egui::Ui,
     notes: &mut Vec<UNote>,
@@ -137,7 +145,7 @@ pub fn draw_piano_roll(
             ruler_rect.min.y + ruler_height * 0.5,
         ),
         egui::Align2::LEFT_CENTER,
-        "RULER",
+        "TIME",
         egui::FontId::proportional(10.0),
         theme.accent_c32(),
     );
@@ -147,33 +155,39 @@ pub fn draw_piano_roll(
     let ruler_visible_width = (ruler_rect.width() - keyboard_width).max(1.0);
     let ruler_start_ms = (timeline_scroll_x / state.px_per_ms).max(0.0) as f64;
     let ruler_end_ms = ruler_start_ms + (ruler_visible_width / state.px_per_ms) as f64 + bar_ms;
-    let first_measure = (ruler_start_ms / bar_ms).floor().max(0.0) as usize;
-    let mut measure_idx = first_measure + 1;
-    let mut m_ms = first_measure as f64 * bar_ms;
+    let first_second = (ruler_start_ms / 1_000.0).floor().max(0.0) as u64;
+    let mut tick_ms = first_second as f64 * 1_000.0;
 
-    while m_ms < total_canvas_ms.min(ruler_end_ms) {
-        let x = ruler_rect.min.x + keyboard_width + (m_ms * state.px_per_ms as f64) as f32
+    while tick_ms < total_canvas_ms.min(ruler_end_ms) {
+        let x = ruler_rect.min.x + keyboard_width + (tick_ms * state.px_per_ms as f64) as f32
             - timeline_scroll_x;
         if x >= ruler_rect.min.x + keyboard_width && x <= ruler_rect.max.x + 200.0 {
+            let is_bar = ((tick_ms / bar_ms).round() - (tick_ms / bar_ms)).abs() < 1e-6;
             ruler_painter.line_segment(
                 [
-                    Pos2::new(x, ruler_rect.min.y + 12.0),
+                    Pos2::new(x, ruler_rect.min.y + if is_bar { 10.0 } else { 16.0 }),
                     Pos2::new(x, ruler_rect.max.y),
                 ],
-                Stroke::new(1.5_f32, MelodyneTheme::ACCENT_GOLD),
+                Stroke::new(
+                    if is_bar { 1.25_f32 } else { 0.7_f32 },
+                    if is_bar {
+                        theme.grid_line_bar_c32()
+                    } else {
+                        theme.grid_line_sub_c32()
+                    },
+                ),
             );
 
             ruler_painter.text(
                 Pos2::new(x + 4.0, ruler_rect.min.y + 4.0),
                 egui::Align2::LEFT_TOP,
-                format!("m{}", measure_idx),
+                format_timeline_time(tick_ms),
                 egui::FontId::proportional(11.0),
-                MelodyneTheme::TEXT_GOLD_LABEL,
+                theme.text_primary_c32(),
             );
         }
 
-        measure_idx += 1;
-        m_ms += bar_ms;
+        tick_ms += 1_000.0;
     }
 
     // Arrangement sections live independently from notes. Their quiet bands
@@ -843,16 +857,9 @@ pub fn draw_piano_roll(
             // Velocity dynamic modulation
             let vel_factor = (note.expressions.velocity as f32 / 100.0).clamp(0.65, 1.35);
             let regular = theme.note_fill_c32();
-            let selected_base = theme.note_selected_fill_c32();
-            // The selected state must not become a white/cyan slab. Keep the
-            // theme hue, but lower its luminance so the lyric remains the
-            // primary visual element.
-            let selected = Color32::from_rgba_unmultiplied(
-                (selected_base.r() as f32 * 0.28) as u8,
-                (selected_base.g() as f32 * 0.28) as u8,
-                (selected_base.b() as f32 * 0.28) as u8,
-                selected_base.a(),
-            );
+            // Selection must not replace a note with a brighter or darker
+            // slab. Edit controls convey selection; the body remains readable.
+            let selected = regular;
             let base_color = if is_selected { selected } else { regular };
             let note_color = Color32::from_rgba_unmultiplied(
                 ((base_color.r() as f32 * vel_factor).min(255.0)) as u8,
@@ -876,21 +883,6 @@ pub fn draw_piano_roll(
             // Corpo da nota estilo moderno (DAW profissional):
             // Fundo da nota com contorno limpo
             painter.rect_filled(note_rect, theme.note_rounding(), note_color);
-
-            // Borda refinada com realce superior sutil
-            painter.rect_stroke(note_rect, theme.note_rounding(), {
-                let regular_stroke = theme.note_stroke(false);
-                // Keep the selected outline in the note palette instead
-                // of switching to a near-white stroke that competes with
-                // the lyric and envelope labels.
-                let selected_stroke =
-                    Stroke::new(theme.note_stroke_width.max(0.5), theme.note_stroke_c32());
-                if is_selected {
-                    selected_stroke
-                } else {
-                    regular_stroke
-                }
-            });
 
             if let Some(ref dragged_alias) = phoneme_state.dragged_phoneme {
                 if let Some(mpos) = mouse_interact_pos {
@@ -923,11 +915,7 @@ pub fn draw_piano_roll(
                         state.row_height - 10.0,
                     ),
                 );
-                let pill_bg = if is_selected {
-                    theme.c32_alpha(theme.note_selected_stroke, 0.12)
-                } else {
-                    theme.c32_alpha(theme.bg_panel, 0.68)
-                };
+                let pill_bg = theme.c32_alpha(theme.bg_panel, 0.42);
 
                 // Keep the lyric color theme-controlled. A fixed dark color
                 // made labels unreadable on dark themes and made the theme
@@ -958,8 +946,12 @@ pub fn draw_piano_roll(
                         let note_width = note_rect.width();
                         if note_width >= 42.0 {
                             let pill_rect = Rect::from_min_max(
-                                Pos2::new(x_start + 5.0, y_bottom - 10.0),
-                                Pos2::new(x_end - 5.0, y_bottom - 2.0),
+                                // Keep the resolved phoneme outside the note
+                                // body.  The lyric is the primary content of
+                                // a selected note and must not be covered by
+                                // the secondary phoneme label.
+                                Pos2::new(x_start + 5.0, y_top - 16.0),
+                                Pos2::new(x_end - 5.0, y_top - 2.0),
                             );
                             pending_phoneme_badges.push((
                                 pill_rect,
@@ -2339,10 +2331,17 @@ pub fn draw_piano_roll(
 
         for (badge_rect, phoneme, integrated, note_rect, _is_selected) in pending_phoneme_badges {
             if integrated {
-                let clipped = painter.with_clip_rect(note_rect);
-                // Tipografia e cor nítidas em branco para o fonema secundário na parte inferior
-                clipped.text(
-                    badge_rect.left_center(),
+                // The resolved phoneme lives above the note, SynthV-style,
+                // so selecting a note cannot make it collide with the lyric.
+                let badge_bg = theme.c32_alpha(theme.bg_panel, 0.82);
+                painter.rect_filled(badge_rect, Rounding::same(3.0), badge_bg);
+                painter.rect_stroke(
+                    badge_rect,
+                    Rounding::same(3.0),
+                    Stroke::new(0.7, theme.note_stroke_c32().linear_multiply(0.55)),
+                );
+                painter.with_clip_rect(badge_rect).text(
+                    Pos2::new(badge_rect.left() + 4.0, badge_rect.center().y),
                     egui::Align2::LEFT_CENTER,
                     phoneme,
                     egui::FontId::proportional(9.0),

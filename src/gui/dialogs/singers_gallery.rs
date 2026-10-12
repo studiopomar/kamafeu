@@ -248,10 +248,22 @@ impl KamafeuStudioApp {
             }
 
             if let Some(path) = singer_to_load {
-                if let Ok(vb) = crate::oto::Voicebank::new(&path) {
-                    self.activate_voicebank(vb);
+                match crate::oto::Voicebank::new(&path) {
+                    Ok(vb) => {
+                        self.activate_voicebank(vb);
+                        is_open = false;
+                    }
+                    Err(error) => {
+                        self.transport_state.status_message = format!(
+                            "{}: {}",
+                            lang.tr(
+                                "Não foi possível usar o voicebank",
+                                "Could not use voicebank"
+                            ),
+                            error
+                        );
+                    }
                 }
-                is_open = false;
             }
 
             self.singers_gallery_window_open = is_open;

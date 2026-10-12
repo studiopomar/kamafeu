@@ -17,7 +17,9 @@ pub(super) fn draw(
         return;
     }
 
-    let strip_h = 72.0f32;
+    // A little more vertical space makes the min/max envelope readable
+    // without turning it into a saturated visual block.
+    let strip_h = 84.0f32;
 
     egui::TopBottomPanel::bottom("bottom_processed_waveform_strip")
         .resizable(false)
@@ -46,19 +48,19 @@ pub(super) fn draw(
                 gutter_painter.rect_filled(
                     badge_rect,
                     Rounding::same(3.0),
-                    Color32::from_rgba_unmultiplied(0, 220, 180, 28),
+                    Color32::from_rgba_unmultiplied(190, 194, 198, 22),
                 );
                 gutter_painter.rect_stroke(
                     badge_rect,
                     Rounding::same(3.0),
-                    Stroke::new(0.8, Color32::from_rgb(0, 220, 180)),
+                    Stroke::new(0.8, Color32::from_rgb(142, 146, 150)),
                 );
                 gutter_painter.text(
                     badge_rect.center(),
                     egui::Align2::CENTER_CENTER,
                     "WAVEFORM",
                     egui::FontId::monospace(8.0),
-                    Color32::from_rgb(0, 255, 200),
+                    Color32::from_rgb(202, 205, 208),
                 );
 
                 let has_waveform = !state.rendered_waveform_peaks.is_empty();
@@ -77,7 +79,7 @@ pub(super) fn draw(
                     egui::Align2::CENTER_CENTER,
                     status_text,
                     egui::FontId::proportional(8.5),
-                    Color32::from_rgb(120, 120, 140),
+                    theme.text_muted_c32(),
                 );
 
                 // 2. Timeline Waveform Display Canvas
@@ -86,20 +88,20 @@ pub(super) fn draw(
                     .allocate_exact_size(Vec2::new(available_w, strip_h), Sense::click_and_drag());
 
                 let painter = ui.painter_at(strip_rect);
-                painter.rect_filled(strip_rect, Rounding::ZERO, Color32::from_rgb(14, 14, 18));
+                painter.rect_filled(strip_rect, Rounding::ZERO, theme.bg_canvas_c32());
                 painter.line_segment(
                     [
                         Pos2::new(strip_rect.min.x, strip_rect.min.y),
                         Pos2::new(strip_rect.max.x, strip_rect.min.y),
                     ],
-                    Stroke::new(1.0, Color32::from_rgb(32, 32, 42)),
+                    Stroke::new(0.8, theme.grid_line_sub_c32()),
                 );
                 painter.line_segment(
                     [
                         Pos2::new(strip_rect.min.x, strip_rect.max.y),
                         Pos2::new(strip_rect.max.x, strip_rect.max.y),
                     ],
-                    Stroke::new(1.0, Color32::from_rgb(32, 32, 42)),
+                    Stroke::new(0.8, theme.grid_line_sub_c32()),
                 );
 
                 let timeline_origin_x = ruler_rect.min.x + keyboard_width - timeline_scroll_x;
@@ -112,7 +114,7 @@ pub(super) fn draw(
                         Pos2::new(strip_rect.min.x, mid_y),
                         Pos2::new(strip_rect.max.x, mid_y),
                     ],
-                    Stroke::new(0.8, Color32::from_rgba_unmultiplied(60, 60, 80, 80)),
+                    Stroke::new(0.7, Color32::from_rgba_unmultiplied(155, 158, 162, 62)),
                 );
 
                 // Musical Bars / Beats Grid Markers
@@ -136,19 +138,21 @@ pub(super) fn draw(
                                 Pos2::new(bar_x, strip_rect.min.y),
                                 Pos2::new(bar_x, strip_rect.max.y),
                             ],
-                            Stroke::new(1.0, Color32::from_rgba_unmultiplied(70, 65, 95, 110)),
+                            Stroke::new(0.8, theme.c32_alpha(theme.grid_line_bar, 0.55)),
                         );
                     }
                 }
 
                 // Render High-Resolution Waveform Peak Envelope
                 if has_waveform {
-                    let half_h = strip_h * 0.43;
-                    let step_px = 1.0f32;
+                    let half_h = strip_h * 0.44;
+                    // Sub-pixel sampling makes transients and quiet passages
+                    // much smoother than the former one-column bars.
+                    let step_px = 0.75f32;
                     let num_steps = ((strip_rect.width() / step_px).ceil() as usize).max(1);
                     let display_peak = state.waveform_display_peak();
                     let display_gain = if display_peak > 1e-5 {
-                        (0.92 / display_peak).clamp(1.0, 12.0)
+                        (0.92 / display_peak).clamp(1.0, 4.0)
                     } else {
                         1.0
                     };
@@ -170,7 +174,10 @@ pub(super) fn draw(
                             if (y_bot - y_top).abs() > 0.25 {
                                 painter.line_segment(
                                     [Pos2::new(x_pos, y_top), Pos2::new(x_pos, y_bot)],
-                                    Stroke::new(1.0, Color32::from_rgb(0, 210, 255)),
+                                    Stroke::new(
+                                        0.85,
+                                        Color32::from_rgba_unmultiplied(192, 196, 200, 218),
+                                    ),
                                 );
                             }
                         }

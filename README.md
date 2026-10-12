@@ -202,7 +202,7 @@ O Kamafeu Studio permite alternar entre o pipeline nativo de processamento e fer
 ### Motores de afinação (Resamplers)
 - **VENUS (Nativo):** Motor nativo em Rust baseado em síntese formântica pura, análise de periodicidade com YIN e reconstrução espectral de fase mínima. Preserva a inteligibilidade de consoantes rápidas sem cortes de alias e mantém a ressonância natural da voz sem artefatos anasalados.
 - **straycat-rs (UtaUtaUtau):** Motor padrão recomendado para máxima compatibilidade e clareza acústica.
-- **Motores externos:** Suporte transparente a executáveis da comunidade como `Hifisampler`, `macres`, `moresampler`, `world4utau`, `TIPS` e `Organum`. No Windows, esses binários rodam nativamente por se tratarem de executáveis do sistema; no macOS e Linux, rodam perfeitamente ao detectarem o Wine instalado na máquina.
+- **Motores externos:** Suporte transparente a executáveis da comunidade como `Hifisampler`, `macres`, `moresampler`, `OpenMoresampler`, `world4utau`, `TIPS` e `Organum`. O `openmoresampler.exe` acompanha a distribuição e roda nativamente no Windows; no macOS e Linux, executáveis Windows dependem do Wine.
 
 ### Motores de junção e emenda de fonemas (Wavtools)
 - **Andromeda (Nativo):** Motor de emenda e costura de fonemas interno de alta performance escrito em Rust. Realiza cálculo de envelope de amplitude, interpolação de amostras e crossfade de potência constante (*equal-power*) diretamente na memória.

@@ -81,12 +81,11 @@ pub fn diagnostics(
         .collect()
 }
 
-/// A modest handoff keeps automatically expanded phonemes (G2P, CVVC, VCCV
-/// and BRAPA clusters) from becoming a sequence of hard cuts when an otherwise
-/// valid voicebank has no overlap recorded for those internal aliases.  It is
-/// deliberately only a fallback for phones generated *inside the same musical
-/// note*: inter-note `oto.ini` geometry remains completely authoritative.
-const INTRA_NOTE_SAFETY_CROSSFADE_MS: f64 = 12.0;
+/// A modest handoff keeps automatically expanded phonemes (G2P, CVVC, VCCV,
+/// BRAPA and adjacent notes) from becoming a hard cut when an otherwise valid
+/// voicebank has no overlap recorded for the aliases. Explicit `oto.ini`
+/// overlap and user overrides remain authoritative.
+const SAFETY_CROSSFADE_MS: f64 = 12.0;
 
 pub fn plan_inputs(
     phones: &[crate::phonemizer::RenderPhone],
@@ -101,22 +100,21 @@ pub fn plan_inputs(
             let raw_preutter = oto.map(|entry| entry.preutterance).unwrap_or(0.0);
             let raw_overlap = oto.map(|entry| entry.overlap).unwrap_or(0.0);
             let oto_preutter_ms = raw_preutter.max(0.0);
-            let same_note_handoff = index > 0
-                && phones[index - 1].note_index == phone.note_index
+            let adjacent_handoff = index > 0
                 && (phone.position_ms
                     - (phones[index - 1].position_ms + phones[index - 1].duration_ms))
                     .abs()
                     <= 0.001;
             let manual_overlap = if phone.envelope.crossfade_ms > 0.0 {
                 Some(phone.envelope.crossfade_ms)
-            } else if raw_overlap.abs() <= f64::EPSILON && same_note_handoff && crossfade_ms > 0.0 {
+            } else if raw_overlap.abs() <= f64::EPSILON && adjacent_handoff && crossfade_ms > 0.0 {
                 Some(crossfade_ms)
             } else if raw_overlap.abs() <= f64::EPSILON
-                && same_note_handoff
+                && adjacent_handoff
                 && phone.expressions.overlap_override_ms.is_none()
                 && phone.expressions.overlap_offset_ms.abs() <= f64::EPSILON
             {
-                Some(INTRA_NOTE_SAFETY_CROSSFADE_MS)
+                Some(SAFETY_CROSSFADE_MS)
             } else {
                 None
             };
@@ -376,7 +374,7 @@ mod tests {
     }
 
     #[test]
-    fn global_crossfade_does_not_make_inter_note_consonants_intrude_without_oto_overlap() {
+    fn adjacent_notes_without_oto_overlap_receive_a_safety_crossfade() {
         let dir = tempfile::tempdir().unwrap();
         std::fs::write(
             dir.path().join("oto.ini"),
@@ -402,7 +400,7 @@ mod tests {
         second.position_ms = 400.0;
         let inputs = plan_inputs(&[first, second], &vb, 42.0);
 
-        assert_eq!(inputs[1].overlap_delta_ms, 0.0);
+        assert_eq!(inputs[1].overlap_delta_ms, 42.0);
     }
 
     #[test]
@@ -437,8 +435,8 @@ mod tests {
         let vb = crate::oto::Voicebank::new(dir.path()).unwrap();
         let timings = resolve_phoneme_timings(&plan_inputs(&phones, &vb, 0.0));
 
-        assert_eq!(timings[1].overlap_ms, INTRA_NOTE_SAFETY_CROSSFADE_MS);
-        assert_eq!(timings[0].tail_overlap_ms, INTRA_NOTE_SAFETY_CROSSFADE_MS);
+        assert_eq!(timings[1].overlap_ms, SAFETY_CROSSFADE_MS);
+        assert_eq!(timings[0].tail_overlap_ms, SAFETY_CROSSFADE_MS);
     }
 
     #[test]

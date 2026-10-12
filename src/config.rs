@@ -420,7 +420,7 @@ impl Default for MemoryCacheConfig {
             custom_cache_dir: None,
             clear_cache_on_exit: false,
             auto_cleanup_days: 7,
-            waveform_cache_resolution: 2,
+            waveform_cache_resolution: 1,
             stream_threshold_mb: 16.0,
         }
     }
@@ -944,8 +944,10 @@ impl KamafeuConfig {
             }
             let content = fs::read_to_string(&path)
                 .map_err(|e| format!("Falha ao ler {}: {e}", path.display()))?;
-            serde_json::from_str::<KamafeuConfig>(&content)
-                .map_err(|e| format!("Configuração inválida em {}: {e}", path.display()))
+            let mut config = serde_json::from_str::<KamafeuConfig>(&content)
+                .map_err(|e| format!("Configuração inválida em {}: {e}", path.display()))?;
+            config.theme.upgrade_legacy_pomar_neon();
+            Ok(config)
         }
     }
 

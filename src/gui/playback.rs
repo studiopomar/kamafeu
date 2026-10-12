@@ -12,8 +12,14 @@ use std::sync::Arc;
 fn progressive_chunk_ms(lookahead_ms: f32, render_chunk_bars: u32, bpm: f64) -> f64 {
     let bpm = bpm.clamp(20.0, 600.0);
     let bars_ms = f64::from(render_chunk_bars.clamp(1, 16)) * 4.0 * 60_000.0 / bpm;
-    f64::from(lookahead_ms.clamp(500.0, 10_000.0))
+    // A short chunk is very easy to underrun while egui is laying out and
+    // painting a large piano roll during a scroll.  Once the audio sink has
+    // started, continuity is more important than shaving a few seconds from
+    // the first audible block, so keep at least two seconds of lookahead.
+    f64::from(lookahead_ms.clamp(2_000.0, 10_000.0))
         .min(bars_ms)
+        // At very high BPM one bar can be shorter than two seconds; do not
+        // stretch a chunk past the configured musical boundary in that case.
         .clamp(500.0, 10_000.0)
 }
 
@@ -219,7 +225,9 @@ impl KamafeuStudioApp {
         #[cfg(not(target_arch = "wasm32"))]
         // Keep several seconds queued so a costly piano-roll frame or a
         // short resampler stall cannot turn into audible dropouts.
-        let (audio_tx, audio_rx) = std::sync::mpsc::sync_channel(16);
+        // Keep a generous audio runway: UI scrolling can temporarily delay
+        // the main thread that transfers ready chunks into the rodio sink.
+        let (audio_tx, audio_rx) = std::sync::mpsc::sync_channel(32);
         #[cfg(target_arch = "wasm32")]
         let (audio_tx, audio_rx) = std::sync::mpsc::sync_channel(512);
         self.render_rx = Some(audio_rx);
@@ -530,6 +538,6 @@ mod tests {
     fn progressive_chunk_respects_lookahead_and_musical_bar_limit() {
         assert_eq!(progressive_chunk_ms(2_000.0, 4, 120.0), 2_000.0);
         assert_eq!(progressive_chunk_ms(10_000.0, 1, 120.0), 2_000.0);
-        assert_eq!(progressive_chunk_ms(500.0, 16, 120.0), 500.0);
+        assert_eq!(progressive_chunk_ms(500.0, 16, 120.0), 2_000.0);
     }
 }

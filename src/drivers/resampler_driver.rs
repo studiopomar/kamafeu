@@ -111,6 +111,7 @@ pub enum KnownResampler {
     World4Utau,
     Tips,
     Moresampler,
+    OpenMoresampler,
 }
 
 static CACHE: std::sync::LazyLock<
@@ -118,7 +119,7 @@ static CACHE: std::sync::LazyLock<
 > = std::sync::LazyLock::new(|| std::sync::Mutex::new(std::collections::HashMap::new()));
 
 impl KnownResampler {
-    pub const ALL: [Self; 8] = [
+    pub const ALL: [Self; 9] = [
         Self::Catalina,
         Self::MacRes,
         Self::Organum,
@@ -127,6 +128,7 @@ impl KnownResampler {
         Self::World4Utau,
         Self::Tips,
         Self::Moresampler,
+        Self::OpenMoresampler,
     ];
 
     pub const fn label(self) -> &'static str {
@@ -139,6 +141,7 @@ impl KnownResampler {
             Self::World4Utau => "World4UTAU (xrdavies/world4utau)",
             Self::Tips => "TIPS (TIPS.exe)",
             Self::Moresampler => "moresampler (moresampler.exe)",
+            Self::OpenMoresampler => "OpenMoresampler (openmoresampler.exe)",
         }
     }
 
@@ -168,6 +171,12 @@ impl KnownResampler {
             Self::World4Utau => &["world4utau", "world4utau.exe"],
             Self::Tips => &["TIPS.exe", "tips.exe", "TIPS", "tips"],
             Self::Moresampler => &["moresampler.exe", "moresampler"],
+            Self::OpenMoresampler => &[
+                "openmoresampler.exe",
+                "openmoresampler",
+                "moresampler.exe",
+                "moresampler",
+            ],
         }
     }
 
@@ -1015,7 +1024,9 @@ impl ResamplerDriver for ExternalResamplerDriver {
             }
             if is_exe {
                 let stem = final_exe.file_stem().and_then(|s| s.to_str()).unwrap_or("");
-                if stem.eq_ignore_ascii_case("moresampler") {
+                if stem.eq_ignore_ascii_case("moresampler")
+                    || stem.eq_ignore_ascii_case("openmoresampler")
+                {
                     ensure_moresampler_config(parent);
                 }
             }

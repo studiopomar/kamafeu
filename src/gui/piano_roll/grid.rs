@@ -31,7 +31,8 @@ pub fn draw_piano_keys(
     let mouse_pos = ui.input(|i| i.pointer.interact_pos());
     let mouse_down = ui.input(|i| i.pointer.primary_down() || i.pointer.primary_pressed());
 
-    // 1. First pass: Draw white keys background and tactile bevel
+    // 1. Flat key surfaces: color and labels carry the hierarchy; avoid
+    // bevels, shadows and faux 3-D controls in the piano-roll keyboard.
     for key_idx in first_visible_key..last_visible_key {
         let midi = state.max_midi - key_idx as u8;
         let y_top = grid_start_y + key_idx as f32 * state.row_height;
@@ -58,7 +59,7 @@ pub fn draw_piano_keys(
         let key_color = if is_active {
             theme.key_active_c32()
         } else if is_hovered {
-            Color32::from_rgb(250, 248, 255)
+            theme.bg_keyboard_white_c32().linear_multiply(1.08)
         } else {
             theme.bg_keyboard_white_c32()
         };
@@ -102,7 +103,7 @@ pub fn draw_piano_keys(
         }
     }
 
-    // 2. Second pass: Draw black keys with drop-shadow and rounded bevel
+    // 2. Black keys use the same flat treatment, only with a darker surface.
     let black_key_width = (keyboard_width * 0.65).min(keyboard_width - 16.0);
     for key_idx in first_visible_key..last_visible_key {
         let midi = state.max_midi - key_idx as u8;
@@ -135,25 +136,7 @@ pub fn draw_piano_keys(
             theme.bg_keyboard_black_c32()
         };
 
-        painter.rect_filled(
-            key_rect,
-            Rounding {
-                nw: 0.0,
-                ne: 2.5,
-                se: 2.5,
-                sw: 0.0,
-            },
-            key_color,
-        );
-
-        // Tactile black key bevel highlight
-        painter.line_segment(
-            [
-                Pos2::new(sticky_key_x, y_top + 1.5),
-                Pos2::new(sticky_key_x + black_key_width - 2.0, y_top + 1.5),
-            ],
-            Stroke::new(1.0, Color32::from_rgba_unmultiplied(255, 255, 255, 45)),
-        );
+        painter.rect_filled(key_rect, Rounding::ZERO, key_color);
 
         let is_tonic = state.active_scale != crate::gui::piano_roll::state::MusicalScale::Chromatic
             && state.active_scale.is_tonic(state.scale_root_key, midi);
@@ -181,7 +164,7 @@ pub fn draw_piano_keys(
             Pos2::new(sticky_key_x + keyboard_width, keys_y_min),
             Pos2::new(sticky_key_x + keyboard_width, keys_y_max),
         ],
-        Stroke::new(2.0_f32, theme.accent_c32()),
+        Stroke::new(1.0_f32, theme.grid_line_sub_c32()),
     );
 }
 

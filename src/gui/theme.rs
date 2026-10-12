@@ -62,7 +62,7 @@ impl ThemePreset {
         match lang {
             crate::config::AppLanguage::PtBr => match self {
                 ThemePreset::PomarNeon => {
-                    "Violeta escuro com notas em verde menta fluorescente e acentos lavanda."
+                    "Tema escuro neutro com notas translúcidas em verde oliva suave."
                 }
                 ThemePreset::MelodyneGold => {
                     "Estilo clássico e elegante com notas douradas e âmbar quente."
@@ -85,9 +85,7 @@ impl ThemePreset {
                 ThemePreset::Custom => "Esquema totalmente configurado pelo usuário.",
             },
             crate::config::AppLanguage::EnUs => match self {
-                ThemePreset::PomarNeon => {
-                    "Dark violet with fluorescent mint green notes and lavender accents."
-                }
+                ThemePreset::PomarNeon => "Neutral dark theme with soft translucent olive notes.",
                 ThemePreset::MelodyneGold => {
                     "Classic elegant style with gold notes and warm amber accents."
                 }
@@ -186,37 +184,54 @@ impl Default for ThemeConfig {
 }
 
 impl ThemeConfig {
+    /// Upgrade only the exact original Pomar preset. Customized themes are
+    /// intentionally left untouched.
+    pub fn upgrade_legacy_pomar_neon(&mut self) -> bool {
+        let is_legacy = self.preset == ThemePreset::PomarNeon
+            && self.bg_canvas == [20, 18, 28]
+            && self.bg_panel == [28, 25, 38]
+            && self.note_fill == [34, 180, 126]
+            && self.note_stroke == [45, 205, 145]
+            && self.note_selected_fill == [52, 212, 155]
+            && self.note_selected_stroke == [220, 245, 235]
+            && self.note_opacity == 1.0;
+        if is_legacy {
+            *self = Self::from_preset(ThemePreset::PomarNeon);
+        }
+        is_legacy
+    }
+
     pub fn from_preset(preset: ThemePreset) -> Self {
         match preset {
             ThemePreset::PomarNeon => Self {
                 preset: ThemePreset::PomarNeon,
-                bg_canvas: [20, 18, 28],
-                bg_panel: [28, 25, 38],
-                bg_header: [36, 32, 48],
-                bg_row_white_key: [26, 23, 36],
-                bg_row_black_key: [18, 16, 25],
-                bg_keyboard_white: [215, 212, 225],
-                bg_keyboard_black: [24, 21, 32],
-                grid_line_bar: [48, 42, 64],
-                grid_line_sub: [32, 28, 44],
-                note_fill: [34, 180, 126],
-                note_stroke: [45, 205, 145],
-                note_selected_fill: [52, 212, 155],
-                note_selected_stroke: [220, 245, 235],
-                note_hover: [40, 195, 138],
-                note_corner_radius: 6.0,
-                note_stroke_width: 1.5,
-                note_opacity: 1.0,
+                bg_canvas: [27, 27, 29],
+                bg_panel: [34, 34, 37],
+                bg_header: [43, 43, 46],
+                bg_row_white_key: [31, 31, 34],
+                bg_row_black_key: [23, 23, 25],
+                bg_keyboard_white: [202, 202, 204],
+                bg_keyboard_black: [25, 25, 27],
+                grid_line_bar: [60, 60, 64],
+                grid_line_sub: [43, 43, 47],
+                note_fill: [91, 108, 66],
+                note_stroke: [139, 157, 101],
+                note_selected_fill: [111, 128, 79],
+                note_selected_stroke: [211, 216, 193],
+                note_hover: [121, 139, 88],
+                note_corner_radius: 3.0,
+                note_stroke_width: 1.0,
+                note_opacity: 0.58,
                 note_waveform_opacity: 0.30,
-                note_waveform_color: [10, 40, 28],
-                pitch_curve_color: [185, 155, 230],
-                pitch_anchor_color: [165, 130, 215],
-                accent_color: [160, 130, 215],
-                playhead_color: [45, 205, 145],
-                text_primary: [230, 228, 238],
-                text_muted: [140, 132, 160],
-                text_note_tag: [255, 255, 255],
-                ui_corner_radius: 4.0,
+                note_waveform_color: [205, 205, 205],
+                pitch_curve_color: [190, 190, 190],
+                pitch_anchor_color: [220, 220, 220],
+                accent_color: [166, 166, 158],
+                playhead_color: [218, 190, 68],
+                text_primary: [224, 224, 226],
+                text_muted: [157, 157, 161],
+                text_note_tag: [238, 238, 236],
+                ui_corner_radius: 2.0,
                 panel_opacity: 1.0,
             },
             ThemePreset::MelodyneGold => Self {
@@ -237,7 +252,7 @@ impl ThemeConfig {
                 note_hover: [218, 162, 60],
                 note_corner_radius: 8.0,
                 note_stroke_width: 1.5,
-                note_opacity: 1.0,
+                note_opacity: 0.72,
                 note_waveform_opacity: 0.30,
                 note_waveform_color: [50, 30, 0],
                 pitch_curve_color: [225, 115, 80],
@@ -268,7 +283,7 @@ impl ThemeConfig {
                 note_hover: [225, 70, 135],
                 note_corner_radius: 4.0,
                 note_stroke_width: 1.8,
-                note_opacity: 0.95,
+                note_opacity: 0.72,
                 note_waveform_opacity: 0.35,
                 note_waveform_color: [240, 240, 250],
                 pitch_curve_color: [70, 205, 230],
@@ -299,7 +314,7 @@ impl ThemeConfig {
                 note_hover: [125, 182, 200],
                 note_corner_radius: 6.0,
                 note_stroke_width: 1.5,
-                note_opacity: 1.0,
+                note_opacity: 0.72,
                 note_waveform_opacity: 0.30,
                 note_waveform_color: [20, 35, 45],
                 pitch_curve_color: [165, 132, 160],
@@ -330,7 +345,7 @@ impl ThemeConfig {
                 note_hover: [60, 180, 172],
                 note_corner_radius: 8.0,
                 note_stroke_width: 1.6,
-                note_opacity: 1.0,
+                note_opacity: 0.72,
                 note_waveform_opacity: 0.30,
                 note_waveform_color: [10, 45, 42],
                 pitch_curve_color: [225, 115, 150],
@@ -361,7 +376,7 @@ impl ThemeConfig {
                 note_hover: [182, 140, 20],
                 note_corner_radius: 5.0,
                 note_stroke_width: 1.5,
-                note_opacity: 1.0,
+                note_opacity: 0.72,
                 note_waveform_opacity: 0.30,
                 note_waveform_color: [40, 25, 0],
                 pitch_curve_color: [45, 150, 142],
@@ -392,7 +407,7 @@ impl ThemeConfig {
                 note_hover: [50, 145, 182],
                 note_corner_radius: 6.0,
                 note_stroke_width: 1.6,
-                note_opacity: 1.0,
+                note_opacity: 0.72,
                 note_waveform_opacity: 0.30,
                 note_waveform_color: [255, 255, 255],
                 pitch_curve_color: [205, 70, 110],
@@ -729,10 +744,10 @@ impl ThemeConfig {
 
         // Controles inativos ficam próximos da superfície em vez de formar
         // uma grade de caixas fortes. O contraste aparece quando há ação.
-        visuals.widgets.inactive.bg_fill = self.elevated_surface_c32();
-        visuals.widgets.inactive.bg_stroke = Stroke::new(0.8, grid_sub.linear_multiply(0.26));
+        visuals.widgets.inactive.bg_fill = panel_bg;
+        visuals.widgets.inactive.bg_stroke = Stroke::NONE;
         visuals.widgets.inactive.fg_stroke = Stroke::new(1.0, text_p);
-        visuals.widgets.inactive.rounding = round;
+        visuals.widgets.inactive.rounding = Rounding::same(self.ui_corner_radius.max(5.0));
 
         let hovered_bg = if is_light {
             Color32::from_rgb(
@@ -749,7 +764,7 @@ impl ThemeConfig {
         };
         visuals.widgets.hovered.bg_fill = hovered_bg;
         visuals.widgets.hovered.bg_stroke =
-            Stroke::new(1.0, self.c32_alpha(self.accent_color, 0.52));
+            Stroke::new(0.8, self.c32_alpha(self.accent_color, 0.38));
         visuals.widgets.hovered.fg_stroke = Stroke::new(
             1.0,
             if is_light {
@@ -758,12 +773,12 @@ impl ThemeConfig {
                 Color32::WHITE
             },
         );
-        visuals.widgets.hovered.rounding = round;
+        visuals.widgets.hovered.rounding = Rounding::same(self.ui_corner_radius.max(5.0));
 
-        visuals.widgets.active.bg_fill = self.c32_alpha(self.accent_color, 0.26);
-        visuals.widgets.active.bg_stroke = Stroke::new(1.2, accent);
+        visuals.widgets.active.bg_fill = self.c32_alpha(self.accent_color, 0.16);
+        visuals.widgets.active.bg_stroke = Stroke::new(1.0, accent);
         visuals.widgets.active.fg_stroke = Stroke::new(1.2, text_p);
-        visuals.widgets.active.rounding = round;
+        visuals.widgets.active.rounding = Rounding::same(self.ui_corner_radius.max(5.0));
 
         visuals.widgets.open.bg_fill = header_bg;
         visuals.widgets.open.bg_stroke = Stroke::new(1.0, accent);
@@ -856,8 +871,9 @@ mod tests {
 
         assert_ne!(inactive, hovered);
         assert_ne!(hovered, active);
-        assert_eq!(visuals.widgets.inactive.rounding, theme.ui_rounding());
-        assert_eq!(visuals.widgets.hovered.rounding, theme.ui_rounding());
+        let control_rounding = Rounding::same(theme.ui_corner_radius.max(5.0));
+        assert_eq!(visuals.widgets.inactive.rounding, control_rounding);
+        assert_eq!(visuals.widgets.hovered.rounding, control_rounding);
     }
 
     #[test]

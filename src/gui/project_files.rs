@@ -49,6 +49,7 @@ pub fn web_file_queue() -> &'static std::sync::Mutex<Vec<(String, Vec<u8>)>> {
 }
 
 impl KamafeuStudioApp {
+    #[cfg_attr(target_os = "macos", allow(dead_code))]
     pub(crate) fn request_project_action(&mut self, action: PendingProjectAction) {
         if self.is_dirty && self.config.workflow.confirm_on_exit_dirty {
             self.pending_project_action = Some(action);
