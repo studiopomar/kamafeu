@@ -23,6 +23,7 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
+          toolchain: 1.98.1
           components: rustfmt, clippy
       - name: Check formatting
         run: cargo fmt --all -- --check
@@ -84,6 +85,7 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
+          toolchain: 1.98.1
           targets: ${{ matrix.job.target }}
 
       - name: Build Binary (Native)
