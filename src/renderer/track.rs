@@ -696,6 +696,10 @@ impl TrackRenderer {
             ));
 
             let dynamics_curve = phone.expressions.dynamics_curve.clone();
+            let dynamics_curve_sorted = dynamics_curve
+                .windows(2)
+                .all(|pair| pair[0].time_offset_ms <= pair[1].time_offset_ms);
+            let mut dynamics_curve_index = 0usize;
             for (sample_index, sample) in note_rendered.iter_mut().enumerate() {
                 let time_ms = sample_index as f64 * 1000.0 / sample_rate as f64
                     - timing.pitch_leading_ms
@@ -704,10 +708,29 @@ impl TrackRenderer {
                     } else {
                         0.0
                     };
+                let t = time_ms.max(0.0);
                 let curve_value = if dynamics_curve.is_empty() {
                     phone.expressions.dynamics
+                } else if dynamics_curve_sorted {
+                    while dynamics_curve_index + 1 < dynamics_curve.len()
+                        && t > dynamics_curve[dynamics_curve_index + 1].time_offset_ms
+                    {
+                        dynamics_curve_index += 1;
+                    }
+
+                    if dynamics_curve_index + 1 >= dynamics_curve.len() {
+                        dynamics_curve
+                            .last()
+                            .map(|point| point.value)
+                            .unwrap_or(phone.expressions.dynamics)
+                    } else {
+                        let left = &dynamics_curve[dynamics_curve_index];
+                        let right = &dynamics_curve[dynamics_curve_index + 1];
+                        let span = (right.time_offset_ms - left.time_offset_ms).max(1e-6);
+                        let u = ((t - left.time_offset_ms) / span).clamp(0.0, 1.0);
+                        left.value + (right.value - left.value) * u
+                    }
                 } else {
-                    let t = time_ms.max(0.0);
                     dynamics_curve
                         .windows(2)
                         .find(|pair| t <= pair[1].time_offset_ms)
