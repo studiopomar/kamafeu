@@ -40,6 +40,9 @@ jobs:
       - name: Check release build
         run: cargo check --release --all-targets
 
+      - name: Check x86-64 SIMD paths
+        run: cargo check --target x86_64-unknown-linux-gnu --lib
+
       - name: Check WASM platform contract
         run: |
           rustup target add wasm32-unknown-unknown
