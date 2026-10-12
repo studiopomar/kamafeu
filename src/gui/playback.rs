@@ -23,6 +23,10 @@ fn progressive_chunk_ms(lookahead_ms: f32, render_chunk_bars: u32, bpm: f64) -> 
         .clamp(500.0, 10_000.0)
 }
 
+pub(super) fn progressive_startup_ready(buffered_chunks: usize, current_is_final: bool) -> bool {
+    buffered_chunks >= 2 || (buffered_chunks >= 1 && current_is_final)
+}
+
 impl KamafeuStudioApp {
     pub(crate) fn retry_failed_chunk(&mut self) {
         #[cfg(target_arch = "wasm32")]
@@ -61,6 +65,7 @@ impl KamafeuStudioApp {
             self.render_progress = 0.0;
             self.render_status_title = format!("Retry chunk #{chunk_index}");
             self.failed_chunk = None;
+            self.progressive_startup_audio.clear();
 
             let resampler_driver = self.create_resampler_driver();
             let wavtool_driver = self.create_wavtool_driver();
@@ -239,6 +244,7 @@ impl KamafeuStudioApp {
         self.piano_roll_state.is_playing = false;
         self.playback_start_instant = None;
         self.progressive_playback_started = false;
+        self.progressive_startup_audio.clear();
         let tx = Arc::new(std::sync::Mutex::new(tx));
         let tx_cb = tx.clone();
         #[cfg(not(target_arch = "wasm32"))]
@@ -324,6 +330,7 @@ impl KamafeuStudioApp {
         self.playback_start_instant = None;
         self.render_rx = None;
         self.progressive_playback_started = false;
+        self.progressive_startup_audio.clear();
         self.transport_state.status_message = "Pausado".to_string();
     }
 
@@ -532,12 +539,19 @@ impl KamafeuStudioApp {
 
 #[cfg(test)]
 mod tests {
-    use super::progressive_chunk_ms;
+    use super::{progressive_chunk_ms, progressive_startup_ready};
 
     #[test]
     fn progressive_chunk_respects_lookahead_and_musical_bar_limit() {
         assert_eq!(progressive_chunk_ms(2_000.0, 4, 120.0), 2_000.0);
         assert_eq!(progressive_chunk_ms(10_000.0, 1, 120.0), 2_000.0);
         assert_eq!(progressive_chunk_ms(500.0, 16, 120.0), 2_000.0);
+    }
+
+    #[test]
+    fn progressive_playback_waits_for_runway_but_not_after_final_chunk() {
+        assert!(!progressive_startup_ready(1, false));
+        assert!(progressive_startup_ready(2, false));
+        assert!(progressive_startup_ready(1, true));
     }
 }

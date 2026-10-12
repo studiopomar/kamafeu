@@ -116,6 +116,7 @@ impl KamafeuStudioApp {
                             self.audio_player.stop();
                             self.piano_roll_state.is_playing = false;
                             self.progressive_playback_started = false;
+                            self.progressive_startup_audio.clear();
                             self.transport_state.status_message =
                                 format!("Erro no render: {error}");
                             self.render_log_messages
@@ -124,7 +125,7 @@ impl KamafeuStudioApp {
                             break;
                         }
 
-                        let is_first = !self.progressive_playback_started;
+                        let chunk_is_final = chunk.is_final;
                         let mut samples = std::mem::take(&mut chunk.audio.samples);
 
                         // Mix metronome clicks if enabled
@@ -145,12 +146,41 @@ impl KamafeuStudioApp {
                             chunk.chunk_start_ms,
                         );
 
-                        if is_first {
-                            self.audio_player.play_samples_with_channels(
+                        if !self.progressive_playback_started {
+                            self.progressive_startup_audio.push((
                                 samples,
                                 chunk.audio.sample_rate,
                                 chunk.audio.channels,
-                            );
+                            ));
+
+                            // Starting from a single page makes the sink race
+                            // the renderer and the egui layout work performed
+                            // when horizontal page-follow changes viewports.
+                            // Keep a complete extra page queued before the
+                            // playback clock starts. Short previews still
+                            // start immediately when their first page is final.
+                            if !crate::gui::playback::progressive_startup_ready(
+                                self.progressive_startup_audio.len(),
+                                chunk_is_final,
+                            ) {
+                                continue;
+                            }
+
+                            let mut startup = self.progressive_startup_audio.drain(..);
+                            if let Some((first, sample_rate, channels)) = startup.next() {
+                                self.audio_player.play_samples_with_channels(
+                                    first,
+                                    sample_rate,
+                                    channels,
+                                );
+                            }
+                            for (queued, sample_rate, channels) in startup {
+                                self.audio_player.append_samples_with_channels(
+                                    queued,
+                                    sample_rate,
+                                    channels,
+                                );
+                            }
                             self.piano_roll_state.is_playing = true;
                             self.playback_start_instant = Some(Instant::now());
                             self.progressive_playback_started = true;
@@ -164,7 +194,7 @@ impl KamafeuStudioApp {
                             );
                         }
 
-                        if chunk.is_final {
+                        if chunk_is_final {
                             self.transport_state.render_progress = 1.0;
                             self.render_progress = 1.0;
                             drop_rx = true;
@@ -181,6 +211,7 @@ impl KamafeuStudioApp {
                         self.audio_player.stop();
                         self.piano_roll_state.is_playing = false;
                         self.progressive_playback_started = false;
+                        self.progressive_startup_audio.clear();
                         self.playback_start_instant = None;
                         let error =
                             "O worker de renderização terminou antes do chunk final. Verifique o engine e o log de renderização.";

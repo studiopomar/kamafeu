@@ -289,6 +289,7 @@ impl KamafeuStudioApp {
             playback_start_offset_ms: 0.0,
             render_rx: None,
             progressive_playback_started: false,
+            progressive_startup_audio: Vec::new(),
             render_cancel: None,
             retry_project: None,
             retry_voicebank: None,
