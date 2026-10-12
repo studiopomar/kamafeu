@@ -5,8 +5,9 @@ mod phrase_pitch;
 mod slots;
 mod wav_io;
 use std::collections::HashMap;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, OnceLock, RwLock};
+use std::time::Instant;
 
 use rayon::prelude::*;
 
@@ -25,6 +26,7 @@ use crate::renderer::RenderOptions;
 pub struct TrackRenderer;
 
 static LAZY_WAV_LOADING: AtomicBool = AtomicBool::new(false);
+static NEXT_RENDER_SESSION_ID: AtomicU64 = AtomicU64::new(1);
 
 fn io_thread_count() -> &'static RwLock<usize> {
     static THREADS: OnceLock<RwLock<usize>> = OnceLock::new();
@@ -152,11 +154,18 @@ impl TrackRenderer {
             return Ok(Vec::new());
         }
 
+        let render_session_id = NEXT_RENDER_SESSION_ID.fetch_add(1, Ordering::Relaxed);
+        let render_started = Instant::now();
         let log = |progress: f32, msg: &str| {
             // Keep the complete trace in the terminal even when the GUI also
             // receives progress updates. This is essential for diagnosing
             // missing aliases, timing gaps and external tool failures.
-            eprintln!("{}", msg);
+            eprintln!(
+                "[RenderLog session={render_session_id} elapsed_ms={} progress={:>6.2}% thread={:?}] {msg}",
+                render_started.elapsed().as_millis(),
+                (progress.clamp(0.0, 1.0) * 100.0),
+                std::thread::current().id(),
+            );
             if let Some(ref cb) = on_progress {
                 cb(progress, msg);
             }
