@@ -282,6 +282,7 @@ impl WindowedSincResampler {
         // Lanczos window order (typically 2 or 3 for good quality)
         const LANCZOS_ORDER: i32 = 3;
         let radius = LANCZOS_ORDER as f64;
+        let pi = std::f64::consts::PI;
 
         // Calculate the range of input samples needed
         let mut sum = 0.0f64;
@@ -300,15 +301,16 @@ impl WindowedSincResampler {
                 return input[idx as usize];
             }
 
-            // Calculate sinc function: sinc(x) = sin(πx) / (πx)
-            let sinc_val = (std::f64::consts::PI * x).sin() / (std::f64::consts::PI * x);
+            // Calculate both sinc terms from the same pi*x value. This keeps
+            // the high-precision path intact while avoiding repeated multiplies
+            // in the hottest resampling loop.
+            let pi_x = pi * x;
+            let sinc_val = pi_x.sin() / pi_x;
 
             // Calculate Lanczos window: sinc(x) * sinc(x/a) for -a < x < a, 0 otherwise
             let lanczos_val = if x < radius && x > 0.0 {
-                sinc_val * (std::f64::consts::PI * x / radius).sin()
-                    / (std::f64::consts::PI * x / radius)
-            } else if x < 1e-9 {
-                1.0
+                let pi_x_over_radius = pi_x / radius;
+                sinc_val * pi_x_over_radius.sin() / pi_x_over_radius
             } else {
                 0.0
             };
