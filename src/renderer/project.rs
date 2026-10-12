@@ -1014,12 +1014,13 @@ impl ProjectRenderer {
                 // so the ambient reflections do not abruptly truncate at the note boundary.
                 let tail_frames = (sample_rate as usize * 25) / 10; // 2.5 seconds tail
                 let tail_samples = tail_frames * 2;
-                let mut track_stereo = Vec::with_capacity(required_len + tail_samples);
-                for &sample in mono.iter() {
-                    track_stereo.push(sample * left_gain);
-                    track_stereo.push(sample * right_gain);
-                }
-                track_stereo.resize(required_len + tail_samples, 0.0);
+                let mut track_stereo = vec![0.0; required_len + tail_samples];
+                accumulate_mono_to_stereo(
+                    &mut track_stereo[..required_len],
+                    mono,
+                    left_gain,
+                    right_gain,
+                );
 
                 let mut processor = crate::audio::FxRackProcessor::new(fx.clone(), sample_rate);
                 processor.process_interleaved(&mut track_stereo, sample_rate);
