@@ -202,4 +202,11 @@ mod tests {
         assert_eq!(window_rms(&samples, 2, true), 0.0);
         assert_eq!(samples, [1.0, 1.0, 0.0, 0.0]);
     }
+
+    #[test]
+    fn rms_simd_path_matches_expected_energy_with_tail() {
+        let samples = [1.0, -1.0, 0.5, -0.5, 0.25];
+        let expected = (2.5625_f64 / 5.0).sqrt() as f32;
+        assert!((window_rms(&samples, samples.len(), false) - expected).abs() < 1e-7);
+    }
 }
