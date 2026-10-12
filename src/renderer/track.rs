@@ -28,19 +28,6 @@ pub struct TrackRenderer;
 static LAZY_WAV_LOADING: AtomicBool = AtomicBool::new(false);
 static NEXT_RENDER_SESSION_ID: AtomicU64 = AtomicU64::new(1);
 
-fn is_sibilant_alias(alias: &str) -> bool {
-    let normalized = alias.to_lowercase();
-    normalized
-        .split(|character: char| character.is_whitespace() || character == '_' || character == '-')
-        .any(|token| matches!(token, "s" | "z" | "sh" | "zh" | "ch" | "ts" | "dz"))
-        || normalized.chars().any(|character| {
-            matches!(
-                character,
-                'さ' | 'し' | 'す' | 'せ' | 'そ' | 'ざ' | 'じ' | 'ず' | 'ぜ' | 'ぞ'
-            )
-        })
-}
-
 fn io_thread_count() -> &'static RwLock<usize> {
     static THREADS: OnceLock<RwLock<usize>> = OnceLock::new();
     THREADS.get_or_init(|| RwLock::new(4))
@@ -680,17 +667,11 @@ impl TrackRenderer {
 
             let resampler_diagnostics =
                 crate::renderer::diagnostics::AudioDiagnostics::analyze(&note_rendered, 1);
-            let repaired_discontinuities =
-                crate::renderer::diagnostics::repair_discontinuities(&mut note_rendered, 0.45, 32);
-            let repaired_diagnostics =
-                crate::renderer::diagnostics::AudioDiagnostics::analyze(&note_rendered, 1);
             logs.push((
                 progress,
                 format!(
-                    "  [Resampler Diagnostics] before={} after={} repaired_jumps={} threshold=0.45 window=32",
-                    resampler_diagnostics.render_log_line("raw"),
-                    repaired_diagnostics.render_log_line("repaired"),
-                    repaired_discontinuities
+                    "  [Resampler Diagnostics] {}",
+                    resampler_diagnostics.render_log_line("raw")
                 ),
             ));
 
@@ -790,12 +771,15 @@ impl TrackRenderer {
                 wavtool_driver.consumes_skip_over()
             };
             let post_wavtool_max = note_rendered.iter().map(|s| s.abs()).fold(0.0f32, f32::max);
+            let wavtool_diagnostics =
+                crate::renderer::diagnostics::AudioDiagnostics::analyze(&note_rendered, 1);
             logs.push((
                 progress,
                 format!(
-                    "  [Wavtool] {} samples, max_amp={:.4}",
+                    "  [Wavtool] {} samples, max_amp={:.4} | {}",
                     note_rendered.len(),
-                    post_wavtool_max
+                    post_wavtool_max,
+                    wavtool_diagnostics.render_log_line("output")
                 ),
             ));
 
@@ -854,17 +838,16 @@ impl TrackRenderer {
                 *sample *= (dyn_gain * vibrato_volume) as f32;
             }
 
-            if is_sibilant_alias(&phone.lyric) {
-                let reduction_db =
-                    crate::renderer::diagnostics::de_ess(&mut note_rendered, sample_rate, 6.0);
-                logs.push((
-                    progress,
-                    format!(
-                        "  [De-esser] phone='{}' max_reduction_db={reduction_db:.2}",
-                        phone.lyric
-                    ),
-                ));
-            }
+            let expression_diagnostics =
+                crate::renderer::diagnostics::AudioDiagnostics::analyze(&note_rendered, 1);
+            logs.push((
+                progress,
+                format!(
+                    "  [Phone Diagnostics] phone='{}' {}",
+                    phone.lyric,
+                    expression_diagnostics.render_log_line("after-expressions")
+                ),
+            ));
 
             let boundary_window = ((sample_rate as f64 * 0.010).round() as usize).max(1);
             let head_rms =

@@ -110,93 +110,6 @@ pub fn window_rms(samples: &[f32], window_samples: usize, from_end: bool) -> f32
     (sum / window_samples as f64).sqrt() as f32
 }
 
-/// Removes isolated sample discontinuities produced by a resampler.  A jump
-/// this large at 44.1/48 kHz is a click, not a musical transient.  The short
-/// interpolation window keeps the repair local and leaves normal consonant
-/// attacks untouched.
-pub fn repair_discontinuities(samples: &mut [f32], threshold: f32, window: usize) -> usize {
-    if samples.len() < 2 || window == 0 {
-        return 0;
-    }
-
-    let mut repaired = 0;
-    let mut index = 1;
-    while index < samples.len() {
-        if !samples[index - 1].is_finite() || !samples[index].is_finite() {
-            index += 1;
-            continue;
-        }
-        if (samples[index] - samples[index - 1]).abs() <= threshold {
-            index += 1;
-            continue;
-        }
-
-        let start = index - 1;
-        let end = (index + window).min(samples.len() - 1);
-        let left = samples[start];
-        let right = samples[end];
-        let span = (end - start) as f32;
-        for offset in 1..=end - start {
-            let amount = offset as f32 / span;
-            samples[start + offset] = left + (right - left) * amount;
-        }
-        repaired += 1;
-        index = end + 1;
-    }
-    repaired
-}
-
-/// Attenuates only the high-frequency energy of an already identified
-/// sibilant. The gain envelope has a fast attack and gentle release, so a VC
-/// sample keeps its voiced vowel while `s`/`sh` noise stops dominating the mix.
-/// Returns the largest reduction applied in dB.
-pub fn de_ess(samples: &mut [f32], sample_rate: u32, max_reduction_db: f32) -> f32 {
-    if samples.is_empty() || sample_rate == 0 || max_reduction_db <= 0.0 {
-        return 0.0;
-    }
-
-    let hp_decay = 0.90_f32;
-    let attack = (-1.0_f32 / (sample_rate as f32 * 0.0015)).exp();
-    let release = (-1.0_f32 / (sample_rate as f32 * 0.018)).exp();
-    let gain_attack = (-1.0_f32 / (sample_rate as f32 * 0.001)).exp();
-    let gain_release = (-1.0_f32 / (sample_rate as f32 * 0.025)).exp();
-    let floor = 10.0_f32.powf(-max_reduction_db / 20.0);
-    let mut previous = 0.0_f32;
-    let mut high_pass = 0.0_f32;
-    let mut envelope = 0.0_f32;
-    let mut gain = 1.0_f32;
-    let mut min_gain = 1.0_f32;
-
-    for sample in samples {
-        let input = if sample.is_finite() { *sample } else { 0.0 };
-        high_pass = input - previous + hp_decay * high_pass;
-        previous = input;
-        let magnitude = high_pass.abs();
-        let coefficient = if magnitude > envelope {
-            attack
-        } else {
-            release
-        };
-        envelope = coefficient * envelope + (1.0 - coefficient) * magnitude;
-
-        let target_gain = if envelope > 0.075 {
-            (0.075 / envelope).sqrt().clamp(floor, 1.0)
-        } else {
-            1.0
-        };
-        let coefficient = if target_gain < gain {
-            gain_attack
-        } else {
-            gain_release
-        };
-        gain = coefficient * gain + (1.0 - coefficient) * target_gain;
-        *sample = input * gain;
-        min_gain = min_gain.min(gain);
-    }
-
-    -20.0 * min_gain.max(f32::MIN_POSITIVE).log10()
-}
-
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 #[inline]
 fn sum_squares(samples: &[f32]) -> f64 {
@@ -258,32 +171,7 @@ fn sum_squares_scalar(samples: &[f32]) -> f64 {
 
 #[cfg(test)]
 mod tests {
-    use super::{de_ess, repair_discontinuities, window_rms, AudioDiagnostics};
-
-    #[test]
-    fn de_esser_reduces_sustained_high_frequency_noise() {
-        let mut samples: Vec<f32> = (0..4_410)
-            .map(|index| if index % 2 == 0 { 0.6 } else { -0.6 })
-            .collect();
-        let reduction = de_ess(&mut samples, 44_100, 6.0);
-        let tail_peak = samples[2_000..]
-            .iter()
-            .map(|sample| sample.abs())
-            .fold(0.0f32, f32::max);
-        assert!(reduction > 2.0);
-        assert!(tail_peak < 0.5);
-    }
-
-    #[test]
-    fn repairs_an_isolated_click_without_touching_normal_audio() {
-        let mut samples = vec![0.0f32; 128];
-        samples[32] = 0.9;
-        samples[33] = -0.9;
-        let repaired = repair_discontinuities(&mut samples, 0.45, 32);
-        assert_eq!(repaired, 1);
-        assert!(samples[32].abs() < 0.1);
-        assert!(samples[33].abs() < 0.1);
-    }
+    use super::{window_rms, AudioDiagnostics};
 
     #[test]
     fn analyzes_interleaved_audio_per_channel() {

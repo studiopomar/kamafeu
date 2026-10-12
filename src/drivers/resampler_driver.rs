@@ -378,11 +378,6 @@ fn load_resampler_output(
                 expected_sample_rate,
             );
         }
-        // External engines are not required to honor the host's floating
-        // point headroom. Normalize at the driver boundary so Catalina,
-        // Venus-compatible binaries, and legacy resamplers all enter the
-        // mixer with finite, bounded PCM.
-        crate::renderer::track::TrackRenderer::apply_soft_limiter(&mut samples, 0.95);
         Ok(samples)
     }
 }
@@ -1208,7 +1203,7 @@ mod tests {
     }
 
     #[test]
-    fn external_output_is_finite_and_safe_for_the_mixer() {
+    fn external_output_preserves_resampler_level_without_host_limiting() {
         let directory = tempfile::tempdir().unwrap();
         let output = directory.path().join("unsafe.wav");
         crate::renderer::TrackRenderer::save_wav_samples(
@@ -1226,7 +1221,7 @@ mod tests {
                 .iter()
                 .map(|sample| sample.abs())
                 .fold(0.0, f32::max)
-                <= 0.95
+                > 0.95
         );
     }
 
