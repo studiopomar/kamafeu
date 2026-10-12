@@ -294,13 +294,14 @@ impl UtauEnvelope {
             (fade_in, fade_out)
         };
 
-        let p1 = p0 + eff_fade_in;
-        let p3 = (p4_target - eff_fade_out - self.p4.max(0.0)).max(p1);
-        let p2 = if self.p3 > 0.0 {
-            (p1 + self.p3).min(p3)
-        } else {
-            p1
-        };
+        // OpenUtau's UEnvelope geometry uses a minimum five-millisecond
+        // attack and places the central point at the musical note boundary.
+        // Keeping p2 after p1 here incorrectly treated `p3` as another delay,
+        // moving the sustain point into the overlap and destabilizing VC/CV
+        // handoffs.
+        let p1 = (p0 + eff_fade_in).max(p0 + 5.0);
+        let p2 = p1.max(0.0);
+        let p3 = (p4_target - eff_fade_out - self.p4.max(0.0)).max(p2);
         let p4 = p4_target.max(p3 + 0.1);
 
         [
