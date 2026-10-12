@@ -909,15 +909,8 @@ impl TrackRenderer {
             Self::apply_soft_limiter(&mut track_buffer, target_peak);
         }
 
-        let buffer_max = track_buffer.iter().map(|s| s.abs()).fold(0.0f32, f32::max);
-        log(
-            0.95,
-            &format!(
-                "[Render] Final track_buffer: {} samples, max_amp={:.4}",
-                track_buffer.len(),
-                buffer_max
-            ),
-        );
+        let diagnostics = crate::renderer::diagnostics::AudioDiagnostics::analyze(&track_buffer, 1);
+        log(0.95, &diagnostics.render_log_line("Final track_buffer"));
 
         if let Some(last_nonzero) = track_buffer.iter().rposition(|&s| s.abs() > 1e-4) {
             track_buffer.truncate(last_nonzero + 1);
