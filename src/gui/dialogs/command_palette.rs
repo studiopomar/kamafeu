@@ -70,8 +70,8 @@ impl PaletteAction {
                 "Find notes and tracks that need attention",
             ),
             Self::VoicebankDiagnostics => lang.tr(
-                "Conferir OTO, arquivos e modelos DiffSinger",
-                "Check OTO, files, and DiffSinger models",
+                "Conferir OTO e arquivos do voicebank",
+                "Check OTO and voicebank files",
             ),
             Self::Autopitch => lang.tr(
                 "Preparar curvas de pitch para as notas",
@@ -139,7 +139,7 @@ impl PaletteAction {
             Self::ProjectTemplates => "modelo template pop balada rock coral",
             Self::ExportAudio => "exportar renderizar audio wav flac export render",
             Self::ValidateProject => "validar diagnostico projeto errors validate",
-            Self::VoicebankDiagnostics => "voicebank cantor oto diffsinger diagnostico singer",
+            Self::VoicebankDiagnostics => "voicebank cantor oto diagnostico singer",
             Self::Autopitch => "pitch afinar tuning pre-tunning autopitch",
             Self::FxRack => "efeitos fx rack plugin effects",
             Self::Preferences => "preferencias configuracoes settings audio",

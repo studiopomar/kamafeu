@@ -7,12 +7,7 @@ impl KamafeuStudioApp {
             return;
         }
 
-        let is_diffsinger = self
-            .voicebank
-            .as_ref()
-            .is_some_and(crate::oto::Voicebank::is_diffsinger);
-        let refresh_report = !is_diffsinger
-            && self.voicebank.as_ref().is_some_and(|voicebank| {
+        let refresh_report = self.voicebank.as_ref().is_some_and(|voicebank| {
                 self.voicebank_diagnostic_report
                     .as_ref()
                     .is_none_or(|report| report.root_path != voicebank.root_path)
@@ -23,10 +18,6 @@ impl KamafeuStudioApp {
                 .as_ref()
                 .map(crate::oto::Voicebank::diagnostic_report);
         }
-        if is_diffsinger {
-            self.voicebank_diagnostic_report = None;
-        }
-
         let lang = self.config.language;
         let mut is_open = self.voicebank_diagnostic_open;
         ctx.show_viewport_immediate(
@@ -44,7 +35,7 @@ impl KamafeuStudioApp {
                                 .color(egui::Color32::from_rgb(0, 255, 180)),
                         );
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                            if !is_diffsinger && ui.button(lang.tr("Atualizar", "Refresh")).clicked() {
+                            if ui.button(lang.tr("Atualizar", "Refresh")).clicked() {
                                 self.voicebank_diagnostic_report = self
                                     .voicebank
                                     .as_ref()
@@ -60,48 +51,7 @@ impl KamafeuStudioApp {
                     ui.add_space(8.0);
 
                     if let Some(vb) = self.voicebank.as_ref() {
-                        if vb.is_diffsinger() {
-                            ui.label(egui::RichText::new(format!("{}: {}", lang.tr("Cantor", "Singer"), vb.name)).strong().size(13.0));
-                            ui.label(egui::RichText::new(lang.tr("Tipo: DiffSinger (síntese neural por frase)", "Type: DiffSinger (neural phrase synthesis)")).color(egui::Color32::from_rgb(0, 220, 255)));
-                            ui.add_space(8.0);
-                            match vb.diffsinger_config() {
-                                Ok(config) => {
-                                    egui::Grid::new("diffsinger_diag_grid")
-                                        .num_columns(2)
-                                        .spacing([16.0, 8.0])
-                                        .show(ui, |ui| {
-                                            ui.label(egui::RichText::new(lang.tr("Modelo acústico:", "Acoustic model:")).strong());
-                                            ui.label(config.acoustic.display().to_string());
-                                            ui.end_row();
-                                            ui.label(egui::RichText::new(lang.tr("Vocoder:", "Vocoder:")).strong());
-                                            ui.label(config.vocoder.display().to_string());
-                                            ui.end_row();
-                                            ui.label(egui::RichText::new(lang.tr("Taxa / hop:", "Rate / hop:")).strong());
-                                            ui.label(format!("{} Hz / {}", config.sample_rate, config.hop_size));
-                                            ui.end_row();
-                                            ui.label(egui::RichText::new(lang.tr("Falantes:", "Speakers:")).strong());
-                                            ui.label(if config.speakers.is_empty() { "—".to_string() } else { config.speakers.join(", ") });
-                                            ui.end_row();
-                                            ui.label(egui::RichText::new(lang.tr("Idiomas:", "Languages:")).strong());
-                                            ui.label(if config.language_ids.is_empty() { "—".to_string() } else { config.language_ids.keys().cloned().collect::<Vec<_>>().join(", ") });
-                                            ui.end_row();
-                                        });
-                                    ui.add_space(10.0);
-                                    ui.label(egui::RichText::new(lang.tr("[OK] Configuração DiffSinger encontrada. A validação completa ocorre ao carregar os modelos ONNX para renderização.", "[OK] DiffSinger configuration found. Full validation occurs when ONNX models load for rendering.")).color(egui::Color32::from_rgb(0, 255, 180)));
-                                }
-                                Err(error) => {
-                                    ui.label(egui::RichText::new(format!("{}: {error}", lang.tr("[Erro] Configuração DiffSinger inválida", "[Error] Invalid DiffSinger configuration"))).color(egui::Color32::from_rgb(255, 100, 90)));
-                                    if error.contains(".oudep") {
-                                        ui.add_space(6.0);
-                                        ui.label(lang.tr(
-                                            "Para usar este banco, instale manualmente o vocoder DiffSinger compatível:",
-                                            "To use this singer, manually install the compatible DiffSinger vocoder:",
-                                        ));
-                                        ui.hyperlink(crate::oto::DIFFSINGER_DEPENDENCY_URL);
-                                    }
-                                }
-                            }
-                        } else if let Some(report) = self.voicebank_diagnostic_report.as_ref() {
+                        if let Some(report) = self.voicebank_diagnostic_report.as_ref() {
                         ui.label(egui::RichText::new(format!("{}: {}", lang.tr("Cantor", "Singer"), vb.name)).strong().size(13.0));
                         ui.label(egui::RichText::new(format!("{}: {}", lang.tr("Pasta", "Folder"), vb.root_path.display())).size(10.0).monospace().color(crate::gui::theme::MelodyneTheme::TEXT_MUTED));
                         ui.add_space(8.0);

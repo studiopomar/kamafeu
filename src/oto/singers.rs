@@ -139,32 +139,8 @@ impl SingerScanner {
         let has_char_yaml = dir.join("character.yaml").exists();
         let has_native = dir.join("kamafeu_voicebank.json").exists();
 
-        // DiffSinger folders use a neural phrase renderer rather than oto.ini.
-        // Keep them in the singer catalog so the application can select and
-        // route them to the dedicated renderer instead of silently hiding them.
-        let is_diffsinger = !has_oto
-            && (dir.join("dsconfig.yaml").exists()
-                || dir.join("dsdict.yaml").exists()
-                || dir.join("acoustic.onnx").exists()
-                || dir.join("variance.onnx").exists()
-                || dir.join("vocoder.onnx").exists()
-                || dir.join("phone_set.json").exists());
-
-        let mut is_diffsinger = is_diffsinger;
-        if !is_diffsinger && !has_oto && has_char_yaml {
-            if let Ok(content) = fs::read_to_string(dir.join("character.yaml")) {
-                let content_lower = content.to_lowercase();
-                if content_lower.contains("diffsinger")
-                    || content_lower.contains("singer_type: diffsinger")
-                    || content_lower.contains("voice_type: diffsinger")
-                {
-                    is_diffsinger = true;
-                }
-            }
-        }
-
         let mut sub_has_oto = false;
-        if !has_oto && !has_char && !has_char_yaml && !has_native && !is_diffsinger {
+        if !has_oto && !has_char && !has_char_yaml && !has_native {
             if let Ok(entries) = fs::read_dir(dir) {
                 for e in entries.flatten() {
                     let sub_p = e.path();
@@ -176,8 +152,7 @@ impl SingerScanner {
             }
         }
 
-        if !has_oto && !has_char && !has_char_yaml && !has_native && !sub_has_oto && !is_diffsinger
-        {
+        if !has_oto && !has_char && !has_char_yaml && !has_native && !sub_has_oto {
             return None;
         }
 
@@ -304,9 +279,7 @@ impl SingerScanner {
             }
         }
 
-        let voice_type = if is_diffsinger {
-            "DiffSinger"
-        } else if dir.join("kamafeu_voicebank.json").exists() {
+        let voice_type = if dir.join("kamafeu_voicebank.json").exists() {
             "Kamafeu Studio Nativo"
         } else if sub_has_oto {
             "Multipitch VCV/CVC"
@@ -337,22 +310,6 @@ mod tests {
     }
 
     #[test]
-    fn diffsinger_metadata_is_listed_as_a_diffsinger_voicebank() {
-        let directory = tempfile::tempdir().expect("temporary singer directory");
-        fs::write(
-            directory.path().join("character.yaml"),
-            "name: Neural singer",
-        )
-        .expect("character metadata");
-        fs::write(directory.path().join("dsconfig.yaml"), "phonemes: []")
-            .expect("DiffSinger metadata");
-
-        let singer = SingerScanner::inspect_singer_directory(directory.path())
-            .expect("DiffSinger voicebank should be discoverable");
-        assert_eq!(singer.voice_type, "DiffSinger");
-    }
-
-    #[test]
     fn openutau_yaml_metadata_is_used_by_singer_gallery() {
         let directory = tempfile::tempdir().expect("temporary singer directory");
         fs::write(
@@ -376,22 +333,6 @@ mod tests {
             singer.image_path.as_deref(),
             Some(directory.path().join("portrait.png").as_path())
         );
-    }
-
-    #[test]
-    fn oto_bank_is_not_catalogued_as_diffsinger_by_neural_metadata() {
-        let directory = tempfile::tempdir().expect("temporary singer directory");
-        fs::write(
-            directory.path().join("oto.ini"),
-            "ka.wav=k a,0,100,-400,80,30\n",
-        )
-        .expect("oto.ini");
-        fs::write(directory.path().join("dsconfig.yaml"), "phonemes: []")
-            .expect("auxiliary metadata");
-
-        let singer = SingerScanner::inspect_singer_directory(directory.path())
-            .expect("voicebank should be listed");
-        assert_ne!(singer.voice_type, "DiffSinger");
     }
 
     #[test]

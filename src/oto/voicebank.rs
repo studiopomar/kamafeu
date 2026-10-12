@@ -38,32 +38,6 @@ pub struct Voicebank {
 }
 
 impl Voicebank {
-    /// Returns true when this folder is an OpenUtau DiffSinger bank. These
-    /// banks must be rendered as complete phrases with ONNX models and must
-    /// never fall through to the classic oto.ini renderer.
-    pub fn is_diffsinger(&self) -> bool {
-        // An UTAU bank may ship auxiliary folders named "dsvocoder"; that
-        // folder alone must not bypass its oto.ini renderer. A DiffSinger
-        // bank needs its explicit configuration, or characteristic model
-        // assets without a classic oto.ini.
-        if self.root_path.join("oto.ini").is_file() {
-            return false;
-        }
-        if self.root_path.join("dsconfig.yaml").is_file() {
-            return true;
-        }
-        self.root_path.join("acoustic.onnx").is_file()
-            || (self.root_path.join("dsvocoder").is_dir()
-                && self.root_path.join("phonemes.txt").is_file())
-    }
-
-    pub fn diffsinger_config(&self) -> Result<crate::oto::DiffSingerConfig, String> {
-        if !self.is_diffsinger() {
-            return Err("o voicebank ativo não é DiffSinger".to_string());
-        }
-        crate::oto::DiffSingerConfig::load(&self.root_path)
-    }
-
     pub fn new<P: AsRef<Path>>(root_path: P) -> Result<Self, std::io::Error> {
         let root_path = root_path.as_ref().to_path_buf();
         let mut temp_dir = None;
@@ -1006,7 +980,6 @@ mod tests {
         fs::create_dir(dir.path().join("dsvocoder")).unwrap();
 
         let vb = Voicebank::new(dir.path()).unwrap();
-        assert!(!vb.is_diffsinger());
         assert_eq!(vb.find_mapped_entry("k a", "C4").unwrap().alias, "k a");
         let report = vb.alias_resolution_report("k a", "C4");
         assert!(report.resolved);
@@ -1018,18 +991,4 @@ mod tests {
         assert_ne!(first_fingerprint, vb.content_fingerprint());
     }
 
-    #[test]
-    fn oto_bank_wins_over_diff_singer_metadata() {
-        let dir = tempdir().unwrap();
-        fs::write(dir.path().join("oto.ini"), "ka.wav=k a,0,100,-400,80,30\n").unwrap();
-        fs::write(
-            dir.path().join("dsconfig.yaml"),
-            "phonemes: phonemes.txt\nacoustic: acoustic.onnx\nvocoder: vocoder.onnx\n",
-        )
-        .unwrap();
-
-        let vb = Voicebank::new(dir.path()).unwrap();
-        assert!(!vb.is_diffsinger());
-        assert_eq!(vb.find_mapped_entry("k a", "D4").unwrap().alias, "k a");
-    }
 }

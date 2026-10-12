@@ -56,7 +56,7 @@ enum Commands {
         pitch: String,
     },
 
-    /// List UTAU, OpenUTAU and DiffSinger voicebanks found in singer folders
+    /// List UTAU and OpenUTAU voicebanks found in singer folders
     Voicebanks {
         /// Singer folder to scan. May be specified more than once.
         #[arg(short = 'p', long = "path")]
@@ -72,9 +72,6 @@ enum Commands {
         /// Path to the UTAU voicebank root folder
         path: PathBuf,
 
-        /// For DiffSinger, load ONNX sessions and validate the model contract
-        #[arg(long)]
-        verify_runtime: bool,
     },
 
     /// Print project metadata, tracks and note counts without opening the GUI
@@ -435,8 +432,6 @@ enum AutomationRequest {
     },
     ValidateVoicebank {
         path: PathBuf,
-        #[serde(default)]
-        verify_runtime: bool,
     },
     Extensions {
         path: Option<PathBuf>,
@@ -554,23 +549,6 @@ fn real_main() -> Result<(), Box<dyn std::error::Error>> {
 
         Some(Commands::VoicebankInfo { path, alias, pitch }) => {
             let vb = Voicebank::new(&path)?;
-            if vb.is_diffsinger() {
-                let config = vb.diffsinger_config().map_err(Error::other)?;
-                if json_output {
-                    print_json(&diffsinger_info_json(&path, &vb, &config))?;
-                } else {
-                    println!("=== DiffSinger voicebank ===");
-                    println!("Name:          {}", vb.name);
-                    println!("Root:          {}", config.root.display());
-                    println!("Acoustic:      {}", config.acoustic.display());
-                    println!("Vocoder:       {}", config.vocoder.display());
-                    println!("Sample rate:   {} Hz", config.sample_rate);
-                    println!("Hop size:      {}", config.hop_size);
-                    println!("Mel bins:      {}", config.num_mel_bins);
-                    println!("Speakers:      {}", config.speakers.join(", "));
-                }
-                return Ok(());
-            }
             if json_output {
                 let aliases = vb
                     .entries
@@ -667,32 +645,8 @@ fn real_main() -> Result<(), Box<dyn std::error::Error>> {
             }
         }
 
-        Some(Commands::ValidateVoicebank {
-            path,
-            verify_runtime,
-        }) => {
+        Some(Commands::ValidateVoicebank { path }) => {
             let vb = Voicebank::new(&path)?;
-            if vb.is_diffsinger() {
-                let config = vb.diffsinger_config().map_err(Error::other)?;
-                let report = diffsinger_validation_json(&path, &vb, &config, verify_runtime)?;
-                if json_output {
-                    print_json(&report)?;
-                } else {
-                    println!("=== DiffSinger validation ===");
-                    println!("Name:        {}", vb.name);
-                    println!("Acoustic:    {}", config.acoustic.display());
-                    println!("Vocoder:     {}", config.vocoder.display());
-                    println!(
-                        "Result: {}",
-                        if verify_runtime {
-                            "valid configuration and ONNX contract"
-                        } else {
-                            "valid configuration (use --verify-runtime to load ONNX models)"
-                        }
-                    );
-                }
-                return Ok(());
-            }
             let report = vb.diagnostic_report();
             if json_output {
                 let issues = report
@@ -1454,7 +1408,7 @@ fn mcp_tools() -> Vec<Value> {
         ),
         (
             "list_voicebanks",
-            "Scan singer folders and list UTAU, OpenUTAU and DiffSinger voicebanks.",
+            "Scan singer folders and list UTAU and OpenUTAU voicebanks.",
         ),
         (
             "validate_project",
@@ -1511,7 +1465,7 @@ fn mcp_tools() -> Vec<Value> {
         ),
         (
             "validate_voicebank",
-            "Validate UTAU assets or DiffSinger configuration/runtime.",
+            "Validate UTAU voicebank assets.",
         ),
         (
             "extensions",
@@ -2132,10 +2086,7 @@ fn handle_automation_request(
             )?;
             Ok(render_summary_json(&summary))
         }
-        AutomationRequest::ValidateVoicebank {
-            path,
-            verify_runtime,
-        } => voicebank_validation_json(&path, verify_runtime),
+        AutomationRequest::ValidateVoicebank { path } => voicebank_validation_json(&path),
         AutomationRequest::Extensions {
             path,
             verify_wasm,
@@ -2839,13 +2790,8 @@ fn project_info_json(path: &PathBuf) -> Result<Value, Box<dyn std::error::Error>
 
 fn voicebank_validation_json(
     path: &PathBuf,
-    verify_runtime: bool,
 ) -> Result<Value, Box<dyn std::error::Error>> {
     let vb = Voicebank::new(path)?;
-    if vb.is_diffsinger() {
-        let config = vb.diffsinger_config().map_err(Error::other)?;
-        return diffsinger_validation_json(path, &vb, &config, verify_runtime);
-    }
     let report = vb.diagnostic_report();
     let issues = report
         .issues
@@ -2874,53 +2820,6 @@ fn voicebank_validation_json(
         "sample_rates": report.sample_rates,
         "issues": issues,
     }))
-}
-
-fn diffsinger_validation_json(
-    path: &PathBuf,
-    voicebank: &Voicebank,
-    config: &kamafeu::oto::DiffSingerConfig,
-    verify_runtime: bool,
-) -> Result<Value, Box<dyn std::error::Error>> {
-    let mut report = diffsinger_info_json(path, voicebank, config);
-    report["runtime_verified"] = Value::Bool(false);
-    if verify_runtime {
-        let runtime = kamafeu::dsp::diffsinger_runtime::DiffSingerRuntime::load(config)
-            .map_err(Error::other)?;
-        let contract = runtime.contract();
-        report["runtime_verified"] = Value::Bool(true);
-        report["model_contract"] = json!({
-            "acoustic_inputs": contract.acoustic_inputs,
-            "acoustic_outputs": contract.acoustic_outputs,
-            "vocoder_inputs": contract.vocoder_inputs,
-            "vocoder_outputs": contract.vocoder_outputs,
-        });
-    }
-    Ok(report)
-}
-
-fn diffsinger_info_json(
-    path: &PathBuf,
-    voicebank: &Voicebank,
-    config: &kamafeu::oto::DiffSingerConfig,
-) -> Value {
-    json!({
-        "path": path,
-        "type": "diffsinger",
-        "healthy": true,
-        "name": voicebank.name,
-        "acoustic": config.acoustic,
-        "vocoder": config.vocoder,
-        "phonemes": config.phonemes,
-        "languages": config.languages,
-        "language_ids": config.language_ids,
-        "speakers": config.speakers,
-        "sample_rate": config.sample_rate,
-        "vocoder_sample_rate": config.vocoder_sample_rate,
-        "hop_size": config.hop_size,
-        "num_mel_bins": config.num_mel_bins,
-        "mel_base": config.mel_base,
-    })
 }
 
 fn extension_catalog_json(
@@ -3877,22 +3776,4 @@ mod tests {
         assert!(provenance.contains("manifest-test"));
     }
 
-    #[test]
-    fn diffsinger_validation_reports_neural_assets_not_an_empty_oto() {
-        let directory = tempfile::tempdir().expect("temporary DiffSinger directory");
-        fs::write(directory.path().join("phonemes.txt"), "a 1\n").expect("phonemes");
-        fs::write(directory.path().join("acoustic.onnx"), b"model").expect("acoustic");
-        fs::write(directory.path().join("vocoder.onnx"), b"model").expect("vocoder");
-        fs::write(
-            directory.path().join("dsconfig.yaml"),
-            "phonemes: phonemes.txt\nacoustic: acoustic.onnx\nvocoder: vocoder.onnx\n",
-        )
-        .expect("configuration");
-
-        let report = voicebank_validation_json(&directory.path().to_path_buf(), false)
-            .expect("DiffSinger validation");
-        assert_eq!(report["type"], "diffsinger");
-        assert_eq!(report["healthy"], true);
-        assert_eq!(report["hop_size"], 512);
-    }
 }

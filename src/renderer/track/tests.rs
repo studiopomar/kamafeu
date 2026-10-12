@@ -121,11 +121,7 @@ fn renders_a_space_separated_oto_alias_after_voicebank_classification() {
     )
     .unwrap();
 
-    // dsvocoder is a valid auxiliary directory in UTAU banks and must not
-    // route a bank containing oto.ini into the DiffSinger phrase renderer.
-    std::fs::create_dir(directory.path().join("dsvocoder")).unwrap();
     let voicebank = Voicebank::new(directory.path()).unwrap();
-    assert!(!voicebank.is_diffsinger());
     assert_eq!(
         voicebank.find_mapped_entry("k a", "C4").unwrap().alias,
         "k a"

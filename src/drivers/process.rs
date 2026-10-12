@@ -309,6 +309,7 @@ pub fn prepare_command(executable_path: &Path) -> Result<Command, String> {
         .canonicalize()
         .unwrap_or_else(|_| executable_path.to_path_buf());
 
+    #[cfg(unix)]
     let ext = executable_path
         .extension()
         .and_then(|s| s.to_str())

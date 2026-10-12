@@ -331,13 +331,6 @@ pub fn platform_capability_matrix() -> Vec<PlatformCapability> {
             note: "executáveis externos e Wine",
         },
         PlatformCapability {
-            id: "diffsinger-onnx",
-            desktop: true,
-            android: false,
-            wasm: false,
-            note: "modelos ONNX locais; indisponível sem runtime nativo",
-        },
-        PlatformCapability {
             id: "wasm-extensions",
             desktop: true,
             android: true,
@@ -601,21 +594,7 @@ pub fn built_in_capabilities() -> Vec<BuiltInCapability> {
             description: "Equalização, compressão, chorus, delay, reverb e mais.",
         },
     ];
-    #[cfg(target_arch = "wasm32")]
-    {
-        capabilities
-    }
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        let mut capabilities = capabilities;
-        capabilities.push(BuiltInCapability {
-            id: "org.kamafeu.diffsinger",
-            name: "DiffSinger ONNX",
-            kind: ExtensionKind::SynthesisEngine,
-            description: "Renderização de frases DiffSinger com modelos ONNX locais.",
-        });
-        capabilities
-    }
+    capabilities
 }
 
 fn is_valid_extension_id(id: &str) -> bool {
@@ -815,9 +794,6 @@ mod tests {
         assert!(matrix
             .iter()
             .any(|item| item.id == "external-process-engines" && item.desktop && !item.wasm));
-        assert!(matrix
-            .iter()
-            .any(|item| item.id == "diffsinger-onnx" && item.desktop && !item.android));
         assert!(matrix
             .iter()
             .all(|item| { !item.id.is_empty() && !item.note.is_empty() }));
