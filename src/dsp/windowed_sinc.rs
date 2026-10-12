@@ -1,6 +1,7 @@
 use crate::dsp::pitch_bend::PitchBendSolver;
 use crate::project::model::UPitchBendPoint;
 use std::borrow::Cow;
+use std::sync::OnceLock;
 
 /// Windowed sinc resampler using Lanczos window for high-quality audio resampling.
 ///
@@ -12,6 +13,39 @@ use std::borrow::Cow;
 ///   sinc(x) * sinc(x/a) for -a < x < a, 0 otherwise
 /// where a is the order of the Lanczos window (typically 3).
 pub struct WindowedSincResampler;
+
+const PITCH_FACTOR_MIN_CENTS: f64 = -4_800.0;
+const PITCH_FACTOR_MAX_CENTS: f64 = 4_800.0;
+
+fn pitch_factor_table() -> &'static [f64] {
+    static TABLE: OnceLock<Vec<f64>> = OnceLock::new();
+    TABLE.get_or_init(|| {
+        let count = (PITCH_FACTOR_MAX_CENTS - PITCH_FACTOR_MIN_CENTS) as usize + 1;
+        (0..count)
+            .map(|index| {
+                let cents = PITCH_FACTOR_MIN_CENTS + index as f64;
+                2.0f64.powf(cents / 1200.0)
+            })
+            .collect()
+    })
+}
+
+#[inline]
+fn pitch_factor_from_cents(cents: f64) -> f64 {
+    if !(PITCH_FACTOR_MIN_CENTS..=PITCH_FACTOR_MAX_CENTS).contains(&cents) {
+        return 2.0f64.powf(cents / 1200.0);
+    }
+
+    let position = cents - PITCH_FACTOR_MIN_CENTS;
+    let index = position.floor() as usize;
+    let fraction = position - index as f64;
+    let table = pitch_factor_table();
+    if index + 1 >= table.len() {
+        table[index]
+    } else {
+        table[index] + (table[index + 1] - table[index]) * fraction
+    }
+}
 
 impl WindowedSincResampler {
     /// Create a new WindowedSincResampler instance.
@@ -271,7 +305,7 @@ impl WindowedSincResampler {
                 current_time_ms,
                 &sorted_pitch_points,
             );
-            let pitch_factor = 2.0f64.powf(pitch_cents / 1200.0);
+            let pitch_factor = pitch_factor_from_cents(pitch_cents);
 
             // Apply pitch bend to the effective output rate
             let effective_output_rate = (output_rate as f64 * pitch_factor) as u32;
@@ -355,6 +389,19 @@ impl WindowedSincResampler {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn pitch_factor_cache_matches_reference() {
+        for cents in [-4_800.0, -2_345.67, -0.5, 0.0, 37.25, 1_234.56, 4_800.0] {
+            let cached = pitch_factor_from_cents(cents);
+            let reference = 2.0f64.powf(cents / 1200.0);
+            assert!((cached - reference).abs() < 1e-7, "cents={cents}");
+        }
+
+        let outside = pitch_factor_from_cents(6_000.0);
+        let reference = 2.0f64.powf(6_000.0 / 1200.0);
+        assert!((outside - reference).abs() < 1e-12);
+    }
 
     #[test]
     fn test_resample_output_length() {
