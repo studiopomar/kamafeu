@@ -1,5 +1,6 @@
 use crate::dsp::pitch_bend::PitchBendSolver;
 use crate::project::model::UPitchBendPoint;
+use std::borrow::Cow;
 
 /// Windowed sinc resampler using Lanczos window for high-quality audio resampling.
 ///
@@ -241,6 +242,23 @@ impl WindowedSincResampler {
             return vec![0.0; output_len];
         }
 
+        // Validate the ordering once, instead of repeating the O(n) check for
+        // every output sample in PitchBendSolver::get_pitch_offset_cents.
+        let sorted_pitch_points: Cow<'_, [UPitchBendPoint]> = if pitch_points
+            .windows(2)
+            .all(|pair| pair[0].time_offset_ms <= pair[1].time_offset_ms)
+        {
+            Cow::Borrowed(pitch_points)
+        } else {
+            let mut sorted = pitch_points.to_vec();
+            sorted.sort_by(|a, b| {
+                a.time_offset_ms
+                    .partial_cmp(&b.time_offset_ms)
+                    .unwrap_or(std::cmp::Ordering::Equal)
+            });
+            Cow::Owned(sorted)
+        };
+
         let mut output = Vec::with_capacity(output_len);
         let _ratio = input_rate as f64 / output_rate as f64;
 
@@ -249,8 +267,10 @@ impl WindowedSincResampler {
             let current_time_ms = time_offset_ms + (i as f64 / output_rate as f64) * 1000.0;
 
             // Get pitch bend adjustment
-            let pitch_cents =
-                PitchBendSolver::get_pitch_offset_cents(current_time_ms, pitch_points);
+            let pitch_cents = PitchBendSolver::get_pitch_offset_cents_sorted(
+                current_time_ms,
+                &sorted_pitch_points,
+            );
             let pitch_factor = 2.0f64.powf(pitch_cents / 1200.0);
 
             // Apply pitch bend to the effective output rate
