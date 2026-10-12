@@ -86,6 +86,97 @@ fn accumulate_stereo_scaled_scalar(
     }
 }
 
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+#[inline]
+fn accumulate_mono_to_stereo(
+    destination: &mut [f32],
+    source: &[f32],
+    left_gain: f32,
+    right_gain: f32,
+) {
+    if std::is_x86_feature_detected!("sse2") {
+        // SAFETY: SSE2 is checked immediately above and the destination has
+        // two samples per source frame.
+        unsafe { accumulate_mono_to_stereo_sse2(destination, source, left_gain, right_gain) };
+        return;
+    }
+
+    accumulate_mono_to_stereo_scalar(destination, source, left_gain, right_gain);
+}
+
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+#[target_feature(enable = "sse2")]
+unsafe fn accumulate_mono_to_stereo_sse2(
+    destination: &mut [f32],
+    source: &[f32],
+    left_gain: f32,
+    right_gain: f32,
+) {
+    #[cfg(target_arch = "x86")]
+    use std::arch::x86::{
+        _mm_add_ps, _mm_loadu_ps, _mm_mul_ps, _mm_set1_ps, _mm_storeu_ps, _mm_unpackhi_ps,
+        _mm_unpacklo_ps,
+    };
+    #[cfg(target_arch = "x86_64")]
+    use std::arch::x86_64::{
+        _mm_add_ps, _mm_loadu_ps, _mm_mul_ps, _mm_set1_ps, _mm_storeu_ps, _mm_unpackhi_ps,
+        _mm_unpacklo_ps,
+    };
+
+    let left_factor = _mm_set1_ps(left_gain);
+    let right_factor = _mm_set1_ps(right_gain);
+    let source_len = source.len() / 4 * 4;
+    for index in (0..source_len).step_by(4) {
+        let samples = _mm_loadu_ps(source.as_ptr().add(index));
+        let left = _mm_mul_ps(samples, left_factor);
+        let right = _mm_mul_ps(samples, right_factor);
+        let low = _mm_unpacklo_ps(left, right);
+        let high = _mm_unpackhi_ps(left, right);
+        let destination_index = index * 2;
+        let existing_low = _mm_loadu_ps(destination.as_ptr().add(destination_index));
+        let existing_high = _mm_loadu_ps(destination.as_ptr().add(destination_index + 4));
+        _mm_storeu_ps(
+            destination.as_mut_ptr().add(destination_index),
+            _mm_add_ps(existing_low, low),
+        );
+        _mm_storeu_ps(
+            destination.as_mut_ptr().add(destination_index + 4),
+            _mm_add_ps(existing_high, high),
+        );
+    }
+
+    accumulate_mono_to_stereo_scalar(
+        &mut destination[source_len * 2..],
+        &source[source_len..],
+        left_gain,
+        right_gain,
+    );
+}
+
+#[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
+#[inline]
+fn accumulate_mono_to_stereo(
+    destination: &mut [f32],
+    source: &[f32],
+    left_gain: f32,
+    right_gain: f32,
+) {
+    accumulate_mono_to_stereo_scalar(destination, source, left_gain, right_gain);
+}
+
+#[inline]
+fn accumulate_mono_to_stereo_scalar(
+    destination: &mut [f32],
+    source: &[f32],
+    left_gain: f32,
+    right_gain: f32,
+) {
+    for (frame, &sample) in source.iter().enumerate() {
+        destination[frame * 2] += sample * left_gain;
+        destination[frame * 2 + 1] += sample * right_gain;
+    }
+}
+
 #[derive(Clone, Copy)]
 struct RenderLimiterConfig {
     enabled: bool,
@@ -944,10 +1035,7 @@ impl ProjectRenderer {
             }
         }
 
-        for (frame, sample) in mono.iter().enumerate() {
-            stereo[frame * 2] += sample * left_gain;
-            stereo[frame * 2 + 1] += sample * right_gain;
-        }
+        accumulate_mono_to_stereo(&mut stereo[..required_len], mono, left_gain, right_gain);
     }
 
     #[allow(clippy::too_many_arguments)]
