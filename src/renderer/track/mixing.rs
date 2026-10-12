@@ -201,6 +201,29 @@ impl TrackRenderer {
         let source = &note_samples[..available];
         accumulate_samples(destination, source);
 
+        // Wavtool envelopes normally make the two sides complementary.  A
+        // few VC aliases, however, contain a voiced tail and a voiced head
+        // at the same time.  Adding those samples verbatim creates a short
+        // amplitude hump at the handoff (most audible with aliases such as
+        // `e t`).  Guard only the real crossfade region and leave the normal
+        // complementary case untouched.
+        if overlap >= 8 {
+            let mut destination_peak = 0.0f32;
+            let mut source_peak = 0.0f32;
+            let mut mixed_peak = 0.0f32;
+            for index in 0..overlap {
+                destination_peak = destination_peak.max((destination[index] - source[index]).abs());
+                source_peak = source_peak.max(source[index].abs());
+                mixed_peak = mixed_peak.max(destination[index].abs());
+            }
+
+            let side_peak = destination_peak.max(source_peak);
+            if side_peak > 1e-5 && mixed_peak > side_peak * 1.20 {
+                let scale = (side_peak / mixed_peak).clamp(0.0, 1.0);
+                scale_samples(&mut destination[..overlap], scale);
+            }
+        }
+
         previous_end_sample.max(start_sample + available)
     }
 }

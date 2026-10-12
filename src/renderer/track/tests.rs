@@ -253,6 +253,25 @@ fn oto_enveloped_vc_overlap_is_not_faded_twice() {
 }
 
 #[test]
+fn voiced_vc_overlap_does_not_create_an_amplitude_hump() {
+    // Both sides are voiced in this synthetic VC handoff.  A raw sum would
+    // reach 1.6, while a crossfade should stay close to the loudest side.
+    let mut track = vec![0.0f32; 160];
+    let incoming = vec![0.8f32; 100];
+    for sample in &mut track[30..130] {
+        *sample = 0.8;
+    }
+
+    TrackRenderer::mix_phase_aligned(&mut track, &incoming, 30, 130, 100, 220.0, 44_100);
+
+    let overlap_peak = track[30..130].iter().copied().fold(0.0f32, f32::max);
+    assert!(
+        overlap_peak <= 0.81,
+        "VC overlap created an amplitude hump: peak was {overlap_peak}"
+    );
+}
+
+#[test]
 fn generated_vcv_fixture_has_no_silent_transition_hole() {
     let directory = tempfile::tempdir().unwrap();
     let source: Vec<f32> = (0..44100)
