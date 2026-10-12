@@ -1029,9 +1029,12 @@ impl ProjectRenderer {
                     stereo.resize(track_stereo.len(), 0.0);
                 }
 
-                for (i, &sample) in track_stereo.iter().enumerate() {
-                    stereo[i] += sample;
-                }
+                accumulate_stereo_scaled(
+                    &mut stereo[..track_stereo.len()],
+                    &track_stereo,
+                    1.0,
+                    1.0,
+                );
                 return;
             }
         }
