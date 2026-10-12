@@ -421,7 +421,11 @@ impl ThemeConfig {
                 ui_corner_radius: 6.0,
                 panel_opacity: 1.0,
             },
-            ThemePreset::Custom => Self::from_preset(ThemePreset::PomarNeon),
+            ThemePreset::Custom => {
+                let mut theme = Self::from_preset(ThemePreset::PomarNeon);
+                theme.preset = ThemePreset::Custom;
+                theme
+            }
         }
     }
 
