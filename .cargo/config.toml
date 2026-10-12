@@ -1,0 +1,10 @@
+# Keep distributed x86_64 builds compatible with older CPUs such as the
+# AMD FX-6300. Do not use `target-cpu=native` for release artifacts.
+[target.x86_64-unknown-linux-gnu]
+rustflags = ["-C", "target-cpu=x86-64"]
+
+[target.x86_64-pc-windows-gnu]
+rustflags = ["-C", "target-cpu=x86-64"]
+
+[target.x86_64-pc-windows-msvc]
+rustflags = ["-C", "target-cpu=x86-64"]

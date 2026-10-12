@@ -198,8 +198,7 @@ impl KamafeuStudioApp {
                 ui.horizontal(|ui| {
                     ui.label(lang.tr("Conjunto de Instruções Vetoriais SIMD:", "SIMD Vector Instruction Set:"));
                     let simd_modes = [
-                        ("Auto (AVX2 / NEON / SSE)", lang.tr("Auto (AVX2 / NEON / SSE)", "Auto (AVX2 / NEON / SSE)")),
-                        ("Forçar SSE 4.1", lang.tr("Forçar SSE 4.1", "Force SSE 4.1")),
+                        ("Auto (SSE/SSE2)", lang.tr("Auto (SSE/SSE2)", "Auto (SSE/SSE2)")),
                         ("Forçar Escalar (Sem SIMD)", lang.tr("Forçar Escalar (Sem SIMD)", "Force Scalar (No SIMD)")),
                     ];
                     for (mode, label) in simd_modes {
@@ -210,8 +209,8 @@ impl KamafeuStudioApp {
                     help_marker(
                         ui,
                         lang.tr(
-                            "Permite que os algoritmos de convolução, pitch bend e síntese utilizem aceleração de hardware nativa (AVX2 no x86_64, NEON no Apple Silicon / ARM).",
-                            "Enables convolution, pitch bend, and synthesis algorithms to use native hardware acceleration (AVX2 on x86_64, NEON on Apple Silicon / ARM).",
+                            "Usa aceleração vetorial disponível sem exigir AVX2; o build x86_64 mantém compatibilidade com CPUs antigas como o AMD FX-6300.",
+                            "Uses available vector acceleration without requiring AVX2; x86_64 builds remain compatible with older CPUs such as the AMD FX-6300.",
                         ),
                     );
                 });

@@ -728,7 +728,7 @@ impl Default for VoicebankTuningConfig {
 }
 
 fn default_simd_str() -> String {
-    "Auto (AVX2 / NEON / SSE)".to_string()
+    "Auto (SSE/SSE2)".to_string()
 }
 
 fn default_wine_debug_str() -> String {

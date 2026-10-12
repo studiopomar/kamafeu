@@ -832,3 +832,9 @@ utilitários VENUS, consulte o [Guia do código-fonte](docs/GUIA_DO_CODIGO.md).
 Distribuído sob os termos da [Licença MIT](LICENSE). Executáveis e ferramentas externas de terceiros mantêm suas respectivas licenças de distribuição (consulte [resamplers/README.md](resamplers/README.md)).
 
 Desenvolvido pelo **Studio Pomar**.
+### Compatibilidade com CPUs x86_64 antigas
+
+Os binários x86_64 oficiais são compilados com o alvo `x86-64` genérico e não
+dependem de AVX ou AVX2. Isso inclui compatibilidade com o AMD FX-6300. Não
+compile releases usando `RUSTFLAGS="-C target-cpu=native"`, pois isso pode
+gerar instruções que não existem nessa CPU.
