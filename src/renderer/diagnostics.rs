@@ -105,12 +105,68 @@ pub fn window_rms(samples: &[f32], window_samples: usize, from_end: bool) -> f32
     } else {
         0
     };
-    let sum = samples[start..start + window_samples]
+    let window = &samples[start..start + window_samples];
+    let sum = sum_squares(window);
+    (sum / window_samples as f64).sqrt() as f32
+}
+
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+#[inline]
+fn sum_squares(samples: &[f32]) -> f64 {
+    if samples.iter().all(|sample| sample.is_finite()) && std::is_x86_feature_detected!("sse2") {
+        // SAFETY: SSE2 is checked immediately above and the slice is valid
+        // for unaligned loads. The scalar tail handles the remainder.
+        return unsafe { sum_squares_sse2(samples) };
+    }
+
+    sum_squares_scalar(samples)
+}
+
+#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
+#[target_feature(enable = "sse2")]
+unsafe fn sum_squares_sse2(samples: &[f32]) -> f64 {
+    #[cfg(target_arch = "x86")]
+    use std::arch::x86::{
+        _mm_add_pd, _mm_cvtps_pd, _mm_loadu_ps, _mm_movehl_ps, _mm_mul_pd, _mm_setzero_pd,
+    };
+    #[cfg(target_arch = "x86_64")]
+    use std::arch::x86_64::{
+        _mm_add_pd, _mm_cvtps_pd, _mm_loadu_ps, _mm_movehl_ps, _mm_mul_pd, _mm_setzero_pd,
+    };
+
+    let mut sum = _mm_setzero_pd();
+    let vector_len = samples.len() / 4 * 4;
+    for index in (0..vector_len).step_by(4) {
+        let values = _mm_loadu_ps(samples.as_ptr().add(index));
+        let low = _mm_cvtps_pd(values);
+        let high = _mm_cvtps_pd(_mm_movehl_ps(values, values));
+        sum = _mm_add_pd(sum, _mm_mul_pd(low, low));
+        sum = _mm_add_pd(sum, _mm_mul_pd(high, high));
+    }
+
+    let mut lanes = [0.0f64; 2];
+    std::ptr::copy_nonoverlapping(&sum as *const _ as *const f64, lanes.as_mut_ptr(), 1);
+    std::ptr::copy_nonoverlapping(
+        (&sum as *const _ as *const f64).add(1),
+        lanes.as_mut_ptr().add(1),
+        1,
+    );
+    lanes[0] + lanes[1] + sum_squares_scalar(&samples[vector_len..])
+}
+
+#[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
+#[inline]
+fn sum_squares(samples: &[f32]) -> f64 {
+    sum_squares_scalar(samples)
+}
+
+#[inline]
+fn sum_squares_scalar(samples: &[f32]) -> f64 {
+    samples
         .iter()
         .filter(|sample| sample.is_finite())
         .map(|sample| f64::from(*sample) * f64::from(*sample))
-        .sum::<f64>();
-    (sum / window_samples as f64).sqrt() as f32
+        .sum()
 }
 
 #[cfg(test)]
