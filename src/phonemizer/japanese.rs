@@ -487,7 +487,14 @@ impl JapanesePhonemizer {
 
         let mut expanded: Vec<NoteRef> = Vec::new();
         for (note_index, note) in notes.iter().enumerate() {
-            let raw_lyric = note.lyric.trim();
+            // OpenUtau resolves a phonetic hint before applying VCV/CVVC
+            // rules.  The visible lyric remains untouched in the project,
+            // while alias lookup uses the explicit hint verbatim.
+            let raw_lyric = note
+                .phonetic_hint
+                .as_deref()
+                .unwrap_or(note.lyric.as_str())
+                .trim();
             if raw_lyric.contains(';') || raw_lyric.contains(',') {
                 let parts: Vec<&str> = raw_lyric
                     .split(|c| c == ';' || c == ',')
@@ -881,6 +888,28 @@ mod tests {
     fn glottal_stop_is_not_used_as_a_vowel_transition() {
         assert_eq!(JapanesePhonemizer::extract_vowel("・"), None);
         assert_eq!(JapanesePhonemizer::extract_consonant("・"), Some("・"));
+    }
+
+    #[test]
+    fn japanese_phonetic_hint_is_used_before_lyric_conversion() {
+        let mut vb = build_test_voicebank();
+        vb.entries.insert(
+            "a か".to_string(),
+            OtoEntry::new(
+                "a-ka.wav".to_string(),
+                "a か".to_string(),
+                0.0,
+                50.0,
+                10.0,
+                0.0,
+                0.0,
+            ),
+        );
+        let mut note = UNote::new("か", "C4", 0.0, 300.0);
+        note.phonetic_hint = Some("a か".to_string());
+
+        let phones = JapanesePhonemizer::apply_japanese(&[note], &vb, PhonemizerMode::VCV);
+        assert_eq!(phones[0].lyric, "a か");
     }
 
     fn build_test_voicebank() -> Voicebank {

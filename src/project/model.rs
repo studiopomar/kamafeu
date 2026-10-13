@@ -310,6 +310,11 @@ pub struct UNote {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub timbre: Option<String>,
     pub lyric: String,
+    /// Optional explicit phonetic hint, equivalent to OpenUtau's
+    /// `phoneticHint`. When present, phonemizers must not reinterpret the
+    /// visible lyric before resolving aliases.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub phonetic_hint: Option<String>,
     pub pitch: String,
     #[serde(alias = "start_time_ms")]
     pub position_ms: f64,
@@ -348,6 +353,7 @@ impl UNote {
         let pitch_str = pitch.into();
         Self {
             lyric: lyric_str,
+            phonetic_hint: None,
             voicebank_pitch: None,
             timbre: None,
             pitch: pitch_str,
