@@ -1710,21 +1710,25 @@ impl JapanesePhonemizer {
             prev_note_end_ms = Some(exp.position_ms + exp.duration_ms);
         }
 
-        // Presamp's ending aliases are optional: only replace the final
-        // rendered phone when the configured ENDING1/ENDING2 alias exists in
-        // the voicebank. A missing tail recording must never invalidate an
-        // otherwise valid note.
+        // Presamp's ending aliases are optional. ENDFLAG=1 adds an ending
+        // when the phrase is followed by a rest; ENDFLAG=2 converts the last
+        // sounding note even without a following rest. This distinction is
+        // part of Presamp's public format and is also how OpenUtau exposes
+        // AddEnding.
         if matches!(
             mode,
             PhonemizerMode::BasicCV | PhonemizerMode::VCV | PhonemizerMode::CVVC
         ) && presamp_inventory.add_ending != 0
         {
             for (idx, exp) in expanded.iter().enumerate() {
-                let Some(next) = expanded.get(idx + 1) else {
-                    continue;
-                };
-                if next.lyric != "R"
-                    || (next.position_ms - (exp.position_ms + exp.duration_ms)).abs() > 0.001
+                let has_ending_rest = expanded.get(idx + 1).is_some_and(|next| {
+                    next.lyric == "R"
+                        && (next.position_ms - (exp.position_ms + exp.duration_ms)).abs() <= 0.001
+                });
+                let is_last_sounding_note = presamp_inventory.add_ending == 2
+                    && expanded[idx + 1..].iter().all(|future| future.lyric == "R");
+                if (presamp_inventory.add_ending == 1 && !has_ending_rest)
+                    || (presamp_inventory.add_ending == 2 && !is_last_sounding_note)
                 {
                     continue;
                 }
@@ -1884,6 +1888,9 @@ mod tests {
 
         let disabled = parse_presamp_inventory("[ENDFLAG]\n0\n");
         assert_eq!(disabled.add_ending, 0);
+
+        let convert_last = parse_presamp_inventory("[ENDFLAG]\n2\n");
+        assert_eq!(convert_last.add_ending, 2);
 
         let no_split = parse_presamp_inventory("[SPLIT]\n0\n");
         assert!(!no_split.split);
