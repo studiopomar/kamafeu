@@ -4,6 +4,7 @@ use crate::project::model::UNote;
 use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::sync::LazyLock;
+use unicode_normalization::UnicodeNormalization;
 
 static PLAIN_VOWELS: &[&str] = &[
     "あ", "い", "う", "え", "お", "を", "ん", "ン", "a", "i", "u", "e", "o", "n", "N",
@@ -940,7 +941,9 @@ impl JapanesePhonemizer {
                 .phonetic_hint
                 .as_deref()
                 .unwrap_or(note.lyric.as_str())
-                .trim();
+                .nfc()
+                .collect::<String>();
+            let raw_lyric = raw_lyric.trim();
             let raw_lyric = if note.phonetic_hint.is_none() {
                 presamp_replacements
                     .get(raw_lyric)
@@ -1766,6 +1769,27 @@ mod tests {
 
         let phones = JapanesePhonemizer::apply_japanese(&[note], &vb, PhonemizerMode::VCV);
         assert_eq!(phones[0].lyric, "a か");
+    }
+
+    #[test]
+    fn japanese_lyrics_are_nfc_normalized_before_phoneme_classification() {
+        let mut vb = build_test_voicebank();
+        vb.entries.insert(
+            "- が".to_string(),
+            OtoEntry::new(
+                "ga.wav".to_string(),
+                "- が".to_string(),
+                0.0,
+                50.0,
+                10.0,
+                0.0,
+                0.0,
+            ),
+        );
+        let note = UNote::new("か\u{3099}", "C4", 0.0, 300.0);
+
+        let phones = JapanesePhonemizer::apply_japanese(&[note], &vb, PhonemizerMode::VCV);
+        assert_eq!(phones[0].lyric, "- が");
     }
 
     fn build_test_voicebank() -> Voicebank {

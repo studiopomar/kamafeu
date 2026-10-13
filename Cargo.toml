@@ -72,6 +72,7 @@ ndarray = "0.17.2"
 rustfft = "6.4"
 world-rs = "0.1.0"
 rayon = "1.10"
+unicode-normalization = "0.1"
 
 [target.'cfg(not(target_arch = "wasm32"))'.dependencies]
 rodio = "0.19"
