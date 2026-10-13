@@ -460,6 +460,9 @@ fn parse_presamp_inventory(contents: &str) -> PresampInventory {
                     inventory.no_crossfade.clear();
                 }
                 "[PRIORITY]" => inventory.priority.clear(),
+                "[NUM]" => inventory.alias_nums.clear(),
+                "[APPEND]" => inventory.alias_appends.clear(),
+                "[PITCH]" => inventory.alias_pitches.clear(),
                 _ => {}
             }
             continue;
@@ -544,13 +547,19 @@ fn parse_presamp_inventory(contents: &str) -> PresampInventory {
                 inventory.split = *first != "0";
             }
             "[NUM]" => {
-                inventory.alias_nums.insert((*first).to_string());
+                if !first.starts_with('@') || !first.ends_with('@') {
+                    inventory.alias_nums.insert((*first).to_string());
+                }
             }
             "[APPEND]" => {
-                inventory.alias_appends.push((*first).to_string());
+                if !first.starts_with('@') || !first.ends_with('@') {
+                    inventory.alias_appends.push((*first).to_string());
+                }
             }
             "[PITCH]" => {
-                inventory.alias_pitches.push((*first).to_string());
+                if !first.starts_with('@') || !first.ends_with('@') {
+                    inventory.alias_pitches.push((*first).to_string());
+                }
             }
             _ => {}
         }
@@ -1693,6 +1702,13 @@ mod tests {
 
         let fixed = parse_presamp_inventory("[VCLENGTH]\n1\n");
         assert!(!fixed.vc_length_from_cv);
+
+        let custom_suffixes = parse_presamp_inventory(
+            "[NUM]\n@NUM@\nX\n[APPEND]\n@APPEND@\n強\n[PITCH]\n@PITCH@\nC4\n",
+        );
+        assert_eq!(custom_suffixes.alias_nums, HashSet::from(["X".to_string()]));
+        assert_eq!(custom_suffixes.alias_appends, vec!["強"]);
+        assert_eq!(custom_suffixes.alias_pitches, vec!["C4"]);
 
         let forced = parse_presamp_inventory("[MUSTVC]\n1\n");
         assert!(forced.must_vc);
