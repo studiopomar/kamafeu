@@ -571,6 +571,18 @@ fn presamp_core_lyric(lyric: &str, inventory: &PresampInventory) -> String {
             core = right.to_string();
         }
     }
+    if !core.contains('_') {
+        let chars: Vec<char> = core.chars().collect();
+        for suffix_len in [3usize, 2usize] {
+            if chars.len() > suffix_len {
+                let suffix: String = chars[chars.len() - suffix_len..].iter().collect();
+                if looks_like_pitch_suffix(&suffix) {
+                    core.truncate(core.len() - suffix.len());
+                    break;
+                }
+            }
+        }
+    }
     let mut suffixes = inventory.alias_nums.iter().collect::<Vec<_>>();
     suffixes.extend(inventory.alias_appends.iter());
     suffixes.extend(inventory.alias_pitches.iter());
@@ -1657,6 +1669,8 @@ mod tests {
         assert_eq!(presamp_core_lyric("か2", &inventory), "か");
         assert_eq!(presamp_core_lyric("か強", &inventory), "か");
         assert_eq!(presamp_core_lyric("か_C4", &inventory), "か");
+        assert_eq!(presamp_core_lyric("かC4", &inventory), "か");
+        assert_eq!(presamp_core_lyric("かC#4", &inventory), "か");
         assert_eq!(presamp_core_lyric("a_か", &inventory), "か");
         assert!(inventory.priority.contains("k"));
         assert!(inventory.priority.contains("っ"));
