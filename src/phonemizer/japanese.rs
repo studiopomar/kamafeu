@@ -528,9 +528,16 @@ fn parse_presamp_inventory(contents: &str) -> PresampInventory {
 
 fn presamp_core_lyric(lyric: &str, inventory: &PresampInventory) -> String {
     let mut core = lyric.trim().to_string();
-    if let Some((_, right)) = core.rsplit_once('_') {
-        if !right.is_empty() {
-            core.truncate(core.len() - right.len() - 1);
+    if let Some((left, right)) = core.rsplit_once('_') {
+        if looks_like_pitch_suffix(right) {
+            core = left.to_string();
+        } else if !right.is_empty()
+            && (inventory.vowel_by_phoneme.contains_key(left)
+                || JapanesePhonemizer::extract_vowel(left).is_some())
+        {
+            // `_` is also a configurable VCV pad. In `a_か`, keep the
+            // phoneme after the pad; in `か_C4`, keep the left side.
+            core = right.to_string();
         }
     }
     let mut suffixes = inventory.alias_nums.iter().collect::<Vec<_>>();
@@ -542,6 +549,12 @@ fn presamp_core_lyric(lyric: &str, inventory: &PresampInventory) -> String {
         }
     }
     core
+}
+
+fn looks_like_pitch_suffix(value: &str) -> bool {
+    let mut chars = value.chars();
+    matches!(chars.next(), Some('A'..='G' | 'a'..='g'))
+        && chars.all(|ch| ch.is_ascii_digit() || matches!(ch, '#' | 'b'))
 }
 
 fn extract_presamp_vowel(lyric: &str, inventory: &PresampInventory) -> Option<String> {
@@ -1493,6 +1506,7 @@ mod tests {
         assert_eq!(presamp_core_lyric("か2", &inventory), "か");
         assert_eq!(presamp_core_lyric("か強", &inventory), "か");
         assert_eq!(presamp_core_lyric("か_C4", &inventory), "か");
+        assert_eq!(presamp_core_lyric("a_か", &inventory), "か");
         assert!(inventory.priority.contains("k"));
         assert!(inventory.priority.contains("っ"));
         assert!(inventory.no_crossfade.contains("k"));
