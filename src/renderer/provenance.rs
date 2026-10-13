@@ -559,6 +559,43 @@ mod tests {
     }
 
     #[test]
+    fn phoneme_resolution_order_includes_part_identity() {
+        let base = RenderProvenance::new(
+            "p",
+            "v",
+            "resampler",
+            "wavtool",
+            44_100,
+            1,
+            RenderOptions::default(),
+        );
+        let make = |part_index: usize, position_ms: f64, lyric: &str| PhonemeResolutionDiagnostic {
+            part_index,
+            note_index: 0,
+            lyric: lyric.to_string(),
+            pitch: "C4".to_string(),
+            requested_timbre: None,
+            resolved_alias: Some(lyric.to_string()),
+            resolved_timbre: None,
+            oto_wav: None,
+            oto_preutter_ms: None,
+            oto_overlap_ms: None,
+            position_ms,
+            duration_ms: 100.0,
+            flags: String::new(),
+        };
+        let ordered = base
+            .clone()
+            .with_phoneme_resolutions([make(0, 500.0, "part0"), make(1, 0.0, "part1")]);
+        let reversed =
+            base.with_phoneme_resolutions([make(1, 0.0, "part1"), make(0, 500.0, "part0")]);
+        assert_eq!(ordered.phoneme_resolutions, reversed.phoneme_resolutions);
+        assert_eq!(ordered.phoneme_resolutions[0].part_index, 0);
+        assert_eq!(ordered.phoneme_resolutions[1].part_index, 1);
+        assert_eq!(ordered.fingerprint(), reversed.fingerprint());
+    }
+
+    #[test]
     fn parses_boundary_logs_with_compound_aliases() {
         let parsed = parse_timing_boundary_log(
             "  [Timing] boundary-rms phone='k a' head=0.125000 tail=0.250000 window_ms=10.0",
