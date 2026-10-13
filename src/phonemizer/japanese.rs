@@ -1,7 +1,7 @@
 use crate::oto::Voicebank;
 use crate::phonemizer::{consonant_velocity_time_scale, romaji, PhonemizerMode, RenderPhone};
 use crate::project::model::UNote;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::fs;
 use std::sync::LazyLock;
 
@@ -368,6 +368,62 @@ struct PresampAliasConfig {
     vcvpad: String,
 }
 
+#[derive(Debug, Clone, Default)]
+struct PresampInventory {
+    vowels: HashSet<String>,
+    consonants: HashSet<String>,
+    priority: HashSet<String>,
+}
+
+fn parse_presamp_inventory(contents: &str) -> PresampInventory {
+    let mut inventory = PresampInventory::default();
+    let mut section = "";
+    for raw_line in contents.lines() {
+        let line = raw_line.trim_end_matches('\r').trim();
+        if line.starts_with('[') && line.ends_with(']') {
+            section = line;
+            continue;
+        }
+        if line.is_empty() || line.starts_with(';') || line.starts_with('#') {
+            continue;
+        }
+        let fields: Vec<&str> = line.split('=').map(str::trim).collect();
+        let Some(first) = fields.first().filter(|value| !value.is_empty()) else {
+            continue;
+        };
+        let mut values = vec![*first];
+        if let Some(list) = fields.get(1) {
+            values.extend(
+                list.split(',')
+                    .map(str::trim)
+                    .filter(|value| !value.is_empty()),
+            );
+        }
+        match section.to_ascii_uppercase().as_str() {
+            "[VOWEL]" => {
+                inventory
+                    .vowels
+                    .extend(values.into_iter().map(str::to_owned));
+            }
+            "[CONSONANT]" => {
+                inventory
+                    .consonants
+                    .extend(values.into_iter().map(str::to_owned));
+                if fields.get(2).is_some_and(|flag| *flag == "1") {
+                    inventory.priority.insert((*first).to_string());
+                }
+            }
+            "[PRIORITY]" => {
+                inventory
+                    .priority
+                    .extend(values.into_iter().map(str::to_owned));
+            }
+            _ => {}
+        }
+    }
+    inventory
+}
+
 impl Default for PresampAliasConfig {
     fn default() -> Self {
         // These are the defaults documented by Presamp/OpenUtau.
@@ -424,6 +480,18 @@ fn load_presamp_alias_config(root: &std::path::Path) -> PresampAliasConfig {
         decoded.into_owned()
     });
     parse_presamp_alias_config(&text)
+}
+
+fn load_presamp_inventory(root: &std::path::Path) -> PresampInventory {
+    let path = root.join("presamp.ini");
+    let Ok(bytes) = fs::read(path) else {
+        return PresampInventory::default();
+    };
+    let text = String::from_utf8(bytes.clone()).unwrap_or_else(|_| {
+        let (decoded, _, _) = encoding_rs::SHIFT_JIS.decode(&bytes);
+        decoded.into_owned()
+    });
+    parse_presamp_inventory(&text)
 }
 
 fn presamp_join(left: &str, pad: &str, right: &str) -> String {
@@ -584,6 +652,7 @@ impl JapanesePhonemizer {
         let mut expanded: Vec<NoteRef> = Vec::new();
         let presamp_replacements = load_presamp_replacements(&vb.root_path);
         let presamp_alias = load_presamp_alias_config(&vb.root_path);
+        let presamp_inventory = load_presamp_inventory(&vb.root_path);
         for (note_index, note) in notes.iter().enumerate() {
             // OpenUtau resolves a phonetic hint before applying VCV/CVVC
             // rules.  The visible lyric remains untouched in the project,
@@ -804,7 +873,9 @@ impl JapanesePhonemizer {
                     // Treating every known consonant as a "plain vowel" made
                     // the renderer search for V-V aliases (for example
                     // `a k`) instead of the required CV alias (`ka`).
-                    let is_plain_vowel = PLAIN_VOWELS.contains(&exp.lyric.as_str());
+                    let is_plain_vowel = PLAIN_VOWELS.contains(&exp.lyric.as_str())
+                        || presamp_inventory.vowels.contains(&exp.lyric);
+                    let is_priority = presamp_inventory.priority.contains(&exp.lyric);
                     let mut current_lyric = exp.lyric.to_string();
 
                     if is_phrase_start {
@@ -818,7 +889,7 @@ impl JapanesePhonemizer {
                         {
                             current_lyric = found;
                         }
-                    } else if is_plain_vowel {
+                    } else if is_plain_vowel && !is_priority {
                         if let Some(pv) = prev_vowel {
                             let vow_cands = vec![
                                 presamp_join(pv, &presamp_alias.vcvpad, &exp.lyric),
@@ -1007,6 +1078,17 @@ mod tests {
         );
         assert_eq!(presamp_join("a", &config.vcpad, "k"), "a-k");
         assert_eq!(presamp_join("a", &config.vcvpad, "か"), "a_か");
+    }
+
+    #[test]
+    fn presamp_inventory_reads_vowels_consonants_and_priority() {
+        let inventory = parse_presamp_inventory(
+            "[VOWEL]\na=あ,か,が\nn=ん\n[CONSONANT]\nk=か,く,け,こ=1\ns=さ,す,せ,そ=0\n[PRIORITY]\nっ\n",
+        );
+        assert!(inventory.vowels.contains("か"));
+        assert!(inventory.consonants.contains("す"));
+        assert!(inventory.priority.contains("k"));
+        assert!(inventory.priority.contains("っ"));
     }
 
     #[test]
