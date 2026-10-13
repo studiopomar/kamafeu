@@ -222,6 +222,9 @@ impl Default for UExpressions {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct UPhonemeOverride {
     pub index: usize,
+    /// OpenUtau alternate suffix used while resolving the phoneme alias.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub alternate: Option<i32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub phoneme: Option<String>,
     /// Literal UTAU flags scoped to this phoneme. Unknown tokens are retained.

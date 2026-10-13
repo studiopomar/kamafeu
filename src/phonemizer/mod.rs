@@ -459,6 +459,12 @@ impl JapanesePhonemizer {
                     {
                         phone.lyric = alias.clone();
                     }
+                    if let Some(alternate) = phoneme_override.alternate {
+                        let alternate_alias = format!("{}{}", phone.lyric, alternate);
+                        if let Some(entry) = vb.find_mapped_entry(&alternate_alias, &phone.pitch) {
+                            phone.lyric = entry.alias.clone();
+                        }
+                    }
                     if let Some(flags) = phoneme_override
                         .flags
                         .as_deref()
