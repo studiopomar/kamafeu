@@ -240,7 +240,7 @@ impl JapanesePhonemizer {
         let mut result: Vec<UNote> = Vec::new();
         for note in notes {
             let lyric_trimmed = note.lyric.trim();
-            let is_plus = lyric_trimmed == "+" || lyric_trimmed.starts_with("+ ");
+            let is_plus = lyric_trimmed.starts_with('+');
 
             if is_plus {
                 if let Some(last) = result.last_mut() {
@@ -354,7 +354,7 @@ impl JapanesePhonemizer {
         let mut normalized_notes: Vec<(usize, UNote)> = Vec::new();
         for (orig_idx, note) in notes.iter().enumerate() {
             let lyric_trimmed = note.lyric.trim();
-            let is_plus = lyric_trimmed == "+" || lyric_trimmed.starts_with("+ ");
+            let is_plus = lyric_trimmed.starts_with('+');
 
             if is_plus {
                 if let Some((_last_orig_idx, last_note)) = normalized_notes.last_mut() {
