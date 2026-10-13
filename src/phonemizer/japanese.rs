@@ -366,6 +366,15 @@ fn parse_presamp_replacements(contents: &str) -> HashMap<String, String> {
 struct PresampAliasConfig {
     vcpad: String,
     vcvpad: String,
+    vcv: String,
+    beginning_cv: String,
+    cross_cv: String,
+    vc: String,
+    cv: String,
+    c: String,
+    long_v: String,
+    ending1: String,
+    ending2: String,
 }
 
 #[derive(Debug, Clone, Default)]
@@ -430,6 +439,15 @@ impl Default for PresampAliasConfig {
         Self {
             vcpad: " ".to_string(),
             vcvpad: " ".to_string(),
+            vcv: "%v%%VCVPAD%%CV%".to_string(),
+            beginning_cv: "-%VCVPAD%%CV%".to_string(),
+            cross_cv: "*%VCVPAD%%CV%".to_string(),
+            vc: "%v%%vcpad%%c%,%c%%vcpad%%c%".to_string(),
+            cv: "%CV%,%c%%V%".to_string(),
+            c: "%c%".to_string(),
+            long_v: "%V%ー".to_string(),
+            ending1: "%v%%VCPAD%R".to_string(),
+            ending2: "-".to_string(),
         }
     }
 }
@@ -452,6 +470,15 @@ fn parse_presamp_alias_config(contents: &str) -> PresampAliasConfig {
         match key.trim().to_ascii_uppercase().as_str() {
             "VCPAD" => config.vcpad = value.to_string(),
             "VCVPAD" => config.vcvpad = value.to_string(),
+            "VCV" => config.vcv = value.to_string(),
+            "BEGINING_CV" | "BEGINNING_CV" => config.beginning_cv = value.to_string(),
+            "CROSS_CV" => config.cross_cv = value.to_string(),
+            "VC" => config.vc = value.to_string(),
+            "CV" => config.cv = value.to_string(),
+            "C" => config.c = value.to_string(),
+            "LONG_V" => config.long_v = value.to_string(),
+            "ENDING1" => config.ending1 = value.to_string(),
+            "ENDING2" => config.ending2 = value.to_string(),
             _ => {}
         }
     }
@@ -496,6 +523,39 @@ fn load_presamp_inventory(root: &std::path::Path) -> PresampInventory {
 
 fn presamp_join(left: &str, pad: &str, right: &str) -> String {
     format!("{left}{pad}{right}")
+}
+
+fn expand_presamp_alias(
+    template: &str,
+    vowel: &str,
+    consonant: &str,
+    cv: &str,
+    representative_vowel: &str,
+    config: &PresampAliasConfig,
+) -> String {
+    template
+        .replace("%VCVPAD%", &config.vcvpad)
+        .replace("%VCPAD%", &config.vcpad)
+        .replace("%vcpad%", &config.vcpad)
+        .replace("%v%", vowel)
+        .replace("%V%", representative_vowel)
+        .replace("%c%", consonant)
+        .replace("%CV%", cv)
+}
+
+fn expand_presamp_candidates(
+    template: &str,
+    vowel: &str,
+    consonant: &str,
+    cv: &str,
+    representative_vowel: &str,
+    config: &PresampAliasConfig,
+) -> Vec<String> {
+    template
+        .split(',')
+        .map(|part| expand_presamp_alias(part, vowel, consonant, cv, representative_vowel, config))
+        .filter(|candidate| !candidate.is_empty())
+        .collect()
 }
 
 /// Converts a note lyric written as a Japanese VCV alias to its CV lyric.
@@ -784,11 +844,15 @@ impl JapanesePhonemizer {
                 PhonemizerMode::BasicCV => {
                     let mut alias = exp.lyric.to_string();
                     if is_phrase_start {
-                        let head_cands = vec![
-                            presamp_join("-", &presamp_alias.vcvpad, &exp.lyric),
-                            format!("-{}", exp.lyric),
-                            exp.lyric.to_string(),
-                        ];
+                        let mut head_cands = expand_presamp_candidates(
+                            &presamp_alias.beginning_cv,
+                            "",
+                            Self::extract_consonant(&exp.lyric).unwrap_or(""),
+                            &exp.lyric,
+                            &exp.lyric,
+                            &presamp_alias,
+                        );
+                        head_cands.extend([format!("-{}", exp.lyric), exp.lyric.to_string()]);
                         if let Some(found) = Self::find_oto_candidate(vb, &head_cands, &note.pitch)
                         {
                             alias = found;
@@ -827,13 +891,20 @@ impl JapanesePhonemizer {
                     let mut alias = exp.lyric.to_string();
                     if !is_phrase_start {
                         if let Some(pv) = prev_vowel {
-                            let vcv_cands = vec![
-                                presamp_join(pv, &presamp_alias.vcvpad, &exp.lyric),
+                            let mut vcv_cands = expand_presamp_candidates(
+                                &presamp_alias.vcv,
+                                pv,
+                                Self::extract_consonant(&exp.lyric).unwrap_or(""),
+                                &exp.lyric,
+                                &exp.lyric,
+                                &presamp_alias,
+                            );
+                            vcv_cands.extend([
                                 format!("{}_{}", pv, exp.lyric),
                                 format!("{}{}", pv, exp.lyric),
                                 presamp_join("*", &presamp_alias.vcvpad, &exp.lyric),
                                 exp.lyric.to_string(),
-                            ];
+                            ]);
                             if let Some(found) =
                                 Self::find_oto_candidate(vb, &vcv_cands, &note.pitch)
                             {
@@ -843,11 +914,15 @@ impl JapanesePhonemizer {
                     }
 
                     if alias == exp.lyric {
-                        let head_cands = vec![
-                            presamp_join("-", &presamp_alias.vcvpad, &exp.lyric),
-                            format!("-{}", exp.lyric),
-                            exp.lyric.to_string(),
-                        ];
+                        let mut head_cands = expand_presamp_candidates(
+                            &presamp_alias.beginning_cv,
+                            "",
+                            Self::extract_consonant(&exp.lyric).unwrap_or(""),
+                            &exp.lyric,
+                            &exp.lyric,
+                            &presamp_alias,
+                        );
+                        head_cands.extend([format!("-{}", exp.lyric), exp.lyric.to_string()]);
                         if let Some(found) = Self::find_oto_candidate(vb, &head_cands, &note.pitch)
                         {
                             alias = found;
@@ -879,11 +954,15 @@ impl JapanesePhonemizer {
                     let mut current_lyric = exp.lyric.to_string();
 
                     if is_phrase_start {
-                        let initial_cands = vec![
-                            presamp_join("-", &presamp_alias.vcvpad, &exp.lyric),
-                            format!("-{}", exp.lyric),
-                            exp.lyric.to_string(),
-                        ];
+                        let mut initial_cands = expand_presamp_candidates(
+                            &presamp_alias.beginning_cv,
+                            "",
+                            Self::extract_consonant(&exp.lyric).unwrap_or(""),
+                            &exp.lyric,
+                            &exp.lyric,
+                            &presamp_alias,
+                        );
+                        initial_cands.extend([format!("-{}", exp.lyric), exp.lyric.to_string()]);
                         if let Some(found) =
                             Self::find_oto_candidate(vb, &initial_cands, &note.pitch)
                         {
@@ -891,12 +970,19 @@ impl JapanesePhonemizer {
                         }
                     } else if is_plain_vowel && !is_priority {
                         if let Some(pv) = prev_vowel {
-                            let vow_cands = vec![
-                                presamp_join(pv, &presamp_alias.vcvpad, &exp.lyric),
+                            let mut vow_cands = expand_presamp_candidates(
+                                &presamp_alias.vcv,
+                                pv,
+                                Self::extract_consonant(&exp.lyric).unwrap_or(""),
+                                &exp.lyric,
+                                &exp.lyric,
+                                &presamp_alias,
+                            );
+                            vow_cands.extend([
                                 presamp_join("*", &presamp_alias.vcvpad, &exp.lyric),
                                 format!("_{}", exp.lyric),
                                 exp.lyric.to_string(),
-                            ];
+                            ]);
                             if let Some(found) =
                                 Self::find_oto_candidate(vb, &vow_cands, &note.pitch)
                             {
@@ -930,17 +1016,27 @@ impl JapanesePhonemizer {
                             if let (Some(vow), Some(con)) =
                                 (cur_vowel, Self::extract_consonant(&next_exp.lyric))
                             {
-                                let mut vc_candidates = vec![
-                                    presamp_join(vow, &presamp_alias.vcpad, con),
+                                let mut vc_candidates = expand_presamp_candidates(
+                                    &presamp_alias.vc,
+                                    vow,
+                                    con,
+                                    &next_exp.lyric,
+                                    &next_exp.lyric,
+                                    &presamp_alias,
+                                );
+                                vc_candidates.extend([
                                     format!("{}{}", vow, con),
                                     format!("{}_{}", vow, con),
-                                ];
+                                ]);
 
                                 if let Some(&sub_con) = SUBSTITUTE_LOOKUP.get(con) {
-                                    vc_candidates.push(presamp_join(
+                                    vc_candidates.extend(expand_presamp_candidates(
+                                        &presamp_alias.vc,
                                         vow,
-                                        &presamp_alias.vcpad,
                                         sub_con,
+                                        &next_exp.lyric,
+                                        &next_exp.lyric,
+                                        &presamp_alias,
                                     ));
                                     vc_candidates.push(format!("{}{}", vow, sub_con));
                                 }
@@ -1074,10 +1170,15 @@ mod tests {
             PresampAliasConfig {
                 vcpad: "-".to_string(),
                 vcvpad: "_".to_string(),
+                ..PresampAliasConfig::default()
             }
         );
         assert_eq!(presamp_join("a", &config.vcpad, "k"), "a-k");
         assert_eq!(presamp_join("a", &config.vcvpad, "か"), "a_か");
+        assert_eq!(
+            expand_presamp_alias(&config.vc, "a", "k", "か", "あ", &config),
+            "a-k,k-k"
+        );
     }
 
     #[test]
