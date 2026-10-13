@@ -885,39 +885,47 @@ impl JapanesePhonemizer {
 
             match mode {
                 PhonemizerMode::BasicCV => {
-                    let mut alias = exp.lyric.to_string();
+                    // Match OpenUtau's legacy Japanese VCV search contract.
+                    // The plain CV is deliberately a fallback: when a bank
+                    // contains a VCV recording, selecting it first avoids a
+                    // hard consonant reset between adjacent notes.
+                    let mut candidates = Vec::new();
                     if is_phrase_start {
-                        let mut head_cands = expand_presamp_candidates(
-                            &presamp_alias.beginning_cv,
-                            "",
-                            Self::extract_consonant(&exp.lyric).unwrap_or(""),
-                            &exp.lyric,
-                            &exp.lyric,
-                            &presamp_alias,
-                        );
-                        head_cands.extend([format!("-{}", exp.lyric), exp.lyric.to_string()]);
-                        if let Some(found) = Self::find_oto_candidate(vb, &head_cands, &note.pitch)
-                        {
-                            alias = found;
-                        }
+                        candidates.extend([format!("- {}", exp.lyric), exp.lyric.to_string()]);
+                    } else if let Some(pv) = prev_vowel {
+                        candidates.extend([
+                            presamp_join(pv, &presamp_alias.vcvpad, &exp.lyric),
+                            presamp_join("*", &presamp_alias.vcvpad, &exp.lyric),
+                            exp.lyric.to_string(),
+                            format!("- {}", exp.lyric),
+                        ]);
                     } else {
-                        // CV(VV) banks may provide vowel-to-vowel aliases.
-                        // Prefer those transitions, while retaining ordinary
-                        // CV lookup as the fallback for standard CV banks.
-                        let mut candidates = vec![alias.clone()];
-                        if let Some(long_alias) = long_vowel_candidate(&exp.lyric, &presamp_alias) {
-                            candidates.insert(0, long_alias);
-                        }
-                        if let (Some(pv), Some(cv)) = (prev_vowel, cur_vowel) {
-                            candidates.insert(0, presamp_join(pv, &presamp_alias.vcvpad, cv));
-                            candidates.insert(1, format!("{}{}", pv, cv));
-                            candidates.insert(2, format!("{}_{}", pv, cv));
-                        }
-                        if let Some(found) = Self::find_oto_candidate(vb, &candidates, &note.pitch)
-                        {
-                            alias = found;
-                        }
+                        candidates.extend([exp.lyric.to_string(), format!("- {}", exp.lyric)]);
                     }
+
+                    // Preserve Presamp-specific aliases after the canonical
+                    // OpenUtau candidates. This supports banks whose aliases
+                    // use a configured pad or long-vowel convention without
+                    // changing the standard VCV precedence above.
+                    let mut alias_candidates = expand_presamp_candidates(
+                        if is_phrase_start {
+                            &presamp_alias.beginning_cv
+                        } else {
+                            &presamp_alias.vcv
+                        },
+                        prev_vowel.unwrap_or(""),
+                        Self::extract_consonant(&exp.lyric).unwrap_or(""),
+                        &exp.lyric,
+                        &exp.lyric,
+                        &presamp_alias,
+                    );
+                    if let Some(long_alias) = long_vowel_candidate(&exp.lyric, &presamp_alias) {
+                        alias_candidates.push(long_alias);
+                    }
+                    candidates.extend(alias_candidates);
+
+                    let alias = Self::find_oto_candidate(vb, &candidates, &note.pitch)
+                        .unwrap_or_else(|| exp.lyric.to_string());
 
                     phones.push(RenderPhone {
                         note_index,
@@ -1681,6 +1689,31 @@ mod tests {
         ];
         let phones = JapanesePhonemizer::apply_japanese(&notes, &vb, PhonemizerMode::BasicCV);
         assert_eq!(phones[1].lyric, "a い");
+    }
+
+    #[test]
+    fn basic_cv_matches_openutau_vcv_precedence() {
+        let mut vb = build_test_voicebank();
+        vb.entries.insert(
+            "a さ".to_string(),
+            OtoEntry::new(
+                "a-sa.wav".to_string(),
+                "a さ".to_string(),
+                0.0,
+                50.0,
+                10.0,
+                0.0,
+                0.0,
+            ),
+        );
+        let notes = vec![
+            UNote::new("あ", "C4", 0.0, 400.0),
+            UNote::new("さ", "C4", 400.0, 400.0),
+        ];
+
+        let phones = JapanesePhonemizer::apply_japanese(&notes, &vb, PhonemizerMode::BasicCV);
+        assert_eq!(phones[0].lyric, "- あ");
+        assert_eq!(phones[1].lyric, "a さ");
     }
 
     #[test]
