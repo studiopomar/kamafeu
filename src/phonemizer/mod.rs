@@ -321,7 +321,24 @@ impl JapanesePhonemizer {
                     bank.prefix_map.select_color(color);
                 }
                 for mut phone in Self::apply_phonemizer(&neutral, &bank, mode) {
-                    if notes[phone.note_index].timbre != color {
+                    let source_note = notes.get(phone.note_index);
+                    // Japanese CVVC places the outgoing VC fragment at the
+                    // end of the current note while it actually belongs to
+                    // the following note's transition. Resolve that fragment
+                    // with the destination color, just like OpenUtau.
+                    let transition_target = source_note.and_then(|note| {
+                        let note_end = note.position_ms + note.duration_ms;
+                        let phone_end = phone.position_ms + phone.duration_ms;
+                        if phone.duration_ms + 0.001 < note.duration_ms
+                            && (phone_end - note_end).abs() <= 0.01
+                        {
+                            notes.get(phone.note_index + 1)
+                        } else {
+                            None
+                        }
+                    });
+                    let effective_note = transition_target.or(source_note);
+                    if effective_note.and_then(|note| note.timbre.as_ref()) != color.as_ref() {
                         continue;
                     }
                     // Freeze the mapped alias, including manual phonemizers,
@@ -329,7 +346,9 @@ impl JapanesePhonemizer {
                     if let Some(entry) = bank.find_mapped_entry(&phone.lyric, &phone.pitch) {
                         phone.lyric = entry.alias.clone();
                         phone.resolved_alias = Some(entry.alias.clone());
-                        phone.resolved_timbre = color.clone();
+                        phone.resolved_timbre = transition_target
+                            .and_then(|note| note.timbre.clone())
+                            .or_else(|| color.clone());
                     }
                     mixed.push(phone);
                 }
@@ -1647,6 +1666,38 @@ mod tests {
             serde_json::from_str(r#"{"lyric":"a","pitch":"C4","position_ms":0,"duration_ms":400}"#)
                 .unwrap();
         assert_eq!(legacy.timbre, None);
+    }
+
+    #[test]
+    fn cvvc_outgoing_transition_uses_destination_timbre() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut vb = Voicebank::new(dir.path()).unwrap();
+        vb.prefix_map = crate::oto::PrefixMap::parse_yaml_str(
+            "subbanks:\n  - color: ''\n    suffix: _normal\n    tone_ranges: [C4-C5]\n  - color: Soft\n    suffix: _soft\n    tone_ranges: [C4-C5]\n",
+        );
+        for alias in ["- あ_normal", "a k_soft", "か_soft", "か_normal"] {
+            vb.entries.insert(
+                alias.to_string(),
+                crate::oto::OtoEntry::new(
+                    format!("{alias}.wav"),
+                    alias.to_string(),
+                    0.0,
+                    50.0,
+                    10.0,
+                    0.0,
+                    0.0,
+                ),
+            );
+        }
+        let mut notes = vec![
+            UNote::new("あ", "C4", 0.0, 400.0),
+            UNote::new("か", "C4", 400.0, 400.0),
+        ];
+        notes[1].timbre = Some("Soft".to_string());
+        let phones = JapanesePhonemizer::apply_phonemizer(&notes, &vb, PhonemizerMode::CVVC);
+        let transition = phones.iter().find(|phone| phone.lyric == "a k_soft");
+        assert!(transition.is_some(), "phones: {:?}", phones);
+        assert_eq!(transition.unwrap().resolved_timbre.as_deref(), Some("Soft"));
     }
 
     #[test]
