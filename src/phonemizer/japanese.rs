@@ -2329,6 +2329,34 @@ mod tests {
     }
 
     #[test]
+    fn japanese_cvvc_keeps_cv_syllables_consonantal_with_presamp_vowels() {
+        let mut vb = build_test_voicebank();
+        let root = std::env::temp_dir().join(format!(
+            "kamafeu-presamp-cvvc-{}-{}",
+            std::process::id(),
+            std::thread::current().name().unwrap_or("test")
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(
+            root.join("presamp.ini"),
+            "[VOWEL]\na=あ=か,さ\n[CONSONANT]\ns=さ\n",
+        )
+        .unwrap();
+        vb.root_path = root.clone();
+
+        let notes = vec![
+            UNote::new("か", "C4", 0.0, 400.0),
+            UNote::new("さ", "C4", 400.0, 400.0),
+        ];
+        let phones = JapanesePhonemizer::apply_japanese(&notes, &vb, PhonemizerMode::CVVC);
+
+        assert_eq!(phones.len(), 3);
+        assert_eq!(phones[1].lyric, "a s");
+        assert_eq!(phones[2].lyric, "さ");
+        let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
     fn japanese_cvvc_inserts_phrase_head_consonant_when_available() {
         let mut vb = build_test_voicebank();
         vb.entries.insert(
