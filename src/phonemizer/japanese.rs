@@ -1080,7 +1080,7 @@ impl JapanesePhonemizer {
                     }
 
                     let next_note_ref = expanded.get(idx + 1);
-                    let mut vc_to_insert: Option<(String, f64)> = None;
+                    let mut vc_to_insert: Option<(String, f64, bool)> = None;
 
                     if let Some(next_exp) = next_note_ref {
                         let next_gap = next_exp.position_ms - (exp.position_ms + exp.duration_ms);
@@ -1156,13 +1156,17 @@ impl JapanesePhonemizer {
                                     let vc_len = (vc_length_ms * vel_scale)
                                         .min(exp.duration_ms * 0.5)
                                         .min((exp.duration_ms - 20.0).max(10.0));
-                                    vc_to_insert = Some((vc_alias, vc_len));
+                                    vc_to_insert = Some((
+                                        vc_alias,
+                                        vc_len,
+                                        presamp_inventory.no_crossfade.contains(con),
+                                    ));
                                 }
                             }
                         }
                     }
 
-                    if let Some((vc_alias, vc_len)) = vc_to_insert {
+                    if let Some((vc_alias, vc_len, vc_no_crossfade)) = vc_to_insert {
                         let main_duration = (exp.duration_ms - vc_len).max(10.0);
                         phones.push(RenderPhone {
                             note_index,
@@ -1178,6 +1182,8 @@ impl JapanesePhonemizer {
                         });
 
                         let vc_envelope = note.envelope.clone();
+                        let mut vc_expressions = note.expressions.clone();
+                        vc_expressions.presamp_no_crossfade = vc_no_crossfade;
 
                         phones.push(RenderPhone {
                             note_index,
@@ -1186,7 +1192,7 @@ impl JapanesePhonemizer {
                             position_ms: exp.position_ms + main_duration,
                             duration_ms: vc_len,
                             envelope: vc_envelope,
-                            expressions: note.expressions.clone(),
+                            expressions: vc_expressions,
                             pitch_bend: note.pitch_bend.clone(),
                             vibrato: note.vibrato.clone(),
                             flags: note.flags.clone(),

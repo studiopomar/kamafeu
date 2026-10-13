@@ -165,6 +165,10 @@ pub struct UExpressions {
     pub preutter_offset_ms: f64, // Pré-emissão / Início de transição timing shift (-500ms to +500ms)
     #[serde(default)]
     pub overlap_offset_ms: f64, // Overlap / Crossfade timing shift (-500ms to +500ms)
+    /// Presamp marks this consonant as incompatible with VC/CV crossfading.
+    /// It is an internal phonemizer decision, not an UTAU resampler flag.
+    #[serde(default)]
+    pub presamp_no_crossfade: bool,
     /// Absolute legacy UST values. Kept separate from editable deltas so an
     /// imported project reproduces its original timing against any oto.ini entry.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -207,6 +211,7 @@ impl Default for UExpressions {
             consonant_timing_offset_ms: 0.0,
             preutter_offset_ms: 0.0,
             overlap_offset_ms: 0.0,
+            presamp_no_crossfade: false,
             preutter_override_ms: None,
             overlap_override_ms: None,
             start_point_ms: None,

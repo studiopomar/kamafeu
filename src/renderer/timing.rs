@@ -98,14 +98,20 @@ pub fn plan_inputs(
         .map(|(index, phone)| {
             let oto = voicebank.find_mapped_entry(&phone.lyric, &phone.pitch);
             let raw_preutter = oto.map(|entry| entry.preutterance).unwrap_or(0.0);
-            let raw_overlap = oto.map(|entry| entry.overlap).unwrap_or(0.0);
+            let raw_overlap = if phone.expressions.presamp_no_crossfade {
+                0.0
+            } else {
+                oto.map(|entry| entry.overlap).unwrap_or(0.0)
+            };
             let oto_preutter_ms = raw_preutter.max(0.0);
             let adjacent_handoff = index > 0
                 && (phone.position_ms
                     - (phones[index - 1].position_ms + phones[index - 1].duration_ms))
                     .abs()
                     <= 0.001;
-            let manual_overlap = if phone.envelope.crossfade_ms > 0.0 {
+            let manual_overlap = if phone.expressions.presamp_no_crossfade {
+                None
+            } else if phone.envelope.crossfade_ms > 0.0 {
                 Some(phone.envelope.crossfade_ms)
             } else if raw_overlap.abs() <= f64::EPSILON && adjacent_handoff && crossfade_ms > 0.0 {
                 Some(crossfade_ms)
