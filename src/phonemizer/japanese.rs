@@ -1368,10 +1368,18 @@ impl JapanesePhonemizer {
             // consonant (for example `a っ`, `a cl`, `a k`, `っ`).  This is
             // what creates the short stop before the following syllable and
             // prevents `っ` from being rendered as `u`.
-            if mode == PhonemizerMode::CVVC && (exp.lyric == "っ" || exp.lyric == "ッ") {
+            if (mode == PhonemizerMode::CVVC || has_presamp_ini)
+                && (exp.lyric == "っ" || exp.lyric == "ッ")
+            {
                 let mut sokuon_candidates = Vec::new();
                 if let Some(vowel) = prev_vowel.as_deref() {
+                    if mode == PhonemizerMode::VCV {
+                        sokuon_candidates.push(presamp_join(vowel, &presamp_alias.vcvpad, "っ"));
+                    }
                     sokuon_candidates.push(presamp_join(vowel, &presamp_alias.vcpad, "っ"));
+                    if mode == PhonemizerMode::VCV {
+                        sokuon_candidates.push(presamp_join(vowel, &presamp_alias.vcvpad, "cl"));
+                    }
                     sokuon_candidates.push(presamp_join(vowel, &presamp_alias.vcpad, "cl"));
                     if let Some(next_exp) = expanded.get(idx + 1) {
                         if let Some(consonant) =
@@ -2626,6 +2634,45 @@ mod tests {
         let phones = JapanesePhonemizer::apply_japanese(&notes, &vb, PhonemizerMode::CVVC);
         assert!(phones.iter().any(|phone| phone.lyric == "a k"));
         assert!(!phones.iter().any(|phone| phone.lyric == "u"));
+    }
+
+    #[test]
+    fn presamp_vcv_renders_sokuon_as_a_closure_instead_of_a_vowel() {
+        let mut vb = build_test_voicebank();
+        vb.entries.insert(
+            "a っ".to_string(),
+            OtoEntry::new(
+                "a-tsu-small.wav".to_string(),
+                "a っ".to_string(),
+                0.0,
+                30.0,
+                5.0,
+                0.0,
+                0.0,
+            ),
+        );
+        let root = std::env::temp_dir().join(format!(
+            "kamafeu-presamp-sokuon-vcv-{}-{}",
+            std::process::id(),
+            std::thread::current().name().unwrap_or("test")
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(
+            root.join("presamp.ini"),
+            "[VOWEL]\na=あ\n[CONSONANT]\nk=か\n",
+        )
+        .unwrap();
+        vb.root_path = root.clone();
+        let notes = vec![
+            UNote::new("か", "C4", 0.0, 300.0),
+            UNote::new("っ", "C4", 300.0, 100.0),
+            UNote::new("か", "C4", 400.0, 300.0),
+        ];
+
+        let phones = JapanesePhonemizer::apply_japanese(&notes, &vb, PhonemizerMode::VCV);
+        assert!(phones.iter().any(|phone| phone.lyric == "a っ"));
+        assert!(!phones.iter().any(|phone| phone.lyric == "u"));
+        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
