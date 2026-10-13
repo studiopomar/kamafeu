@@ -436,6 +436,8 @@ struct PresampInventory {
     alias_priority_default: Vec<String>,
     alias_priority_diff_append: Vec<String>,
     alias_priority_diff_pitch: Vec<String>,
+    prefixes: Vec<String>,
+    suffix_order: Vec<String>,
     priority: HashSet<String>,
     no_crossfade: HashSet<String>,
     /// Presamp `[VCLENGTH]`: 0 derives VC timing from the following CV oto;
@@ -516,6 +518,12 @@ impl Default for PresampInventory {
                 "CV".to_string(),
                 "BEGINING_CV".to_string(),
             ],
+            prefixes: Vec::new(),
+            suffix_order: vec![
+                "%num%".to_string(),
+                "%append%".to_string(),
+                "%pitch%".to_string(),
+            ],
             priority,
             no_crossfade,
             vc_length_from_cv: true,
@@ -551,6 +559,8 @@ fn parse_presamp_inventory(contents: &str) -> PresampInventory {
                 "[ALIAS_PRIORITY]" => inventory.alias_priority_default.clear(),
                 "[ALIAS_PRIORITY_DIFAPPEND]" => inventory.alias_priority_diff_append.clear(),
                 "[ALIAS_PRIORITY_DIFPITCH]" => inventory.alias_priority_diff_pitch.clear(),
+                "[PRE]" => inventory.prefixes.clear(),
+                "[SU]" => inventory.suffix_order.clear(),
                 "[CFLAGS]" => inventory.cflags.clear(),
                 _ => {}
             }
@@ -663,6 +673,32 @@ fn parse_presamp_inventory(contents: &str) -> PresampInventory {
             "[ALIAS_PRIORITY_DIFPITCH]" => inventory
                 .alias_priority_diff_pitch
                 .push((*first).to_string()),
+            "[PRE]" => {
+                if !inventory.prefixes.iter().any(|prefix| prefix == line) {
+                    inventory.prefixes.push(line.to_string());
+                }
+            }
+            "[SU]" => {
+                let mut remainder = line;
+                let mut order = Vec::new();
+                while !remainder.is_empty() {
+                    let Some(token) = ["%num%", "%append%", "%pitch%"]
+                        .into_iter()
+                        .find(|token| remainder.starts_with(token))
+                    else {
+                        order.clear();
+                        break;
+                    };
+                    order.push(token.to_string());
+                    remainder = &remainder[token.len()..];
+                }
+                if !remainder.is_empty() || order.len() != 3 {
+                    order.clear();
+                }
+                if !order.is_empty() {
+                    inventory.suffix_order = order;
+                }
+            }
             _ => {}
         }
     }
@@ -2006,6 +2042,14 @@ mod tests {
         assert_eq!(custom_priorities.alias_priority_default, ["CV", "VCV"]);
         assert_eq!(custom_priorities.alias_priority_diff_append, ["CVVC"]);
         assert_eq!(custom_priorities.alias_priority_diff_pitch, ["CROSS_CV"]);
+
+        let custom_suffix_rules =
+            parse_presamp_inventory("[PRE]\n_normal\n_normal\n_soft\n[SU]\n%append%%num%%pitch%\n");
+        assert_eq!(custom_suffix_rules.prefixes, ["_normal", "_soft"]);
+        assert_eq!(
+            custom_suffix_rules.suffix_order,
+            ["%append%", "%num%", "%pitch%"]
+        );
 
         let ordered = order_presamp_candidate_groups(
             &["CV".to_string(), "VCV".to_string()],
