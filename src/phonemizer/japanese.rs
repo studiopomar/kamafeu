@@ -382,6 +382,8 @@ struct PresampInventory {
     vowels: HashSet<String>,
     consonants: HashSet<String>,
     priority: HashSet<String>,
+    no_crossfade: HashSet<String>,
+    vc_length_mode: HashMap<String, u8>,
 }
 
 fn parse_presamp_inventory(contents: &str) -> PresampInventory {
@@ -419,7 +421,14 @@ fn parse_presamp_inventory(contents: &str) -> PresampInventory {
                     .consonants
                     .extend(values.into_iter().map(str::to_owned));
                 if fields.get(2).is_some_and(|flag| *flag == "1") {
-                    inventory.priority.insert((*first).to_string());
+                    // Presamp's third field is the no-crossfade flag, not
+                    // priority. Priority is configured by [PRIORITY].
+                    inventory.no_crossfade.insert((*first).to_string());
+                }
+                if let Some(mode) = fields.get(3).and_then(|value| value.parse::<u8>().ok()) {
+                    if mode <= 1 {
+                        inventory.vc_length_mode.insert((*first).to_string(), mode);
+                    }
                 }
             }
             "[PRIORITY]" => {
@@ -1276,12 +1285,14 @@ mod tests {
     #[test]
     fn presamp_inventory_reads_vowels_consonants_and_priority() {
         let inventory = parse_presamp_inventory(
-            "[VOWEL]\na=あ,か,が\nn=ん\n[CONSONANT]\nk=か,く,け,こ=1\ns=さ,す,せ,そ=0\n[PRIORITY]\nっ\n",
+            "[VOWEL]\na=あ,か,が\nn=ん\n[CONSONANT]\nk=か,く,け,こ=1=1\ns=さ,す,せ,そ=0\n[PRIORITY]\nk\nっ\n",
         );
         assert!(inventory.vowels.contains("か"));
         assert!(inventory.consonants.contains("す"));
         assert!(inventory.priority.contains("k"));
         assert!(inventory.priority.contains("っ"));
+        assert!(inventory.no_crossfade.contains("k"));
+        assert_eq!(inventory.vc_length_mode.get("k"), Some(&1));
     }
 
     #[test]
