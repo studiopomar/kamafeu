@@ -655,6 +655,8 @@ impl VccvBrapaPhonemizer {
                         pitch_bend: note.pitch_bend.clone(),
                         vibrato: note.vibrato.clone(),
                         flags: note.flags.clone(),
+                        resolved_alias: None,
+                        resolved_timbre: None,
                     });
                 } else {
                     let mut total_trans_dur = 0.0;
@@ -732,6 +734,8 @@ impl VccvBrapaPhonemizer {
                                 pitch_bend: crate::project::model::UPitchBend::default(),
                                 vibrato: crate::dsp::pitch::VibratoParam::default(),
                                 flags: note.flags.clone(),
+                                resolved_alias: None,
+                                resolved_timbre: None,
                             });
                             trans_pos += dur;
                         }
@@ -759,6 +763,8 @@ impl VccvBrapaPhonemizer {
                             pitch_bend: note.pitch_bend.clone(),
                             vibrato: note.vibrato.clone(),
                             flags: note.flags.clone(),
+                            resolved_alias: None,
+                            resolved_timbre: None,
                         });
                     } else {
                         if let Some(last_p) = note_phones.last_mut() {
@@ -791,6 +797,8 @@ impl VccvBrapaPhonemizer {
                                 pitch_bend: crate::project::model::UPitchBend::default(),
                                 vibrato: crate::dsp::pitch::VibratoParam::default(),
                                 flags: note.flags.clone(),
+                                resolved_alias: None,
+                                resolved_timbre: None,
                             });
                             trans_pos += dur;
                         }
@@ -818,6 +826,8 @@ impl VccvBrapaPhonemizer {
                             pitch_bend: note.pitch_bend.clone(),
                             vibrato: note.vibrato.clone(),
                             flags: note.flags.clone(),
+                            resolved_alias: None,
+                            resolved_timbre: None,
                         });
                     }
                 }
@@ -864,6 +874,8 @@ impl VccvBrapaPhonemizer {
                                     pitch_bend: crate::project::model::UPitchBend::default(),
                                     vibrato: crate::dsp::pitch::VibratoParam::default(),
                                     flags: note.flags.clone(),
+                                    resolved_alias: None,
+                                    resolved_timbre: None,
                                 });
                             }
                         }

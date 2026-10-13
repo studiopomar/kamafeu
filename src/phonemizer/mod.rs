@@ -217,11 +217,26 @@ pub struct RenderPhone {
     pub pitch_bend: crate::project::model::UPitchBend,
     pub vibrato: crate::dsp::pitch::VibratoParam,
     pub flags: String,
+    /// Alias resolved against the exact subbank selected for this phone.
+    /// When absent, the renderer performs the normal voicebank lookup.
+    pub resolved_alias: Option<String>,
+    /// Timbre/subbank used to resolve `resolved_alias`, for diagnostics.
+    pub resolved_timbre: Option<String>,
 }
 
 impl RenderPhone {
     pub fn midi_key(&self) -> u8 {
         crate::dsp::pitch::note_name_to_midi(&self.pitch).unwrap_or(60)
+    }
+
+    pub fn find_entry<'a>(
+        &'a self,
+        voicebank: &'a crate::oto::Voicebank,
+    ) -> Option<&'a crate::oto::OtoEntry> {
+        self.resolved_alias
+            .as_deref()
+            .and_then(|alias| voicebank.find_exact_entry(alias))
+            .or_else(|| voicebank.find_mapped_entry(&self.lyric, &self.pitch))
     }
 }
 
@@ -313,6 +328,8 @@ impl JapanesePhonemizer {
                     // before the renderer sees the shared default voicebank.
                     if let Some(entry) = bank.find_mapped_entry(&phone.lyric, &phone.pitch) {
                         phone.lyric = entry.alias.clone();
+                        phone.resolved_alias = Some(entry.alias.clone());
+                        phone.resolved_timbre = color.clone();
                     }
                     mixed.push(phone);
                 }
@@ -642,6 +659,8 @@ impl JapanesePhonemizer {
                             pitch_bend: note.pitch_bend.clone(),
                             vibrato: note.vibrato.clone(),
                             flags: note.flags.clone(),
+                            resolved_alias: None,
+                            resolved_timbre: None,
                         });
                         sub_position_ms += sub_duration_ms;
                     }
@@ -660,6 +679,8 @@ impl JapanesePhonemizer {
                 pitch_bend: note.pitch_bend.clone(),
                 vibrato: note.vibrato.clone(),
                 flags: note.flags.clone(),
+                resolved_alias: None,
+                resolved_timbre: None,
             });
         }
         phones
@@ -726,6 +747,8 @@ impl JapanesePhonemizer {
                                     pitch_bend: note.pitch_bend.clone(),
                                     vibrato: note.vibrato.clone(),
                                     flags: note.flags.clone(),
+                                    resolved_alias: None,
+                                    resolved_timbre: None,
                                 });
                             }
                         }
@@ -754,6 +777,8 @@ impl JapanesePhonemizer {
                     pitch_bend: note.pitch_bend.clone(),
                     vibrato: note.vibrato.clone(),
                     flags: note.flags.clone(),
+                    resolved_alias: None,
+                    resolved_timbre: None,
                 });
             }
             if cvvc {
@@ -1405,6 +1430,8 @@ impl JapanesePhonemizer {
                                         pitch_bend: crate::project::model::UPitchBend::default(),
                                         vibrato: crate::dsp::pitch::VibratoParam::default(),
                                         flags: note.flags.clone(),
+                                        resolved_alias: None,
+                                        resolved_timbre: None,
                                     });
                                 }
                             }
@@ -1438,6 +1465,8 @@ impl JapanesePhonemizer {
                     pitch_bend: note.pitch_bend.clone(),
                     vibrato: note.vibrato.clone(),
                     flags: note.flags.clone(),
+                    resolved_alias: None,
+                    resolved_timbre: None,
                 });
             }
 
@@ -1524,6 +1553,8 @@ impl JapanesePhonemizer {
                                         pitch_bend: crate::project::model::UPitchBend::default(),
                                         vibrato: crate::dsp::pitch::VibratoParam::default(),
                                         flags: note.flags.clone(),
+                                        resolved_alias: None,
+                                        resolved_timbre: None,
                                     });
                                 }
                             }
@@ -1550,6 +1581,8 @@ impl JapanesePhonemizer {
                     pitch_bend: note.pitch_bend.clone(),
                     vibrato: note.vibrato.clone(),
                     flags: note.flags.clone(),
+                    resolved_alias: None,
+                    resolved_timbre: None,
                 });
             }
 
@@ -1600,6 +1633,14 @@ mod tests {
             [0, 1, 2]
         );
         assert_eq!(phones[1].position_ms, 400.0);
+        assert_eq!(
+            phones
+                .iter()
+                .map(|p| p.resolved_alias.as_deref())
+                .collect::<Vec<_>>(),
+            [Some("- あ_normal"), Some("a か_soft"), Some("a か_normal")]
+        );
+        assert_eq!(phones[1].resolved_timbre.as_deref(), Some("Soft"));
         assert_eq!(vb.prefix_map.selected_color(), "");
         // Existing projects without the new field still inherit the default.
         let legacy: UNote =

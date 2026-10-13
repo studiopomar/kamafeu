@@ -286,11 +286,13 @@ impl TrackRenderer {
             log(
                 0.03,
                 &format!(
-                    "[Phonemizer][Phone {}/{}] note_index={} alias='{}' pitch='{}' position_ms={:.3} duration_ms={:.3} flags='{}' envelope={:?} expressions={:?}",
+                    "[Phonemizer][Phone {}/{}] note_index={} alias='{}' resolved_alias={:?} resolved_timbre={:?} pitch='{}' position_ms={:.3} duration_ms={:.3} flags='{}' envelope={:?} expressions={:?}",
                     index + 1,
                     phones.len(),
                     phone.note_index,
                     phone.lyric,
+                    phone.resolved_alias,
+                    phone.resolved_timbre,
                     phone.pitch,
                     phone.position_ms,
                     phone.duration_ms,
@@ -311,8 +313,8 @@ impl TrackRenderer {
         let unique_wav_paths: std::collections::HashSet<std::path::PathBuf> = phones
             .iter()
             .filter_map(|phone| {
-                voicebank
-                    .find_mapped_entry(&phone.lyric, &phone.pitch)
+                phone
+                    .find_entry(voicebank)
                     .map(|entry| voicebank.root_path.join(&entry.wav_filename))
             })
             .collect();
@@ -361,16 +363,14 @@ impl TrackRenderer {
         let unavailable = phones
             .iter()
             .map(|phone| {
-                voicebank
-                    .find_mapped_entry(&phone.lyric, &phone.pitch)
-                    .is_none_or(|entry| {
-                        let path = voicebank.root_path.join(&entry.wav_filename);
-                        if LAZY_WAV_LOADING.load(Ordering::Relaxed) {
-                            !path.is_file()
-                        } else {
-                            wav_cache.get(&path).is_none_or(|audio| audio.0.is_empty())
-                        }
-                    })
+                phone.find_entry(voicebank).is_none_or(|entry| {
+                    let path = voicebank.root_path.join(&entry.wav_filename);
+                    if LAZY_WAV_LOADING.load(Ordering::Relaxed) {
+                        !path.is_file()
+                    } else {
+                        wav_cache.get(&path).is_none_or(|audio| audio.0.is_empty())
+                    }
+                })
             })
             .collect::<Vec<_>>();
         let missing_inside_phrase = unavailable.iter().enumerate().any(|(index, missing)| {
@@ -389,7 +389,7 @@ impl TrackRenderer {
             touches_previous || touches_next
         });
         phones.retain(|phone| {
-            let reason = match voicebank.find_mapped_entry(&phone.lyric, &phone.pitch) {
+            let reason = match phone.find_entry(voicebank) {
                 None => Some("alias ausente no voicebank".to_string()),
                 Some(entry) => {
                     let path = voicebank.root_path.join(&entry.wav_filename);
@@ -496,8 +496,8 @@ impl TrackRenderer {
             let progress = idx as f32 / total_phones as f32;
             let timing = timings[idx];
 
-            let entry = voicebank
-                .find_mapped_entry(&phone.lyric, &phone.pitch)
+            let entry = phone
+                .find_entry(voicebank)
                 .ok_or_else(|| format!("Alias indisponível: {}", phone.lyric))?;
             let offset_ms = entry.offset + phone.expressions.start_point_ms.unwrap_or(0.0).max(0.0);
             let consonant_ms = entry.consonant;

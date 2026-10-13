@@ -412,6 +412,10 @@ impl Voicebank {
     }
 
     /// Exact phonetic lookup with pitch and candidate mapping. Never changes case or drops a VC/VCV prefix.
+    pub fn find_exact_entry(&self, alias: &str) -> Option<&OtoEntry> {
+        self.entries.get(alias)
+    }
+
     pub fn find_mapped_entry(&self, lyric: &str, pitch_name: &str) -> Option<&OtoEntry> {
         let lyric_trimmed = lyric.trim();
         if lyric_trimmed.is_empty() {

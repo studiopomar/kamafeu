@@ -96,7 +96,7 @@ pub fn plan_inputs(
         .iter()
         .enumerate()
         .map(|(index, phone)| {
-            let oto = voicebank.find_mapped_entry(&phone.lyric, &phone.pitch);
+            let oto = phone.find_entry(voicebank);
             let raw_preutter = oto.map(|entry| entry.preutterance).unwrap_or(0.0);
             let raw_overlap = if phone.expressions.presamp_no_crossfade {
                 0.0
@@ -341,6 +341,8 @@ mod tests {
             pitch_bend: crate::project::model::UPitchBend::default(),
             vibrato: crate::dsp::pitch::VibratoParam::default(),
             flags: String::new(),
+            resolved_alias: None,
+            resolved_timbre: None,
         };
 
         // Even when global crossfade_ms is 15.0, the calibrated 100ms overlap must NOT be overwritten.
@@ -360,6 +362,8 @@ mod tests {
             pitch_bend: crate::project::model::UPitchBend::default(),
             vibrato: crate::dsp::pitch::VibratoParam::default(),
             flags: String::new(),
+            resolved_alias: None,
+            resolved_timbre: None,
         };
         let cv_inputs = plan_inputs(
             &[
@@ -399,6 +403,8 @@ mod tests {
             pitch_bend: crate::project::model::UPitchBend::default(),
             vibrato: crate::dsp::pitch::VibratoParam::default(),
             flags: String::new(),
+            resolved_alias: None,
+            resolved_timbre: None,
         };
         let mut second = first.clone();
         second.note_index = 1;
@@ -423,6 +429,8 @@ mod tests {
                 pitch_bend: crate::project::model::UPitchBend::default(),
                 vibrato: crate::dsp::pitch::VibratoParam::default(),
                 flags: String::new(),
+                resolved_alias: None,
+                resolved_timbre: None,
             },
             crate::phonemizer::RenderPhone {
                 note_index: 0,
@@ -435,6 +443,8 @@ mod tests {
                 pitch_bend: crate::project::model::UPitchBend::default(),
                 vibrato: crate::dsp::pitch::VibratoParam::default(),
                 flags: String::new(),
+                resolved_alias: None,
+                resolved_timbre: None,
             },
         ];
         let dir = tempfile::tempdir().unwrap();
@@ -467,6 +477,8 @@ mod tests {
                 pitch_bend: crate::project::model::UPitchBend::default(),
                 vibrato: crate::dsp::pitch::VibratoParam::default(),
                 flags: String::new(),
+                resolved_alias: None,
+                resolved_timbre: None,
             });
         }
 

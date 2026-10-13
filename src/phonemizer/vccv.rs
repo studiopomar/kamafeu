@@ -66,6 +66,8 @@ fn phone_with_pitch(
         pitch_bend: note.pitch_bend.clone(),
         vibrato: note.vibrato.clone(),
         flags: note.flags.clone(),
+        resolved_alias: None,
+        resolved_timbre: None,
     }
 }
 

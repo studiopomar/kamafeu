@@ -1427,6 +1427,8 @@ impl JapanesePhonemizer {
                         pitch_bend: note.pitch_bend.clone(),
                         vibrato: note.vibrato.clone(),
                         flags: note.flags.clone(),
+                        resolved_alias: None,
+                        resolved_timbre: None,
                     });
                     prev_vowel = None;
                     prev_note_end_ms = Some(exp.position_ms + exp.duration_ms);
@@ -1458,6 +1460,8 @@ impl JapanesePhonemizer {
                     pitch_bend: note.pitch_bend.clone(),
                     vibrato: note.vibrato.clone(),
                     flags: note.flags.clone(),
+                    resolved_alias: None,
+                    resolved_timbre: None,
                 });
                 prev_vowel = cur_vowel;
                 prev_note_end_ms = Some(exp.position_ms + exp.duration_ms);
@@ -1521,6 +1525,8 @@ impl JapanesePhonemizer {
                         pitch_bend: note.pitch_bend.clone(),
                         vibrato: note.vibrato.clone(),
                         flags: note.flags.clone(),
+                        resolved_alias: None,
+                        resolved_timbre: None,
                     });
                 }
 
@@ -1611,6 +1617,8 @@ impl JapanesePhonemizer {
                         pitch_bend: note.pitch_bend.clone(),
                         vibrato: note.vibrato.clone(),
                         flags: note.flags.clone(),
+                        resolved_alias: None,
+                        resolved_timbre: None,
                     });
                 }
 
@@ -1973,6 +1981,8 @@ impl JapanesePhonemizer {
                                     pitch_bend: note.pitch_bend.clone(),
                                     vibrato: note.vibrato.clone(),
                                     flags: note.flags.clone(),
+                                    resolved_alias: None,
+                                    resolved_timbre: None,
                                 });
                             }
                         }
@@ -1987,6 +1997,8 @@ impl JapanesePhonemizer {
                             pitch_bend: note.pitch_bend.clone(),
                             vibrato: note.vibrato.clone(),
                             flags: note.flags.clone(),
+                            resolved_alias: None,
+                            resolved_timbre: None,
                         });
 
                         let vc_envelope = note.envelope.clone();
@@ -2004,6 +2016,8 @@ impl JapanesePhonemizer {
                             pitch_bend: note.pitch_bend.clone(),
                             vibrato: note.vibrato.clone(),
                             flags: note.flags.clone(),
+                            resolved_alias: None,
+                            resolved_timbre: None,
                         });
                     } else {
                         let requested_pre_c_len =
@@ -2027,6 +2041,8 @@ impl JapanesePhonemizer {
                                     pitch_bend: note.pitch_bend.clone(),
                                     vibrato: note.vibrato.clone(),
                                     flags: note.flags.clone(),
+                                    resolved_alias: None,
+                                    resolved_timbre: None,
                                 });
                             }
                         }
@@ -2041,6 +2057,8 @@ impl JapanesePhonemizer {
                             pitch_bend: note.pitch_bend.clone(),
                             vibrato: note.vibrato.clone(),
                             flags: note.flags.clone(),
+                            resolved_alias: None,
+                            resolved_timbre: None,
                         });
                     }
                 }

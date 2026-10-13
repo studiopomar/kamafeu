@@ -367,6 +367,57 @@ impl KamafeuStudioApp {
         self.transport_state.status_message = "Novo projeto criado".to_string();
     }
 
+    /// Resolve the bank carried by an imported project without discarding the
+    /// bank already active in the editor.  Imported formats often contain only
+    /// a singer name (or an absolute path from another machine), so the active
+    /// bank is the deterministic final fallback.
+    fn resolve_imported_voicebank(&mut self, format: &str, source: &str) {
+        let requested = self
+            .project
+            .voicebank_path
+            .clone()
+            .or_else(|| self.project.voicebank.clone())
+            .or_else(|| {
+                self.project
+                    .tracks
+                    .first()
+                    .and_then(|track| track.voicebank_path.clone())
+            })
+            .or_else(|| {
+                self.project
+                    .tracks
+                    .first()
+                    .map(|track| track.singer.clone())
+            });
+
+        if let Some(target) = requested.as_deref() {
+            if let Some(found_path) = crate::oto::SingerScanner::find_singer_by_name_or_path(
+                target,
+                &self.config.recent_voicebanks,
+                &self.config.singers_paths,
+            ) {
+                if let Ok(vb) = Voicebank::new(&found_path) {
+                    eprintln!(
+                        "[Import][Voicebank] format={} source={} requested={:?} resolved={:?}",
+                        format, source, target, vb.root_path
+                    );
+                    self.transport_state.voicebank_name = vb.name.clone();
+                    self.config.add_recent_voicebank(vb.root_path.clone());
+                    self.voicebank = Some(vb);
+                    return;
+                }
+            }
+        }
+
+        eprintln!(
+            "[Import][VoicebankFallback] format={} source={} requested={:?} using_active={:?}",
+            format,
+            source,
+            requested,
+            self.voicebank.as_ref().map(|vb| &vb.root_path)
+        );
+    }
+
     pub fn open_project_from_path(&mut self, path: &Path) {
         if self.is_dirty
             && self.config.workflow.confirm_on_exit_dirty
@@ -443,32 +494,7 @@ impl KamafeuStudioApp {
                     self.vocal_mode_params.phonemizer_mode = mode;
                 }
 
-                let vb_target = self
-                    .project
-                    .voicebank_path
-                    .as_deref()
-                    .or(self.project.voicebank.as_deref())
-                    .or_else(|| {
-                        self.project
-                            .tracks
-                            .first()
-                            .and_then(|t| t.voicebank_path.as_deref())
-                    })
-                    .or_else(|| self.project.tracks.first().map(|t| t.singer.as_str()));
-
-                if let Some(target) = vb_target {
-                    if let Some(found_path) = crate::oto::SingerScanner::find_singer_by_name_or_path(
-                        target,
-                        &self.config.recent_voicebanks,
-                        &self.config.singers_paths,
-                    ) {
-                        if let Ok(vb) = Voicebank::new(&found_path) {
-                            self.transport_state.voicebank_name = vb.name.clone();
-                            self.config.add_recent_voicebank(vb.root_path.clone());
-                            self.voicebank = Some(vb);
-                        }
-                    }
-                }
+                self.resolve_imported_voicebank(&extension, &path.to_string_lossy());
 
                 if let Some(ref resampler) = self.project.resampler.clone().or_else(|| {
                     self.project
@@ -586,6 +612,7 @@ impl KamafeuStudioApp {
                 self.undo_manager = UndoManager::default();
                 self.is_dirty = false;
                 self.current_project_path = Some(PathBuf::from(file_name));
+                self.resolve_imported_voicebank(&extension, file_name);
 
                 if let Some(mode) = self
                     .project
