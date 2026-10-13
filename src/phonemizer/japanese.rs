@@ -363,6 +363,42 @@ fn parse_presamp_replacements(contents: &str) -> HashMap<String, String> {
     replacements
 }
 
+fn default_presamp_replacement(lyric: &str) -> Option<&'static str> {
+    // Entries that are intentionally not inferred by the generic romaji
+    // converter. These mirror OpenUtau's built-in Presamp defReplace table.
+    Some(match lyric {
+        "N" => "ン",
+        "dha" => "でゃ",
+        "dhe" => "でぇ",
+        "dhi" => "でぃ",
+        "dho" => "でょ",
+        "dhu" => "でゅ",
+        "fyu" => "ふゅ",
+        "hyi" => "ひ",
+        "kyi" => "き",
+        "myi" => "み",
+        "nyi" => "に",
+        "pye" => "ぴぇ",
+        "pyi" => "ぴ",
+        "rye" => "りぇ",
+        "ryi" => "り",
+        "tyi" => "てぃ",
+        "tye" => "てぇ",
+        "vyu" => "ヴゅ",
+        "wo" => "うぉ",
+        "wu" => "うぅ",
+        "zya" => "じゃ",
+        "zye" => "じぇ",
+        "zyi" => "じ",
+        "zyo" => "じょ",
+        "zyu" => "じゅ",
+        "を" => "お",
+        "ぢ" => "じ",
+        "づ" => "ず",
+        _ => return None,
+    })
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 struct PresampAliasConfig {
     vcpad: String,
@@ -1023,15 +1059,8 @@ impl JapanesePhonemizer {
                 presamp_replacements
                     .get(raw_lyric)
                     .map(String::as_str)
-                    .unwrap_or_else(|| {
-                        // Presamp's built-in replacement table contains
-                        // `N=ン`, even when no presamp.ini is present.
-                        if raw_lyric == "N" {
-                            "ン"
-                        } else {
-                            raw_lyric
-                        }
-                    })
+                    .or_else(|| default_presamp_replacement(raw_lyric))
+                    .unwrap_or(raw_lyric)
             } else {
                 raw_lyric
             };
@@ -1959,6 +1988,14 @@ mod tests {
 
         let phones = JapanesePhonemizer::apply_japanese(&[note], &vb, PhonemizerMode::VCV);
         assert_eq!(phones[0].lyric, "- ン");
+    }
+
+    #[test]
+    fn default_presamp_replacement_covers_irregular_romaji() {
+        assert_eq!(default_presamp_replacement("dha"), Some("でゃ"));
+        assert_eq!(default_presamp_replacement("fyu"), Some("ふゅ"));
+        assert_eq!(default_presamp_replacement("wo"), Some("うぉ"));
+        assert_eq!(default_presamp_replacement("ordinary"), None);
     }
 
     #[test]
