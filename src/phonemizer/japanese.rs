@@ -940,6 +940,7 @@ impl JapanesePhonemizer {
         }
 
         let len = expanded.len();
+        let total_phrase_duration_ms: f64 = expanded.iter().map(|note| note.duration_ms).sum();
         for idx in 0..len {
             let exp = &expanded[idx];
             let note = exp.note;
@@ -1315,7 +1316,7 @@ impl JapanesePhonemizer {
                             next_exp.lyric.contains(&presamp_alias.vcvpad)
                                 || next_exp.lyric.contains(&presamp_alias.vcpad);
                         let short_note_without_forced_vc =
-                            exp.duration_ms < 100.0 && !presamp_inventory.must_vc;
+                            total_phrase_duration_ms < 100.0 && !presamp_inventory.must_vc;
 
                         if is_next_adjacent
                             && !short_note_without_forced_vc
