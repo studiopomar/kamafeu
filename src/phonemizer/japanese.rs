@@ -386,6 +386,9 @@ struct PresampInventory {
     /// Presamp `[VCLENGTH]`: 0 derives VC timing from the following CV oto;
     /// 1 uses the fixed legacy duration.
     vc_length_from_cv: bool,
+    /// Presamp `[MUSTVC]`: force a VC even when the following alias already
+    /// contains its own transition or the note is too short.
+    must_vc: bool,
 }
 
 impl Default for PresampInventory {
@@ -396,6 +399,7 @@ impl Default for PresampInventory {
             priority: HashSet::new(),
             no_crossfade: HashSet::new(),
             vc_length_from_cv: true,
+            must_vc: false,
         }
     }
 }
@@ -447,6 +451,9 @@ fn parse_presamp_inventory(contents: &str) -> PresampInventory {
             }
             "[VCLENGTH]" => {
                 inventory.vc_length_from_cv = *first != "1";
+            }
+            "[MUSTVC]" => {
+                inventory.must_vc = *first == "1";
             }
             _ => {}
         }
@@ -982,7 +989,7 @@ impl JapanesePhonemizer {
                             &exp.lyric,
                             &presamp_alias,
                         );
-                        head_cands.extend([format!("-{}", exp.lyric), exp.lyric.to_string()]);
+                        head_cands.extend([format!("- {}", exp.lyric), exp.lyric.to_string()]);
                         if let Some(found) = Self::find_oto_candidate(vb, &head_cands, &note.pitch)
                         {
                             alias = found;
@@ -1025,7 +1032,7 @@ impl JapanesePhonemizer {
                         if let Some(long_alias) = long_vowel_candidate(&exp.lyric, &presamp_alias) {
                             initial_cands.insert(0, long_alias);
                         }
-                        initial_cands.extend([format!("-{}", exp.lyric), exp.lyric.to_string()]);
+                        initial_cands.extend([format!("- {}", exp.lyric), exp.lyric.to_string()]);
                         if let Some(found) =
                             Self::find_oto_candidate(vb, &initial_cands, &note.pitch)
                         {
@@ -1095,7 +1102,17 @@ impl JapanesePhonemizer {
                         let next_gap = next_exp.position_ms - (exp.position_ms + exp.duration_ms);
                         let is_next_adjacent = next_gap <= 0.001;
 
-                        if is_next_adjacent && !PLAIN_VOWELS.contains(&next_exp.lyric.as_str()) {
+                        let next_already_has_transition =
+                            next_exp.lyric.contains(&presamp_alias.vcvpad)
+                                || next_exp.lyric.contains(&presamp_alias.vcpad);
+                        let short_note_without_forced_vc =
+                            exp.duration_ms < 100.0 && !presamp_inventory.must_vc;
+
+                        if is_next_adjacent
+                            && !short_note_without_forced_vc
+                            && !next_already_has_transition
+                            && !PLAIN_VOWELS.contains(&next_exp.lyric.as_str())
+                        {
                             if let (Some(vow), Some(con)) =
                                 (cur_vowel, Self::extract_consonant(&next_exp.lyric))
                             {
@@ -1345,6 +1362,9 @@ mod tests {
 
         let fixed = parse_presamp_inventory("[VCLENGTH]\n1\n");
         assert!(!fixed.vc_length_from_cv);
+
+        let forced = parse_presamp_inventory("[MUSTVC]\n1\n");
+        assert!(forced.must_vc);
     }
 
     #[test]
