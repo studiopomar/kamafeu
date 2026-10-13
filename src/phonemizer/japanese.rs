@@ -385,6 +385,9 @@ struct PresampInventory {
     consonants: HashSet<String>,
     /// Every Presamp consonant symbol mapped to its canonical consonant.
     consonant_by_phoneme: HashMap<String, String>,
+    alias_nums: HashSet<String>,
+    alias_appends: Vec<String>,
+    alias_pitches: Vec<String>,
     priority: HashSet<String>,
     no_crossfade: HashSet<String>,
     /// Presamp `[VCLENGTH]`: 0 derives VC timing from the following CV oto;
@@ -405,6 +408,15 @@ impl Default for PresampInventory {
             vowel_by_phoneme: HashMap::new(),
             consonants: HashSet::new(),
             consonant_by_phoneme: HashMap::new(),
+            alias_nums: (0..=9).map(|n| n.to_string()).collect(),
+            alias_appends: [
+                "強", "弱", "暗", "明", "囁", "叫", "超", "幼", "甘", "笑", "瞭", "憂", "優", "感",
+                "張", "抗", "泣叫", "癖", "元気", "艶",
+            ]
+            .into_iter()
+            .map(str::to_string)
+            .collect(),
+            alias_pitches: Vec::new(),
             priority: HashSet::new(),
             no_crossfade: HashSet::new(),
             vc_length_from_cv: true,
@@ -499,14 +511,42 @@ fn parse_presamp_inventory(contents: &str) -> PresampInventory {
                     inventory.add_ending = flag.min(2);
                 }
             }
+            "[NUM]" => {
+                inventory.alias_nums.insert((*first).to_string());
+            }
+            "[APPEND]" => {
+                inventory.alias_appends.push((*first).to_string());
+            }
+            "[PITCH]" => {
+                inventory.alias_pitches.push((*first).to_string());
+            }
             _ => {}
         }
     }
     inventory
 }
 
+fn presamp_core_lyric(lyric: &str, inventory: &PresampInventory) -> String {
+    let mut core = lyric.trim().to_string();
+    if let Some((_, right)) = core.rsplit_once('_') {
+        if !right.is_empty() {
+            core.truncate(core.len() - right.len() - 1);
+        }
+    }
+    let mut suffixes = inventory.alias_nums.iter().collect::<Vec<_>>();
+    suffixes.extend(inventory.alias_appends.iter());
+    suffixes.extend(inventory.alias_pitches.iter());
+    for suffix in suffixes {
+        if let Some(base) = core.strip_suffix(suffix) {
+            core = base.to_string();
+        }
+    }
+    core
+}
+
 fn extract_presamp_vowel(lyric: &str, inventory: &PresampInventory) -> Option<String> {
-    let trimmed = lyric.trim();
+    let core = presamp_core_lyric(lyric, inventory);
+    let trimmed = core.trim();
     if let Some(vowel) = inventory.vowel_by_phoneme.get(trimmed) {
         return Some(vowel.clone());
     }
@@ -514,7 +554,8 @@ fn extract_presamp_vowel(lyric: &str, inventory: &PresampInventory) -> Option<St
 }
 
 fn extract_presamp_consonant(lyric: &str, inventory: &PresampInventory) -> Option<String> {
-    let trimmed = lyric.trim();
+    let core = presamp_core_lyric(lyric, inventory);
+    let trimmed = core.trim();
     if let Some(consonant) = inventory.consonant_by_phoneme.get(trimmed) {
         return Some(consonant.clone());
     }
@@ -1449,6 +1490,9 @@ mod tests {
             inventory.consonant_by_phoneme.get("か"),
             Some(&"k".to_string())
         );
+        assert_eq!(presamp_core_lyric("か2", &inventory), "か");
+        assert_eq!(presamp_core_lyric("か強", &inventory), "か");
+        assert_eq!(presamp_core_lyric("か_C4", &inventory), "か");
         assert!(inventory.priority.contains("k"));
         assert!(inventory.priority.contains("っ"));
         assert!(inventory.no_crossfade.contains("k"));
