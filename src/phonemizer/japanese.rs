@@ -528,9 +528,12 @@ fn parse_presamp_inventory(contents: &str) -> PresampInventory {
                 }
             }
             "[PRIORITY]" => {
-                inventory
-                    .priority
-                    .extend(values.into_iter().map(str::to_owned));
+                inventory.priority.extend(
+                    line.split(',')
+                        .map(str::trim)
+                        .filter(|value| !value.is_empty())
+                        .map(str::to_owned),
+                );
             }
             "[VCLENGTH]" => {
                 inventory.vc_length_from_cv = *first != "1";
@@ -1678,7 +1681,7 @@ mod tests {
         assert!(defaults.no_crossfade.contains("k"));
 
         let inventory = parse_presamp_inventory(
-            "[VOWEL]\na=あ=か,が=100\nn=ん=ん=100\n[CONSONANT]\nk=か,く,け,こ=1\ns=さ,す,せ,そ=0\n[PRIORITY]\nk\nっ\n",
+            "[VOWEL]\na=あ=か,が=100\nn=ん=ん=100\n[CONSONANT]\nk=か,く,け,こ=1\ns=さ,す,せ,そ=0\n[PRIORITY]\nk,ky\nっ\n",
         );
         assert!(inventory.vowels.contains("か"));
         assert_eq!(inventory.vowel_by_phoneme.get("が"), Some(&"a".to_string()));
@@ -1696,6 +1699,7 @@ mod tests {
         assert_eq!(presamp_core_lyric("a s", &inventory), "s");
         assert_eq!(presamp_core_lyric("a_か", &inventory), "か");
         assert!(inventory.priority.contains("k"));
+        assert!(inventory.priority.contains("ky"));
         assert!(inventory.priority.contains("っ"));
         assert!(inventory.no_crossfade.contains("k"));
         assert!(inventory.vc_length_from_cv);
