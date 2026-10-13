@@ -2612,6 +2612,53 @@ fn render_project_to_file(
         return Err(std::io::Error::other(error).into());
     }
 
+    let phoneme_resolutions = project
+        .parts
+        .iter()
+        .flat_map(|part| {
+            let notes = &part.notes;
+            let phones = kamafeu::phonemizer::JapanesePhonemizer::apply_phonemizer(
+                notes,
+                &voicebank,
+                render_options.phonemizer_mode,
+            );
+            phones.into_iter().map(|phone| {
+                let (oto_wav, oto_preutter_ms, oto_overlap_ms) = phone
+                    .find_entry(&voicebank)
+                    .map(|item| {
+                        (
+                            Some(item.wav_filename.clone()),
+                            Some(item.preutterance),
+                            Some(item.overlap),
+                        )
+                    })
+                    .unwrap_or_default();
+                kamafeu::renderer::PhonemeResolutionDiagnostic {
+                    note_index: phone.note_index,
+                    lyric: phone.lyric,
+                    pitch: phone.pitch,
+                    requested_timbre: notes
+                        .get(phone.note_index)
+                        .and_then(|note| note.timbre.clone()),
+                    resolved_alias: phone.resolved_alias,
+                    resolved_timbre: phone.resolved_timbre,
+                    oto_wav,
+                    oto_preutter_ms,
+                    oto_overlap_ms,
+                    position_ms: phone.position_ms,
+                    duration_ms: phone.duration_ms,
+                    flags: phone.flags,
+                }
+            })
+        })
+        .collect::<Vec<_>>();
+    for diagnostic in &phoneme_resolutions {
+        eprintln!(
+            "[PhonemeResolution] {}",
+            serde_json::to_string(diagnostic).unwrap_or_else(|_| "{}".to_string())
+        );
+    }
+
     let format = requested_format
         .resolve(output)
         .map_err(|error| Error::new(ErrorKind::InvalidInput, error))?;
@@ -2653,6 +2700,7 @@ fn render_project_to_file(
     )
     .with_timing_diagnostics(timing_diagnostics)
     .with_timing_boundary_diagnostics(timing_boundary_diagnostics)
+    .with_phoneme_resolutions(phoneme_resolutions)
     .with_commands(render_commands)
     .with_cache_stats(cache_hits, cache_misses)
     .with_extension_details(project.extensions.iter().map(|extension| {

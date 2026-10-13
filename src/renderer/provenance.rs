@@ -35,6 +35,31 @@ pub struct TimingBoundaryDiagnostic {
     pub window_ms: f32,
 }
 
+/// Complete, deterministic alias-resolution record for one rendered phone.
+/// This is also the schema used by the CLI diagnostics, so the terminal and
+/// the saved manifest describe the same resolution decision.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PhonemeResolutionDiagnostic {
+    pub note_index: usize,
+    pub lyric: String,
+    pub pitch: String,
+    #[serde(default)]
+    pub requested_timbre: Option<String>,
+    #[serde(default)]
+    pub resolved_alias: Option<String>,
+    #[serde(default)]
+    pub resolved_timbre: Option<String>,
+    #[serde(default)]
+    pub oto_wav: Option<String>,
+    #[serde(default)]
+    pub oto_preutter_ms: Option<f64>,
+    #[serde(default)]
+    pub oto_overlap_ms: Option<f64>,
+    pub position_ms: f64,
+    pub duration_ms: f64,
+    pub flags: String,
+}
+
 /// Parses the stable, non-executable boundary record emitted by the renderer.
 /// Keeping this parser here lets CLI and other hosts capture the same record
 /// without depending on localized human-readable log text.
@@ -93,6 +118,8 @@ pub struct RenderProvenance {
     /// RMS observations at the beginning and end of each rendered phoneme.
     #[serde(default)]
     pub timing_boundary_diagnostics: Vec<TimingBoundaryDiagnostic>,
+    #[serde(default)]
+    pub phoneme_resolutions: Vec<PhonemeResolutionDiagnostic>,
     /// Human-readable, non-executable command descriptions emitted by the
     /// render pipeline. Older sidecars deserialize this as an empty list.
     #[serde(default)]
@@ -129,6 +156,7 @@ impl RenderProvenance {
             artifacts: Vec::new(),
             timing_diagnostics: Vec::new(),
             timing_boundary_diagnostics: Vec::new(),
+            phoneme_resolutions: Vec::new(),
             commands: Vec::new(),
         }
     }
@@ -199,6 +227,20 @@ impl RenderProvenance {
         self.commands = commands.into_iter().collect();
         self.commands.sort();
         self.commands.dedup();
+        self
+    }
+
+    pub fn with_phoneme_resolutions(
+        mut self,
+        diagnostics: impl IntoIterator<Item = PhonemeResolutionDiagnostic>,
+    ) -> Self {
+        self.phoneme_resolutions = diagnostics.into_iter().collect();
+        self.phoneme_resolutions.sort_by(|a, b| {
+            a.position_ms
+                .total_cmp(&b.position_ms)
+                .then_with(|| a.note_index.cmp(&b.note_index))
+                .then_with(|| a.lyric.cmp(&b.lyric))
+        });
         self
     }
 

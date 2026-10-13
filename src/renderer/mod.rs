@@ -15,6 +15,7 @@ pub use exporter::{AudioExportFormat, AudioExporter, DitherMode, MasteringOption
 pub use options::{RenderOptions, VocalRenderPreset};
 pub use project::{PreviewTarget, ProgressiveChunk, ProjectRenderer, RenderedAudio};
 pub use provenance::{
-    RenderExtension, RenderProvenance, PROVENANCE_SCHEMA, RENDER_PIPELINE_VERSION,
+    PhonemeResolutionDiagnostic, RenderExtension, RenderProvenance, PROVENANCE_SCHEMA,
+    RENDER_PIPELINE_VERSION,
 };
 pub use track::TrackRenderer;
