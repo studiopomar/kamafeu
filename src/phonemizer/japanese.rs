@@ -1263,6 +1263,7 @@ impl JapanesePhonemizer {
         let mut expanded: Vec<NoteRef> = Vec::new();
         let (presamp_replacements, has_presamp_replace_section) =
             load_presamp_replacements(&vb.root_path);
+        let has_presamp_ini = vb.root_path.join("presamp.ini").is_file();
         let presamp_alias = load_presamp_alias_config(&vb.root_path);
         let presamp_inventory = load_presamp_inventory(&vb.root_path);
         for (note_index, note) in notes.iter().enumerate() {
@@ -1803,9 +1804,40 @@ impl JapanesePhonemizer {
                         // its alias explicitly, so the preceding note must
                         // not synthesize a second VC for it.
                         let next_has_phonetic_hint = next_exp.note.phonetic_hint.is_some();
+                        // OpenUtau/Presamp first probes the next note itself.
+                        // If that note already resolves to a VCV or VC alias,
+                        // its transition owns the hand-off and the current
+                        // note must not receive a second VC fragment. Looking
+                        // only at the authored lyric misses banks where the
+                        // transition is supplied by a fallback alias.
+                        let next_has_resolved_transition =
+                            if has_presamp_ini && !next_is_plain_vowel && !next_has_phonetic_hint {
+                                if let Some(vow) = cur_vowel.as_deref() {
+                                    let next_transition_candidates = vec![
+                                        presamp_join(vow, &presamp_alias.vcvpad, &next_exp.lyric),
+                                        presamp_join(vow, &presamp_alias.vcpad, &next_exp.lyric),
+                                        next_exp.lyric.to_string(),
+                                    ];
+                                    Self::find_oto_candidate(
+                                        vb,
+                                        &next_transition_candidates,
+                                        &next_exp.note.pitch,
+                                    )
+                                    .is_some_and(|alias| {
+                                        alias.contains(&presamp_alias.vcvpad)
+                                            || alias.contains(&presamp_alias.vcpad)
+                                    })
+                                } else {
+                                    false
+                                }
+                            } else {
+                                false
+                            };
+
                         if is_next_adjacent
                             && !short_note_without_forced_vc
                             && !next_already_has_transition
+                            && !next_has_resolved_transition
                             && !next_is_plain_vowel
                             && !next_has_phonetic_hint
                         {
@@ -2549,6 +2581,14 @@ mod tests {
                 0.0,
             ),
         );
+        let root = std::env::temp_dir().join(format!(
+            "kamafeu-presamp-cflags-{}-{}",
+            std::process::id(),
+            std::thread::current().name().unwrap_or("test")
+        ));
+        std::fs::create_dir_all(&root).unwrap();
+        std::fs::write(root.join("presamp.ini"), "[CFLAGS]\np0\n").unwrap();
+        vb.root_path = root.clone();
         let phones = JapanesePhonemizer::apply_japanese(
             &[UNote::new("さ", "C4", 0.0, 400.0)],
             &vb,
@@ -2557,7 +2597,9 @@ mod tests {
         assert_eq!(phones.len(), 2);
         assert_eq!(phones[0].lyric, "- s");
         assert_eq!(phones[1].lyric, "さ");
+        assert_eq!(phones[0].expressions.presamp_normalization, Some(0.0));
         assert!(phones[1].position_ms > phones[0].position_ms);
+        let _ = std::fs::remove_dir_all(root);
     }
 
     #[test]
