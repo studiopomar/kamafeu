@@ -1663,10 +1663,16 @@ impl JapanesePhonemizer {
                         let short_note_without_forced_vc =
                             total_phrase_duration_ms < 100.0 && !presamp_inventory.must_vc;
 
+                        // OpenUtau's JapaneseCVVC phonemizer leaves a
+                        // phonetic-hint note untouched: the author supplied
+                        // its alias explicitly, so the preceding note must
+                        // not synthesize a second VC for it.
+                        let next_has_phonetic_hint = next_exp.note.phonetic_hint.is_some();
                         if is_next_adjacent
                             && !short_note_without_forced_vc
                             && !next_already_has_transition
                             && !next_is_plain_vowel
+                            && !next_has_phonetic_hint
                         {
                             if let (Some(vow), Some(con)) = (
                                 cur_vowel.as_deref(),
@@ -2459,6 +2465,19 @@ mod tests {
         assert_eq!(phones[1].lyric, "a s_C4");
         assert_eq!(phones[1].pitch, "C4");
         assert_eq!(phones[2].lyric, "さ_D4");
+    }
+
+    #[test]
+    fn japanese_cvvc_does_not_insert_vc_before_phonetic_hint() {
+        let vb = build_test_voicebank();
+        let mut hinted = UNote::new("さ", "C4", 400.0, 400.0);
+        hinted.phonetic_hint = Some("さ".to_string());
+        let notes = vec![UNote::new("か", "C4", 0.0, 400.0), hinted];
+        let phones = JapanesePhonemizer::apply_japanese(&notes, &vb, PhonemizerMode::CVVC);
+
+        assert_eq!(phones.len(), 2);
+        assert_eq!(phones[0].lyric, "- か");
+        assert_eq!(phones[1].lyric, "さ");
     }
 
     #[test]
