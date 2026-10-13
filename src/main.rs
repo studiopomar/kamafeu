@@ -2698,6 +2698,23 @@ fn render_project_to_file(
         rendered.channels,
         render_options.clone(),
     )
+    .with_import_context(
+        input.display().to_string(),
+        input
+            .extension()
+            .and_then(|extension| extension.to_str())
+            .unwrap_or_default()
+            .to_ascii_lowercase(),
+        match project.imported_phoneme_policy {
+            kamafeu::project::model::ImportedPhonemePolicy::Preserve => "preserve",
+            kamafeu::project::model::ImportedPhonemePolicy::Recalculate => "recalculate",
+        },
+        project
+            .voicebank_path
+            .clone()
+            .or_else(|| project.voicebank.clone()),
+        voicebank.root_path.display().to_string(),
+    )
     .with_timing_diagnostics(timing_diagnostics)
     .with_timing_boundary_diagnostics(timing_boundary_diagnostics)
     .with_phoneme_resolutions(phoneme_resolutions)

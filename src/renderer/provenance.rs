@@ -84,6 +84,17 @@ pub struct RenderProvenance {
     pub schema: u32,
     pub pipeline_version: String,
     pub project_fingerprint: String,
+    /// Original project identity, kept separate from the content fingerprint.
+    #[serde(default)]
+    pub project_path: String,
+    #[serde(default)]
+    pub project_format: String,
+    #[serde(default)]
+    pub import_phoneme_policy: String,
+    #[serde(default)]
+    pub voicebank_requested: Option<String>,
+    #[serde(default)]
+    pub voicebank_effective: String,
     pub voicebank_fingerprint: String,
     pub resampler: String,
     pub wavtool: String,
@@ -140,6 +151,11 @@ impl RenderProvenance {
             schema: PROVENANCE_SCHEMA,
             pipeline_version: RENDER_PIPELINE_VERSION.to_string(),
             project_fingerprint: project_fingerprint.into(),
+            project_path: String::new(),
+            project_format: String::new(),
+            import_phoneme_policy: "preserve".to_string(),
+            voicebank_requested: None,
+            voicebank_effective: String::new(),
             voicebank_fingerprint: voicebank_fingerprint.into(),
             resampler: resampler.into(),
             wavtool: wavtool.into(),
@@ -241,6 +257,22 @@ impl RenderProvenance {
                 .then_with(|| a.note_index.cmp(&b.note_index))
                 .then_with(|| a.lyric.cmp(&b.lyric))
         });
+        self
+    }
+
+    pub fn with_import_context(
+        mut self,
+        project_path: impl Into<String>,
+        project_format: impl Into<String>,
+        policy: impl Into<String>,
+        voicebank_requested: Option<String>,
+        voicebank_effective: impl Into<String>,
+    ) -> Self {
+        self.project_path = project_path.into();
+        self.project_format = project_format.into();
+        self.import_phoneme_policy = policy.into();
+        self.voicebank_requested = voicebank_requested;
+        self.voicebank_effective = voicebank_effective.into();
         self
     }
 
@@ -365,9 +397,19 @@ mod tests {
         let mut options = RenderOptions::default();
         options.flags = "P86g-5".to_string();
         let value = RenderProvenance::new("p", "v", "resampler", "wavtool", 44_100, 2, options)
-            .with_extensions(["org.example.engine", "org.example.engine"]);
+            .with_extensions(["org.example.engine", "org.example.engine"])
+            .with_import_context(
+                "song.ustx",
+                "ustx",
+                "preserve",
+                Some("/voicebanks/singer".to_string()),
+                "/voicebanks/singer",
+            );
         let json = value.to_pretty_json().unwrap();
         assert!(json.contains("project_fingerprint"));
+        assert!(json.contains("project_format"));
+        assert_eq!(value.project_format, "ustx");
+        assert_eq!(value.import_phoneme_policy, "preserve");
         assert_eq!(value.effective_flags, "P86g-5");
         assert_eq!(value.extensions, ["org.example.engine"]);
         assert_eq!(
