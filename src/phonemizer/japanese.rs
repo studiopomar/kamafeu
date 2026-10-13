@@ -377,13 +377,27 @@ struct PresampAliasConfig {
     ending2: String,
 }
 
-#[derive(Debug, Clone, Default)]
+#[derive(Debug, Clone)]
 struct PresampInventory {
     vowels: HashSet<String>,
     consonants: HashSet<String>,
     priority: HashSet<String>,
     no_crossfade: HashSet<String>,
-    vc_length_mode: HashMap<String, u8>,
+    /// Presamp `[VCLENGTH]`: 0 derives VC timing from the following CV oto;
+    /// 1 uses the fixed legacy duration.
+    vc_length_from_cv: bool,
+}
+
+impl Default for PresampInventory {
+    fn default() -> Self {
+        Self {
+            vowels: HashSet::new(),
+            consonants: HashSet::new(),
+            priority: HashSet::new(),
+            no_crossfade: HashSet::new(),
+            vc_length_from_cv: true,
+        }
+    }
 }
 
 fn parse_presamp_inventory(contents: &str) -> PresampInventory {
@@ -425,16 +439,14 @@ fn parse_presamp_inventory(contents: &str) -> PresampInventory {
                     // priority. Priority is configured by [PRIORITY].
                     inventory.no_crossfade.insert((*first).to_string());
                 }
-                if let Some(mode) = fields.get(3).and_then(|value| value.parse::<u8>().ok()) {
-                    if mode <= 1 {
-                        inventory.vc_length_mode.insert((*first).to_string(), mode);
-                    }
-                }
             }
             "[PRIORITY]" => {
                 inventory
                     .priority
                     .extend(values.into_iter().map(str::to_owned));
+            }
+            "[VCLENGTH]" => {
+                inventory.vc_length_from_cv = *first != "1";
             }
             _ => {}
         }
@@ -532,17 +544,6 @@ fn load_presamp_inventory(root: &std::path::Path) -> PresampInventory {
 
 fn presamp_join(left: &str, pad: &str, right: &str) -> String {
     format!("{left}{pad}{right}")
-}
-
-fn voicebank_alias_duration_ms(vb: &Voicebank, alias: &str, pitch: &str) -> Option<f64> {
-    let entry = vb.find_mapped_entry(alias, pitch)?;
-    let path = vb.root_path.join(&entry.wav_filename);
-    let reader = hound::WavReader::open(path).ok()?;
-    let sample_rate = f64::from(reader.spec().sample_rate);
-    if sample_rate <= 0.0 {
-        return None;
-    }
-    Some(reader.duration() as f64 * 1000.0 / sample_rate)
 }
 
 fn expand_presamp_alias(
@@ -1150,13 +1151,13 @@ impl JapanesePhonemizer {
                                             vc_length_ms = oto.preutterance.max(10.0);
                                         }
                                     }
-                                    if presamp_inventory.vc_length_mode.get(con).copied() == Some(1)
-                                    {
-                                        if let Some(duration_ms) =
-                                            voicebank_alias_duration_ms(vb, &vc_alias, &note.pitch)
-                                        {
-                                            vc_length_ms = duration_ms.max(10.0);
-                                        }
+                                    // OpenUtau's [VCLENGTH] switch is global
+                                    // in Presamp: 0 derives VC length from the
+                                    // next CV oto; 1 keeps the classic fixed
+                                    // VC duration. It never uses the physical
+                                    // WAV duration as timing.
+                                    if !presamp_inventory.vc_length_from_cv {
+                                        vc_length_ms = 120.0;
                                     }
                                     let vel_scale = consonant_velocity_time_scale(
                                         next_exp.note.expressions.consonant_velocity,
@@ -1340,7 +1341,10 @@ mod tests {
         assert!(inventory.priority.contains("k"));
         assert!(inventory.priority.contains("っ"));
         assert!(inventory.no_crossfade.contains("k"));
-        assert_eq!(inventory.vc_length_mode.get("k"), Some(&1));
+        assert!(inventory.vc_length_from_cv);
+
+        let fixed = parse_presamp_inventory("[VCLENGTH]\n1\n");
+        assert!(!fixed.vc_length_from_cv);
     }
 
     #[test]
