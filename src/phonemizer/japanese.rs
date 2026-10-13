@@ -899,6 +899,49 @@ fn expand_presamp_candidates(
         .collect()
 }
 
+fn presamp_priority_for_lyric<'a>(lyric: &str, inventory: &'a PresampInventory) -> &'a [String] {
+    let has_pitch = inventory
+        .alias_pitches
+        .iter()
+        .any(|suffix| !suffix.is_empty() && lyric.contains(suffix));
+    let has_append = inventory
+        .alias_appends
+        .iter()
+        .any(|suffix| !suffix.is_empty() && lyric.contains(suffix));
+    if has_pitch {
+        &inventory.alias_priority_diff_pitch
+    } else if has_append {
+        &inventory.alias_priority_diff_append
+    } else {
+        &inventory.alias_priority_default
+    }
+}
+
+/// Flattens Presamp alias families in the configured order. Unknown or
+/// omitted families are appended after the configured ones, preserving the
+/// fallback behavior of OpenUtau for incomplete custom ini files.
+fn order_presamp_candidate_groups(
+    priority: &[String],
+    groups: Vec<(&str, Vec<String>)>,
+) -> Vec<String> {
+    let mut ordered = Vec::new();
+    let mut used = vec![false; groups.len()];
+    for family in priority {
+        for (index, (name, candidates)) in groups.iter().enumerate() {
+            if !used[index] && family.eq_ignore_ascii_case(name) {
+                ordered.extend(candidates.iter().cloned());
+                used[index] = true;
+            }
+        }
+    }
+    for (index, (_, candidates)) in groups.into_iter().enumerate() {
+        if !used[index] {
+            ordered.extend(candidates);
+        }
+    }
+    ordered
+}
+
 fn long_vowel_candidate(lyric: &str, config: &PresampAliasConfig) -> Option<String> {
     let stem = lyric.strip_suffix('ー')?.trim();
     if stem.is_empty() {
@@ -1310,7 +1353,7 @@ impl JapanesePhonemizer {
                     let mut alias = exp.lyric.to_string();
                     if !is_phrase_start {
                         if let Some(pv) = prev_vowel.as_deref() {
-                            let mut vcv_cands = expand_presamp_candidates(
+                            let mut vcv_group = expand_presamp_candidates(
                                 &presamp_alias.vcv,
                                 pv,
                                 extract_presamp_consonant(&exp.lyric, &presamp_inventory)
@@ -1323,9 +1366,9 @@ impl JapanesePhonemizer {
                             if let Some(long_alias) =
                                 long_vowel_candidate(&exp.lyric, &presamp_alias)
                             {
-                                vcv_cands.insert(0, long_alias);
+                                vcv_group.insert(0, long_alias);
                             }
-                            vcv_cands.extend(expand_presamp_candidates(
+                            let cross_group = expand_presamp_candidates(
                                 &presamp_alias.cross_cv,
                                 pv,
                                 extract_presamp_consonant(&exp.lyric, &presamp_inventory)
@@ -1334,13 +1377,21 @@ impl JapanesePhonemizer {
                                 &exp.lyric,
                                 &exp.lyric,
                                 &presamp_alias,
-                            ));
-                            vcv_cands.extend([
+                            );
+                            let cv_group = vec![
                                 format!("{}_{}", pv, exp.lyric),
                                 format!("{}{}", pv, exp.lyric),
                                 presamp_join("*", &presamp_alias.vcvpad, &exp.lyric),
                                 exp.lyric.to_string(),
-                            ]);
+                            ];
+                            let vcv_cands = order_presamp_candidate_groups(
+                                presamp_priority_for_lyric(&exp.lyric, &presamp_inventory),
+                                vec![
+                                    ("VCV", vcv_group),
+                                    ("CROSS_CV", cross_group),
+                                    ("CV", cv_group),
+                                ],
+                            );
                             if let Some(found) =
                                 Self::find_oto_candidate_for_note(vb, &vcv_cands, note, 0)
                             {
@@ -1464,7 +1515,7 @@ impl JapanesePhonemizer {
                         }
                     } else if is_plain_vowel {
                         if let Some(pv) = prev_vowel.as_deref() {
-                            let mut vow_cands = expand_presamp_candidates(
+                            let mut vcv_group = expand_presamp_candidates(
                                 &presamp_alias.vcv,
                                 pv,
                                 extract_presamp_consonant(&exp.lyric, &presamp_inventory)
@@ -1477,13 +1528,17 @@ impl JapanesePhonemizer {
                             if let Some(long_alias) =
                                 long_vowel_candidate(&exp.lyric, &presamp_alias)
                             {
-                                vow_cands.insert(0, long_alias);
+                                vcv_group.insert(0, long_alias);
                             }
-                            vow_cands.extend([
+                            let cv_group = vec![
                                 presamp_join("*", &presamp_alias.vcvpad, &exp.lyric),
                                 format!("_{}", exp.lyric),
                                 exp.lyric.to_string(),
-                            ]);
+                            ];
+                            let vow_cands = order_presamp_candidate_groups(
+                                presamp_priority_for_lyric(&exp.lyric, &presamp_inventory),
+                                vec![("VCV", vcv_group), ("CV", cv_group)],
+                            );
                             if let Some(found) =
                                 Self::find_oto_candidate_for_note(vb, &vow_cands, note, 0)
                             {
@@ -1497,7 +1552,7 @@ impl JapanesePhonemizer {
                         // sounds like a stuck or doubled consonant in hybrid
                         // banks. Match OpenUtau's Japanese CVVC contract: use
                         // the continuous-form CV alias first, then plain CV.
-                        let mut cv_cands = expand_presamp_candidates(
+                        let cross_group = expand_presamp_candidates(
                             &presamp_alias.cross_cv,
                             prev_vowel.as_deref().unwrap_or(""),
                             extract_presamp_consonant(&exp.lyric, &presamp_inventory)
@@ -1507,10 +1562,14 @@ impl JapanesePhonemizer {
                             &exp.lyric,
                             &presamp_alias,
                         );
-                        cv_cands.extend([
+                        let cv_group = vec![
                             presamp_join("*", &presamp_alias.vcvpad, &exp.lyric),
                             exp.lyric.to_string(),
-                        ]);
+                        ];
+                        let cv_cands = order_presamp_candidate_groups(
+                            presamp_priority_for_lyric(&exp.lyric, &presamp_inventory),
+                            vec![("CROSS_CV", cross_group), ("CV", cv_group)],
+                        );
                         if let Some(found) =
                             Self::find_oto_candidate_for_note(vb, &cv_cands, note, 0)
                         {
@@ -1947,6 +2006,15 @@ mod tests {
         assert_eq!(custom_priorities.alias_priority_default, ["CV", "VCV"]);
         assert_eq!(custom_priorities.alias_priority_diff_append, ["CVVC"]);
         assert_eq!(custom_priorities.alias_priority_diff_pitch, ["CROSS_CV"]);
+
+        let ordered = order_presamp_candidate_groups(
+            &["CV".to_string(), "VCV".to_string()],
+            vec![
+                ("VCV", vec!["vcv".to_string()]),
+                ("CV", vec!["cv".to_string()]),
+            ],
+        );
+        assert_eq!(ordered, ["cv", "vcv"]);
     }
 
     #[test]
