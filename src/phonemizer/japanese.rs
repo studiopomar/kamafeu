@@ -550,6 +550,47 @@ impl JapanesePhonemizer {
                 }
             }
 
+            // OpenUtau's Japanese presamp phonemizer treats an isolated
+            // sokuon as a VC/closure phoneme, not as an ordinary CV note.
+            // Prefer the explicit closure aliases and then the following
+            // consonant (for example `a っ`, `a cl`, `a k`, `っ`).  This is
+            // what creates the short stop before the following syllable and
+            // prevents `っ` from being rendered as `u`.
+            if mode == PhonemizerMode::CVVC && (exp.lyric == "っ" || exp.lyric == "ッ") {
+                let mut sokuon_candidates = Vec::new();
+                if let Some(vowel) = prev_vowel {
+                    sokuon_candidates.push(format!("{} っ", vowel));
+                    sokuon_candidates.push(format!("{} cl", vowel));
+                    if let Some(next_exp) = expanded.get(idx + 1) {
+                        if let Some(consonant) = Self::extract_consonant(next_exp.lyric) {
+                            if consonant != "cl" {
+                                sokuon_candidates.push(format!("{} {}", vowel, consonant));
+                            }
+                        }
+                    }
+                }
+                sokuon_candidates.push("っ".to_string());
+                sokuon_candidates.push("cl".to_string());
+
+                if let Some(alias) = Self::find_oto_candidate(vb, &sokuon_candidates, &note.pitch) {
+                    phones.push(RenderPhone {
+                        note_index,
+                        lyric: alias,
+                        pitch: note.pitch.clone(),
+                        position_ms: exp.position_ms,
+                        duration_ms: exp.duration_ms,
+                        envelope: note.envelope.clone(),
+                        expressions: note.expressions.clone(),
+                        pitch_bend: note.pitch_bend.clone(),
+                        vibrato: note.vibrato.clone(),
+                        flags: note.flags.clone(),
+                    });
+                    prev_vowel = None;
+                    prev_note_end_ms = Some(exp.position_ms + exp.duration_ms);
+                    continue;
+                }
+            }
+
             match mode {
                 PhonemizerMode::BasicCV => {
                     let mut alias = exp.lyric.to_string();
@@ -885,6 +926,32 @@ mod tests {
         );
         assert_eq!(phones[2].lyric, "さ", "Main CV note starts at 400ms");
         assert_eq!(phones[2].position_ms, 400.0);
+    }
+
+    #[test]
+    fn japanese_cvvc_renders_sokuon_as_a_closure_before_next_consonant() {
+        let mut vb = build_test_voicebank();
+        vb.entries.insert(
+            "a k".to_string(),
+            OtoEntry::new(
+                "ak.wav".to_string(),
+                "a k".to_string(),
+                0.0,
+                30.0,
+                5.0,
+                0.0,
+                0.0,
+            ),
+        );
+        let notes = vec![
+            UNote::new("か", "C4", 0.0, 300.0),
+            UNote::new("っ", "C4", 300.0, 100.0),
+            UNote::new("か", "C4", 400.0, 300.0),
+        ];
+
+        let phones = JapanesePhonemizer::apply_japanese(&notes, &vb, PhonemizerMode::CVVC);
+        assert!(phones.iter().any(|phone| phone.lyric == "a k"));
+        assert!(!phones.iter().any(|phone| phone.lyric == "u"));
     }
 
     #[test]
