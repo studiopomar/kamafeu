@@ -307,23 +307,41 @@ impl JapanesePhonemizer {
             return phones;
         }
         if notes.iter().any(|note| note.timbre.is_some()) {
-            // Resolve each distinct bank with the complete phrase so VCV/VV
-            // retain their preceding vowel context across timbre changes.
+            // Build the phoneme topology once, without a selected PrefixMap
+            // color. Resolving the complete phrase once prevents each color
+            // pass from producing a subtly different VCV/CVVC structure.
             let mut neutral = notes.to_vec();
             for note in &mut neutral {
                 note.timbre = None;
             }
+            let mut topology_bank = vb.clone();
+            // Use one deterministic neutral color only to choose the
+            // phoneme topology. The selected suffix is removed below before
+            // resolving each phone against its effective color bank.
+            let topology_color = topology_bank
+                .prefix_map
+                .colors()
+                .find(|color| color.is_empty())
+                .or_else(|| {
+                    topology_bank
+                        .prefix_map
+                        .colors()
+                        .find(|color| !color.is_empty())
+                })
+                .map(str::to_owned)
+                .unwrap_or_default();
+            topology_bank.prefix_map.select_color(&topology_color);
+            let topology = Self::apply_phonemizer(&neutral, &topology_bank, mode);
+
             let mut colors = std::collections::BTreeSet::new();
-            for note in notes {
-                colors.insert(note.timbre.clone());
-            }
+            colors.extend(notes.iter().map(|note| note.timbre.clone()));
             let mut mixed = Vec::new();
             for color in colors {
                 let mut bank = vb.clone();
                 if let Some(color) = &color {
                     bank.prefix_map.select_color(color);
                 }
-                for mut phone in Self::apply_phonemizer(&neutral, &bank, mode) {
+                for mut phone in topology.iter().cloned() {
                     let source_note = notes.get(phone.note_index);
                     // Japanese CVVC places the outgoing VC fragment at the
                     // end of the current note while it actually belongs to
@@ -346,7 +364,29 @@ impl JapanesePhonemizer {
                     }
                     // Freeze the mapped alias, including manual phonemizers,
                     // before the renderer sees the shared default voicebank.
-                    if let Some(entry) = bank.find_mapped_entry(&phone.lyric, &phone.pitch) {
+                    let lookup_lyric = topology_bank
+                        .prefix_map
+                        .get_prefix_suffix(&phone.pitch)
+                        .map(|(prefix, suffix)| {
+                            phone
+                                .lyric
+                                .strip_prefix(prefix)
+                                .unwrap_or(&phone.lyric)
+                                .strip_suffix(suffix)
+                                .unwrap_or_else(|| {
+                                    phone
+                                        .lyric
+                                        .strip_prefix(prefix.trim())
+                                        .unwrap_or(&phone.lyric)
+                                })
+                                .trim()
+                                .to_string()
+                        })
+                        .unwrap_or_else(|| phone.lyric.clone());
+                    if let Some(entry) = bank
+                        .find_mapped_entry(&lookup_lyric, &phone.pitch)
+                        .or_else(|| bank.find_exact_entry(&phone.lyric))
+                    {
                         phone.lyric = entry.alias.clone();
                         phone.resolved_alias = Some(entry.alias.clone());
                         phone.resolved_timbre = transition_target
@@ -1678,7 +1718,13 @@ mod tests {
         vb.prefix_map = crate::oto::PrefixMap::parse_yaml_str(
             "subbanks:\n  - color: ''\n    suffix: _normal\n    tone_ranges: [C4-C5]\n  - color: Soft\n    suffix: _soft\n    tone_ranges: [C4-C5]\n",
         );
-        for alias in ["- あ_normal", "a k_soft", "か_soft", "か_normal"] {
+        for alias in [
+            "- あ_normal",
+            "a k_normal",
+            "a k_soft",
+            "か_soft",
+            "か_normal",
+        ] {
             vb.entries.insert(
                 alias.to_string(),
                 crate::oto::OtoEntry::new(
