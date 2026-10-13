@@ -1297,6 +1297,23 @@ impl JapanesePhonemizer {
                             glottal_cands.push(presamp_join(pv, &presamp_alias.vcvpad, &exp.lyric));
                             glottal_cands.push(presamp_join(pv, &presamp_alias.vcpad, &exp.lyric));
                         }
+                        if let Some(vowel) = exp
+                            .lyric
+                            .chars()
+                            .find(|character| "あいうえおんン".contains(*character))
+                        {
+                            // Same fallback order as OpenUtau's
+                            // `glottalCVtests`: banks often record the
+                            // glottal onset using the isolated vowel rather
+                            // than the full `あ・` lyric.
+                            glottal_cands.extend([
+                                format!("・{}{}", presamp_alias.vcpad, vowel),
+                                format!("・{}", vowel),
+                                format!("{}・", vowel),
+                                format!("-{}{}・", presamp_alias.vcvpad, vowel),
+                                format!("-{}{}", presamp_alias.vcvpad, vowel),
+                            ]);
+                        }
                         glottal_cands.extend([
                             format!("・{}{}", presamp_alias.vcpad, exp.lyric),
                             format!("・{}{}", presamp_alias.vcvpad, exp.lyric),
