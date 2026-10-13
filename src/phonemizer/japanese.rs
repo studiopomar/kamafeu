@@ -1768,6 +1768,32 @@ mod tests {
     }
 
     #[test]
+    fn japanese_cvvc_inserts_phrase_head_consonant_when_available() {
+        let mut vb = build_test_voicebank();
+        vb.entries.insert(
+            "- s".to_string(),
+            OtoEntry::new(
+                "-s.wav".to_string(),
+                "- s".to_string(),
+                0.0,
+                35.0,
+                5.0,
+                0.0,
+                0.0,
+            ),
+        );
+        let phones = JapanesePhonemizer::apply_japanese(
+            &[UNote::new("さ", "C4", 0.0, 400.0)],
+            &vb,
+            PhonemizerMode::CVVC,
+        );
+        assert_eq!(phones.len(), 2);
+        assert_eq!(phones[0].lyric, "- s");
+        assert_eq!(phones[1].lyric, "さ");
+        assert!(phones[1].position_ms > phones[0].position_ms);
+    }
+
+    #[test]
     fn japanese_cvvc_renders_sokuon_as_a_closure_before_next_consonant() {
         let mut vb = build_test_voicebank();
         vb.entries.insert(
