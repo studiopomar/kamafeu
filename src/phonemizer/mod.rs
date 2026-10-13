@@ -233,10 +233,13 @@ impl RenderPhone {
         &'a self,
         voicebank: &'a crate::oto::Voicebank,
     ) -> Option<&'a crate::oto::OtoEntry> {
-        self.resolved_alias
-            .as_deref()
-            .and_then(|alias| voicebank.find_exact_entry(alias))
-            .or_else(|| voicebank.find_mapped_entry(&self.lyric, &self.pitch))
+        if let Some(alias) = self.resolved_alias.as_deref() {
+            // A frozen alias is an authoritative phonemizer decision. Never
+            // fall back to PrefixMap here: doing so can apply a second
+            // prefix/suffix and silently switch subbanks.
+            return voicebank.find_exact_entry(alias);
+        }
+        voicebank.find_mapped_entry(&self.lyric, &self.pitch)
     }
 }
 
@@ -1698,6 +1701,32 @@ mod tests {
         let transition = phones.iter().find(|phone| phone.lyric == "a k_soft");
         assert!(transition.is_some(), "phones: {:?}", phones);
         assert_eq!(transition.unwrap().resolved_timbre.as_deref(), Some("Soft"));
+    }
+
+    #[test]
+    fn frozen_alias_does_not_fall_back_to_prefix_map() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("oto.ini"),
+            "a.wav=a_normal,0,50,-200,40,0\n",
+        )
+        .unwrap();
+        let vb = Voicebank::new(dir.path()).unwrap();
+        let phone = RenderPhone {
+            note_index: 0,
+            lyric: "a".to_string(),
+            pitch: "C4".to_string(),
+            position_ms: 0.0,
+            duration_ms: 100.0,
+            envelope: crate::dsp::envelope::UtauEnvelope::default(),
+            expressions: crate::project::model::UExpressions::default(),
+            pitch_bend: crate::project::model::UPitchBend::default(),
+            vibrato: crate::dsp::pitch::VibratoParam::default(),
+            flags: String::new(),
+            resolved_alias: Some("a_missing".to_string()),
+            resolved_timbre: Some("Soft".to_string()),
+        };
+        assert!(phone.find_entry(&vb).is_none());
     }
 
     #[test]
