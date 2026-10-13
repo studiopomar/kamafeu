@@ -1032,7 +1032,10 @@ impl JapanesePhonemizer {
                 prev_vowel = None;
             }
 
-            if exp.lyric == "+" && !is_phrase_start {
+            // OpenUtau treats `+`, `+n` and `+~` forms as extender notes.
+            // They prolong the preceding phoneme instead of becoming a new
+            // alias in the phonemizer.
+            if exp.lyric.starts_with('+') && !is_phrase_start {
                 if let Some(last) = phones.last_mut() {
                     last.duration_ms += exp.duration_ms;
                     prev_note_end_ms = Some(exp.position_ms + exp.duration_ms);
@@ -1821,6 +1824,33 @@ mod tests {
 
         let phones = JapanesePhonemizer::apply_japanese(&[note], &vb, PhonemizerMode::VCV);
         assert_eq!(phones[0].lyric, "- が");
+    }
+
+    #[test]
+    fn japanese_extender_variants_prolong_the_previous_phoneme() {
+        let mut vb = build_test_voicebank();
+        vb.entries.insert(
+            "a か".to_string(),
+            OtoEntry::new(
+                "a-ka.wav".to_string(),
+                "a か".to_string(),
+                0.0,
+                50.0,
+                10.0,
+                0.0,
+                0.0,
+            ),
+        );
+        let notes = vec![
+            UNote::new("あ", "C4", 0.0, 300.0),
+            UNote::new("+~", "C4", 300.0, 200.0),
+            UNote::new("か", "C4", 500.0, 300.0),
+        ];
+
+        let phones = JapanesePhonemizer::apply_japanese(&notes, &vb, PhonemizerMode::VCV);
+        assert_eq!(phones[0].lyric, "- あ");
+        assert_eq!(phones[0].duration_ms, 500.0);
+        assert_eq!(phones[1].lyric, "a か");
     }
 
     fn build_test_voicebank() -> Voicebank {
