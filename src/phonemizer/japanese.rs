@@ -1588,7 +1588,12 @@ impl JapanesePhonemizer {
                         // sounds like a stuck or doubled consonant in hybrid
                         // banks. Match OpenUtau's Japanese CVVC contract: use
                         // the continuous-form CV alias first, then plain CV.
-                        let cross_group = expand_presamp_candidates(
+                        // JapaneseCVVCPhonemizer (legacy) has a fixed
+                        // precedence here: `* CV`, then plain `CV`.  The
+                        // Presamp alias-priority tables must not reorder
+                        // this branch, or a custom ini can replace the
+                        // continuous CV attack with an incompatible alias.
+                        let mut cv_cands = expand_presamp_candidates(
                             &presamp_alias.cross_cv,
                             prev_vowel.as_deref().unwrap_or(""),
                             extract_presamp_consonant(&exp.lyric, &presamp_inventory)
@@ -1598,14 +1603,10 @@ impl JapanesePhonemizer {
                             &exp.lyric,
                             &presamp_alias,
                         );
-                        let cv_group = vec![
+                        cv_cands.extend([
                             presamp_join("*", &presamp_alias.vcvpad, &exp.lyric),
                             exp.lyric.to_string(),
-                        ];
-                        let cv_cands = order_presamp_candidate_groups(
-                            presamp_priority_for_lyric(&exp.lyric, &presamp_inventory),
-                            vec![("CROSS_CV", cross_group), ("CV", cv_group)],
-                        );
+                        ]);
                         if let Some(found) =
                             Self::find_oto_candidate_for_note(vb, &cv_cands, note, 0)
                         {
