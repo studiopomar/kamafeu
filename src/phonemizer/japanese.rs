@@ -933,6 +933,29 @@ impl JapanesePhonemizer {
         None
     }
 
+    /// Mirrors OpenUtau's CheckOtoUntilHit: a phoneme-scoped alternate is
+    /// tried before the ordinary alias, while preserving candidate order.
+    fn find_oto_candidate_for_note(
+        vb: &Voicebank,
+        candidates: &[String],
+        note: &UNote,
+        phoneme_index: usize,
+    ) -> Option<String> {
+        let alternate = note
+            .phoneme_overrides
+            .iter()
+            .find(|override_| override_.index == phoneme_index)
+            .and_then(|override_| override_.alternate);
+        let mut ordered = Vec::with_capacity(candidates.len() * 2);
+        for candidate in candidates {
+            if let Some(alternate) = alternate {
+                ordered.push(format!("{candidate}{alternate}"));
+            }
+            ordered.push(candidate.clone());
+        }
+        Self::find_oto_candidate(vb, &ordered, &note.pitch)
+    }
+
     pub fn apply_japanese(
         notes: &[UNote],
         vb: &Voicebank,
@@ -1071,7 +1094,9 @@ impl JapanesePhonemizer {
                 sokuon_candidates.push("っ".to_string());
                 sokuon_candidates.push("cl".to_string());
 
-                if let Some(alias) = Self::find_oto_candidate(vb, &sokuon_candidates, &note.pitch) {
+                if let Some(alias) =
+                    Self::find_oto_candidate_for_note(vb, &sokuon_candidates, note, 0)
+                {
                     phones.push(RenderPhone {
                         note_index,
                         lyric: alias,
@@ -1133,7 +1158,7 @@ impl JapanesePhonemizer {
                     }
                     candidates.extend(alias_candidates);
 
-                    let alias = Self::find_oto_candidate(vb, &candidates, &note.pitch)
+                    let alias = Self::find_oto_candidate_for_note(vb, &candidates, note, 0)
                         .unwrap_or_else(|| exp.lyric.to_string());
 
                     phones.push(RenderPhone {
@@ -1186,7 +1211,7 @@ impl JapanesePhonemizer {
                                 exp.lyric.to_string(),
                             ]);
                             if let Some(found) =
-                                Self::find_oto_candidate(vb, &vcv_cands, &note.pitch)
+                                Self::find_oto_candidate_for_note(vb, &vcv_cands, note, 0)
                             {
                                 alias = found;
                             }
@@ -1205,7 +1230,8 @@ impl JapanesePhonemizer {
                             &presamp_alias,
                         );
                         head_cands.extend([format!("- {}", exp.lyric), exp.lyric.to_string()]);
-                        if let Some(found) = Self::find_oto_candidate(vb, &head_cands, &note.pitch)
+                        if let Some(found) =
+                            Self::find_oto_candidate_for_note(vb, &head_cands, note, 0)
                         {
                             alias = found;
                         }
@@ -1251,7 +1277,7 @@ impl JapanesePhonemizer {
                         }
                         initial_cands.extend([format!("- {}", exp.lyric), exp.lyric.to_string()]);
                         if let Some(found) =
-                            Self::find_oto_candidate(vb, &initial_cands, &note.pitch)
+                            Self::find_oto_candidate_for_note(vb, &initial_cands, note, 0)
                         {
                             current_lyric = found;
                         }
@@ -1267,7 +1293,7 @@ impl JapanesePhonemizer {
                             exp.lyric.to_string(),
                         ]);
                         if let Some(found) =
-                            Self::find_oto_candidate(vb, &glottal_cands, &note.pitch)
+                            Self::find_oto_candidate_for_note(vb, &glottal_cands, note, 0)
                         {
                             current_lyric = found;
                         }
@@ -1284,7 +1310,7 @@ impl JapanesePhonemizer {
                             &presamp_alias,
                         ));
                         if let Some(found) =
-                            Self::find_oto_candidate(vb, &priority_cands, &note.pitch)
+                            Self::find_oto_candidate_for_note(vb, &priority_cands, note, 0)
                         {
                             current_lyric = found;
                         }
@@ -1311,7 +1337,7 @@ impl JapanesePhonemizer {
                                 exp.lyric.to_string(),
                             ]);
                             if let Some(found) =
-                                Self::find_oto_candidate(vb, &vow_cands, &note.pitch)
+                                Self::find_oto_candidate_for_note(vb, &vow_cands, note, 0)
                             {
                                 current_lyric = found;
                             }
@@ -1337,7 +1363,9 @@ impl JapanesePhonemizer {
                             presamp_join("*", &presamp_alias.vcvpad, &exp.lyric),
                             exp.lyric.to_string(),
                         ]);
-                        if let Some(found) = Self::find_oto_candidate(vb, &cv_cands, &note.pitch) {
+                        if let Some(found) =
+                            Self::find_oto_candidate_for_note(vb, &cv_cands, note, 0)
+                        {
                             current_lyric = found;
                         }
                     }
@@ -1355,7 +1383,7 @@ impl JapanesePhonemizer {
                                 format!("- {}", consonant),
                             ];
                             if let Some(alias) =
-                                Self::find_oto_candidate(vb, &pre_c_candidates, &note.pitch)
+                                Self::find_oto_candidate_for_note(vb, &pre_c_candidates, note, 2)
                             {
                                 let authored_len = vb
                                     .find_mapped_entry(&current_lyric, &note.pitch)
@@ -1426,7 +1454,7 @@ impl JapanesePhonemizer {
                                 }
 
                                 if let Some(vc_alias) =
-                                    Self::find_oto_candidate(vb, &vc_candidates, &note.pitch)
+                                    Self::find_oto_candidate_for_note(vb, &vc_candidates, note, 1)
                                 {
                                     let mut vc_length_ms = 80.0;
                                     // The transition length is derived from the
@@ -1803,6 +1831,33 @@ mod tests {
 
         let phones = JapanesePhonemizer::apply_japanese(&[note], &vb, PhonemizerMode::VCV);
         assert_eq!(phones[0].lyric, "a か");
+    }
+
+    #[test]
+    fn japanese_alternate_is_preferred_during_alias_lookup() {
+        let mut vb = build_test_voicebank();
+        vb.entries.insert(
+            "- か2".to_string(),
+            OtoEntry::new(
+                "ka2.wav".to_string(),
+                "- か2".to_string(),
+                0.0,
+                50.0,
+                10.0,
+                0.0,
+                0.0,
+            ),
+        );
+        let mut note = UNote::new("か", "C4", 0.0, 300.0);
+        note.phoneme_overrides
+            .push(crate::project::model::UPhonemeOverride {
+                index: 0,
+                alternate: Some(2),
+                ..Default::default()
+            });
+
+        let phones = JapanesePhonemizer::apply_japanese(&[note], &vb, PhonemizerMode::VCV);
+        assert_eq!(phones[0].lyric, "- か2");
     }
 
     #[test]
