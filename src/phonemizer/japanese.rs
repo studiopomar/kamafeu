@@ -1644,8 +1644,7 @@ impl JapanesePhonemizer {
                 else {
                     continue;
                 };
-                if let Some(alias) =
-                    Self::find_oto_candidate(vb, &candidates, &phones[phone_index].pitch)
+                if let Some(alias) = Self::find_oto_candidate_for_note(vb, &candidates, exp.note, 0)
                 {
                     phones[phone_index].lyric = alias;
                 }
