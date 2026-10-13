@@ -339,6 +339,7 @@ pub struct JapanesePhonemizer;
 /// Reads the exact-match replacement section used by Presamp.  OpenUtau
 /// applies these replacements to the lyric before VCV/CVVC classification,
 /// but never applies them to an explicit phonetic hint.
+#[cfg(test)]
 fn parse_presamp_replacements(contents: &str) -> HashMap<String, String> {
     parse_presamp_replacements_with_presence(contents).0
 }
