@@ -684,6 +684,10 @@ fn parse_presamp_alias_config(contents: &str) -> PresampAliasConfig {
             config.ending2 = line.to_string();
             continue;
         }
+        if section.eq_ignore_ascii_case("[VCPAD]") {
+            config.vcpad = line.to_string();
+            continue;
+        }
         if !section.eq_ignore_ascii_case("[ALIAS]") {
             continue;
         }
@@ -1712,6 +1716,9 @@ mod tests {
         let ending = parse_presamp_alias_config("[ENDTYPE]\na R\n[ENDTYPE2]\n-R\n");
         assert_eq!(ending.ending1, "a R");
         assert_eq!(ending.ending2, "-R");
+
+        let standalone_pad = parse_presamp_alias_config("[VCPAD]\n-\n");
+        assert_eq!(standalone_pad.vcpad, "-");
     }
 
     #[test]
