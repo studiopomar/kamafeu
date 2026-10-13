@@ -265,6 +265,7 @@ impl KamafeuStudioApp {
             transport_state,
             right_sidebar_tab: RightSidebarTab::default(),
             vocal_mode_params: vocal_render,
+            imported_phoneme_policy: crate::project::model::ImportedPhonemePolicy::Preserve,
             phoneme_palette_state: PhonemePaletteState::default(),
             undo_manager: UndoManager::default(),
             pending_edit_snapshot: None,

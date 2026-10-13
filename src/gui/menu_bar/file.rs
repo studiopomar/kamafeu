@@ -153,6 +153,31 @@ impl KamafeuStudioApp {
 
             ui.separator();
             ui.menu_button(lang.tr("Importar", "Import"), |ui| {
+                ui.label(lang.tr("Política de fonemas importados", "Imported phoneme policy"));
+                if ui
+                    .button(lang.tr(
+                        "Preservar fonemas explícitos (padrão)",
+                        "Preserve explicit phonemes (default)",
+                    ))
+                    .clicked()
+                {
+                    self.set_imported_phoneme_policy(
+                        crate::project::model::ImportedPhonemePolicy::Preserve,
+                    );
+                    self.open_project_dialog();
+                    ui.close_menu();
+                }
+                if ui
+                    .button(lang.tr("Recalcular todos os fonemas", "Recalculate all phonemes"))
+                    .clicked()
+                {
+                    self.set_imported_phoneme_policy(
+                        crate::project::model::ImportedPhonemePolicy::Recalculate,
+                    );
+                    self.open_project_dialog();
+                    ui.close_menu();
+                }
+                ui.separator();
                 if ui
                     .button(lang.tr(
                         "Qualquer Formato Compatível (UtaFormatix)...",

@@ -106,6 +106,9 @@ pub struct KamafeuStudioApp {
     transport_state: TransportState,
     right_sidebar_tab: RightSidebarTab,
     vocal_mode_params: VocalModeParams,
+    /// Policy selected for the next project import. Preserve is the safe
+    /// default because explicit aliases are authored render decisions.
+    imported_phoneme_policy: crate::project::model::ImportedPhonemePolicy,
     phoneme_palette_state: PhonemePaletteState,
     undo_manager: UndoManager,
     pending_edit_snapshot: Option<UProject>,

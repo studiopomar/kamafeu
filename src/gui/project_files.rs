@@ -49,6 +49,13 @@ pub fn web_file_queue() -> &'static std::sync::Mutex<Vec<(String, Vec<u8>)>> {
 }
 
 impl KamafeuStudioApp {
+    pub fn set_imported_phoneme_policy(
+        &mut self,
+        policy: crate::project::model::ImportedPhonemePolicy,
+    ) {
+        self.imported_phoneme_policy = policy;
+    }
+
     #[cfg_attr(target_os = "macos", allow(dead_code))]
     pub(crate) fn request_project_action(&mut self, action: PendingProjectAction) {
         if self.is_dirty && self.config.workflow.confirm_on_exit_dirty {
@@ -471,6 +478,7 @@ impl KamafeuStudioApp {
         };
         match loaded {
             Ok(mut proj) => {
+                proj.imported_phoneme_policy = self.imported_phoneme_policy;
                 proj.normalize();
                 if proj.imported_phoneme_policy
                     == crate::project::model::ImportedPhonemePolicy::Recalculate
@@ -619,6 +627,7 @@ impl KamafeuStudioApp {
 
         match loaded {
             Ok(mut proj) => {
+                proj.imported_phoneme_policy = self.imported_phoneme_policy;
                 proj.normalize();
                 if proj.imported_phoneme_policy
                     == crate::project::model::ImportedPhonemePolicy::Recalculate
