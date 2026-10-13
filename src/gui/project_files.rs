@@ -379,6 +379,18 @@ impl KamafeuStudioApp {
     /// a singer name (or an absolute path from another machine), so the active
     /// bank is the deterministic final fallback.
     fn resolve_imported_voicebank(&mut self, format: &str, source: &str) {
+        if self.project.phonemizer.is_none() {
+            self.project.phonemizer = Some(self.vocal_mode_params.phonemizer_mode);
+            eprintln!(
+                "[Import][PhonemizerFallback] format={} source={} using_active={:?}",
+                format, source, self.vocal_mode_params.phonemizer_mode
+            );
+        }
+        for track in &mut self.project.tracks {
+            if track.phonemizer.is_none() {
+                track.phonemizer = self.project.phonemizer;
+            }
+        }
         let requested = self
             .project
             .voicebank_path
@@ -411,6 +423,7 @@ impl KamafeuStudioApp {
                     self.transport_state.voicebank_name = vb.name.clone();
                     self.config.add_recent_voicebank(vb.root_path.clone());
                     self.voicebank = Some(vb);
+                    self.persist_imported_voicebank_context();
                     return;
                 }
             }
@@ -423,6 +436,28 @@ impl KamafeuStudioApp {
             requested,
             self.voicebank.as_ref().map(|vb| &vb.root_path)
         );
+        self.persist_imported_voicebank_context();
+    }
+
+    fn persist_imported_voicebank_context(&mut self) {
+        let Some(vb) = self.voicebank.as_ref() else {
+            return;
+        };
+        if self.project.voicebank_path.is_none() {
+            self.project.voicebank_path = Some(vb.root_path.to_string_lossy().to_string());
+        }
+        if self.project.voicebank.is_none() {
+            self.project.voicebank = Some(vb.name.clone());
+        }
+        let path = vb.root_path.to_string_lossy().to_string();
+        for track in &mut self.project.tracks {
+            if track.voicebank_path.is_none() {
+                track.voicebank_path = Some(path.clone());
+            }
+            if track.singer.trim().is_empty() {
+                track.singer = vb.name.clone();
+            }
+        }
     }
 
     pub fn open_project_from_path(&mut self, path: &Path) {
