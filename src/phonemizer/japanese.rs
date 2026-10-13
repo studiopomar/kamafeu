@@ -645,6 +645,20 @@ fn extract_presamp_consonant(lyric: &str, inventory: &PresampInventory) -> Optio
     JapanesePhonemizer::extract_consonant(trimmed).map(str::to_owned)
 }
 
+fn extract_vowel_for_mode(
+    lyric: &str,
+    inventory: &PresampInventory,
+    mode: PhonemizerMode,
+) -> Option<String> {
+    // JapaneseVCVPhonemizer's legacy table maps `ng` to the katakana nasal
+    // vowel N. JapaneseCVVCPhonemizer deliberately keeps `ng` as a
+    // consonant, so this exception must be mode-specific.
+    if mode == PhonemizerMode::VCV && lyric.trim() == "ng" {
+        return Some("N".to_string());
+    }
+    extract_presamp_vowel(lyric, inventory)
+}
+
 impl Default for PresampAliasConfig {
     fn default() -> Self {
         // These are the defaults documented by Presamp/OpenUtau.
@@ -1052,7 +1066,7 @@ impl JapanesePhonemizer {
                 continue;
             }
 
-            let cur_vowel = extract_presamp_vowel(&exp.lyric, &presamp_inventory);
+            let cur_vowel = extract_vowel_for_mode(&exp.lyric, &presamp_inventory, mode);
             let _cur_consonant = extract_presamp_consonant(&exp.lyric, &presamp_inventory);
             let current_core = presamp_core_lyric(&exp.lyric, &presamp_inventory);
 
@@ -1843,6 +1857,19 @@ mod tests {
     fn glottal_stop_is_not_used_as_a_vowel_transition() {
         assert_eq!(JapanesePhonemizer::extract_vowel("・"), None);
         assert_eq!(JapanesePhonemizer::extract_consonant("・"), Some("・"));
+    }
+
+    #[test]
+    fn legacy_vcv_maps_ng_to_katakana_nasal_without_changing_cvvc() {
+        let inventory = PresampInventory::default();
+        assert_eq!(
+            extract_vowel_for_mode("ng", &inventory, PhonemizerMode::VCV),
+            Some("N".to_string())
+        );
+        assert_eq!(
+            extract_vowel_for_mode("ng", &inventory, PhonemizerMode::CVVC),
+            None
+        );
     }
 
     #[test]
