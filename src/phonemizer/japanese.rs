@@ -558,6 +558,21 @@ fn expand_presamp_candidates(
         .collect()
 }
 
+fn long_vowel_candidate(lyric: &str, config: &PresampAliasConfig) -> Option<String> {
+    let stem = lyric.strip_suffix('ー')?.trim();
+    if stem.is_empty() {
+        return None;
+    }
+    Some(expand_presamp_alias(
+        &config.long_v,
+        "",
+        "",
+        lyric,
+        stem,
+        config,
+    ))
+}
+
 /// Converts a note lyric written as a Japanese VCV alias to its CV lyric.
 ///
 /// VCV aliases are represented by the previous vowel followed by the note
@@ -610,6 +625,14 @@ impl JapanesePhonemizer {
         // converted aliases, which then corrupts VCV/CVVC transitions.
         if trimmed == "っ" || trimmed == "ッ" {
             return None;
+        }
+
+        // A long-vowel mark carries the vowel of the preceding mora.  This
+        // is also the basis for Presamp's LONG_V alias expansion.
+        if let Some(stem) = trimmed.strip_suffix('ー') {
+            if !stem.is_empty() {
+                return Self::extract_vowel(stem);
+            }
         }
 
         if let Some(&v) = VOWEL_LOOKUP.get(trimmed) {
@@ -862,6 +885,9 @@ impl JapanesePhonemizer {
                         // Prefer those transitions, while retaining ordinary
                         // CV lookup as the fallback for standard CV banks.
                         let mut candidates = vec![alias.clone()];
+                        if let Some(long_alias) = long_vowel_candidate(&exp.lyric, &presamp_alias) {
+                            candidates.insert(0, long_alias);
+                        }
                         if let (Some(pv), Some(cv)) = (prev_vowel, cur_vowel) {
                             candidates.insert(0, presamp_join(pv, &presamp_alias.vcvpad, cv));
                             candidates.insert(1, format!("{}{}", pv, cv));
@@ -899,6 +925,11 @@ impl JapanesePhonemizer {
                                 &exp.lyric,
                                 &presamp_alias,
                             );
+                            if let Some(long_alias) =
+                                long_vowel_candidate(&exp.lyric, &presamp_alias)
+                            {
+                                vcv_cands.insert(0, long_alias);
+                            }
                             vcv_cands.extend([
                                 format!("{}_{}", pv, exp.lyric),
                                 format!("{}{}", pv, exp.lyric),
@@ -962,6 +993,9 @@ impl JapanesePhonemizer {
                             &exp.lyric,
                             &presamp_alias,
                         );
+                        if let Some(long_alias) = long_vowel_candidate(&exp.lyric, &presamp_alias) {
+                            initial_cands.insert(0, long_alias);
+                        }
                         initial_cands.extend([format!("-{}", exp.lyric), exp.lyric.to_string()]);
                         if let Some(found) =
                             Self::find_oto_candidate(vb, &initial_cands, &note.pitch)
@@ -978,6 +1012,11 @@ impl JapanesePhonemizer {
                                 &exp.lyric,
                                 &presamp_alias,
                             );
+                            if let Some(long_alias) =
+                                long_vowel_candidate(&exp.lyric, &presamp_alias)
+                            {
+                                vow_cands.insert(0, long_alias);
+                            }
                             vow_cands.extend([
                                 presamp_join("*", &presamp_alias.vcvpad, &exp.lyric),
                                 format!("_{}", exp.lyric),
@@ -1206,6 +1245,17 @@ mod tests {
         assert_eq!(JapanesePhonemizer::extract_vowel("n"), Some("n"));
         assert_eq!(JapanesePhonemizer::extract_vowel("ン"), Some("N"));
         assert_eq!(JapanesePhonemizer::extract_vowel("N"), Some("N"));
+    }
+
+    #[test]
+    fn long_vowels_keep_their_preceding_mora_vowel() {
+        assert_eq!(JapanesePhonemizer::extract_vowel("あー"), Some("a"));
+        assert_eq!(JapanesePhonemizer::extract_vowel("おー"), Some("o"));
+        let config = PresampAliasConfig::default();
+        assert_eq!(
+            long_vowel_candidate("あー", &config),
+            Some("あー".to_string())
+        );
     }
 
     #[test]
