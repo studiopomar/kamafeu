@@ -2,6 +2,21 @@ use crate::dsp::envelope::UtauEnvelope;
 use crate::dsp::pitch::{midi_to_note_name, note_name_to_midi, VibratoParam};
 use serde::{Deserialize, Serialize};
 
+/// Controls how explicit phonetic data from an imported project is treated.
+/// Preserve is intentionally the compatibility default: imported aliases are
+/// authored data, not a hint to silently rewrite the whole phrase.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum ImportedPhonemePolicy {
+    Preserve,
+    Recalculate,
+}
+
+impl Default for ImportedPhonemePolicy {
+    fn default() -> Self {
+        Self::Preserve
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct UPitchBendPoint {
     pub time_offset_ms: f64,
@@ -652,6 +667,10 @@ pub struct UProject {
     pub voicebank_path: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub phonemizer: Option<crate::phonemizer::PhonemizerMode>,
+    /// Import policy for explicit aliases/phoneme overrides. Optional in the
+    /// serialized format so older projects keep the preserve behavior.
+    #[serde(default, skip_serializing_if = "is_default_imported_phoneme_policy")]
+    pub imported_phoneme_policy: ImportedPhonemePolicy,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub resampler: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -702,6 +721,10 @@ fn default_time_signature_denominator() -> u8 {
     4
 }
 
+fn is_default_imported_phoneme_policy(policy: &ImportedPhonemePolicy) -> bool {
+    *policy == ImportedPhonemePolicy::Preserve
+}
+
 impl Default for UProject {
     fn default() -> Self {
         Self {
@@ -713,6 +736,7 @@ impl Default for UProject {
             voicebank: None,
             voicebank_path: None,
             phonemizer: None,
+            imported_phoneme_policy: ImportedPhonemePolicy::Preserve,
             resampler: None,
             wavtool: None,
             flags: String::new(),
@@ -730,6 +754,18 @@ impl Default for UProject {
 }
 
 impl UProject {
+    /// Drop imported phonetic decisions when the user explicitly requests a
+    /// full recalculation. Musical timing, expressions and flags are kept.
+    pub fn recalculate_imported_phonemes(&mut self) {
+        for part in &mut self.parts {
+            for note in &mut part.notes {
+                note.phonetic_hint = None;
+                note.phoneme_overrides.clear();
+                note.phoneme_durations_ms.clear();
+            }
+        }
+    }
+
     /// Change the project tempo while keeping every event on the same musical beat.
     ///
     /// Timeline values are stored in milliseconds, so changing only `bpm` would

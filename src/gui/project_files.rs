@@ -472,6 +472,22 @@ impl KamafeuStudioApp {
         match loaded {
             Ok(mut proj) => {
                 proj.normalize();
+                if proj.imported_phoneme_policy
+                    == crate::project::model::ImportedPhonemePolicy::Recalculate
+                {
+                    eprintln!(
+                        "[Import][Phonemes] format={} source={} policy=recalculate",
+                        extension,
+                        path.display()
+                    );
+                    proj.recalculate_imported_phonemes();
+                } else {
+                    eprintln!(
+                        "[Import][Phonemes] format={} source={} policy=preserve",
+                        extension,
+                        path.display()
+                    );
+                }
                 self.audio_player.stop();
                 self.project = proj;
                 self.transport_state.bpm = self.project.bpm;
@@ -604,6 +620,20 @@ impl KamafeuStudioApp {
         match loaded {
             Ok(mut proj) => {
                 proj.normalize();
+                if proj.imported_phoneme_policy
+                    == crate::project::model::ImportedPhonemePolicy::Recalculate
+                {
+                    eprintln!(
+                        "[Import][Phonemes] format={} source={} policy=recalculate",
+                        extension, file_name
+                    );
+                    proj.recalculate_imported_phonemes();
+                } else {
+                    eprintln!(
+                        "[Import][Phonemes] format={} source={} policy=preserve",
+                        extension, file_name
+                    );
+                }
                 self.audio_player.stop();
                 self.project = proj;
                 self.transport_state.bpm = self.project.bpm;
