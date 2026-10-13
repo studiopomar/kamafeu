@@ -1023,7 +1023,15 @@ impl JapanesePhonemizer {
                 presamp_replacements
                     .get(raw_lyric)
                     .map(String::as_str)
-                    .unwrap_or(raw_lyric)
+                    .unwrap_or_else(|| {
+                        // Presamp's built-in replacement table contains
+                        // `N=ン`, even when no presamp.ini is present.
+                        if raw_lyric == "N" {
+                            "ン"
+                        } else {
+                            raw_lyric
+                        }
+                    })
             } else {
                 raw_lyric
             };
@@ -1930,6 +1938,27 @@ mod tests {
 
         let phones = JapanesePhonemizer::apply_japanese(&[note], &vb, PhonemizerMode::VCV);
         assert_eq!(phones[0].lyric, "- か2");
+    }
+
+    #[test]
+    fn default_presamp_replaces_romaji_capital_n_with_katakana_nasal() {
+        let mut vb = build_test_voicebank();
+        vb.entries.insert(
+            "- ン".to_string(),
+            OtoEntry::new(
+                "N.wav".to_string(),
+                "- ン".to_string(),
+                0.0,
+                50.0,
+                10.0,
+                0.0,
+                0.0,
+            ),
+        );
+        let note = UNote::new("N", "C4", 0.0, 300.0);
+
+        let phones = JapanesePhonemizer::apply_japanese(&[note], &vb, PhonemizerMode::VCV);
+        assert_eq!(phones[0].lyric, "- ン");
     }
 
     #[test]
