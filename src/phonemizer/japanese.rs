@@ -431,6 +431,11 @@ struct PresampInventory {
     alias_nums: HashSet<String>,
     alias_appends: Vec<String>,
     alias_pitches: Vec<String>,
+    /// Presamp `[ALIAS_PRIORITY]` and its suffix-specific variants. The
+    /// strings are kept in file order, matching OpenUtau's Presamp parser.
+    alias_priority_default: Vec<String>,
+    alias_priority_diff_append: Vec<String>,
+    alias_priority_diff_pitch: Vec<String>,
     priority: HashSet<String>,
     no_crossfade: HashSet<String>,
     /// Presamp `[VCLENGTH]`: 0 derives VC timing from the following CV oto;
@@ -490,6 +495,27 @@ impl Default for PresampInventory {
             .map(str::to_string)
             .collect(),
             alias_pitches,
+            alias_priority_default: vec![
+                "VCV".to_string(),
+                "CVVC".to_string(),
+                "CROSS_CV".to_string(),
+                "CV".to_string(),
+                "BEGINING_CV".to_string(),
+            ],
+            alias_priority_diff_append: vec![
+                "CVVC".to_string(),
+                "VCV".to_string(),
+                "CROSS_CV".to_string(),
+                "CV".to_string(),
+                "BEGINING_CV".to_string(),
+            ],
+            alias_priority_diff_pitch: vec![
+                "CVVC".to_string(),
+                "VCV".to_string(),
+                "CROSS_CV".to_string(),
+                "CV".to_string(),
+                "BEGINING_CV".to_string(),
+            ],
             priority,
             no_crossfade,
             vc_length_from_cv: true,
@@ -522,6 +548,9 @@ fn parse_presamp_inventory(contents: &str) -> PresampInventory {
                 "[NUM]" => inventory.alias_nums.clear(),
                 "[APPEND]" => inventory.alias_appends.clear(),
                 "[PITCH]" => inventory.alias_pitches.clear(),
+                "[ALIAS_PRIORITY]" => inventory.alias_priority_default.clear(),
+                "[ALIAS_PRIORITY_DIFAPPEND]" => inventory.alias_priority_diff_append.clear(),
+                "[ALIAS_PRIORITY_DIFPITCH]" => inventory.alias_priority_diff_pitch.clear(),
                 "[CFLAGS]" => inventory.cflags.clear(),
                 _ => {}
             }
@@ -627,6 +656,13 @@ fn parse_presamp_inventory(contents: &str) -> PresampInventory {
                     inventory.alias_pitches.push((*first).to_string());
                 }
             }
+            "[ALIAS_PRIORITY]" => inventory.alias_priority_default.push((*first).to_string()),
+            "[ALIAS_PRIORITY_DIFAPPEND]" => inventory
+                .alias_priority_diff_append
+                .push((*first).to_string()),
+            "[ALIAS_PRIORITY_DIFPITCH]" => inventory
+                .alias_priority_diff_pitch
+                .push((*first).to_string()),
             _ => {}
         }
     }
@@ -1872,6 +1908,13 @@ mod tests {
         assert!(inventory.no_crossfade.contains("k"));
         assert!(inventory.vc_length_from_cv);
         assert_eq!(inventory.cflags, "p0");
+        assert_eq!(
+            inventory.alias_priority_default,
+            ["VCV", "CVVC", "CROSS_CV", "CV", "BEGINING_CV"]
+                .into_iter()
+                .map(str::to_string)
+                .collect::<Vec<_>>()
+        );
 
         let fixed = parse_presamp_inventory("[VCLENGTH]\n1\n");
         assert!(!fixed.vc_length_from_cv);
@@ -1897,6 +1940,13 @@ mod tests {
 
         let custom_flags = parse_presamp_inventory("[CFLAGS]\nY99\n");
         assert_eq!(custom_flags.cflags, "Y99");
+
+        let custom_priorities = parse_presamp_inventory(
+            "[ALIAS_PRIORITY]\nCV\nVCV\n[ALIAS_PRIORITY_DIFAPPEND]\nCVVC\n[ALIAS_PRIORITY_DIFPITCH]\nCROSS_CV\n",
+        );
+        assert_eq!(custom_priorities.alias_priority_default, ["CV", "VCV"]);
+        assert_eq!(custom_priorities.alias_priority_diff_append, ["CVVC"]);
+        assert_eq!(custom_priorities.alias_priority_diff_pitch, ["CROSS_CV"]);
     }
 
     #[test]
