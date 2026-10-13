@@ -383,6 +383,8 @@ struct PresampInventory {
     /// Every Presamp vowel symbol mapped to its canonical lower-case vowel.
     vowel_by_phoneme: HashMap<String, String>,
     consonants: HashSet<String>,
+    /// Every Presamp consonant symbol mapped to its canonical consonant.
+    consonant_by_phoneme: HashMap<String, String>,
     priority: HashSet<String>,
     no_crossfade: HashSet<String>,
     /// Presamp `[VCLENGTH]`: 0 derives VC timing from the following CV oto;
@@ -402,6 +404,7 @@ impl Default for PresampInventory {
             vowels: HashSet::new(),
             vowel_by_phoneme: HashMap::new(),
             consonants: HashSet::new(),
+            consonant_by_phoneme: HashMap::new(),
             priority: HashSet::new(),
             no_crossfade: HashSet::new(),
             vc_length_from_cv: true,
@@ -464,6 +467,16 @@ fn parse_presamp_inventory(contents: &str) -> PresampInventory {
                 inventory
                     .consonants
                     .extend(values.into_iter().map(str::to_owned));
+                inventory
+                    .consonant_by_phoneme
+                    .insert((*first).to_string(), (*first).to_string());
+                if let Some(list) = fields.get(1) {
+                    for value in list.split(',').map(str::trim).filter(|v| !v.is_empty()) {
+                        inventory
+                            .consonant_by_phoneme
+                            .insert(value.to_string(), (*first).to_string());
+                    }
+                }
                 if fields.get(2).is_some_and(|flag| *flag == "1") {
                     // Presamp's third field is the no-crossfade flag, not
                     // priority. Priority is configured by [PRIORITY].
@@ -498,6 +511,14 @@ fn extract_presamp_vowel(lyric: &str, inventory: &PresampInventory) -> Option<St
         return Some(vowel.clone());
     }
     JapanesePhonemizer::extract_vowel(trimmed).map(str::to_owned)
+}
+
+fn extract_presamp_consonant(lyric: &str, inventory: &PresampInventory) -> Option<String> {
+    let trimmed = lyric.trim();
+    if let Some(consonant) = inventory.consonant_by_phoneme.get(trimmed) {
+        return Some(consonant.clone());
+    }
+    JapanesePhonemizer::extract_consonant(trimmed).map(str::to_owned)
 }
 
 impl Default for PresampAliasConfig {
@@ -877,7 +898,7 @@ impl JapanesePhonemizer {
             }
 
             let cur_vowel = extract_presamp_vowel(&exp.lyric, &presamp_inventory);
-            let _cur_consonant = Self::extract_consonant(&exp.lyric);
+            let _cur_consonant = extract_presamp_consonant(&exp.lyric, &presamp_inventory);
 
             let is_phrase_start = match prev_note_end_ms {
                 Some(end_ms) => exp.position_ms > end_ms + 0.001,
@@ -908,12 +929,14 @@ impl JapanesePhonemizer {
                     sokuon_candidates.push(presamp_join(vowel, &presamp_alias.vcpad, "っ"));
                     sokuon_candidates.push(presamp_join(vowel, &presamp_alias.vcpad, "cl"));
                     if let Some(next_exp) = expanded.get(idx + 1) {
-                        if let Some(consonant) = Self::extract_consonant(&next_exp.lyric) {
+                        if let Some(consonant) =
+                            extract_presamp_consonant(&next_exp.lyric, &presamp_inventory)
+                        {
                             if consonant != "cl" {
                                 sokuon_candidates.push(presamp_join(
                                     vowel,
                                     &presamp_alias.vcpad,
-                                    consonant,
+                                    &consonant,
                                 ));
                             }
                         }
@@ -972,7 +995,9 @@ impl JapanesePhonemizer {
                             &presamp_alias.vcv
                         },
                         prev_vowel.as_deref().unwrap_or(""),
-                        Self::extract_consonant(&exp.lyric).unwrap_or(""),
+                        extract_presamp_consonant(&exp.lyric, &presamp_inventory)
+                            .as_deref()
+                            .unwrap_or(""),
                         &exp.lyric,
                         &exp.lyric,
                         &presamp_alias,
@@ -1006,7 +1031,9 @@ impl JapanesePhonemizer {
                             let mut vcv_cands = expand_presamp_candidates(
                                 &presamp_alias.vcv,
                                 pv,
-                                Self::extract_consonant(&exp.lyric).unwrap_or(""),
+                                extract_presamp_consonant(&exp.lyric, &presamp_inventory)
+                                    .as_deref()
+                                    .unwrap_or(""),
                                 &exp.lyric,
                                 &exp.lyric,
                                 &presamp_alias,
@@ -1034,7 +1061,9 @@ impl JapanesePhonemizer {
                         let mut head_cands = expand_presamp_candidates(
                             &presamp_alias.beginning_cv,
                             "",
-                            Self::extract_consonant(&exp.lyric).unwrap_or(""),
+                            extract_presamp_consonant(&exp.lyric, &presamp_inventory)
+                                .as_deref()
+                                .unwrap_or(""),
                             &exp.lyric,
                             &exp.lyric,
                             &presamp_alias,
@@ -1074,7 +1103,9 @@ impl JapanesePhonemizer {
                         let mut initial_cands = expand_presamp_candidates(
                             &presamp_alias.beginning_cv,
                             "",
-                            Self::extract_consonant(&exp.lyric).unwrap_or(""),
+                            extract_presamp_consonant(&exp.lyric, &presamp_inventory)
+                                .as_deref()
+                                .unwrap_or(""),
                             &exp.lyric,
                             &exp.lyric,
                             &presamp_alias,
@@ -1108,7 +1139,9 @@ impl JapanesePhonemizer {
                             let mut vow_cands = expand_presamp_candidates(
                                 &presamp_alias.vcv,
                                 pv,
-                                Self::extract_consonant(&exp.lyric).unwrap_or(""),
+                                extract_presamp_consonant(&exp.lyric, &presamp_inventory)
+                                    .as_deref()
+                                    .unwrap_or(""),
                                 &exp.lyric,
                                 &exp.lyric,
                                 &presamp_alias,
@@ -1165,12 +1198,12 @@ impl JapanesePhonemizer {
                         {
                             if let (Some(vow), Some(con)) = (
                                 cur_vowel.as_deref(),
-                                Self::extract_consonant(&next_exp.lyric),
+                                extract_presamp_consonant(&next_exp.lyric, &presamp_inventory),
                             ) {
                                 let mut vc_candidates = expand_presamp_candidates(
                                     &presamp_alias.vc,
                                     &vow,
-                                    con,
+                                    &con,
                                     &next_exp.lyric,
                                     &next_exp.lyric,
                                     &presamp_alias,
@@ -1180,7 +1213,7 @@ impl JapanesePhonemizer {
                                     format!("{}_{}", vow, con),
                                 ]);
 
-                                if let Some(&sub_con) = SUBSTITUTE_LOOKUP.get(con) {
+                                if let Some(&sub_con) = SUBSTITUTE_LOOKUP.get(con.as_str()) {
                                     vc_candidates.extend(expand_presamp_candidates(
                                         &presamp_alias.vc,
                                         &vow,
@@ -1236,7 +1269,7 @@ impl JapanesePhonemizer {
                                     vc_to_insert = Some((
                                         vc_alias,
                                         vc_len,
-                                        presamp_inventory.no_crossfade.contains(con),
+                                        presamp_inventory.no_crossfade.contains(&con),
                                     ));
                                 }
                             }
@@ -1412,6 +1445,10 @@ mod tests {
         assert!(inventory.vowels.contains("か"));
         assert_eq!(inventory.vowel_by_phoneme.get("が"), Some(&"a".to_string()));
         assert!(inventory.consonants.contains("す"));
+        assert_eq!(
+            inventory.consonant_by_phoneme.get("か"),
+            Some(&"k".to_string())
+        );
         assert!(inventory.priority.contains("k"));
         assert!(inventory.priority.contains("っ"));
         assert!(inventory.no_crossfade.contains("k"));
