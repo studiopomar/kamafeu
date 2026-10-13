@@ -1617,12 +1617,12 @@ impl JapanesePhonemizer {
                 {
                     continue;
                 }
-                let Some(vowel) = Self::extract_vowel(&exp.lyric) else {
+                let Some(vowel) = extract_presamp_vowel(&exp.lyric, &presamp_inventory) else {
                     continue;
                 };
                 let mut candidates = expand_presamp_candidates(
                     &presamp_alias.ending1,
-                    vowel,
+                    &vowel,
                     "",
                     "R",
                     &exp.lyric,
@@ -1630,7 +1630,7 @@ impl JapanesePhonemizer {
                 );
                 candidates.extend(expand_presamp_candidates(
                     &presamp_alias.ending2,
-                    vowel,
+                    &vowel,
                     "",
                     "R",
                     &exp.lyric,
