@@ -1171,6 +1171,59 @@ impl JapanesePhonemizer {
             prev_note_end_ms = Some(exp.position_ms + exp.duration_ms);
         }
 
+        // Presamp's ending aliases are optional: only replace the final
+        // rendered phone when the configured ENDING1/ENDING2 alias exists in
+        // the voicebank. A missing tail recording must never invalidate an
+        // otherwise valid note.
+        if matches!(
+            mode,
+            PhonemizerMode::BasicCV | PhonemizerMode::VCV | PhonemizerMode::CVVC
+        ) {
+            for (idx, exp) in expanded.iter().enumerate() {
+                let Some(next) = expanded.get(idx + 1) else {
+                    continue;
+                };
+                if next.lyric != "R"
+                    || (next.position_ms - (exp.position_ms + exp.duration_ms)).abs() > 0.001
+                {
+                    continue;
+                }
+                let Some(vowel) = Self::extract_vowel(&exp.lyric) else {
+                    continue;
+                };
+                let mut candidates = expand_presamp_candidates(
+                    &presamp_alias.ending1,
+                    vowel,
+                    "",
+                    "R",
+                    &exp.lyric,
+                    &presamp_alias,
+                );
+                candidates.extend(expand_presamp_candidates(
+                    &presamp_alias.ending2,
+                    vowel,
+                    "",
+                    "R",
+                    &exp.lyric,
+                    &presamp_alias,
+                ));
+                let Some(phone_index) = phones
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, phone)| phone.note_index == exp.note_index)
+                    .max_by(|(_, left), (_, right)| left.position_ms.total_cmp(&right.position_ms))
+                    .map(|(phone_index, _)| phone_index)
+                else {
+                    continue;
+                };
+                if let Some(alias) =
+                    Self::find_oto_candidate(vb, &candidates, &phones[phone_index].pitch)
+                {
+                    phones[phone_index].lyric = alias;
+                }
+            }
+        }
+
         phones
     }
 }
@@ -1256,6 +1309,29 @@ mod tests {
             long_vowel_candidate("あー", &config),
             Some("あー".to_string())
         );
+    }
+
+    #[test]
+    fn ending_alias_is_used_only_when_the_voicebank_contains_it() {
+        let mut vb = build_test_voicebank();
+        vb.entries.insert(
+            "a R".to_string(),
+            OtoEntry::new(
+                "a-r.wav".to_string(),
+                "a R".to_string(),
+                0.0,
+                30.0,
+                5.0,
+                0.0,
+                0.0,
+            ),
+        );
+        let notes = vec![
+            UNote::new("か", "C4", 0.0, 300.0),
+            UNote::new("R", "C4", 300.0, 100.0),
+        ];
+        let phones = JapanesePhonemizer::apply_japanese(&notes, &vb, PhonemizerMode::VCV);
+        assert_eq!(phones.last().map(|phone| phone.lyric.as_str()), Some("a R"));
     }
 
     #[test]
