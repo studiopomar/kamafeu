@@ -580,6 +580,11 @@ fn presamp_core_lyric(lyric: &str, inventory: &PresampInventory) -> String {
         if let Some(right) = core.split_whitespace().last() {
             core = right.to_string();
         }
+    } else if let Some((_, right)) = core.rsplit_once('-') {
+        // Custom Presamp files commonly set VCPAD to `-`.
+        if !right.is_empty() {
+            core = right.to_string();
+        }
     }
     if let Some((left, right)) = core.rsplit_once('_') {
         if looks_like_pitch_suffix(right) {
@@ -1732,6 +1737,7 @@ mod tests {
         assert_eq!(presamp_core_lyric("かC#4", &inventory), "か");
         assert_eq!(presamp_core_lyric("a か", &inventory), "か");
         assert_eq!(presamp_core_lyric("a s", &inventory), "s");
+        assert_eq!(presamp_core_lyric("a-か", &inventory), "か");
         assert_eq!(presamp_core_lyric("a_か", &inventory), "か");
         assert!(inventory.priority.contains("k"));
         assert!(inventory.priority.contains("ky"));
