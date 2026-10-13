@@ -64,12 +64,6 @@ static VOWEL_TABLE: &[(&str, &[&str])] = &[
     // former and `N` for the latter.
     ("n", &["ん", "n"]),
     ("N", &["ン", "N"]),
-    (
-        "・",
-        &[
-            "・", "・あ", "・い", "・う", "・え", "・お", "・ん", "・を", "・ン",
-        ],
-    ),
 ];
 
 static CONSONANT_TABLE: &[(&str, &[&str])] = &[
@@ -287,7 +281,7 @@ static CONSONANT_TABLE: &[(&str, &[&str])] = &[
     (
         "・",
         &[
-            "・あ", "・い", "・う", "・え", "・お", "・ん", "・を", "・ン",
+            "・", "・あ", "・い", "・う", "・え", "・お", "・ん", "・を", "・ン",
         ],
     ),
 ];
@@ -378,6 +372,11 @@ impl JapanesePhonemizer {
     pub fn extract_vowel(lyric: &str) -> Option<&'static str> {
         let trimmed = lyric.trim();
         if trimmed.is_empty() {
+            return None;
+        }
+
+        // `・` is OpenUtau's glottal-stop marker, never a vowel nucleus.
+        if trimmed == "・" {
             return None;
         }
 
@@ -876,6 +875,12 @@ mod tests {
         assert_eq!(JapanesePhonemizer::extract_vowel("n"), Some("n"));
         assert_eq!(JapanesePhonemizer::extract_vowel("ン"), Some("N"));
         assert_eq!(JapanesePhonemizer::extract_vowel("N"), Some("N"));
+    }
+
+    #[test]
+    fn glottal_stop_is_not_used_as_a_vowel_transition() {
+        assert_eq!(JapanesePhonemizer::extract_vowel("・"), None);
+        assert_eq!(JapanesePhonemizer::extract_consonant("・"), Some("・"));
     }
 
     fn build_test_voicebank() -> Voicebank {
