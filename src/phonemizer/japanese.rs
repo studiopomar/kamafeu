@@ -430,9 +430,22 @@ fn parse_presamp_inventory(contents: &str) -> PresampInventory {
         }
         match section.to_ascii_uppercase().as_str() {
             "[VOWEL]" => {
-                inventory
-                    .vowels
-                    .extend(values.into_iter().map(str::to_owned));
+                // Presamp format: vowel=representative=phoneme1,phoneme2=volume.
+                // The representative and every listed phoneme are valid
+                // lyric symbols; the final volume field is intentionally
+                // ignored by the phonemizer.
+                inventory.vowels.insert((*first).to_string());
+                if let Some(representative) = fields.get(1).filter(|v| !v.is_empty()) {
+                    inventory.vowels.insert((*representative).to_string());
+                }
+                if let Some(list) = fields.get(2) {
+                    inventory.vowels.extend(
+                        list.split(',')
+                            .map(str::trim)
+                            .filter(|value| !value.is_empty())
+                            .map(str::to_owned),
+                    );
+                }
             }
             "[CONSONANT]" => {
                 inventory
@@ -1351,7 +1364,7 @@ mod tests {
     #[test]
     fn presamp_inventory_reads_vowels_consonants_and_priority() {
         let inventory = parse_presamp_inventory(
-            "[VOWEL]\na=あ,か,が\nn=ん\n[CONSONANT]\nk=か,く,け,こ=1=1\ns=さ,す,せ,そ=0\n[PRIORITY]\nk\nっ\n",
+            "[VOWEL]\na=あ=か,が=100\nn=ん=ん=100\n[CONSONANT]\nk=か,く,け,こ=1\ns=さ,す,せ,そ=0\n[PRIORITY]\nk\nっ\n",
         );
         assert!(inventory.vowels.contains("か"));
         assert!(inventory.consonants.contains("す"));
