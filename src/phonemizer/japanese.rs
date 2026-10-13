@@ -745,9 +745,19 @@ fn presamp_core_lyric(lyric: &str, inventory: &PresampInventory) -> String {
             }
         }
     }
-    let mut suffixes = inventory.alias_nums.iter().collect::<Vec<_>>();
-    suffixes.extend(inventory.alias_appends.iter());
-    suffixes.extend(inventory.alias_pitches.iter());
+    // Presamp.ParseAlias removes numeric suffixes, then appends, then pitch
+    // suffixes. HashSet iteration is deliberately unordered, so sort each
+    // category by descending length to avoid stripping a short token from a
+    // longer custom token first (for example `強` before `強い`).
+    let mut nums = inventory.alias_nums.iter().collect::<Vec<_>>();
+    nums.sort_by_key(|suffix| std::cmp::Reverse(suffix.len()));
+    let mut suffixes = nums;
+    let mut appends = inventory.alias_appends.iter().collect::<Vec<_>>();
+    appends.sort_by_key(|suffix| std::cmp::Reverse(suffix.len()));
+    suffixes.extend(appends);
+    let mut pitches = inventory.alias_pitches.iter().collect::<Vec<_>>();
+    pitches.sort_by_key(|suffix| std::cmp::Reverse(suffix.len()));
+    suffixes.extend(pitches);
     for suffix in suffixes {
         if let Some(base) = core.strip_suffix(suffix) {
             core = base.to_string();
@@ -2165,6 +2175,9 @@ mod tests {
             "[APPEND]\n強\n[NUM]\n1\n[PITCH]\nC4\n[SU]\n%num%%append%%pitch%\n",
         );
         assert_eq!(presamp_suffix_variants("か強1C4", &reordered), ["か1強C4"]);
+
+        let overlapping = parse_presamp_inventory("[APPEND]\n強\n強い\n");
+        assert_eq!(presamp_core_lyric("か強い", &overlapping), "か");
 
         let ordered = order_presamp_candidate_groups(
             &["CV".to_string(), "VCV".to_string()],
