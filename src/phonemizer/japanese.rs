@@ -389,6 +389,9 @@ struct PresampInventory {
     /// Presamp `[MUSTVC]`: force a VC even when the following alias already
     /// contains its own transition or the note is too short.
     must_vc: bool,
+    /// Presamp `[ENDFLAG]`: 0 disables ending conversion, 1 adds/uses the
+    /// ending alias, and 2 converts the final note when supported.
+    add_ending: u8,
 }
 
 impl Default for PresampInventory {
@@ -400,6 +403,7 @@ impl Default for PresampInventory {
             no_crossfade: HashSet::new(),
             vc_length_from_cv: true,
             must_vc: false,
+            add_ending: 1,
         }
     }
 }
@@ -468,6 +472,11 @@ fn parse_presamp_inventory(contents: &str) -> PresampInventory {
             "[MUSTVC]" => {
                 inventory.must_vc = *first == "1";
             }
+            "[ENDFLAG]" => {
+                if let Ok(flag) = first.parse::<u8>() {
+                    inventory.add_ending = flag.min(2);
+                }
+            }
             _ => {}
         }
     }
@@ -495,14 +504,25 @@ impl Default for PresampAliasConfig {
 
 fn parse_presamp_alias_config(contents: &str) -> PresampAliasConfig {
     let mut config = PresampAliasConfig::default();
-    let mut in_alias = false;
+    let mut section = "";
     for raw_line in contents.lines() {
         let line = raw_line.trim_end_matches('\r').trim();
         if line.starts_with('[') && line.ends_with(']') {
-            in_alias = line.eq_ignore_ascii_case("[ALIAS]");
+            section = line;
             continue;
         }
-        if !in_alias || line.is_empty() || line.starts_with(';') || line.starts_with('#') {
+        if line.is_empty() || line.starts_with(';') || line.starts_with('#') {
+            continue;
+        }
+        if section.eq_ignore_ascii_case("[ENDTYPE]") || section.eq_ignore_ascii_case("[ENDTYPE1]") {
+            config.ending1 = line.to_string();
+            continue;
+        }
+        if section.eq_ignore_ascii_case("[ENDTYPE2]") {
+            config.ending2 = line.to_string();
+            continue;
+        }
+        if !section.eq_ignore_ascii_case("[ALIAS]") {
             continue;
         }
         let Some((key, value)) = line.split_once('=') else {
@@ -1266,7 +1286,8 @@ impl JapanesePhonemizer {
         if matches!(
             mode,
             PhonemizerMode::BasicCV | PhonemizerMode::VCV | PhonemizerMode::CVVC
-        ) {
+        ) && presamp_inventory.add_ending != 0
+        {
             for (idx, exp) in expanded.iter().enumerate() {
                 let Some(next) = expanded.get(idx + 1) else {
                     continue;
@@ -1359,6 +1380,10 @@ mod tests {
             expand_presamp_alias(&config.vc, "a", "k", "か", "あ", &config),
             "a-k,k-k"
         );
+
+        let ending = parse_presamp_alias_config("[ENDTYPE]\na R\n[ENDTYPE2]\n-R\n");
+        assert_eq!(ending.ending1, "a R");
+        assert_eq!(ending.ending2, "-R");
     }
 
     #[test]
@@ -1378,6 +1403,9 @@ mod tests {
 
         let forced = parse_presamp_inventory("[MUSTVC]\n1\n");
         assert!(forced.must_vc);
+
+        let disabled = parse_presamp_inventory("[ENDFLAG]\n0\n");
+        assert_eq!(disabled.add_ending, 0);
     }
 
     #[test]
