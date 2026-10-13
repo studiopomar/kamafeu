@@ -59,7 +59,11 @@ static VOWEL_TABLE: &[(&str, &[&str])] = &[
             "hyu", "myu", "ryu", "gyu", "ju", "jyu", "byu", "pyu", "dyu", "vu", "u",
         ],
     ),
-    ("n", &["ん", "ン", "n", "N"]),
+    // OpenUtau deliberately keeps hiragana `ん` and katakana `ン` as
+    // different transition vowels.  CVVC banks commonly use `n` for the
+    // former and `N` for the latter.
+    ("n", &["ん", "n"]),
+    ("N", &["ン", "N"]),
     (
         "・",
         &[
@@ -864,6 +868,14 @@ mod tests {
         assert_eq!(JapanesePhonemizer::extract_vowel("ッ"), None);
         assert_eq!(JapanesePhonemizer::extract_consonant("っ"), Some("cl"));
         assert_eq!(JapanesePhonemizer::extract_vowel("っか"), Some("a"));
+    }
+
+    #[test]
+    fn japanese_mora_n_preserves_openutau_hiragana_katakana_aliases() {
+        assert_eq!(JapanesePhonemizer::extract_vowel("ん"), Some("n"));
+        assert_eq!(JapanesePhonemizer::extract_vowel("n"), Some("n"));
+        assert_eq!(JapanesePhonemizer::extract_vowel("ン"), Some("N"));
+        assert_eq!(JapanesePhonemizer::extract_vowel("N"), Some("N"));
     }
 
     fn build_test_voicebank() -> Voicebank {
