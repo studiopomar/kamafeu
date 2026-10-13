@@ -340,12 +340,18 @@ pub struct JapanesePhonemizer;
 /// applies these replacements to the lyric before VCV/CVVC classification,
 /// but never applies them to an explicit phonetic hint.
 fn parse_presamp_replacements(contents: &str) -> HashMap<String, String> {
+    parse_presamp_replacements_with_presence(contents).0
+}
+
+fn parse_presamp_replacements_with_presence(contents: &str) -> (HashMap<String, String>, bool) {
     let mut replacements = HashMap::new();
     let mut in_replace = false;
+    let mut has_replace_section = false;
     for raw_line in contents.lines() {
         let line = raw_line.trim();
         if line.starts_with('[') && line.ends_with(']') {
             in_replace = line.eq_ignore_ascii_case("[REPLACE]");
+            has_replace_section |= in_replace;
             continue;
         }
         if !in_replace || line.is_empty() || line.starts_with(';') || line.starts_with('#') {
@@ -360,7 +366,7 @@ fn parse_presamp_replacements(contents: &str) -> HashMap<String, String> {
             replacements.insert(from.to_string(), to.to_string());
         }
     }
-    replacements
+    (replacements, has_replace_section)
 }
 
 fn default_presamp_replacement(lyric: &str) -> Option<&'static str> {
@@ -783,16 +789,16 @@ fn parse_presamp_alias_config(contents: &str) -> PresampAliasConfig {
     config
 }
 
-fn load_presamp_replacements(root: &std::path::Path) -> HashMap<String, String> {
+fn load_presamp_replacements(root: &std::path::Path) -> (HashMap<String, String>, bool) {
     let path = root.join("presamp.ini");
     let Ok(bytes) = fs::read(path) else {
-        return HashMap::new();
+        return (HashMap::new(), false);
     };
     let text = String::from_utf8(bytes.clone()).unwrap_or_else(|_| {
         let (decoded, _, _) = encoding_rs::SHIFT_JIS.decode(&bytes);
         decoded.into_owned()
     });
-    parse_presamp_replacements(&text)
+    parse_presamp_replacements_with_presence(&text)
 }
 
 fn load_presamp_alias_config(root: &std::path::Path) -> PresampAliasConfig {
@@ -1055,7 +1061,8 @@ impl JapanesePhonemizer {
         }
 
         let mut expanded: Vec<NoteRef> = Vec::new();
-        let presamp_replacements = load_presamp_replacements(&vb.root_path);
+        let (presamp_replacements, has_presamp_replace_section) =
+            load_presamp_replacements(&vb.root_path);
         let presamp_alias = load_presamp_alias_config(&vb.root_path);
         let presamp_inventory = load_presamp_inventory(&vb.root_path);
         for (note_index, note) in notes.iter().enumerate() {
@@ -1074,7 +1081,7 @@ impl JapanesePhonemizer {
                     .get(raw_lyric)
                     .map(String::as_str)
                     .or_else(|| {
-                        if presamp_replacements.is_empty() {
+                        if !has_presamp_replace_section {
                             default_presamp_replacement(raw_lyric)
                         } else {
                             None
@@ -1784,6 +1791,17 @@ mod tests {
         assert_eq!(replacements.get("ka"), Some(&"か".to_string()));
         assert_eq!(replacements.get("っ"), Some(&"cl".to_string()));
         assert!(!replacements.contains_key("k"));
+    }
+
+    #[test]
+    fn presamp_empty_replace_section_disables_defaults() {
+        let (replacements, has_section) =
+            parse_presamp_replacements_with_presence("[REPLACE]\n[ALIAS]\nVC=a k\n");
+        assert!(has_section);
+        assert!(replacements.is_empty());
+
+        let (_, absent_section) = parse_presamp_replacements_with_presence("[ALIAS]\nVC=a k\n");
+        assert!(!absent_section);
     }
 
     #[test]
