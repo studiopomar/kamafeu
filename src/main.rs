@@ -2531,6 +2531,20 @@ fn render_project_to_file(
     let voicebank = Voicebank::new(voicebank_path)?;
     let mut project = load_project(input)?;
     project.normalize();
+    if project.imported_phoneme_policy
+        == kamafeu::project::model::ImportedPhonemePolicy::Recalculate
+    {
+        eprintln!(
+            "[Import][Phonemes] source={} policy=recalculate",
+            input.display()
+        );
+        project.recalculate_imported_phonemes();
+    } else {
+        eprintln!(
+            "[Import][Phonemes] source={} policy=preserve",
+            input.display()
+        );
+    }
     if vocal_only {
         project.wave_parts.clear();
     }
