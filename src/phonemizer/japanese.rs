@@ -399,6 +399,8 @@ struct PresampInventory {
     /// Presamp `[ENDFLAG]`: 0 disables ending conversion, 1 adds/uses the
     /// ending alias, and 2 converts the final note when supported.
     add_ending: u8,
+    /// Presamp `[SPLIT]` controls comma/semicolon lyric expansion.
+    split: bool,
 }
 
 impl Default for PresampInventory {
@@ -434,6 +436,7 @@ impl Default for PresampInventory {
             vc_length_from_cv: true,
             must_vc: false,
             add_ending: 1,
+            split: true,
         }
     }
 }
@@ -535,6 +538,9 @@ fn parse_presamp_inventory(contents: &str) -> PresampInventory {
                 if let Ok(flag) = first.parse::<u8>() {
                     inventory.add_ending = flag.min(2);
                 }
+            }
+            "[SPLIT]" => {
+                inventory.split = *first != "0";
             }
             "[NUM]" => {
                 inventory.alias_nums.insert((*first).to_string());
@@ -931,7 +937,7 @@ impl JapanesePhonemizer {
             } else {
                 raw_lyric
             };
-            if raw_lyric.contains(';') || raw_lyric.contains(',') {
+            if presamp_inventory.split && (raw_lyric.contains(';') || raw_lyric.contains(',')) {
                 let parts: Vec<&str> = raw_lyric
                     .split(|c| c == ';' || c == ',')
                     .map(str::trim)
@@ -1665,6 +1671,9 @@ mod tests {
 
         let disabled = parse_presamp_inventory("[ENDFLAG]\n0\n");
         assert_eq!(disabled.add_ending, 0);
+
+        let no_split = parse_presamp_inventory("[SPLIT]\n0\n");
+        assert!(!no_split.split);
     }
 
     #[test]
