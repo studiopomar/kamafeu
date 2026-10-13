@@ -1410,6 +1410,36 @@ impl JapanesePhonemizer {
                 }
             }
 
+            // The legacy Japanese VCV/CV phonemizers treat an explicit
+            // phonetic hint as an already-resolved alias. Do not prepend a
+            // phrase vowel or replace it with a beginning-CV candidate.
+            if note.phonetic_hint.is_some()
+                && matches!(mode, PhonemizerMode::BasicCV | PhonemizerMode::VCV)
+            {
+                let alias = Self::find_oto_candidate_for_note(
+                    vb,
+                    std::slice::from_ref(&exp.lyric),
+                    note,
+                    0,
+                )
+                .unwrap_or_else(|| exp.lyric.to_string());
+                phones.push(RenderPhone {
+                    note_index,
+                    lyric: alias,
+                    pitch: note.pitch.clone(),
+                    position_ms: exp.position_ms,
+                    duration_ms: exp.duration_ms,
+                    envelope: note.envelope.clone(),
+                    expressions: note.expressions.clone(),
+                    pitch_bend: note.pitch_bend.clone(),
+                    vibrato: note.vibrato.clone(),
+                    flags: note.flags.clone(),
+                });
+                prev_vowel = cur_vowel;
+                prev_note_end_ms = Some(exp.position_ms + exp.duration_ms);
+                continue;
+            }
+
             match mode {
                 PhonemizerMode::BasicCV => {
                     // Match OpenUtau's legacy Japanese VCV search contract.
