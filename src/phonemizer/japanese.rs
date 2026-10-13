@@ -1474,8 +1474,12 @@ impl JapanesePhonemizer {
                     // Treating every known consonant as a "plain vowel" made
                     // the renderer search for V-V aliases (for example
                     // `a k`) instead of the required CV alias (`ka`).
-                    let is_plain_vowel = PLAIN_VOWELS.contains(&current_core.as_str())
-                        || presamp_inventory.vowels.contains(&current_core);
+                    // JapaneseCVVCPhonemizer's `plainVowels` contains only
+                    // standalone vowel lyrics. Presamp's [VOWEL] table also
+                    // lists CV syllables such as `か` and `さ`; using that
+                    // inventory as a plain-vowel test misclassifies almost
+                    // every consonant note and skips the CVVC path.
+                    let is_plain_vowel = PLAIN_VOWELS.contains(&current_core.as_str());
                     let is_priority = presamp_inventory.priority.contains(&current_core);
                     let mut current_lyric = exp.lyric.to_string();
 
@@ -1658,8 +1662,7 @@ impl JapanesePhonemizer {
                             next_exp.lyric.contains(&presamp_alias.vcvpad)
                                 || next_exp.lyric.contains(&presamp_alias.vcpad);
                         let next_core = presamp_core_lyric(&next_exp.lyric, &presamp_inventory);
-                        let next_is_plain_vowel = PLAIN_VOWELS.contains(&next_core.as_str())
-                            || presamp_inventory.vowels.contains(&next_core);
+                        let next_is_plain_vowel = PLAIN_VOWELS.contains(&next_core.as_str());
                         let short_note_without_forced_vc =
                             total_phrase_duration_ms < 100.0 && !presamp_inventory.must_vc;
 
