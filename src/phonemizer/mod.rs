@@ -1704,6 +1704,15 @@ mod tests {
         );
         assert_eq!(phones[1].resolved_timbre.as_deref(), Some("Soft"));
         assert_eq!(vb.prefix_map.selected_color(), "");
+
+        // Repeated per-note timbre resolution must not leak the temporary
+        // color into the shared PrefixMap state.
+        notes[0].timbre = Some("Soft".to_string());
+        notes[1].timbre = None;
+        let swapped = JapanesePhonemizer::apply_phonemizer(&notes, &vb, PhonemizerMode::VCV);
+        assert_eq!(swapped[0].resolved_timbre.as_deref(), Some("Soft"));
+        assert_eq!(swapped[1].resolved_timbre, None);
+        assert_eq!(vb.prefix_map.selected_color(), "");
         // Existing projects without the new field still inherit the default.
         let legacy: UNote =
             serde_json::from_str(r#"{"lyric":"a","pitch":"C4","position_ms":0,"duration_ms":400}"#)
