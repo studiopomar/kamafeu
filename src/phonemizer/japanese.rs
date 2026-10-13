@@ -402,6 +402,8 @@ struct PresampInventory {
     add_ending: u8,
     /// Presamp `[SPLIT]` controls comma/semicolon lyric expansion.
     split: bool,
+    /// Presamp `[CFLAGS]` applied to generated phrase-head consonants.
+    cflags: String,
 }
 
 impl Default for PresampInventory {
@@ -438,6 +440,7 @@ impl Default for PresampInventory {
             must_vc: false,
             add_ending: 1,
             split: true,
+            cflags: "p0".to_string(),
         }
     }
 }
@@ -463,6 +466,7 @@ fn parse_presamp_inventory(contents: &str) -> PresampInventory {
                 "[NUM]" => inventory.alias_nums.clear(),
                 "[APPEND]" => inventory.alias_appends.clear(),
                 "[PITCH]" => inventory.alias_pitches.clear(),
+                "[CFLAGS]" => inventory.cflags.clear(),
                 _ => {}
             }
             continue;
@@ -548,6 +552,9 @@ fn parse_presamp_inventory(contents: &str) -> PresampInventory {
             }
             "[SPLIT]" => {
                 inventory.split = *first != "0";
+            }
+            "[CFLAGS]" => {
+                inventory.cflags = (*first).to_string();
             }
             "[NUM]" => {
                 if !first.starts_with('@') || !first.ends_with('@') {
@@ -1782,6 +1789,7 @@ mod tests {
         assert!(inventory.priority.contains("っ"));
         assert!(inventory.no_crossfade.contains("k"));
         assert!(inventory.vc_length_from_cv);
+        assert_eq!(inventory.cflags, "p0");
 
         let fixed = parse_presamp_inventory("[VCLENGTH]\n1\n");
         assert!(!fixed.vc_length_from_cv);
@@ -1801,6 +1809,9 @@ mod tests {
 
         let no_split = parse_presamp_inventory("[SPLIT]\n0\n");
         assert!(!no_split.split);
+
+        let custom_flags = parse_presamp_inventory("[CFLAGS]\nY99\n");
+        assert_eq!(custom_flags.cflags, "Y99");
     }
 
     #[test]
