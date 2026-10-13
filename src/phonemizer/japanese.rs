@@ -1097,6 +1097,16 @@ impl JapanesePhonemizer {
                             {
                                 vcv_cands.insert(0, long_alias);
                             }
+                            vcv_cands.extend(expand_presamp_candidates(
+                                &presamp_alias.cross_cv,
+                                pv,
+                                extract_presamp_consonant(&exp.lyric, &presamp_inventory)
+                                    .as_deref()
+                                    .unwrap_or(""),
+                                &exp.lyric,
+                                &exp.lyric,
+                                &presamp_alias,
+                            ));
                             vcv_cands.extend([
                                 format!("{}_{}", pv, exp.lyric),
                                 format!("{}{}", pv, exp.lyric),
@@ -1223,10 +1233,20 @@ impl JapanesePhonemizer {
                         // sounds like a stuck or doubled consonant in hybrid
                         // banks. Match OpenUtau's Japanese CVVC contract: use
                         // the continuous-form CV alias first, then plain CV.
-                        let cv_cands = vec![
+                        let mut cv_cands = expand_presamp_candidates(
+                            &presamp_alias.cross_cv,
+                            prev_vowel.as_deref().unwrap_or(""),
+                            extract_presamp_consonant(&exp.lyric, &presamp_inventory)
+                                .as_deref()
+                                .unwrap_or(""),
+                            &exp.lyric,
+                            &exp.lyric,
+                            &presamp_alias,
+                        );
+                        cv_cands.extend([
                             presamp_join("*", &presamp_alias.vcvpad, &exp.lyric),
                             exp.lyric.to_string(),
-                        ];
+                        ]);
                         if let Some(found) = Self::find_oto_candidate(vb, &cv_cands, &note.pitch) {
                             current_lyric = found;
                         }
