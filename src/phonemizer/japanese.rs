@@ -978,6 +978,81 @@ fn order_presamp_candidate_groups(
     ordered
 }
 
+fn presamp_suffix_variants(lyric: &str, inventory: &PresampInventory) -> Vec<String> {
+    let core = presamp_core_lyric(lyric, inventory);
+    let Some(tail) = lyric.strip_prefix(&core) else {
+        return Vec::new();
+    };
+    if tail.is_empty() || inventory.suffix_order.is_empty() {
+        return Vec::new();
+    }
+
+    let mut parts: Vec<(String, &'static str)> = Vec::new();
+    let mut remainder = tail;
+    while !remainder.is_empty() {
+        let mut found = None;
+        for suffix in &inventory.alias_nums {
+            if remainder.starts_with(suffix) {
+                found = Some((suffix.clone(), "%num%"));
+                break;
+            }
+        }
+        if found.is_none() {
+            for suffix in &inventory.alias_appends {
+                if remainder.starts_with(suffix) {
+                    found = Some((suffix.clone(), "%append%"));
+                    break;
+                }
+            }
+        }
+        if found.is_none() {
+            for suffix in &inventory.alias_pitches {
+                if remainder.starts_with(suffix) {
+                    found = Some((suffix.clone(), "%pitch%"));
+                    break;
+                }
+            }
+        }
+        let Some((value, kind)) = found else {
+            return Vec::new();
+        };
+        remainder = &remainder[value.len()..];
+        parts.push((value, kind));
+    }
+
+    let reordered: String = inventory
+        .suffix_order
+        .iter()
+        .flat_map(|kind| {
+            parts
+                .iter()
+                .filter(move |(_, part_kind)| part_kind == kind)
+                .map(|(value, _)| value.as_str())
+        })
+        .collect();
+    let original: String = parts.iter().map(|(value, _)| value.as_str()).collect();
+    if reordered == original {
+        Vec::new()
+    } else {
+        vec![format!("{core}{reordered}")]
+    }
+}
+
+fn add_presamp_suffix_variants(
+    candidates: &mut Vec<String>,
+    lyric: &str,
+    inventory: &PresampInventory,
+) {
+    for variant in presamp_suffix_variants(lyric, inventory) {
+        let snapshot = candidates.clone();
+        for candidate in snapshot {
+            if candidate.contains(lyric) {
+                candidates.push(candidate.replace(lyric, &variant));
+            }
+        }
+    }
+}
+
 fn long_vowel_candidate(lyric: &str, config: &PresampAliasConfig) -> Option<String> {
     let stem = lyric.strip_suffix('ー')?.trim();
     if stem.is_empty() {
@@ -1427,6 +1502,12 @@ impl JapanesePhonemizer {
                                     ("CROSS_CV", cross_group),
                                     ("CV", cv_group),
                                 ],
+                            );
+                            let mut vcv_cands = vcv_cands;
+                            add_presamp_suffix_variants(
+                                &mut vcv_cands,
+                                &exp.lyric,
+                                &presamp_inventory,
                             );
                             if let Some(found) =
                                 Self::find_oto_candidate_for_note(vb, &vcv_cands, note, 0)
@@ -2060,6 +2141,12 @@ mod tests {
             custom_suffix_rules.suffix_order,
             ["%append%", "%num%", "%pitch%"]
         );
+        assert!(presamp_suffix_variants("か強1C4", &custom_suffix_rules).is_empty());
+
+        let reordered = parse_presamp_inventory(
+            "[APPEND]\n強\n[NUM]\n1\n[PITCH]\nC4\n[SU]\n%num%%append%%pitch%\n",
+        );
+        assert_eq!(presamp_suffix_variants("か強1C4", &reordered), ["か1強C4"]);
 
         let ordered = order_presamp_candidate_groups(
             &["CV".to_string(), "VCV".to_string()],
