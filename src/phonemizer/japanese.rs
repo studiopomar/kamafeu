@@ -560,6 +560,15 @@ fn parse_presamp_inventory(contents: &str) -> PresampInventory {
 
 fn presamp_core_lyric(lyric: &str, inventory: &PresampInventory) -> String {
     let mut core = lyric.trim().to_string();
+    // Presamp's default VCPAD/VCVPAD is a space. ParseAlias therefore
+    // classifies the phoneme after the pad (`a か`, `a s`, `- か`) rather
+    // than the complete transition alias. This is also required for direct
+    // VCV/CVVC specifications entered as a phonetic lyric.
+    if core.chars().any(char::is_whitespace) {
+        if let Some(right) = core.split_whitespace().last() {
+            core = right.to_string();
+        }
+    }
     if let Some((left, right)) = core.rsplit_once('_') {
         if looks_like_pitch_suffix(right) {
             core = left.to_string();
@@ -1674,6 +1683,8 @@ mod tests {
         assert_eq!(presamp_core_lyric("か_C4", &inventory), "か");
         assert_eq!(presamp_core_lyric("かC4", &inventory), "か");
         assert_eq!(presamp_core_lyric("かC#4", &inventory), "か");
+        assert_eq!(presamp_core_lyric("a か", &inventory), "か");
+        assert_eq!(presamp_core_lyric("a s", &inventory), "s");
         assert_eq!(presamp_core_lyric("a_か", &inventory), "か");
         assert!(inventory.priority.contains("k"));
         assert!(inventory.priority.contains("っ"));
