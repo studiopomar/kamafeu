@@ -752,6 +752,7 @@ fn expand_presamp_alias(
     config: &PresampAliasConfig,
 ) -> String {
     template
+        .replace("%CVPAD%", &config.vcpad)
         .replace("%VCVPAD%", &config.vcvpad)
         .replace("%VCPAD%", &config.vcpad)
         .replace("%vcpad%", &config.vcpad)
@@ -1694,6 +1695,10 @@ mod tests {
         );
         assert_eq!(presamp_join("a", &config.vcpad, "k"), "a-k");
         assert_eq!(presamp_join("a", &config.vcvpad, "か"), "a_か");
+        assert_eq!(
+            expand_presamp_alias("%v%%CVPAD%%CV%", "a", "k", "か", "あ", &config),
+            "a-か"
+        );
         assert_eq!(
             expand_presamp_alias(&config.vc, "a", "k", "か", "あ", &config),
             "a-k,k-k"
