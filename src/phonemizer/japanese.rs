@@ -778,6 +778,15 @@ fn extract_presamp_vowel(lyric: &str, inventory: &PresampInventory) -> Option<St
     if let Some(vowel) = inventory.vowel_by_phoneme.get(trimmed) {
         return Some(vowel.clone());
     }
+    // Presamp/OpenUtau completes an unmapped compound kana from its final
+    // mora (for example きゃ -> ゃ). This matters for custom [VOWEL] tables
+    // that list the small kana but omit every compound spelling.
+    if let Some(last) = trimmed.chars().last() {
+        let last = last.to_string();
+        if let Some(vowel) = inventory.vowel_by_phoneme.get(&last) {
+            return Some(vowel.clone());
+        }
+    }
     JapanesePhonemizer::extract_vowel(trimmed).map(str::to_owned)
 }
 
@@ -786,6 +795,12 @@ fn extract_presamp_consonant(lyric: &str, inventory: &PresampInventory) -> Optio
     let trimmed = core.trim();
     if let Some(consonant) = inventory.consonant_by_phoneme.get(trimmed) {
         return Some(consonant.clone());
+    }
+    if let Some(last) = trimmed.chars().last() {
+        let last = last.to_string();
+        if let Some(consonant) = inventory.consonant_by_phoneme.get(&last) {
+            return Some(consonant.clone());
+        }
     }
     JapanesePhonemizer::extract_consonant(trimmed).map(str::to_owned)
 }
@@ -2229,6 +2244,12 @@ mod tests {
 
         let no_split = parse_presamp_inventory("[SPLIT]\n0\n");
         assert!(!no_split.split);
+
+        let compound_completion = parse_presamp_inventory("[VOWEL]\na=あ=ゃ\n");
+        assert_eq!(
+            extract_presamp_vowel("きゃ", &compound_completion),
+            Some("a".to_string())
+        );
 
         let custom_flags = parse_presamp_inventory("[CFLAGS]\nY99\n");
         assert_eq!(custom_flags.cflags, "Y99");
