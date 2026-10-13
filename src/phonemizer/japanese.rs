@@ -362,6 +362,46 @@ fn parse_presamp_replacements(contents: &str) -> HashMap<String, String> {
     replacements
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct PresampAliasConfig {
+    vcpad: String,
+    vcvpad: String,
+}
+
+impl Default for PresampAliasConfig {
+    fn default() -> Self {
+        // These are the defaults documented by Presamp/OpenUtau.
+        Self {
+            vcpad: " ".to_string(),
+            vcvpad: " ".to_string(),
+        }
+    }
+}
+
+fn parse_presamp_alias_config(contents: &str) -> PresampAliasConfig {
+    let mut config = PresampAliasConfig::default();
+    let mut in_alias = false;
+    for raw_line in contents.lines() {
+        let line = raw_line.trim_end_matches('\r').trim();
+        if line.starts_with('[') && line.ends_with(']') {
+            in_alias = line.eq_ignore_ascii_case("[ALIAS]");
+            continue;
+        }
+        if !in_alias || line.is_empty() || line.starts_with(';') || line.starts_with('#') {
+            continue;
+        }
+        let Some((key, value)) = line.split_once('=') else {
+            continue;
+        };
+        match key.trim().to_ascii_uppercase().as_str() {
+            "VCPAD" => config.vcpad = value.to_string(),
+            "VCVPAD" => config.vcvpad = value.to_string(),
+            _ => {}
+        }
+    }
+    config
+}
+
 fn load_presamp_replacements(root: &std::path::Path) -> HashMap<String, String> {
     let path = root.join("presamp.ini");
     let Ok(bytes) = fs::read(path) else {
@@ -372,6 +412,22 @@ fn load_presamp_replacements(root: &std::path::Path) -> HashMap<String, String> 
         decoded.into_owned()
     });
     parse_presamp_replacements(&text)
+}
+
+fn load_presamp_alias_config(root: &std::path::Path) -> PresampAliasConfig {
+    let path = root.join("presamp.ini");
+    let Ok(bytes) = fs::read(path) else {
+        return PresampAliasConfig::default();
+    };
+    let text = String::from_utf8(bytes.clone()).unwrap_or_else(|_| {
+        let (decoded, _, _) = encoding_rs::SHIFT_JIS.decode(&bytes);
+        decoded.into_owned()
+    });
+    parse_presamp_alias_config(&text)
+}
+
+fn presamp_join(left: &str, pad: &str, right: &str) -> String {
+    format!("{left}{pad}{right}")
 }
 
 /// Converts a note lyric written as a Japanese VCV alias to its CV lyric.
@@ -527,6 +583,7 @@ impl JapanesePhonemizer {
 
         let mut expanded: Vec<NoteRef> = Vec::new();
         let presamp_replacements = load_presamp_replacements(&vb.root_path);
+        let presamp_alias = load_presamp_alias_config(&vb.root_path);
         for (note_index, note) in notes.iter().enumerate() {
             // OpenUtau resolves a phonetic hint before applying VCV/CVVC
             // rules.  The visible lyric remains untouched in the project,
@@ -618,12 +675,16 @@ impl JapanesePhonemizer {
             if mode == PhonemizerMode::CVVC && (exp.lyric == "っ" || exp.lyric == "ッ") {
                 let mut sokuon_candidates = Vec::new();
                 if let Some(vowel) = prev_vowel {
-                    sokuon_candidates.push(format!("{} っ", vowel));
-                    sokuon_candidates.push(format!("{} cl", vowel));
+                    sokuon_candidates.push(presamp_join(vowel, &presamp_alias.vcpad, "っ"));
+                    sokuon_candidates.push(presamp_join(vowel, &presamp_alias.vcpad, "cl"));
                     if let Some(next_exp) = expanded.get(idx + 1) {
                         if let Some(consonant) = Self::extract_consonant(&next_exp.lyric) {
                             if consonant != "cl" {
-                                sokuon_candidates.push(format!("{} {}", vowel, consonant));
+                                sokuon_candidates.push(presamp_join(
+                                    vowel,
+                                    &presamp_alias.vcpad,
+                                    consonant,
+                                ));
                             }
                         }
                     }
@@ -655,7 +716,7 @@ impl JapanesePhonemizer {
                     let mut alias = exp.lyric.to_string();
                     if is_phrase_start {
                         let head_cands = vec![
-                            format!("- {}", exp.lyric),
+                            presamp_join("-", &presamp_alias.vcvpad, &exp.lyric),
                             format!("-{}", exp.lyric),
                             exp.lyric.to_string(),
                         ];
@@ -669,7 +730,7 @@ impl JapanesePhonemizer {
                         // CV lookup as the fallback for standard CV banks.
                         let mut candidates = vec![alias.clone()];
                         if let (Some(pv), Some(cv)) = (prev_vowel, cur_vowel) {
-                            candidates.insert(0, format!("{} {}", pv, cv));
+                            candidates.insert(0, presamp_join(pv, &presamp_alias.vcvpad, cv));
                             candidates.insert(1, format!("{}{}", pv, cv));
                             candidates.insert(2, format!("{}_{}", pv, cv));
                         }
@@ -698,10 +759,10 @@ impl JapanesePhonemizer {
                     if !is_phrase_start {
                         if let Some(pv) = prev_vowel {
                             let vcv_cands = vec![
-                                format!("{} {}", pv, exp.lyric),
+                                presamp_join(pv, &presamp_alias.vcvpad, &exp.lyric),
                                 format!("{}_{}", pv, exp.lyric),
                                 format!("{}{}", pv, exp.lyric),
-                                format!("* {}", exp.lyric),
+                                presamp_join("*", &presamp_alias.vcvpad, &exp.lyric),
                                 exp.lyric.to_string(),
                             ];
                             if let Some(found) =
@@ -714,7 +775,7 @@ impl JapanesePhonemizer {
 
                     if alias == exp.lyric {
                         let head_cands = vec![
-                            format!("- {}", exp.lyric),
+                            presamp_join("-", &presamp_alias.vcvpad, &exp.lyric),
                             format!("-{}", exp.lyric),
                             exp.lyric.to_string(),
                         ];
@@ -748,7 +809,7 @@ impl JapanesePhonemizer {
 
                     if is_phrase_start {
                         let initial_cands = vec![
-                            format!("- {}", exp.lyric),
+                            presamp_join("-", &presamp_alias.vcvpad, &exp.lyric),
                             format!("-{}", exp.lyric),
                             exp.lyric.to_string(),
                         ];
@@ -760,8 +821,8 @@ impl JapanesePhonemizer {
                     } else if is_plain_vowel {
                         if let Some(pv) = prev_vowel {
                             let vow_cands = vec![
-                                format!("{} {}", pv, exp.lyric),
-                                format!("* {}", exp.lyric),
+                                presamp_join(pv, &presamp_alias.vcvpad, &exp.lyric),
+                                presamp_join("*", &presamp_alias.vcvpad, &exp.lyric),
                                 format!("_{}", exp.lyric),
                                 exp.lyric.to_string(),
                             ];
@@ -778,7 +839,10 @@ impl JapanesePhonemizer {
                         // sounds like a stuck or doubled consonant in hybrid
                         // banks. Match OpenUtau's Japanese CVVC contract: use
                         // the continuous-form CV alias first, then plain CV.
-                        let cv_cands = vec![format!("* {}", exp.lyric), exp.lyric.to_string()];
+                        let cv_cands = vec![
+                            presamp_join("*", &presamp_alias.vcvpad, &exp.lyric),
+                            exp.lyric.to_string(),
+                        ];
                         if let Some(found) = Self::find_oto_candidate(vb, &cv_cands, &note.pitch) {
                             current_lyric = found;
                         }
@@ -796,13 +860,17 @@ impl JapanesePhonemizer {
                                 (cur_vowel, Self::extract_consonant(&next_exp.lyric))
                             {
                                 let mut vc_candidates = vec![
-                                    format!("{} {}", vow, con),
+                                    presamp_join(vow, &presamp_alias.vcpad, con),
                                     format!("{}{}", vow, con),
                                     format!("{}_{}", vow, con),
                                 ];
 
                                 if let Some(&sub_con) = SUBSTITUTE_LOOKUP.get(con) {
-                                    vc_candidates.push(format!("{} {}", vow, sub_con));
+                                    vc_candidates.push(presamp_join(
+                                        vow,
+                                        &presamp_alias.vcpad,
+                                        sub_con,
+                                    ));
                                     vc_candidates.push(format!("{}{}", vow, sub_con));
                                 }
 
@@ -925,6 +993,20 @@ mod tests {
         assert_eq!(replacements.get("ka"), Some(&"か".to_string()));
         assert_eq!(replacements.get("っ"), Some(&"cl".to_string()));
         assert!(!replacements.contains_key("k"));
+    }
+
+    #[test]
+    fn presamp_alias_section_overrides_default_padding() {
+        let config = parse_presamp_alias_config("[ALIAS]\nVCPAD=-\nVCVPAD=_\n[REPLACE]\nka=か\n");
+        assert_eq!(
+            config,
+            PresampAliasConfig {
+                vcpad: "-".to_string(),
+                vcvpad: "_".to_string(),
+            }
+        );
+        assert_eq!(presamp_join("a", &config.vcpad, "k"), "a-k");
+        assert_eq!(presamp_join("a", &config.vcvpad, "か"), "a_か");
     }
 
     #[test]
