@@ -1315,13 +1315,16 @@ impl JapanesePhonemizer {
                         let next_already_has_transition =
                             next_exp.lyric.contains(&presamp_alias.vcvpad)
                                 || next_exp.lyric.contains(&presamp_alias.vcpad);
+                        let next_core = presamp_core_lyric(&next_exp.lyric, &presamp_inventory);
+                        let next_is_plain_vowel = PLAIN_VOWELS.contains(&next_core.as_str())
+                            || presamp_inventory.vowels.contains(&next_core);
                         let short_note_without_forced_vc =
                             total_phrase_duration_ms < 100.0 && !presamp_inventory.must_vc;
 
                         if is_next_adjacent
                             && !short_note_without_forced_vc
                             && !next_already_has_transition
-                            && !PLAIN_VOWELS.contains(&next_exp.lyric.as_str())
+                            && !next_is_plain_vowel
                         {
                             if let (Some(vow), Some(con)) = (
                                 cur_vowel.as_deref(),
