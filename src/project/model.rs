@@ -1413,4 +1413,31 @@ mod project_tests {
         assert_eq!(note.envelope, env_snapshot);
         assert_eq!(note.pitch_bend.points.len(), 2);
     }
+
+    #[test]
+    fn imported_phoneme_policy_defaults_to_preserve_and_recalculate_is_explicit() {
+        let mut project = UProject::default();
+        project.parts.push(UVoicePart::new("Imported", 0));
+        project.parts[0]
+            .notes
+            .push(UNote::new("ka", "C4", 0.0, 400.0));
+        let note = &mut project.parts[0].notes[0];
+        note.phonetic_hint = Some("a k".to_string());
+        note.phoneme_durations_ms = vec![80.0, 320.0];
+        note.phoneme_overrides.push(UPhonemeOverride {
+            index: 0,
+            phoneme: Some("a".to_string()),
+            ..UPhonemeOverride::default()
+        });
+        assert_eq!(
+            project.imported_phoneme_policy,
+            ImportedPhonemePolicy::Preserve
+        );
+
+        project.recalculate_imported_phonemes();
+        let note = &project.parts[0].notes[0];
+        assert!(note.phonetic_hint.is_none());
+        assert!(note.phoneme_durations_ms.is_empty());
+        assert!(note.phoneme_overrides.is_empty());
+    }
 }
