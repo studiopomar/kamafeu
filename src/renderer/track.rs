@@ -595,6 +595,7 @@ impl TrackRenderer {
                 cutoff_ms,
                 volume: phone.expressions.volume,
                 modulation: phone.expressions.modulation,
+                normalization: phone.expressions.presamp_normalization,
                 tempo: tempo_bpm,
                 pitch_bend_str: pitch_bend_encoded,
                 pitch_points: combined_pitch,

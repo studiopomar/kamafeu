@@ -1156,6 +1156,9 @@ pub(super) fn draw(
                                 cutoff_ms: 0.0,
                                 volume,
                                 modulation,
+                                normalization: notes[target_idx]
+                                    .expressions
+                                    .presamp_normalization,
                                 tempo: 120.0,
                                 pitch_bend_str: String::new(),
                                 pitch_points: notes[target_idx].pitch_bend.points.clone(),

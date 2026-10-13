@@ -169,6 +169,11 @@ pub struct UExpressions {
     /// It is an internal phonemizer decision, not an UTAU resampler flag.
     #[serde(default)]
     pub presamp_no_crossfade: bool,
+    /// OpenUtau's per-phoneme NORM expression. `None` preserves the
+    /// renderer's native behavior; Presamp may set it for generated pre-C
+    /// consonants through `[CFLAGS]`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub presamp_normalization: Option<f64>,
     /// Absolute legacy UST values. Kept separate from editable deltas so an
     /// imported project reproduces its original timing against any oto.ini entry.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -212,6 +217,7 @@ impl Default for UExpressions {
             preutter_offset_ms: 0.0,
             overlap_offset_ms: 0.0,
             presamp_no_crossfade: false,
+            presamp_normalization: None,
             preutter_override_ms: None,
             overlap_override_ms: None,
             start_point_ms: None,

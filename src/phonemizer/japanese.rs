@@ -1903,6 +1903,10 @@ impl JapanesePhonemizer {
                         let main_duration = (exp.duration_ms - vc_len - pre_c_len).max(10.0);
                         if let Some((pre_c_alias, _)) = pre_c_to_insert {
                             if pre_c_len > 0.0 {
+                                let mut pre_c_expressions = note.expressions.clone();
+                                if presamp_inventory.cflags.trim() == "p0" {
+                                    pre_c_expressions.presamp_normalization = Some(0.0);
+                                }
                                 phones.push(RenderPhone {
                                     note_index,
                                     lyric: pre_c_alias,
@@ -1910,7 +1914,7 @@ impl JapanesePhonemizer {
                                     position_ms: exp.position_ms,
                                     duration_ms: pre_c_len,
                                     envelope: note.envelope.clone(),
-                                    expressions: note.expressions.clone(),
+                                    expressions: pre_c_expressions,
                                     pitch_bend: note.pitch_bend.clone(),
                                     vibrato: note.vibrato.clone(),
                                     flags: note.flags.clone(),
@@ -1953,6 +1957,10 @@ impl JapanesePhonemizer {
                         let main_duration = (exp.duration_ms - pre_c_len).max(10.0);
                         if let Some((pre_c_alias, _)) = pre_c_to_insert {
                             if pre_c_len > 0.0 {
+                                let mut pre_c_expressions = note.expressions.clone();
+                                if presamp_inventory.cflags.trim() == "p0" {
+                                    pre_c_expressions.presamp_normalization = Some(0.0);
+                                }
                                 phones.push(RenderPhone {
                                     note_index,
                                     lyric: pre_c_alias,
@@ -1960,7 +1968,7 @@ impl JapanesePhonemizer {
                                     position_ms: exp.position_ms,
                                     duration_ms: pre_c_len,
                                     envelope: note.envelope.clone(),
-                                    expressions: note.expressions.clone(),
+                                    expressions: pre_c_expressions,
                                     pitch_bend: note.pitch_bend.clone(),
                                     vibrato: note.vibrato.clone(),
                                     flags: note.flags.clone(),

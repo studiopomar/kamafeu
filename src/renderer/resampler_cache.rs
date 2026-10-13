@@ -611,6 +611,7 @@ mod tests {
             cutoff_ms: 0.0,
             volume: 100.0,
             modulation: 0.0,
+            normalization: None,
             tempo: 120.0,
             pitch_bend_str: String::new(),
             pitch_points: vec![UPitchBendPoint {

@@ -18,6 +18,8 @@ pub struct ResamplerArgs {
     pub cutoff_ms: f64,
     pub volume: f64,
     pub modulation: f64,
+    /// OpenUtau's per-phoneme NORM expression.
+    pub normalization: Option<f64>,
     pub tempo: f64,
     pub pitch_bend_str: String,
     pub pitch_points: Vec<crate::project::model::UPitchBendPoint>,
@@ -31,7 +33,7 @@ pub struct ResamplerArgs {
 /// display and no interpolation is ever passed back to a shell.
 pub fn describe_resampler_command(driver: &str, args: &ResamplerArgs) -> String {
     format!(
-        "{driver} --input {} --output {} --pitch {} --velocity {:.0} --flags '{}' --offset-ms {:.3} --duration-ms {:.3} --consonant-ms {:.3} --cutoff-ms {:.3} --tempo {:.3}",
+        "{driver} --input {} --output {} --pitch {} --velocity {:.0} --flags '{}' --offset-ms {:.3} --duration-ms {:.3} --consonant-ms {:.3} --cutoff-ms {:.3} --norm {} --tempo {:.3}",
         quote_path(&args.input_wav),
         quote_path(&args.output_wav),
         args.pitch_name,
@@ -41,6 +43,8 @@ pub fn describe_resampler_command(driver: &str, args: &ResamplerArgs) -> String 
         args.duration_ms,
         args.consonant_ms,
         args.cutoff_ms,
+        args.normalization
+            .map_or_else(|| "default".to_string(), |value| format!("{value:.3}")),
         args.tempo,
     )
 }
@@ -1112,6 +1116,7 @@ mod tests {
             cutoff_ms: -20.0,
             volume: 90.0,
             modulation: 5.0,
+            normalization: None,
             tempo: 135.0,
             pitch_bend_str: String::new(),
             pitch_points: Vec::new(),
