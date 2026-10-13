@@ -2612,19 +2612,21 @@ fn render_project_to_file(
         return Err(std::io::Error::other(error).into());
     }
 
+    let voicebank_ref = &voicebank;
     let phoneme_resolutions = project
         .parts
         .iter()
-        .flat_map(|part| {
+        .enumerate()
+        .flat_map(|(part_index, part)| {
             let notes = &part.notes;
             let phones = kamafeu::phonemizer::JapanesePhonemizer::apply_phonemizer(
                 notes,
                 &voicebank,
                 render_options.phonemizer_mode,
             );
-            phones.into_iter().map(|phone| {
+            phones.into_iter().map(move |phone| {
                 let (oto_wav, oto_preutter_ms, oto_overlap_ms) = phone
-                    .find_entry(&voicebank)
+                    .find_entry(voicebank_ref)
                     .map(|item| {
                         (
                             Some(item.wav_filename.clone()),
@@ -2634,6 +2636,7 @@ fn render_project_to_file(
                     })
                     .unwrap_or_default();
                 kamafeu::renderer::PhonemeResolutionDiagnostic {
+                    part_index,
                     note_index: phone.note_index,
                     lyric: phone.lyric,
                     pitch: phone.pitch,

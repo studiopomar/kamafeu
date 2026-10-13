@@ -40,6 +40,8 @@ pub struct TimingBoundaryDiagnostic {
 /// the saved manifest describe the same resolution decision.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct PhonemeResolutionDiagnostic {
+    #[serde(default)]
+    pub part_index: usize,
     pub note_index: usize,
     pub lyric: String,
     pub pitch: String,
@@ -252,8 +254,9 @@ impl RenderProvenance {
     ) -> Self {
         self.phoneme_resolutions = diagnostics.into_iter().collect();
         self.phoneme_resolutions.sort_by(|a, b| {
-            a.position_ms
-                .total_cmp(&b.position_ms)
+            a.part_index
+                .cmp(&b.part_index)
+                .then_with(|| a.position_ms.total_cmp(&b.position_ms))
                 .then_with(|| a.note_index.cmp(&b.note_index))
                 .then_with(|| a.lyric.cmp(&b.lyric))
         });
