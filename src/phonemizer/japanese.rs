@@ -534,6 +534,17 @@ fn presamp_join(left: &str, pad: &str, right: &str) -> String {
     format!("{left}{pad}{right}")
 }
 
+fn voicebank_alias_duration_ms(vb: &Voicebank, alias: &str, pitch: &str) -> Option<f64> {
+    let entry = vb.find_mapped_entry(alias, pitch)?;
+    let path = vb.root_path.join(&entry.wav_filename);
+    let reader = hound::WavReader::open(path).ok()?;
+    let sample_rate = f64::from(reader.spec().sample_rate);
+    if sample_rate <= 0.0 {
+        return None;
+    }
+    Some(reader.duration() as f64 * 1000.0 / sample_rate)
+}
+
 fn expand_presamp_alias(
     template: &str,
     vowel: &str,
@@ -1114,6 +1125,14 @@ impl JapanesePhonemizer {
                                                 (oto.preutterance - oto.overlap).max(10.0);
                                         } else {
                                             vc_length_ms = oto.preutterance.max(10.0);
+                                        }
+                                    }
+                                    if presamp_inventory.vc_length_mode.get(con).copied() == Some(1)
+                                    {
+                                        if let Some(duration_ms) =
+                                            voicebank_alias_duration_ms(vb, &vc_alias, &note.pitch)
+                                        {
+                                            vc_length_ms = duration_ms.max(10.0);
                                         }
                                     }
                                     let vel_scale = consonant_velocity_time_scale(
