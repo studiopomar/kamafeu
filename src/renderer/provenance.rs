@@ -91,7 +91,7 @@ pub struct RenderProvenance {
     pub project_path: String,
     #[serde(default)]
     pub project_format: String,
-    #[serde(default)]
+    #[serde(default = "default_import_phoneme_policy_label")]
     pub import_phoneme_policy: String,
     #[serde(default)]
     pub voicebank_requested: Option<String>,
@@ -137,6 +137,10 @@ pub struct RenderProvenance {
     /// render pipeline. Older sidecars deserialize this as an empty list.
     #[serde(default)]
     pub commands: Vec<String>,
+}
+
+fn default_import_phoneme_policy_label() -> String {
+    "preserve".to_string()
 }
 
 impl RenderProvenance {
@@ -505,11 +509,29 @@ mod tests {
             .as_object_mut()
             .expect("provenance object")
             .remove("extension_details");
+        for field in [
+            "project_path",
+            "project_format",
+            "import_phoneme_policy",
+            "voicebank_requested",
+            "voicebank_effective",
+            "phoneme_resolutions",
+        ] {
+            legacy
+                .as_object_mut()
+                .expect("provenance object")
+                .remove(field);
+        }
         let legacy: RenderProvenance =
             serde_json::from_value(legacy).expect("legacy sidecar compatibility");
         assert!(legacy.timing_diagnostics.is_empty());
         assert!(legacy.timing_boundary_diagnostics.is_empty());
         assert!(legacy.extension_details.is_empty());
+        assert_eq!(legacy.project_path, "");
+        assert_eq!(legacy.project_format, "");
+        assert_eq!(legacy.import_phoneme_policy, "preserve");
+        assert!(legacy.voicebank_requested.is_none());
+        assert!(legacy.phoneme_resolutions.is_empty());
 
         let mut second = diagnostic;
         second.index = 1;
