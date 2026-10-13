@@ -1286,7 +1286,19 @@ impl JapanesePhonemizer {
                             if let Some(alias) =
                                 Self::find_oto_candidate(vb, &pre_c_candidates, &note.pitch)
                             {
-                                let pre_c_len = exp.duration_ms.min(80.0).max(10.0);
+                                let authored_len = vb
+                                    .find_mapped_entry(&current_lyric, &note.pitch)
+                                    .map(|oto| {
+                                        if oto.overlap < 0.0 {
+                                            oto.preutterance - oto.overlap
+                                        } else {
+                                            oto.preutterance
+                                        }
+                                    })
+                                    .unwrap_or(30.0);
+                                let pre_c_len = authored_len
+                                    .max(30.0)
+                                    .min((exp.duration_ms * 0.5).max(10.0));
                                 pre_c_to_insert = Some((alias, pre_c_len));
                             }
                         }
