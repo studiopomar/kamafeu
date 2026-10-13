@@ -380,6 +380,8 @@ struct PresampAliasConfig {
 #[derive(Debug, Clone)]
 struct PresampInventory {
     vowels: HashSet<String>,
+    /// Every Presamp vowel symbol mapped to its canonical lower-case vowel.
+    vowel_by_phoneme: HashMap<String, String>,
     consonants: HashSet<String>,
     priority: HashSet<String>,
     no_crossfade: HashSet<String>,
@@ -398,6 +400,7 @@ impl Default for PresampInventory {
     fn default() -> Self {
         Self {
             vowels: HashSet::new(),
+            vowel_by_phoneme: HashMap::new(),
             consonants: HashSet::new(),
             priority: HashSet::new(),
             no_crossfade: HashSet::new(),
@@ -439,16 +442,22 @@ fn parse_presamp_inventory(contents: &str) -> PresampInventory {
                 // lyric symbols; the final volume field is intentionally
                 // ignored by the phonemizer.
                 inventory.vowels.insert((*first).to_string());
+                inventory
+                    .vowel_by_phoneme
+                    .insert((*first).to_string(), (*first).to_string());
                 if let Some(representative) = fields.get(1).filter(|v| !v.is_empty()) {
                     inventory.vowels.insert((*representative).to_string());
+                    inventory
+                        .vowel_by_phoneme
+                        .insert((*representative).to_string(), (*first).to_string());
                 }
                 if let Some(list) = fields.get(2) {
-                    inventory.vowels.extend(
-                        list.split(',')
-                            .map(str::trim)
-                            .filter(|value| !value.is_empty())
-                            .map(str::to_owned),
-                    );
+                    for value in list.split(',').map(str::trim).filter(|v| !v.is_empty()) {
+                        inventory.vowels.insert(value.to_string());
+                        inventory
+                            .vowel_by_phoneme
+                            .insert(value.to_string(), (*first).to_string());
+                    }
                 }
             }
             "[CONSONANT]" => {
@@ -481,6 +490,14 @@ fn parse_presamp_inventory(contents: &str) -> PresampInventory {
         }
     }
     inventory
+}
+
+fn extract_presamp_vowel(lyric: &str, inventory: &PresampInventory) -> Option<String> {
+    let trimmed = lyric.trim();
+    if let Some(vowel) = inventory.vowel_by_phoneme.get(trimmed) {
+        return Some(vowel.clone());
+    }
+    JapanesePhonemizer::extract_vowel(trimmed).map(str::to_owned)
 }
 
 impl Default for PresampAliasConfig {
@@ -782,7 +799,7 @@ impl JapanesePhonemizer {
         mode: PhonemizerMode,
     ) -> Vec<RenderPhone> {
         let mut phones: Vec<RenderPhone> = Vec::new();
-        let mut prev_vowel: Option<&'static str> = None;
+        let mut prev_vowel: Option<String> = None;
         let mut prev_note_end_ms: Option<f64> = None;
 
         struct NoteRef<'a> {
@@ -859,7 +876,7 @@ impl JapanesePhonemizer {
                 continue;
             }
 
-            let cur_vowel = Self::extract_vowel(&exp.lyric);
+            let cur_vowel = extract_presamp_vowel(&exp.lyric, &presamp_inventory);
             let _cur_consonant = Self::extract_consonant(&exp.lyric);
 
             let is_phrase_start = match prev_note_end_ms {
@@ -887,7 +904,7 @@ impl JapanesePhonemizer {
             // prevents `っ` from being rendered as `u`.
             if mode == PhonemizerMode::CVVC && (exp.lyric == "っ" || exp.lyric == "ッ") {
                 let mut sokuon_candidates = Vec::new();
-                if let Some(vowel) = prev_vowel {
+                if let Some(vowel) = prev_vowel.as_deref() {
                     sokuon_candidates.push(presamp_join(vowel, &presamp_alias.vcpad, "っ"));
                     sokuon_candidates.push(presamp_join(vowel, &presamp_alias.vcpad, "cl"));
                     if let Some(next_exp) = expanded.get(idx + 1) {
@@ -933,7 +950,7 @@ impl JapanesePhonemizer {
                     let mut candidates = Vec::new();
                     if is_phrase_start {
                         candidates.extend([format!("- {}", exp.lyric), exp.lyric.to_string()]);
-                    } else if let Some(pv) = prev_vowel {
+                    } else if let Some(pv) = prev_vowel.as_deref() {
                         candidates.extend([
                             presamp_join(pv, &presamp_alias.vcvpad, &exp.lyric),
                             presamp_join("*", &presamp_alias.vcvpad, &exp.lyric),
@@ -954,7 +971,7 @@ impl JapanesePhonemizer {
                         } else {
                             &presamp_alias.vcv
                         },
-                        prev_vowel.unwrap_or(""),
+                        prev_vowel.as_deref().unwrap_or(""),
                         Self::extract_consonant(&exp.lyric).unwrap_or(""),
                         &exp.lyric,
                         &exp.lyric,
@@ -985,7 +1002,7 @@ impl JapanesePhonemizer {
                 PhonemizerMode::VCV => {
                     let mut alias = exp.lyric.to_string();
                     if !is_phrase_start {
-                        if let Some(pv) = prev_vowel {
+                        if let Some(pv) = prev_vowel.as_deref() {
                             let mut vcv_cands = expand_presamp_candidates(
                                 &presamp_alias.vcv,
                                 pv,
@@ -1087,7 +1104,7 @@ impl JapanesePhonemizer {
                             current_lyric = found;
                         }
                     } else if is_plain_vowel {
-                        if let Some(pv) = prev_vowel {
+                        if let Some(pv) = prev_vowel.as_deref() {
                             let mut vow_cands = expand_presamp_candidates(
                                 &presamp_alias.vcv,
                                 pv,
@@ -1146,12 +1163,13 @@ impl JapanesePhonemizer {
                             && !next_already_has_transition
                             && !PLAIN_VOWELS.contains(&next_exp.lyric.as_str())
                         {
-                            if let (Some(vow), Some(con)) =
-                                (cur_vowel, Self::extract_consonant(&next_exp.lyric))
-                            {
+                            if let (Some(vow), Some(con)) = (
+                                cur_vowel.as_deref(),
+                                Self::extract_consonant(&next_exp.lyric),
+                            ) {
                                 let mut vc_candidates = expand_presamp_candidates(
                                     &presamp_alias.vc,
-                                    vow,
+                                    &vow,
                                     con,
                                     &next_exp.lyric,
                                     &next_exp.lyric,
@@ -1165,7 +1183,7 @@ impl JapanesePhonemizer {
                                 if let Some(&sub_con) = SUBSTITUTE_LOOKUP.get(con) {
                                     vc_candidates.extend(expand_presamp_candidates(
                                         &presamp_alias.vc,
-                                        vow,
+                                        &vow,
                                         sub_con,
                                         &next_exp.lyric,
                                         &next_exp.lyric,
@@ -1392,6 +1410,7 @@ mod tests {
             "[VOWEL]\na=あ=か,が=100\nn=ん=ん=100\n[CONSONANT]\nk=か,く,け,こ=1\ns=さ,す,せ,そ=0\n[PRIORITY]\nk\nっ\n",
         );
         assert!(inventory.vowels.contains("か"));
+        assert_eq!(inventory.vowel_by_phoneme.get("が"), Some(&"a".to_string()));
         assert!(inventory.consonants.contains("す"));
         assert!(inventory.priority.contains("k"));
         assert!(inventory.priority.contains("っ"));
