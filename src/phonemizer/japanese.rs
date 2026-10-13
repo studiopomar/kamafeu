@@ -1022,7 +1022,22 @@ impl JapanesePhonemizer {
                         {
                             current_lyric = found;
                         }
-                    } else if is_plain_vowel && !is_priority {
+                    } else if is_priority {
+                        let mut priority_cands = vec![exp.lyric.to_string()];
+                        priority_cands.extend(expand_presamp_candidates(
+                            &presamp_alias.beginning_cv,
+                            "",
+                            Self::extract_consonant(&exp.lyric).unwrap_or(""),
+                            &exp.lyric,
+                            &exp.lyric,
+                            &presamp_alias,
+                        ));
+                        if let Some(found) =
+                            Self::find_oto_candidate(vb, &priority_cands, &note.pitch)
+                        {
+                            current_lyric = found;
+                        }
+                    } else if is_plain_vowel {
                         if let Some(pv) = prev_vowel {
                             let mut vow_cands = expand_presamp_candidates(
                                 &presamp_alias.vcv,
