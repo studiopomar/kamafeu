@@ -1579,6 +1579,11 @@ impl JapanesePhonemizer {
                             initial_cands.insert(0, long_alias);
                         }
                         initial_cands.extend([format!("- {}", exp.lyric), exp.lyric.to_string()]);
+                        add_presamp_suffix_variants(
+                            &mut initial_cands,
+                            &exp.lyric,
+                            &presamp_inventory,
+                        );
                         if let Some(found) =
                             Self::find_oto_candidate_for_note(vb, &initial_cands, note, 0)
                         {
@@ -1656,9 +1661,14 @@ impl JapanesePhonemizer {
                                 format!("_{}", exp.lyric),
                                 exp.lyric.to_string(),
                             ];
-                            let vow_cands = order_presamp_candidate_groups(
+                            let mut vow_cands = order_presamp_candidate_groups(
                                 presamp_priority_for_lyric(&exp.lyric, &presamp_inventory),
                                 vec![("VCV", vcv_group), ("CV", cv_group)],
+                            );
+                            add_presamp_suffix_variants(
+                                &mut vow_cands,
+                                &exp.lyric,
+                                &presamp_inventory,
                             );
                             if let Some(found) =
                                 Self::find_oto_candidate_for_note(vb, &vow_cands, note, 0)
@@ -1692,6 +1702,7 @@ impl JapanesePhonemizer {
                             presamp_join("*", &presamp_alias.vcvpad, &exp.lyric),
                             exp.lyric.to_string(),
                         ]);
+                        add_presamp_suffix_variants(&mut cv_cands, &exp.lyric, &presamp_inventory);
                         if let Some(found) =
                             Self::find_oto_candidate_for_note(vb, &cv_cands, note, 0)
                         {
@@ -1786,6 +1797,12 @@ impl JapanesePhonemizer {
                                     ));
                                     vc_candidates.push(format!("{}{}", vow, sub_con));
                                 }
+
+                                add_presamp_suffix_variants(
+                                    &mut vc_candidates,
+                                    &next_exp.lyric,
+                                    &presamp_inventory,
+                                );
 
                                 if let Some(vc_alias) =
                                     Self::find_oto_candidate_for_note(vb, &vc_candidates, note, 1)
@@ -1973,6 +1990,7 @@ impl JapanesePhonemizer {
                     &exp.lyric,
                     &presamp_alias,
                 ));
+                add_presamp_suffix_variants(&mut candidates, &exp.lyric, &presamp_inventory);
                 let Some(phone_index) = phones
                     .iter()
                     .enumerate()
