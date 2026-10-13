@@ -403,6 +403,18 @@ struct PresampInventory {
 
 impl Default for PresampInventory {
     fn default() -> Self {
+        let priority = [
+            "k", "ky", "g", "gy", "t", "ty", "d", "dy", "ch", "ts", "b", "by", "p", "py", "r", "ry",
+        ]
+        .into_iter()
+        .map(str::to_string)
+        .collect();
+        let no_crossfade = [
+            "ch", "gy", "ts", "ty", "py", "ry", "r", "dy", "by", "b", "d", "g", "k", "p", "t", "ky",
+        ]
+        .into_iter()
+        .map(str::to_string)
+        .collect();
         Self {
             vowels: HashSet::new(),
             vowel_by_phoneme: HashMap::new(),
@@ -417,8 +429,8 @@ impl Default for PresampInventory {
             .map(str::to_string)
             .collect(),
             alias_pitches: Vec::new(),
-            priority: HashSet::new(),
-            no_crossfade: HashSet::new(),
+            priority,
+            no_crossfade,
             vc_length_from_cv: true,
             must_vc: false,
             add_ending: 1,
@@ -433,6 +445,19 @@ fn parse_presamp_inventory(contents: &str) -> PresampInventory {
         let line = raw_line.trim_end_matches('\r').trim();
         if line.starts_with('[') && line.ends_with(']') {
             section = line;
+            match line.to_ascii_uppercase().as_str() {
+                "[VOWEL]" => {
+                    inventory.vowels.clear();
+                    inventory.vowel_by_phoneme.clear();
+                }
+                "[CONSONANT]" => {
+                    inventory.consonants.clear();
+                    inventory.consonant_by_phoneme.clear();
+                    inventory.no_crossfade.clear();
+                }
+                "[PRIORITY]" => inventory.priority.clear(),
+                _ => {}
+            }
             continue;
         }
         if line.is_empty() || line.starts_with(';') || line.starts_with('#') {
@@ -1609,6 +1634,10 @@ mod tests {
 
     #[test]
     fn presamp_inventory_reads_vowels_consonants_and_priority() {
+        let defaults = parse_presamp_inventory("");
+        assert!(defaults.priority.contains("k"));
+        assert!(defaults.no_crossfade.contains("k"));
+
         let inventory = parse_presamp_inventory(
             "[VOWEL]\na=あ=か,が=100\nn=ん=ん=100\n[CONSONANT]\nk=か,く,け,こ=1\ns=さ,す,せ,そ=0\n[PRIORITY]\nk\nっ\n",
         );
