@@ -2311,6 +2311,28 @@ mod tests {
     }
 
     #[test]
+    fn japanese_basic_cv_preserves_a_phonetic_hint_alias() {
+        let mut vb = build_test_voicebank();
+        vb.entries.insert(
+            "a か".to_string(),
+            OtoEntry::new(
+                "a-ka.wav".to_string(),
+                "a か".to_string(),
+                0.0,
+                50.0,
+                10.0,
+                0.0,
+                0.0,
+            ),
+        );
+        let mut note = UNote::new("か", "C4", 0.0, 300.0);
+        note.phonetic_hint = Some("a か".to_string());
+
+        let phones = JapanesePhonemizer::apply_japanese(&[note], &vb, PhonemizerMode::BasicCV);
+        assert_eq!(phones[0].lyric, "a か");
+    }
+
+    #[test]
     fn japanese_alternate_is_preferred_during_alias_lookup() {
         let mut vb = build_test_voicebank();
         vb.entries.insert(
