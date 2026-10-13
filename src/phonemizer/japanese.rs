@@ -1404,22 +1404,26 @@ impl JapanesePhonemizer {
                     }
 
                     if let Some((vc_alias, vc_len, vc_no_crossfade)) = vc_to_insert {
-                        let pre_c_len =
+                        let requested_pre_c_len =
                             pre_c_to_insert.as_ref().map(|(_, len)| *len).unwrap_or(0.0);
+                        let pre_c_len =
+                            requested_pre_c_len.min((exp.duration_ms - vc_len - 10.0).max(0.0));
                         let main_duration = (exp.duration_ms - vc_len - pre_c_len).max(10.0);
-                        if let Some((pre_c_alias, pre_c_duration)) = pre_c_to_insert {
-                            phones.push(RenderPhone {
-                                note_index,
-                                lyric: pre_c_alias,
-                                pitch: note.pitch.clone(),
-                                position_ms: exp.position_ms,
-                                duration_ms: pre_c_duration,
-                                envelope: note.envelope.clone(),
-                                expressions: note.expressions.clone(),
-                                pitch_bend: note.pitch_bend.clone(),
-                                vibrato: note.vibrato.clone(),
-                                flags: note.flags.clone(),
-                            });
+                        if let Some((pre_c_alias, _)) = pre_c_to_insert {
+                            if pre_c_len > 0.0 {
+                                phones.push(RenderPhone {
+                                    note_index,
+                                    lyric: pre_c_alias,
+                                    pitch: note.pitch.clone(),
+                                    position_ms: exp.position_ms,
+                                    duration_ms: pre_c_len,
+                                    envelope: note.envelope.clone(),
+                                    expressions: note.expressions.clone(),
+                                    pitch_bend: note.pitch_bend.clone(),
+                                    vibrato: note.vibrato.clone(),
+                                    flags: note.flags.clone(),
+                                });
+                            }
                         }
                         phones.push(RenderPhone {
                             note_index,
@@ -1451,22 +1455,25 @@ impl JapanesePhonemizer {
                             flags: note.flags.clone(),
                         });
                     } else {
-                        let pre_c_len =
+                        let requested_pre_c_len =
                             pre_c_to_insert.as_ref().map(|(_, len)| *len).unwrap_or(0.0);
+                        let pre_c_len = requested_pre_c_len.min((exp.duration_ms - 10.0).max(0.0));
                         let main_duration = (exp.duration_ms - pre_c_len).max(10.0);
-                        if let Some((pre_c_alias, pre_c_duration)) = pre_c_to_insert {
-                            phones.push(RenderPhone {
-                                note_index,
-                                lyric: pre_c_alias,
-                                pitch: note.pitch.clone(),
-                                position_ms: exp.position_ms,
-                                duration_ms: pre_c_duration,
-                                envelope: note.envelope.clone(),
-                                expressions: note.expressions.clone(),
-                                pitch_bend: note.pitch_bend.clone(),
-                                vibrato: note.vibrato.clone(),
-                                flags: note.flags.clone(),
-                            });
+                        if let Some((pre_c_alias, _)) = pre_c_to_insert {
+                            if pre_c_len > 0.0 {
+                                phones.push(RenderPhone {
+                                    note_index,
+                                    lyric: pre_c_alias,
+                                    pitch: note.pitch.clone(),
+                                    position_ms: exp.position_ms,
+                                    duration_ms: pre_c_len,
+                                    envelope: note.envelope.clone(),
+                                    expressions: note.expressions.clone(),
+                                    pitch_bend: note.pitch_bend.clone(),
+                                    vibrato: note.vibrato.clone(),
+                                    flags: note.flags.clone(),
+                                });
+                            }
                         }
                         phones.push(RenderPhone {
                             note_index,
