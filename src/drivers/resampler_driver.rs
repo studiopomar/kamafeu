@@ -38,7 +38,7 @@ pub fn describe_resampler_command(driver: &str, args: &ResamplerArgs) -> String 
         quote_path(&args.output_wav),
         args.pitch_name,
         args.velocity,
-        args.flags,
+        effective_classic_flags(args),
         args.offset_ms,
         args.duration_ms,
         args.consonant_ms,
@@ -47,6 +47,20 @@ pub fn describe_resampler_command(driver: &str, args: &ResamplerArgs) -> String 
             .map_or_else(|| "default".to_string(), |value| format!("{value:.3}")),
         args.tempo,
     )
+}
+
+/// Build the literal flag field sent through the classic UTAU protocol.
+/// `NORM` is deliberately represented in the same field as authored flags so
+/// external engines receive the per-phoneme value without a host-side gain
+/// or normalization pass.
+pub fn effective_classic_flags(args: &ResamplerArgs) -> String {
+    let mut flags = args.flags.clone();
+    if let Some(normalization) = args.normalization {
+        if normalization.is_finite() {
+            flags.push_str(&format!("NORM={normalization}"));
+        }
+    }
+    flags
 }
 
 fn quote_path(path: &Path) -> String {
@@ -342,10 +356,10 @@ fn classic_arguments(
         out_arg,
         args.pitch_name.clone().into(),
         format!("{:.0}", args.velocity).into(),
-        if args.flags.is_empty() {
+        if effective_classic_flags(args).is_empty() {
             empty_flags.into()
         } else {
-            args.flags.clone().into()
+            effective_classic_flags(args).into()
         },
         format!("{:.1}", args.offset_ms).into(),
         format!("{:.0}", duration_ms.round()).into(),
@@ -1141,6 +1155,17 @@ mod tests {
         assert_eq!(args[6], OsString::from("500"));
         assert_eq!(args[11], OsString::from("!135.0"));
         assert_eq!(args[12], OsString::from("AA"));
+    }
+
+    #[test]
+    fn classic_arguments_preserve_unknown_flags_and_transmit_norm() {
+        let mut args = sample_args();
+        args.flags = "P86Unknown".to_string();
+        args.normalization = Some(0.0);
+        let command = describe_resampler_command("straycat-rs", &args);
+        let arguments = classic_arguments(Path::new("source.wav"), &args, "g0", 500.0, false);
+        assert_eq!(arguments[4], OsString::from("P86UnknownNORM=0"));
+        assert!(command.contains("--flags 'P86UnknownNORM=0'"));
     }
 
     #[test]

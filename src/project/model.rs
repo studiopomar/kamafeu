@@ -1,4 +1,4 @@
-use crate::dsp::envelope::UtauEnvelope;
+use crate::dsp::envelope::{EnvelopeShape, UtauEnvelope};
 use crate::dsp::pitch::{midi_to_note_name, note_name_to_midi, VibratoParam};
 use serde::{Deserialize, Serialize};
 
@@ -350,6 +350,10 @@ pub struct UNote {
     pub duration_ms: f64,
     #[serde(default)]
     pub envelope: UtauEnvelope,
+    /// Modern monotonic note envelope. `None` means legacy projects are
+    /// converted from `envelope` on load without changing their schema.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub envelope_shape: Option<EnvelopeShape>,
     #[serde(default)]
     pub vibrato: VibratoParam,
     #[serde(default)]
@@ -389,6 +393,7 @@ impl UNote {
             position_ms,
             duration_ms,
             envelope: UtauEnvelope::default(),
+            envelope_shape: None,
             vibrato: VibratoParam::default(),
             pitch_bend: UPitchBend::default(),
             expressions: UExpressions::default(),
@@ -405,6 +410,7 @@ impl UNote {
         self.voicebank_pitch = None;
         self.timbre = None;
         self.envelope = UtauEnvelope::default();
+        self.envelope_shape = None;
         self.vibrato = VibratoParam::default();
         self.pitch_bend = UPitchBend::default();
         self.expressions = UExpressions::default();
@@ -412,6 +418,19 @@ impl UNote {
         self.phoneme_durations_ms.clear();
         self.phoneme_overrides.clear();
         self.phonemizer_override = None;
+    }
+
+    pub fn effective_envelope_shape(&self) -> EnvelopeShape {
+        // Keep the legacy interchange field authoritative for old editors and
+        // imported projects. The modern shape is regenerated as a validated
+        // note-local view, so legacy changes never leave a stale curve behind.
+        EnvelopeShape::from_utau(&self.envelope, self.duration_ms)
+    }
+
+    pub fn set_envelope_shape(&mut self, mut shape: EnvelopeShape) {
+        shape.normalize(self.duration_ms);
+        self.envelope = shape.to_utau(self.duration_ms);
+        self.envelope_shape = Some(shape);
     }
 
     /// Resolve durações internas válidas para `count` fonemas, preservando as
@@ -975,6 +994,10 @@ impl UProject {
                 } else {
                     35.0
                 };
+                if let Some(shape) = &mut note.envelope_shape {
+                    shape.normalize(note.duration_ms);
+                    note.envelope = shape.to_utau(note.duration_ms);
+                }
                 if note
                     .phoneme_durations_ms
                     .iter()

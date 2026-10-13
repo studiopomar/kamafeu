@@ -8,8 +8,8 @@ use std::path::PathBuf;
 
 use kamafeu::{
     drivers::{
-        NativeResamplerDriver, NativeWavtoolDriver, NativeWorldResamplerDriver, ResamplerDriver,
-        WavtoolDriver,
+        ExternalResamplerDriver, NativeResamplerDriver, NativeWavtoolDriver,
+        NativeWorldResamplerDriver, ResamplerDriver, WavtoolDriver,
     },
     extensions::{
         built_in_capabilities, default_project_format_registry, diagnose_project_extensions,
@@ -217,6 +217,10 @@ enum Commands {
         /// Use the native WORLD resampler instead of the classic engine
         #[arg(long)]
         venus: bool,
+
+        /// Use an external classic resampler executable (for example straycat-rs)
+        #[arg(long)]
+        resampler: Option<PathBuf>,
 
         /// Ignore instrumental wave parts while diagnosing vocal rendering
         #[arg(long)]
@@ -1222,6 +1226,7 @@ fn real_main() -> Result<(), Box<dyn std::error::Error>> {
             dither,
             sample_rate,
             venus,
+            resampler,
             vocal_only,
         }) => {
             let summary = render_project_to_file(
@@ -1232,6 +1237,7 @@ fn real_main() -> Result<(), Box<dyn std::error::Error>> {
                 dither,
                 sample_rate,
                 venus,
+                resampler,
                 vocal_only,
             )?;
             if json_output {
@@ -2078,6 +2084,7 @@ fn handle_automation_request(
                 dither,
                 sample_rate.unwrap_or(44_100),
                 venus,
+                None,
                 vocal_only,
             )?;
             Ok(render_summary_json(&summary))
@@ -2526,6 +2533,7 @@ fn render_project_to_file(
     dither: bool,
     sample_rate: u32,
     venus: bool,
+    external_resampler: Option<PathBuf>,
     vocal_only: bool,
 ) -> Result<RenderSummary, Box<dyn std::error::Error>> {
     let voicebank = Voicebank::new(voicebank_path)?;
@@ -2559,7 +2567,10 @@ fn render_project_to_file(
 
     let classic_resampler = NativeResamplerDriver;
     let world_resampler = NativeWorldResamplerDriver;
-    let resampler: &dyn ResamplerDriver = if venus {
+    let external_resampler = external_resampler.map(ExternalResamplerDriver::new);
+    let resampler: &dyn ResamplerDriver = if let Some(ref external) = external_resampler {
+        external
+    } else if venus {
         &world_resampler
     } else {
         &classic_resampler
@@ -2577,10 +2588,14 @@ fn render_project_to_file(
         kamafeu::renderer::provenance::TimingBoundaryDiagnostic,
     >::new()));
     let render_commands = std::sync::Arc::new(std::sync::Mutex::new(Vec::<String>::new()));
+    let phoneme_renders = std::sync::Arc::new(std::sync::Mutex::new(Vec::<
+        kamafeu::renderer::PhonemeRenderDiagnostic,
+    >::new()));
     let cache_stats = std::sync::Arc::new(std::sync::Mutex::new((0usize, 0usize)));
     let timing_capture = std::sync::Arc::clone(&timing_diagnostics);
     let timing_boundary_capture = std::sync::Arc::clone(&timing_boundary_diagnostics);
     let commands_capture = std::sync::Arc::clone(&render_commands);
+    let phoneme_renders_capture = std::sync::Arc::clone(&phoneme_renders);
     let cache_capture = std::sync::Arc::clone(&cache_stats);
     let progress_callback = move |_progress: f32, message: &str| {
         if let Some(payload) = message.strip_prefix("[Timing] ") {
@@ -2602,6 +2617,13 @@ fn render_project_to_file(
         {
             if let Ok(mut commands) = commands_capture.lock() {
                 commands.push(command.to_string());
+            }
+        }
+        if let Some(payload) = message.strip_prefix("  [Phoneme Render] ") {
+            if let Ok(diagnostic) = serde_json::from_str(payload) {
+                if let Ok(mut captured) = phoneme_renders_capture.lock() {
+                    captured.push(diagnostic);
+                }
             }
         }
         if let Ok(mut stats) = cache_capture.lock() {
@@ -2705,6 +2727,10 @@ fn render_project_to_file(
         .lock()
         .map(|commands| commands.clone())
         .unwrap_or_default();
+    let phoneme_renders = phoneme_renders
+        .lock()
+        .map(|diagnostics| diagnostics.clone())
+        .unwrap_or_default();
     let (cache_hits, cache_misses) = cache_stats.lock().map(|stats| *stats).unwrap_or_default();
     let mut provenance = RenderProvenance::new(
         kamafeu::renderer::provenance::content_fingerprint(&project_bytes),
@@ -2735,6 +2761,7 @@ fn render_project_to_file(
     .with_timing_diagnostics(timing_diagnostics)
     .with_timing_boundary_diagnostics(timing_boundary_diagnostics)
     .with_phoneme_resolutions(phoneme_resolutions)
+    .with_phoneme_renders(phoneme_renders)
     .with_commands(render_commands)
     .with_cache_stats(cache_hits, cache_misses)
     .with_extension_details(project.extensions.iter().map(|extension| {
@@ -3823,6 +3850,7 @@ mod tests {
             true,
             44_100,
             false,
+            None,
             false,
         )
         .expect("render");

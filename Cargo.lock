@@ -1995,6 +1995,7 @@ name = "kamafeu"
 version = "1.0.2-rc.1"
 dependencies = [
  "android-activity",
+ "cc",
  "clap",
  "console_error_panic_hook",
  "console_log",

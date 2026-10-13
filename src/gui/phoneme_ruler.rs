@@ -444,65 +444,26 @@ pub fn draw_phoneme_ruler(
                     let attack_start_x = preutter_x;
                     let attack_end_x = overlap_x.max(preutter_x);
 
-                    let calc_points = note.envelope.phoneme_points(
-                        active_preutter_ms,
-                        note_duration_ms,
-                        if has_previous_adjacent {
-                            active_preutter_ms
-                        } else {
-                            0.0
-                        },
-                        if has_previous_adjacent {
-                            active_overlap_ms.max(0.0)
-                        } else {
-                            0.0
-                        },
-                        active_overlap_ms.max(0.0),
-                        note.expressions.volume,
-                        note.expressions.attack,
-                        note.expressions.decay,
-                    );
-
-                    let env_pts = [
-                        Pos2::new(
-                            x_start + (calc_points[0].0 * px_per_ms) as f32,
-                            y_bottom
-                                - (calc_points[0].1.clamp(0.0, 2.0) as f32)
-                                    * (y_bottom - y_top)
-                                    * 0.5,
-                        ),
-                        Pos2::new(
-                            x_start + (calc_points[1].0 * px_per_ms) as f32,
-                            y_bottom
-                                - (calc_points[1].1.clamp(0.0, 2.0) as f32)
-                                    * (y_bottom - y_top)
-                                    * 0.5,
-                        ),
-                        Pos2::new(
-                            x_start + (calc_points[2].0 * px_per_ms) as f32,
-                            y_bottom
-                                - (calc_points[2].1.clamp(0.0, 2.0) as f32)
-                                    * (y_bottom - y_top)
-                                    * 0.5,
-                        ),
-                        Pos2::new(
-                            x_start + (calc_points[3].0 * px_per_ms) as f32,
-                            y_bottom
-                                - (calc_points[3].1.clamp(0.0, 2.0) as f32)
-                                    * (y_bottom - y_top)
-                                    * 0.5,
-                        ),
-                        Pos2::new(
-                            x_start + (calc_points[4].0 * px_per_ms) as f32,
-                            y_bottom
-                                - (calc_points[4].1.clamp(0.0, 2.0) as f32)
-                                    * (y_bottom - y_top)
-                                    * 0.5,
-                        ),
-                    ];
+                    // The editor uses four absolute, note-local boundaries.
+                    // Phoneme timing remains visible below as dividers, but it
+                    // never creates a second envelope curve.
+                    let shape = note.effective_envelope_shape();
+                    let shape_points = shape.effective_points(note_duration_ms);
+                    let env_pts: Vec<Pos2> = shape_points
+                        .iter()
+                        .map(|(time, level)| {
+                            Pos2::new(
+                                x_start + (*time * px_per_ms) as f32,
+                                y_bottom
+                                    - (level.clamp(0.0, 200.0) as f32 / 100.0)
+                                        * (y_bottom - y_top)
+                                        * 0.5,
+                            )
+                        })
+                        .collect();
 
                     let start_base_x = preutter_x.min(env_pts[0].x);
-                    let end_base_x = x_end.max(env_pts[4].x);
+                    let end_base_x = x_end.max(env_pts[3].x);
 
                     let poly_points = vec![
                         Pos2::new(start_base_x, y_bottom),
@@ -510,7 +471,7 @@ pub fn draw_phoneme_ruler(
                         env_pts[1],
                         env_pts[2],
                         env_pts[3],
-                        env_pts[4],
+                        env_pts[3],
                         Pos2::new(end_base_x, y_bottom),
                     ];
 
@@ -531,93 +492,9 @@ pub fn draw_phoneme_ruler(
                         );
                     }
                     painter.line_segment(
-                        [env_pts[4], Pos2::new(end_base_x, y_bottom)],
+                        [env_pts[3], Pos2::new(end_base_x, y_bottom)],
                         Stroke::new(if is_selected { 1.6_f32 } else { 1.0_f32 }, stroke_color),
                     );
-
-                    // A VCV note normally has one alias, but CVVC/VCCV, G2P
-                    // and BRAPA can expand into several aliases.  Draw the
-                    // exact envelope of every expanded phone instead of
-                    // stretching the first `oto.ini` entry across the full note.
-                    // This is the same resolved timing the renderer consumes.
-                    if let Some(cached) = state.note_phonemes_cache.get(note_index) {
-                        if cached.len() > 1 {
-                            for phone in cached {
-                                let phone_start_x =
-                                    x_start + (phone.relative_position_ms * px_per_ms) as f32;
-                                let phone_points = note.envelope.phoneme_points(
-                                    phone.preutter_ms,
-                                    phone.duration_ms,
-                                    phone.tail_intrude_ms,
-                                    phone.tail_overlap_ms,
-                                    phone.overlap_ms.max(0.0),
-                                    note.expressions.volume,
-                                    note.expressions.attack,
-                                    note.expressions.decay,
-                                );
-                                let points: Vec<Pos2> = phone_points
-                                    .iter()
-                                    .map(|(time, level)| {
-                                        Pos2::new(
-                                            phone_start_x + (time * px_per_ms) as f32,
-                                            y_bottom
-                                                - (level.clamp(0.0, 2.0) as f32)
-                                                    * (y_bottom - y_top)
-                                                    * 0.5,
-                                        )
-                                    })
-                                    .collect();
-                                let base_start =
-                                    phone_start_x + (phone_points[0].0.min(0.0) * px_per_ms) as f32;
-                                let base_end = phone_start_x
-                                    + ((phone.duration_ms.max(0.0).max(phone_points[4].0))
-                                        * px_per_ms) as f32;
-                                let mut polygon = Vec::with_capacity(points.len() + 2);
-                                polygon.push(Pos2::new(base_start, y_bottom));
-                                polygon.extend(points.iter().copied());
-                                polygon.push(Pos2::new(base_end, y_bottom));
-                                painter.add(egui::Shape::convex_polygon(
-                                    polygon,
-                                    theme.c32_alpha(
-                                        theme.accent_color,
-                                        if is_selected { 0.23 } else { 0.13 },
-                                    ),
-                                    Stroke::NONE,
-                                ));
-                                let timing_rect = Rect::from_min_max(
-                                    Pos2::new(base_start, y_top),
-                                    Pos2::new(base_end.max(base_start + 1.0), y_bottom),
-                                );
-                                let timing_response = ui.interact(
-                                    timing_rect,
-                                    ui.id().with((
-                                        "phoneme_timing",
-                                        note_index,
-                                        phone.alias.as_str(),
-                                        phone.relative_position_ms.to_bits(),
-                                    )),
-                                    Sense::hover(),
-                                );
-                                timing_response.on_hover_text(format!(
-                                    "{}\nPreutter: {:.1} ms\nOverlap: {:.1} ms\nTail intrude: {:.1} ms\nTail overlap: {:.1} ms",
-                                    phone.alias,
-                                    phone.preutter_ms,
-                                    phone.overlap_ms,
-                                    phone.tail_intrude_ms,
-                                    phone.tail_overlap_ms,
-                                ));
-                                for pair in points.windows(2) {
-                                    painter.line_segment(
-                                        [pair[0], pair[1]],
-                                        Stroke::new(
-                                            if is_selected { 1.5_f32 } else { 1.0_f32 },
-                                            stroke_color,
-                                        ),
-                                    );
-                                }
-                            }
-                        }
-                    }
 
                     if !is_plus && consonant_x > x_start + 1.0 && consonant_x < x_end {
                         let c_rect = Rect::from_min_max(
@@ -816,12 +693,12 @@ pub fn draw_phoneme_ruler(
                         );
                     }
 
-                    // 5. Ponto de Fade-Out (Release / Início da Queda Final)
+                    // 5. Ponto de início do release (a curva termina no fim da nota)
                     draw_anchor_handle(
-                        Pos2::new(env_pts[3].x, y_top),
+                        Pos2::new(env_pts[2].x, y_top),
                         4,
                         theme.note_hover_c32(),
-                        &format!("Fade-Out: {:.1}ms", note.envelope.p5),
+                        &format!("Início do release: {:.1}ms", shape.release_start_ms),
                     );
 
                     // 6. Ponto de Fim da Nota / Cutoff
@@ -835,25 +712,24 @@ pub fn draw_phoneme_ruler(
                     // Draggable Envelope Handles on the Ruler when active/selected
                     if state.show_envelope_handles || is_selected {
                         let env_labels = [
+                            ("Início", format!("Início: 0ms | {:.0}%", shape.start_level)),
                             (
-                                "P1",
-                                format!("P1: {:.1}ms | {:.0}%", note.envelope.p1, note.envelope.v1),
+                                "Ataque",
+                                format!(
+                                    "Ataque: {:.1}ms | {:.0}%",
+                                    shape.attack_end_ms, shape.attack_level
+                                ),
                             ),
                             (
-                                "P2",
-                                format!("P2: {:.1}ms | {:.0}%", note.envelope.p2, note.envelope.v2),
+                                "Sustain",
+                                format!(
+                                    "Sustain: {:.1}ms | {:.0}%",
+                                    shape.release_start_ms, shape.sustain_level
+                                ),
                             ),
                             (
-                                "P3",
-                                format!("P3: {:.1}ms | {:.0}%", note.envelope.p3, note.envelope.v3),
-                            ),
-                            (
-                                "P4",
-                                format!("P4: {:.1}ms | {:.0}%", note.envelope.p4, note.envelope.v4),
-                            ),
-                            (
-                                "P5",
-                                format!("P5: {:.1}ms | {:.0}%", note.envelope.p5, note.envelope.v5),
+                                "Fim",
+                                format!("Fim: {:.1}ms | {:.0}%", note_duration_ms, shape.end_level),
                             ),
                         ];
 
@@ -936,7 +812,9 @@ pub fn draw_phoneme_ruler(
                                     }
                                     if ui.input(|i| i.pointer.secondary_clicked()) {
                                         on_before_change();
-                                        note.envelope.reset_point(pt_i);
+                                        let mut reset_shape = note.effective_envelope_shape();
+                                        reset_shape.reset_point(pt_i, note.duration_ms);
+                                        note.set_envelope_shape(reset_shape);
                                         state.continuous_edit_dirty = true;
                                         on_note_changed();
                                     }
@@ -1795,11 +1673,20 @@ pub fn draw_phoneme_ruler(
                                     .clamp(0.0, 1.0)
                                     as f64)
                                     * 200.0;
-                                if pt_idx < 5 {
-                                    note.envelope.set_point(pt_idx, time, volume, duration);
+                                if pt_idx < 4 {
+                                    let mut edited_shape = note.effective_envelope_shape();
+                                    edited_shape.set_point(pt_idx, time, volume, duration);
+                                    note.set_envelope_shape(edited_shape);
                                 } else if pt_idx == 5 {
-                                    note.envelope.crossfade_ms =
+                                    let mut crossfade_shape = note.effective_envelope_shape();
+                                    crossfade_shape.crossfade_ms =
                                         (((x_start - pos.x) as f64) / px_per_ms).clamp(0.0, 600.0);
+                                    note.envelope_shape = Some(crossfade_shape.clone());
+                                    note.envelope = note
+                                        .envelope_shape
+                                        .as_ref()
+                                        .map(|shape| shape.to_utau(note.duration_ms))
+                                        .unwrap_or_else(|| note.envelope.clone());
                                 }
                                 state.continuous_edit_dirty = true;
                             }

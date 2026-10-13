@@ -291,6 +291,7 @@ impl KamafeuStudioApp {
             render_rx: None,
             progressive_playback_started: false,
             progressive_startup_audio: Vec::new(),
+            playback_chunk_buffer: Default::default(),
             render_cancel: None,
             retry_project: None,
             retry_voicebank: None,

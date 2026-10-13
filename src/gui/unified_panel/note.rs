@@ -671,29 +671,29 @@ pub(super) fn draw(
                             });
 
                             ui.add_space(3.0);
-                            ui.label(RichText::new("UTAU Envelope Presets:").size(9.5).color(theme.text_muted_c32()));
+                            ui.label(RichText::new("Envelope da Nota:").size(9.5).color(theme.text_muted_c32()));
                             ui.horizontal_wrapped(|ui| {
                                 let overlap = voicebank.and_then(|vb| vb.find_mapped_entry(&lyric, &pitch_str).map(|e| e.overlap)).unwrap_or(fade_in_ms.max(20.0));
-                                if ui.small_button(RichText::new("ACPT").strong().color(Color32::from_rgb(0, 255, 157))).on_hover_text("ACPT: Ajusta crossfade e ataque para o overlap do oto.ini").clicked() {
+                                if ui.small_button(RichText::new("Crossfade automático").strong().color(Color32::from_rgb(0, 255, 157))).on_hover_text("Ajusta somente a junção com a nota vizinha usando o overlap do oto.ini").clicked() {
                                     fade_in_ms = overlap.max(5.0);
                                     note_crossfade_ms = 0.0;
                                     changed_fades = true;
                                 }
-                                if ui.small_button(RichText::new("P2P3").strong().color(Color32::from_rgb(147, 197, 253))).on_hover_text("P2P3: Suaviza ataque e decaimento para transições de fonemas VC").clicked() {
+                                if ui.small_button(RichText::new("Ataque suave").strong().color(Color32::from_rgb(147, 197, 253))).on_hover_text("Suaviza somente a zona de ataque da nota").clicked() {
                                     fade_in_ms = overlap.max(5.0);
                                     note_crossfade_ms = 0.0;
                                     changed_fades = true;
                                 }
-                                if ui.small_button(RichText::new("P1P4").strong().color(Color32::from_rgb(216, 180, 254))).on_hover_text("P1P4: Fixa margens limpas no início e final da nota").clicked() {
+                                if ui.small_button(RichText::new("Sustain constante").strong().color(Color32::from_rgb(216, 180, 254))).on_hover_text("Mantém o nível do sustain constante").clicked() {
                                     changed_fades = true;
                                 }
-                                if ui.small_button(RichText::new("OPT").strong().color(Color32::from_rgb(253, 224, 71))).on_hover_text("OPT: Otimiza envelope proporcionalmente à duração").clicked() {
+                                if ui.small_button(RichText::new("Release suave").strong().color(Color32::from_rgb(253, 224, 71))).on_hover_text("Ajusta o release proporcionalmente à duração da nota").clicked() {
                                     fade_in_ms = (dur_ms * 0.25).min(overlap).max(5.0);
                                     fade_out_ms = (dur_ms * 0.2).clamp(5.0, 35.0);
                                     note_crossfade_ms = 0.0;
                                     changed_fades = true;
                                 }
-                                if ui.small_button(RichText::new("RESET").strong().color(Color32::from_rgb(248, 113, 113))).on_hover_text("RESET: Restaura envelope padrão UTAU").clicked() {
+                                if ui.small_button(RichText::new("Restaurar padrão").strong().color(Color32::from_rgb(248, 113, 113))).on_hover_text("Restaura ataque, sustain, release e crossfade padrão").clicked() {
                                     fade_in_ms = 5.0;
                                     fade_out_ms = 35.0;
                                     note_crossfade_ms = 0.0;

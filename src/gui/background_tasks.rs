@@ -69,136 +69,170 @@ impl KamafeuStudioApp {
             // already have rendered ahead while egui was busy scrolling.
             for _ in 0..16 {
                 match rx.try_recv() {
-                    Ok(mut chunk) => {
-                        let chunk_frames = chunk.audio.frame_count();
-                        self.render_log_messages.push(format!(
-                            "[Chunk] #{} start={:.0}ms end={:.0}ms frames={}{}",
-                            chunk.chunk_index,
-                            chunk.chunk_start_ms,
-                            chunk.end_ms(),
-                            chunk_frames,
-                            if chunk.audio.error.is_some() {
-                                " status=error"
-                            } else {
-                                " status=ready"
+                    Ok(chunk) => {
+                        let ready_chunks = if chunk.audio.error.is_some() {
+                            vec![chunk]
+                        } else {
+                            let before = self.playback_chunk_buffer.pending_len();
+                            let before_counters = (
+                                self.playback_chunk_buffer.gaps,
+                                self.playback_chunk_buffer.out_of_order,
+                                self.playback_chunk_buffer.duplicates,
+                            );
+                            let ready = self.playback_chunk_buffer.push(chunk);
+                            let counters = (
+                                self.playback_chunk_buffer.gaps,
+                                self.playback_chunk_buffer.out_of_order,
+                                self.playback_chunk_buffer.duplicates,
+                            );
+                            if counters != before_counters
+                                || (ready.is_empty()
+                                    && self.playback_chunk_buffer.pending_len() > before)
+                            {
+                                self.render_log_messages.push(format!(
+                                    "[PlaybackBuffer] pending={} gaps={} out_of_order={} duplicates={}",
+                                    self.playback_chunk_buffer.pending_len(),
+                                    self.playback_chunk_buffer.gaps,
+                                    self.playback_chunk_buffer.out_of_order,
+                                    self.playback_chunk_buffer.duplicates,
+                                ));
                             }
-                        ));
-                        let render_state = self
-                            .project
-                            .render_state
-                            .get_or_insert_with(Default::default);
-                        render_state
-                            .chunks
-                            .retain(|stored| stored.index != chunk.chunk_index);
-                        render_state
-                            .chunks
-                            .push(crate::project::model::UProjectRenderChunk {
-                                index: chunk.chunk_index,
-                                start_ms: chunk.chunk_start_ms,
-                                end_ms: chunk.end_ms(),
-                                is_final: chunk.is_final,
-                                status: if chunk.audio.error.is_some() {
-                                    "failed"
-                                } else {
-                                    "ready"
-                                }
-                                .to_string(),
-                                error: chunk.audio.error.clone(),
-                            });
-                        render_state.chunks.sort_by_key(|stored| stored.index);
-                        if let Some(error) = chunk.audio.error.take() {
-                            self.failed_chunk = Some((
+                            ready
+                        };
+                        for mut chunk in ready_chunks {
+                            let chunk_frames = chunk.audio.frame_count();
+                            self.render_log_messages.push(format!(
+                                "[Chunk] #{} start={:.0}ms end={:.0}ms frames={}{}",
                                 chunk.chunk_index,
                                 chunk.chunk_start_ms,
                                 chunk.end_ms(),
-                                chunk.is_final,
+                                chunk_frames,
+                                if chunk.audio.error.is_some() {
+                                    " status=error"
+                                } else {
+                                    " status=ready"
+                                }
                             ));
-                            self.audio_player.stop();
-                            self.piano_roll_state.is_playing = false;
-                            self.progressive_playback_started = false;
-                            self.progressive_startup_audio.clear();
-                            self.transport_state.status_message =
-                                format!("Erro no render: {error}");
-                            self.render_log_messages
-                                .push(format!("Chunk #{}: {error}", chunk.chunk_index));
-                            drop_rx = true;
-                            break;
-                        }
+                            let render_state = self
+                                .project
+                                .render_state
+                                .get_or_insert_with(Default::default);
+                            render_state
+                                .chunks
+                                .retain(|stored| stored.index != chunk.chunk_index);
+                            render_state
+                                .chunks
+                                .push(crate::project::model::UProjectRenderChunk {
+                                    index: chunk.chunk_index,
+                                    start_ms: chunk.chunk_start_ms,
+                                    end_ms: chunk.end_ms(),
+                                    is_final: chunk.is_final,
+                                    status: if chunk.audio.error.is_some() {
+                                        "failed"
+                                    } else {
+                                        "ready"
+                                    }
+                                    .to_string(),
+                                    error: chunk.audio.error.clone(),
+                                });
+                            render_state.chunks.sort_by_key(|stored| stored.index);
+                            if let Some(error) = chunk.audio.error.take() {
+                                self.failed_chunk = Some((
+                                    chunk.chunk_index,
+                                    chunk.chunk_start_ms,
+                                    chunk.end_ms(),
+                                    chunk.is_final,
+                                ));
+                                self.audio_player.stop();
+                                self.piano_roll_state.is_playing = false;
+                                self.progressive_playback_started = false;
+                                self.progressive_startup_audio.clear();
+                                self.transport_state.status_message =
+                                    format!("Erro no render: {error}");
+                                self.render_log_messages
+                                    .push(format!("Chunk #{}: {error}", chunk.chunk_index));
+                                drop_rx = true;
+                                break;
+                            }
 
-                        let chunk_is_final = chunk.is_final;
-                        let mut samples = std::mem::take(&mut chunk.audio.samples);
+                            let chunk_is_final = chunk.is_final;
+                            let mut samples = std::mem::take(&mut chunk.audio.samples);
 
-                        // Mix metronome clicks if enabled
-                        if self.transport_state.metronome_enabled {
-                            crate::audio::apply_metronome_clicks(
-                                &mut samples,
+                            // Mix metronome clicks if enabled
+                            if self.transport_state.metronome_enabled {
+                                crate::audio::apply_metronome_clicks(
+                                    &mut samples,
+                                    chunk.audio.sample_rate,
+                                    chunk.audio.channels,
+                                    chunk.chunk_start_ms,
+                                    self.transport_state.bpm,
+                                );
+                            }
+
+                            self.piano_roll_state.merge_rendered_waveform(
+                                &samples,
                                 chunk.audio.sample_rate,
                                 chunk.audio.channels,
                                 chunk.chunk_start_ms,
-                                self.transport_state.bpm,
                             );
-                        }
 
-                        self.piano_roll_state.merge_rendered_waveform(
-                            &samples,
-                            chunk.audio.sample_rate,
-                            chunk.audio.channels,
-                            chunk.chunk_start_ms,
-                        );
+                            if !self.progressive_playback_started {
+                                self.progressive_startup_audio.push((
+                                    samples,
+                                    chunk.audio.sample_rate,
+                                    chunk.audio.channels,
+                                ));
 
-                        if !self.progressive_playback_started {
-                            self.progressive_startup_audio.push((
-                                samples,
-                                chunk.audio.sample_rate,
-                                chunk.audio.channels,
-                            ));
+                                // Starting from a single page makes the sink race
+                                // the renderer and the egui layout work performed
+                                // when horizontal page-follow changes viewports.
+                                // Keep a complete extra page queued before the
+                                // playback clock starts. Short previews still
+                                // start immediately when their first page is final.
+                                if !crate::gui::playback::progressive_startup_ready(
+                                    self.progressive_startup_audio.len(),
+                                    chunk_is_final,
+                                ) {
+                                    continue;
+                                }
 
-                            // Starting from a single page makes the sink race
-                            // the renderer and the egui layout work performed
-                            // when horizontal page-follow changes viewports.
-                            // Keep a complete extra page queued before the
-                            // playback clock starts. Short previews still
-                            // start immediately when their first page is final.
-                            if !crate::gui::playback::progressive_startup_ready(
-                                self.progressive_startup_audio.len(),
-                                chunk_is_final,
-                            ) {
-                                continue;
-                            }
-
-                            let mut startup = self.progressive_startup_audio.drain(..);
-                            if let Some((first, sample_rate, channels)) = startup.next() {
-                                self.audio_player.play_samples_with_channels(
-                                    first,
-                                    sample_rate,
-                                    channels,
+                                let mut startup = self.progressive_startup_audio.drain(..);
+                                if let Some((first, sample_rate, channels)) = startup.next() {
+                                    self.audio_player.start_scheduler(
+                                        first,
+                                        sample_rate,
+                                        channels,
+                                        chunk_is_final,
+                                    );
+                                }
+                                for (queued, sample_rate, channels) in startup {
+                                    self.audio_player.append_scheduler_chunk(
+                                        queued,
+                                        sample_rate,
+                                        channels,
+                                        false,
+                                    );
+                                }
+                                self.piano_roll_state.is_playing = true;
+                                self.playback_start_instant = Some(Instant::now());
+                                self.progressive_playback_started = true;
+                                self.transport_state.status_message =
+                                    "Reproduzindo áudio...".to_string();
+                            } else {
+                                self.audio_player.append_scheduler_chunk(
+                                    samples,
+                                    chunk.audio.sample_rate,
+                                    chunk.audio.channels,
+                                    chunk_is_final,
                                 );
                             }
-                            for (queued, sample_rate, channels) in startup {
-                                self.audio_player.append_samples_with_channels(
-                                    queued,
-                                    sample_rate,
-                                    channels,
-                                );
-                            }
-                            self.piano_roll_state.is_playing = true;
-                            self.playback_start_instant = Some(Instant::now());
-                            self.progressive_playback_started = true;
-                            self.transport_state.status_message =
-                                "Reproduzindo áudio...".to_string();
-                        } else {
-                            self.audio_player.append_samples_with_channels(
-                                samples,
-                                chunk.audio.sample_rate,
-                                chunk.audio.channels,
-                            );
-                        }
 
-                        if chunk_is_final {
-                            self.transport_state.render_progress = 1.0;
-                            self.render_progress = 1.0;
-                            drop_rx = true;
-                            break;
+                            if chunk_is_final {
+                                self.transport_state.render_progress = 1.0;
+                                self.render_progress = 1.0;
+                                drop_rx = true;
+                                break;
+                            }
                         }
                     }
                     Err(std::sync::mpsc::TryRecvError::Empty) => break,

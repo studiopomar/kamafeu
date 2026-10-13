@@ -8,6 +8,10 @@ pub fn set_flush_denormals_to_zero(enabled: bool) {
 
 #[cfg(not(target_arch = "wasm32"))]
 use rodio::{buffer::SamplesBuffer, OutputStream, OutputStreamHandle, Sink};
+#[cfg(not(target_arch = "wasm32"))]
+use std::sync::mpsc::{self, Sender};
+#[cfg(not(target_arch = "wasm32"))]
+use std::sync::Arc;
 
 #[cfg(not(target_arch = "wasm32"))]
 pub struct AudioPlayer {
@@ -16,7 +20,33 @@ pub struct AudioPlayer {
     active_sink: Option<Sink>,
     volume: f32,
     speed: f32,
+    scheduler_tx: Option<Sender<SchedulerCommand>>,
+    scheduler_state: Arc<std::sync::atomic::AtomicU8>,
 }
+
+#[cfg(not(target_arch = "wasm32"))]
+enum SchedulerCommand {
+    Start {
+        samples: Vec<f32>,
+        sample_rate: u32,
+        channels: u16,
+        final_chunk: bool,
+        volume: f32,
+        speed: f32,
+    },
+    Append {
+        samples: Vec<f32>,
+        sample_rate: u32,
+        channels: u16,
+        final_chunk: bool,
+    },
+    Stop,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+const SCHEDULER_IDLE: u8 = 0;
+#[cfg(not(target_arch = "wasm32"))]
+const SCHEDULER_RUNNING: u8 = 1;
 
 #[cfg(not(target_arch = "wasm32"))]
 impl AudioPlayer {
@@ -37,12 +67,94 @@ impl AudioPlayer {
             }
         };
 
+        let scheduler_state = Arc::new(std::sync::atomic::AtomicU8::new(SCHEDULER_IDLE));
+        let (scheduler_tx, scheduler_rx) = mpsc::channel();
+        let worker_state = scheduler_state.clone();
+        let worker_handle = stream_handle.clone();
+        std::thread::Builder::new()
+            .name("kamafeu-audio-scheduler".to_string())
+            .spawn(move || {
+                let Some(worker_handle) = worker_handle else {
+                    return;
+                };
+                let mut sink: Option<Sink> = None;
+                let mut final_chunk = false;
+                while let Ok(command) = scheduler_rx.recv() {
+                    match command {
+                        SchedulerCommand::Start {
+                            samples,
+                            sample_rate,
+                            channels,
+                            final_chunk: is_final,
+                            volume,
+                            speed,
+                        } => {
+                            if let Some(old) = sink.take() {
+                                old.stop();
+                            }
+                            match Sink::try_new(&worker_handle) {
+                                Ok(next) => {
+                                    next.append(SamplesBuffer::new(
+                                        channels.max(1),
+                                        sample_rate,
+                                        samples,
+                                    ));
+                                    next.set_volume(volume);
+                                    next.set_speed(speed);
+                                    next.play();
+                                    sink = Some(next);
+                                    final_chunk = is_final;
+                                    worker_state.store(SCHEDULER_RUNNING, Ordering::Release);
+                                }
+                                Err(error) => {
+                                    eprintln!("[AudioScheduler] erro ao criar sink: {error}");
+                                    worker_state.store(SCHEDULER_IDLE, Ordering::Release);
+                                }
+                            }
+                        }
+                        SchedulerCommand::Append {
+                            samples,
+                            sample_rate,
+                            channels,
+                            final_chunk: is_final,
+                        } => {
+                            if let Some(active) = sink.as_ref() {
+                                active.append(SamplesBuffer::new(
+                                    channels.max(1),
+                                    sample_rate,
+                                    samples,
+                                ));
+                                final_chunk = is_final;
+                                worker_state.store(SCHEDULER_RUNNING, Ordering::Release);
+                            } else {
+                                eprintln!("[AudioScheduler] chunk recebido sem geração ativa");
+                            }
+                        }
+                        SchedulerCommand::Stop => {
+                            if let Some(active) = sink.take() {
+                                active.stop();
+                            }
+                            worker_state.store(SCHEDULER_IDLE, Ordering::Release);
+                            final_chunk = false;
+                        }
+                    }
+                    if let Some(active) = sink.as_ref() {
+                        if final_chunk && active.empty() {
+                            worker_state.store(SCHEDULER_IDLE, Ordering::Release);
+                        }
+                    }
+                }
+            })
+            .ok();
+
         Self {
             _stream: stream,
             stream_handle,
             active_sink: None,
             volume: 1.0,
             speed: 1.0,
+            scheduler_tx: Some(scheduler_tx),
+            scheduler_state,
         }
     }
 
@@ -76,6 +188,7 @@ impl AudioPlayer {
         if samples.is_empty() {
             return;
         }
+        self.stop_scheduler();
         Self::sanitize_samples(&mut samples);
 
         if let Some(old_sink) = self.active_sink.take() {
@@ -108,7 +221,7 @@ impl AudioPlayer {
         if samples.is_empty() {
             return;
         }
-        Self::sanitize_samples(&mut samples);
+        Self::sanitize_scheduler_samples(&mut samples);
 
         if self.active_sink.as_ref().is_some_and(|sink| sink.empty()) {
             // A sink can become empty between UI frames while the renderer
@@ -121,6 +234,61 @@ impl AudioPlayer {
         } else {
             self.play_samples_with_channels(samples, sample_rate, channels);
         }
+    }
+
+    pub fn start_scheduler(
+        &mut self,
+        samples: Vec<f32>,
+        sample_rate: u32,
+        channels: u16,
+        final_chunk: bool,
+    ) {
+        if samples.is_empty() {
+            return;
+        }
+        let mut samples = samples;
+        Self::sanitize_samples(&mut samples);
+        if let Some(tx) = &self.scheduler_tx {
+            let _ = tx.send(SchedulerCommand::Start {
+                samples,
+                sample_rate,
+                channels,
+                final_chunk,
+                volume: self.volume,
+                speed: self.speed,
+            });
+        }
+    }
+
+    pub fn append_scheduler_chunk(
+        &mut self,
+        mut samples: Vec<f32>,
+        sample_rate: u32,
+        channels: u16,
+        final_chunk: bool,
+    ) {
+        if samples.is_empty() {
+            return;
+        }
+        Self::sanitize_scheduler_samples(&mut samples);
+        if let Some(tx) = &self.scheduler_tx {
+            let _ = tx.send(SchedulerCommand::Append {
+                samples,
+                sample_rate,
+                channels,
+                final_chunk,
+            });
+        }
+    }
+
+    fn stop_scheduler(&mut self) {
+        if let Some(tx) = &self.scheduler_tx {
+            let _ = tx.send(SchedulerCommand::Stop);
+        }
+    }
+
+    pub fn scheduler_is_active(&self) -> bool {
+        self.scheduler_state.load(Ordering::Acquire) == SCHEDULER_RUNNING
     }
 
     fn sanitize_samples(samples: &mut [f32]) {
@@ -139,7 +307,20 @@ impl AudioPlayer {
         }
     }
 
+    fn sanitize_scheduler_samples(samples: &mut [f32]) {
+        for sample in samples {
+            if !sample.is_finite() {
+                *sample = 0.0;
+            } else if FLUSH_DENORMALS_TO_ZERO.load(Ordering::Relaxed)
+                && sample.abs() < f32::MIN_POSITIVE
+            {
+                *sample = 0.0;
+            }
+        }
+    }
+
     pub fn stop(&mut self) {
+        self.stop_scheduler();
         if let Some(sink) = self.active_sink.take() {
             sink.pause();
             sink.detach();
@@ -165,6 +346,9 @@ impl AudioPlayer {
     }
 
     pub fn is_playing(&self) -> bool {
+        if self.scheduler_is_active() {
+            return true;
+        }
         if let Some(ref sink) = self.active_sink {
             return !sink.empty();
         }
@@ -375,6 +559,29 @@ impl AudioPlayer {
         } else {
             false
         }
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+impl AudioPlayer {
+    pub fn start_scheduler(
+        &mut self,
+        samples: Vec<f32>,
+        sample_rate: u32,
+        channels: u16,
+        _final_chunk: bool,
+    ) {
+        self.play_samples_with_channels(samples, sample_rate, channels);
+    }
+
+    pub fn append_scheduler_chunk(
+        &mut self,
+        samples: Vec<f32>,
+        sample_rate: u32,
+        channels: u16,
+        _final_chunk: bool,
+    ) {
+        self.append_samples_with_channels(samples, sample_rate, channels);
     }
 }
 

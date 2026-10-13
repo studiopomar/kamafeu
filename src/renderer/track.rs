@@ -609,7 +609,7 @@ impl TrackRenderer {
                 format!(
                     "  [Resampler] Motor: '{}' | flags finais: '{}' | pitch: {} | duração: {:.1}ms",
                     resampler_driver.name(),
-                    res_args.flags,
+                    crate::drivers::resampler_driver::effective_classic_flags(&res_args),
                     res_args.pitch_name,
                     res_args.duration_ms
                 ),
@@ -668,6 +668,14 @@ impl TrackRenderer {
 
             let resampler_diagnostics =
                 crate::renderer::diagnostics::AudioDiagnostics::analyze(&note_rendered, 1);
+            let resampler_output_sample_rate = if res_args.output_wav.is_file() {
+                Self::load_wav_samples(&res_args.output_wav)
+                    .map(|(_, rate)| rate)
+                    .unwrap_or(sample_rate)
+            } else {
+                sample_rate
+            };
+            let sample_rate_converted = resampler_output_sample_rate != sample_rate;
             logs.push((
                 progress,
                 format!(
@@ -736,16 +744,12 @@ impl TrackRenderer {
                 sample_time_zero_ms: -timing.pitch_leading_ms,
             };
 
-            logs.push((
-                progress,
-                format!(
-                    "  [Wavtool Command] {}",
-                    crate::drivers::wavtool_driver::describe_wavtool_command(
-                        wavtool_driver.name(),
-                        &wav_args,
-                    )
-                ),
-            ));
+            let wavtool_command = crate::drivers::wavtool_driver::describe_wavtool_command(
+                wavtool_driver.name(),
+                &wav_args,
+            );
+
+            logs.push((progress, format!("  [Wavtool Command] {}", wavtool_command)));
 
             let external_phrase = wavtool_driver.phrase_executable().is_some();
             logs.push((
@@ -756,6 +760,7 @@ impl TrackRenderer {
                     if external_phrase { "externo" } else { "nativo" }
                 ),
             ));
+
             let wavtool_consumed_skip = if external_phrase {
                 false
             } else {
@@ -781,6 +786,54 @@ impl TrackRenderer {
                     note_rendered.len(),
                     post_wavtool_max,
                     wavtool_diagnostics.render_log_line("output")
+                ),
+            ));
+
+            let render_diagnostic = crate::renderer::PhonemeRenderDiagnostic {
+                phone_index: idx,
+                lyric: phone.lyric.clone(),
+                resampler: resampler_driver.name().to_string(),
+                wavtool: wavtool_driver.name().to_string(),
+                input_wav: res_args.input_wav.display().to_string(),
+                output_wav: res_args.output_wav.display().to_string(),
+                command: crate::drivers::resampler_driver::describe_resampler_command(
+                    resampler_driver.name(),
+                    &res_args,
+                ),
+                pitch: res_args.pitch_name.clone(),
+                pitch_frequency: res_args.pitch_freq,
+                flags: crate::drivers::resampler_driver::effective_classic_flags(&res_args),
+                offset_ms: res_args.offset_ms,
+                requested_duration_ms: phone.duration_ms,
+                resampler_duration_ms: res_args.duration_ms,
+                source_consonant_ms: res_args.source_consonant_ms,
+                consonant_ms: res_args.consonant_ms,
+                cutoff_ms: res_args.cutoff_ms,
+                skip_over_ms: wav_args.skip_over_ms,
+                overlap_ms: wav_args.overlap_ms,
+                input_sample_rate: src_sample_rate,
+                output_sample_rate: sample_rate,
+                resampler_output_sample_rate,
+                sample_rate_converted,
+                resampler_peak: resampler_diagnostics.peak,
+                resampler_rms: resampler_diagnostics.rms,
+                resampler_clipped_samples: resampler_diagnostics.clipped_samples,
+                wavtool_peak: wavtool_diagnostics.peak,
+                wavtool_rms: wavtool_diagnostics.rms,
+                wavtool_clipped_samples: wavtool_diagnostics.clipped_samples,
+                envelope_points: crate::dsp::EnvelopeShape::from_utau(
+                    &phone.envelope,
+                    phone.duration_ms,
+                )
+                .effective_points(phone.duration_ms),
+                crossfade_ms: phone.envelope.crossfade_ms,
+            };
+            logs.push((
+                progress,
+                format!(
+                    "  [Phoneme Render] {}",
+                    serde_json::to_string(&render_diagnostic)
+                        .expect("phoneme render diagnostic is serializable")
                 ),
             ));
 

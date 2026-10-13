@@ -27,6 +27,7 @@ pub mod phoneme_palette;
 pub mod phoneme_ruler;
 pub mod piano_roll;
 mod playback;
+mod playback_buffer;
 pub mod preferences_dialog;
 mod project_files;
 mod render_log;
@@ -130,6 +131,7 @@ pub struct KamafeuStudioApp {
     failed_chunk: Option<(usize, f64, f64, bool)>,
     progressive_playback_started: bool,
     progressive_startup_audio: Vec<(Vec<f32>, u32, u16)>,
+    playback_chunk_buffer: playback_buffer::PlaybackChunkBuffer,
     render_log_window_open: bool,
     render_log_messages: Vec<String>,
     render_log_filter: RenderLogFilter,

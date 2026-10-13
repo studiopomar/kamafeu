@@ -66,6 +66,7 @@ impl KamafeuStudioApp {
             self.render_status_title = format!("Retry chunk #{chunk_index}");
             self.failed_chunk = None;
             self.progressive_startup_audio.clear();
+            self.playback_chunk_buffer.reset(start_ms);
 
             let resampler_driver = self.create_resampler_driver();
             let wavtool_driver = self.create_wavtool_driver();
@@ -245,6 +246,7 @@ impl KamafeuStudioApp {
         self.playback_start_instant = None;
         self.progressive_playback_started = false;
         self.progressive_startup_audio.clear();
+        self.playback_chunk_buffer.reset(playhead_ms);
         let tx = Arc::new(std::sync::Mutex::new(tx));
         let tx_cb = tx.clone();
         #[cfg(not(target_arch = "wasm32"))]
@@ -331,6 +333,8 @@ impl KamafeuStudioApp {
         self.render_rx = None;
         self.progressive_playback_started = false;
         self.progressive_startup_audio.clear();
+        self.playback_chunk_buffer
+            .reset(self.piano_roll_state.playhead_ms);
         self.transport_state.status_message = "Pausado".to_string();
     }
 

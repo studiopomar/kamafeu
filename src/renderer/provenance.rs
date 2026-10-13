@@ -62,6 +62,43 @@ pub struct PhonemeResolutionDiagnostic {
     pub flags: String,
 }
 
+/// Structured boundary record for the external resampler/wavtool handoff.
+/// The renderer emits this exact value to the terminal and the CLI stores it
+/// in the provenance sidecar, so diagnostics cannot diverge between them.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PhonemeRenderDiagnostic {
+    pub phone_index: usize,
+    pub lyric: String,
+    pub resampler: String,
+    pub wavtool: String,
+    pub input_wav: String,
+    pub output_wav: String,
+    pub command: String,
+    pub pitch: String,
+    pub pitch_frequency: f64,
+    pub flags: String,
+    pub offset_ms: f64,
+    pub requested_duration_ms: f64,
+    pub resampler_duration_ms: f64,
+    pub source_consonant_ms: f64,
+    pub consonant_ms: f64,
+    pub cutoff_ms: f64,
+    pub skip_over_ms: f64,
+    pub overlap_ms: f64,
+    pub input_sample_rate: u32,
+    pub output_sample_rate: u32,
+    pub resampler_output_sample_rate: u32,
+    pub sample_rate_converted: bool,
+    pub resampler_peak: f32,
+    pub resampler_rms: f32,
+    pub resampler_clipped_samples: usize,
+    pub wavtool_peak: f32,
+    pub wavtool_rms: f32,
+    pub wavtool_clipped_samples: usize,
+    pub envelope_points: [(f64, f64); 4],
+    pub crossfade_ms: f64,
+}
+
 /// Parses the stable, non-executable boundary record emitted by the renderer.
 /// Keeping this parser here lets CLI and other hosts capture the same record
 /// without depending on localized human-readable log text.
@@ -133,6 +170,8 @@ pub struct RenderProvenance {
     pub timing_boundary_diagnostics: Vec<TimingBoundaryDiagnostic>,
     #[serde(default)]
     pub phoneme_resolutions: Vec<PhonemeResolutionDiagnostic>,
+    #[serde(default)]
+    pub phoneme_renders: Vec<PhonemeRenderDiagnostic>,
     /// Human-readable, non-executable command descriptions emitted by the
     /// render pipeline. Older sidecars deserialize this as an empty list.
     #[serde(default)]
@@ -179,6 +218,7 @@ impl RenderProvenance {
             timing_diagnostics: Vec::new(),
             timing_boundary_diagnostics: Vec::new(),
             phoneme_resolutions: Vec::new(),
+            phoneme_renders: Vec::new(),
             commands: Vec::new(),
         }
     }
@@ -263,6 +303,19 @@ impl RenderProvenance {
                 .then_with(|| a.position_ms.total_cmp(&b.position_ms))
                 .then_with(|| a.note_index.cmp(&b.note_index))
                 .then_with(|| a.lyric.cmp(&b.lyric))
+        });
+        self
+    }
+
+    pub fn with_phoneme_renders(
+        mut self,
+        diagnostics: impl IntoIterator<Item = PhonemeRenderDiagnostic>,
+    ) -> Self {
+        self.phoneme_renders = diagnostics.into_iter().collect();
+        self.phoneme_renders.sort_by(|left, right| {
+            left.phone_index
+                .cmp(&right.phone_index)
+                .then_with(|| left.lyric.cmp(&right.lyric))
         });
         self
     }
