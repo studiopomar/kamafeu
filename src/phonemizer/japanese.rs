@@ -2,6 +2,7 @@ use crate::oto::Voicebank;
 use crate::phonemizer::{consonant_velocity_time_scale, romaji, PhonemizerMode, RenderPhone};
 use crate::project::model::UNote;
 use std::collections::HashMap;
+use std::fs;
 use std::sync::LazyLock;
 
 static PLAIN_VOWELS: &[&str] = &[
@@ -334,6 +335,45 @@ static SUBSTITUTE_LOOKUP: LazyLock<HashMap<&'static str, &'static str>> = LazyLo
 
 pub struct JapanesePhonemizer;
 
+/// Reads the exact-match replacement section used by Presamp.  OpenUtau
+/// applies these replacements to the lyric before VCV/CVVC classification,
+/// but never applies them to an explicit phonetic hint.
+fn parse_presamp_replacements(contents: &str) -> HashMap<String, String> {
+    let mut replacements = HashMap::new();
+    let mut in_replace = false;
+    for raw_line in contents.lines() {
+        let line = raw_line.trim();
+        if line.starts_with('[') && line.ends_with(']') {
+            in_replace = line.eq_ignore_ascii_case("[REPLACE]");
+            continue;
+        }
+        if !in_replace || line.is_empty() || line.starts_with(';') || line.starts_with('#') {
+            continue;
+        }
+        let Some((from, to)) = line.split_once('=') else {
+            continue;
+        };
+        let from = from.trim();
+        let to = to.trim();
+        if !from.is_empty() {
+            replacements.insert(from.to_string(), to.to_string());
+        }
+    }
+    replacements
+}
+
+fn load_presamp_replacements(root: &std::path::Path) -> HashMap<String, String> {
+    let path = root.join("presamp.ini");
+    let Ok(bytes) = fs::read(path) else {
+        return HashMap::new();
+    };
+    let text = String::from_utf8(bytes.clone()).unwrap_or_else(|_| {
+        let (decoded, _, _) = encoding_rs::SHIFT_JIS.decode(&bytes);
+        decoded.into_owned()
+    });
+    parse_presamp_replacements(&text)
+}
+
 /// Converts a note lyric written as a Japanese VCV alias to its CV lyric.
 ///
 /// VCV aliases are represented by the previous vowel followed by the note
@@ -479,13 +519,14 @@ impl JapanesePhonemizer {
 
         struct NoteRef<'a> {
             note_index: usize,
-            lyric: &'a str,
+            lyric: String,
             note: &'a UNote,
             position_ms: f64,
             duration_ms: f64,
         }
 
         let mut expanded: Vec<NoteRef> = Vec::new();
+        let presamp_replacements = load_presamp_replacements(&vb.root_path);
         for (note_index, note) in notes.iter().enumerate() {
             // OpenUtau resolves a phonetic hint before applying VCV/CVVC
             // rules.  The visible lyric remains untouched in the project,
@@ -495,6 +536,14 @@ impl JapanesePhonemizer {
                 .as_deref()
                 .unwrap_or(note.lyric.as_str())
                 .trim();
+            let raw_lyric = if note.phonetic_hint.is_none() {
+                presamp_replacements
+                    .get(raw_lyric)
+                    .map(String::as_str)
+                    .unwrap_or(raw_lyric)
+            } else {
+                raw_lyric
+            };
             if raw_lyric.contains(';') || raw_lyric.contains(',') {
                 let parts: Vec<&str> = raw_lyric
                     .split(|c| c == ';' || c == ',')
@@ -508,7 +557,7 @@ impl JapanesePhonemizer {
                         let sub_dur = durations[i];
                         expanded.push(NoteRef {
                             note_index,
-                            lyric: part,
+                            lyric: part.to_string(),
                             note,
                             position_ms: sub_pos,
                             duration_ms: sub_dur,
@@ -521,7 +570,7 @@ impl JapanesePhonemizer {
 
             expanded.push(NoteRef {
                 note_index,
-                lyric: raw_lyric,
+                lyric: raw_lyric.to_string(),
                 note,
                 position_ms: note.position_ms,
                 duration_ms: note.duration_ms,
@@ -540,8 +589,8 @@ impl JapanesePhonemizer {
                 continue;
             }
 
-            let cur_vowel = Self::extract_vowel(exp.lyric);
-            let _cur_consonant = Self::extract_consonant(exp.lyric);
+            let cur_vowel = Self::extract_vowel(&exp.lyric);
+            let _cur_consonant = Self::extract_consonant(&exp.lyric);
 
             let is_phrase_start = match prev_note_end_ms {
                 Some(end_ms) => exp.position_ms > end_ms + 0.001,
@@ -572,7 +621,7 @@ impl JapanesePhonemizer {
                     sokuon_candidates.push(format!("{} っ", vowel));
                     sokuon_candidates.push(format!("{} cl", vowel));
                     if let Some(next_exp) = expanded.get(idx + 1) {
-                        if let Some(consonant) = Self::extract_consonant(next_exp.lyric) {
+                        if let Some(consonant) = Self::extract_consonant(&next_exp.lyric) {
                             if consonant != "cl" {
                                 sokuon_candidates.push(format!("{} {}", vowel, consonant));
                             }
@@ -694,7 +743,7 @@ impl JapanesePhonemizer {
                     // Treating every known consonant as a "plain vowel" made
                     // the renderer search for V-V aliases (for example
                     // `a k`) instead of the required CV alias (`ka`).
-                    let is_plain_vowel = PLAIN_VOWELS.contains(&exp.lyric);
+                    let is_plain_vowel = PLAIN_VOWELS.contains(&exp.lyric.as_str());
                     let mut current_lyric = exp.lyric.to_string();
 
                     if is_phrase_start {
@@ -742,9 +791,9 @@ impl JapanesePhonemizer {
                         let next_gap = next_exp.position_ms - (exp.position_ms + exp.duration_ms);
                         let is_next_adjacent = next_gap <= 0.001;
 
-                        if is_next_adjacent && !PLAIN_VOWELS.contains(&next_exp.lyric) {
+                        if is_next_adjacent && !PLAIN_VOWELS.contains(&next_exp.lyric.as_str()) {
                             if let (Some(vow), Some(con)) =
-                                (cur_vowel, Self::extract_consonant(next_exp.lyric))
+                                (cur_vowel, Self::extract_consonant(&next_exp.lyric))
                             {
                                 let mut vc_candidates = vec![
                                     format!("{} {}", vow, con),
@@ -866,6 +915,16 @@ mod tests {
         assert_eq!(cv_to_vcv_lyric("あ", None), "- あ");
         assert_eq!(cv_to_vcv_lyric("a さ", Some("か")), "a さ");
         assert_eq!(remove_non_hiragana("KA カ か!"), " か か");
+    }
+
+    #[test]
+    fn presamp_replace_section_uses_exact_matches_only() {
+        let replacements = parse_presamp_replacements(
+            "[VOWEL]\na=あ\n[REPLACE]\nka=か\n っ = cl\n; ignored=x\n[ALIAS]\nVC=a k\n",
+        );
+        assert_eq!(replacements.get("ka"), Some(&"か".to_string()));
+        assert_eq!(replacements.get("っ"), Some(&"cl".to_string()));
+        assert!(!replacements.contains_key("k"));
     }
 
     #[test]
