@@ -953,6 +953,7 @@ impl JapanesePhonemizer {
 
             let cur_vowel = extract_presamp_vowel(&exp.lyric, &presamp_inventory);
             let _cur_consonant = extract_presamp_consonant(&exp.lyric, &presamp_inventory);
+            let current_core = presamp_core_lyric(&exp.lyric, &presamp_inventory);
 
             let is_phrase_start = match prev_note_end_ms {
                 Some(end_ms) => exp.position_ms > end_ms + 0.001,
@@ -1158,9 +1159,9 @@ impl JapanesePhonemizer {
                     // Treating every known consonant as a "plain vowel" made
                     // the renderer search for V-V aliases (for example
                     // `a k`) instead of the required CV alias (`ka`).
-                    let is_plain_vowel = PLAIN_VOWELS.contains(&exp.lyric.as_str())
-                        || presamp_inventory.vowels.contains(&exp.lyric);
-                    let is_priority = presamp_inventory.priority.contains(&exp.lyric);
+                    let is_plain_vowel = PLAIN_VOWELS.contains(&current_core.as_str())
+                        || presamp_inventory.vowels.contains(&current_core);
+                    let is_priority = presamp_inventory.priority.contains(&current_core);
                     let mut current_lyric = exp.lyric.to_string();
 
                     if is_phrase_start {
@@ -1183,12 +1184,30 @@ impl JapanesePhonemizer {
                         {
                             current_lyric = found;
                         }
+                    } else if current_core.contains('・') {
+                        let mut glottal_cands = Vec::new();
+                        if let Some(pv) = prev_vowel.as_deref() {
+                            glottal_cands.push(presamp_join(pv, &presamp_alias.vcvpad, &exp.lyric));
+                            glottal_cands.push(presamp_join(pv, &presamp_alias.vcpad, &exp.lyric));
+                        }
+                        glottal_cands.extend([
+                            format!("・{}{}", presamp_alias.vcpad, exp.lyric),
+                            format!("・{}{}", presamp_alias.vcvpad, exp.lyric),
+                            exp.lyric.to_string(),
+                        ]);
+                        if let Some(found) =
+                            Self::find_oto_candidate(vb, &glottal_cands, &note.pitch)
+                        {
+                            current_lyric = found;
+                        }
                     } else if is_priority {
                         let mut priority_cands = vec![exp.lyric.to_string()];
                         priority_cands.extend(expand_presamp_candidates(
                             &presamp_alias.beginning_cv,
                             "",
-                            Self::extract_consonant(&exp.lyric).unwrap_or(""),
+                            extract_presamp_consonant(&exp.lyric, &presamp_inventory)
+                                .as_deref()
+                                .unwrap_or(""),
                             &exp.lyric,
                             &exp.lyric,
                             &presamp_alias,
