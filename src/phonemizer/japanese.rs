@@ -1073,7 +1073,13 @@ impl JapanesePhonemizer {
                 presamp_replacements
                     .get(raw_lyric)
                     .map(String::as_str)
-                    .or_else(|| default_presamp_replacement(raw_lyric))
+                    .or_else(|| {
+                        if presamp_replacements.is_empty() {
+                            default_presamp_replacement(raw_lyric)
+                        } else {
+                            None
+                        }
+                    })
                     .unwrap_or(raw_lyric)
             } else {
                 raw_lyric
