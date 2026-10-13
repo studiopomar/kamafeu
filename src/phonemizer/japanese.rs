@@ -444,6 +444,20 @@ struct PresampInventory {
 
 impl Default for PresampInventory {
     fn default() -> Self {
+        let mut alias_pitches = Vec::new();
+        for octave in 1..=7 {
+            for pitch in [
+                "C", "C#", "Db", "D", "D#", "Eb", "E", "F", "F#", "Gb", "G", "G#", "Ab", "A", "A#",
+                "Bb", "B",
+            ] {
+                alias_pitches.push(format!("{pitch}{octave}"));
+            }
+        }
+        alias_pitches.extend(
+            ["↑", "↓", "→", "←", "high", "low", "mid"]
+                .into_iter()
+                .map(str::to_string),
+        );
         let priority = [
             "k", "ky", "g", "gy", "t", "ty", "d", "dy", "ch", "ts", "b", "by", "p", "py", "r", "ry",
         ]
@@ -469,7 +483,7 @@ impl Default for PresampInventory {
             .into_iter()
             .map(str::to_string)
             .collect(),
-            alias_pitches: Vec::new(),
+            alias_pitches,
             priority,
             no_crossfade,
             vc_length_from_cv: true,
@@ -1801,6 +1815,9 @@ mod tests {
         let defaults = parse_presamp_inventory("");
         assert!(defaults.priority.contains("k"));
         assert!(defaults.no_crossfade.contains("k"));
+        assert!(defaults.alias_pitches.contains(&"C4".to_string()));
+        assert!(defaults.alias_pitches.contains(&"Eb7".to_string()));
+        assert!(defaults.alias_pitches.contains(&"high".to_string()));
 
         let inventory = parse_presamp_inventory(
             "[VOWEL]\na=あ=か,が=100\nn=ん=ん=100\n[CONSONANT]\nk=か,く,け,こ=1\ns=さ,す,せ,そ=0\n[PRIORITY]\nk,ky\nっ\n",
