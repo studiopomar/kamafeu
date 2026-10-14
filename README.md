@@ -12,17 +12,15 @@
 
 [![Download latest](https://img.shields.io/badge/Download-latest-7c3aed?style=for-the-badge&logo=github&logoColor=white)](https://github.com/studiopomar/kamafeu/releases/latest)
 [![Downloads](https://img.shields.io/github/downloads/studiopomar/kamafeu/total?style=for-the-badge&label=Downloads&logo=github&logoColor=white&color=2563eb)](https://github.com/studiopomar/kamafeu/releases)
-[![Stars](https://img.shields.io/github/stars/studiopomar/kamafeu?style=flat-square&label=Stars&logo=github&labelColor=444&color=DAAA3F)](https://star-history.com/#studiopomar/kamafeu&Date)
+[![Stars](https://img.shields.io/github/stars/studiopomar/kamafeu?style=for-the-badge&label=Stars&logo=github&labelColor=444&color=DAAA3F)](https://star-history.com/#studiopomar/kamafeu&Date)
+
+<img src="assets/kamafeu_banner.png" alt="Kamafeu Studio — piano roll e síntese vocal" width="1000" />
 
 **Programador:** xiao | **Direção de arte:** mori-p | **Bug reporter e QA (Linux):** makki | **Testador e QA (Windows e Linux):** zoneryth | **Testador e QA (macOS):** xiao
 
 [Downloads](https://github.com/studiopomar/kamafeu/releases) | [Primeiros passos](#primeiros-passos) | [Compilação](#instruções-de-compilação) | [Histórico de alterações](CHANGELOG.md)
 
 > **Estado atual:** `1.0.2-rc.1` (release candidate). O núcleo do editor e os formatos principais estão maduros; motores externos, voicebanks e drivers de áudio devem ser validados na máquina do usuário.
-
-O formato nativo `.aps` preserva discretamente a linhagem do antigo Projeto Saturno, antecessor espiritual do Kamafeu Studio.
-
-<img src="assets/kamafeu_banner.png" alt="Kamafeu Studio" width="1200" />
 
 ## Download
 
@@ -44,6 +42,8 @@ O formato nativo `.aps` preserva discretamente a linhagem do antigo Projeto Satu
 </div>
 
 O **Kamafeu Studio** é um ambiente completo de composição, edição e síntese de canto voltado para o ecossistema UTAU e OpenUtau. Ele combina piano roll de alta precisão, modelagem contínua de afinação, ajustes fonéticos detalhados e pipeline de áudio multithread, com suporte a motores nativos em Rust e executáveis externos da comunidade.
+
+O formato nativo `.aps` preserva discretamente a linhagem do antigo Projeto Saturno, antecessor espiritual do Kamafeu Studio.
 
 O nome **Kamafeu** faz referência à tradicional joia em camafeu, esculpida manualmente em relevo. O propósito central do projeto é fornecer controle técnico direto e transparente sobre o processo clássico de amostragem, calibração (*oto.ini*), afinação e transição acústica de bancos de voz gravados. Além do pipeline UTAU, a versão desktop também reconhece bancos **DiffSinger** e executa pares acústico/vocoder ONNX compatíveis; esse caminho ainda não está disponível na compilação WASM.
 
