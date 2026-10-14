@@ -61,10 +61,15 @@ jobs:
         run: |
           flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
           flatpak install --user -y flathub org.freedesktop.Platform//24.08 org.freedesktop.Sdk//24.08
-          cp target/release/kamafeu ./kamafeu
-          cp target/release/copaiba ./copaiba
+          rm -rf flatpak-context
+          mkdir -p flatpak-context/packaging flatpak-context/assets
+          cp target/release/kamafeu flatpak-context/kamafeu
+          cp target/release/copaiba flatpak-context/copaiba
+          cp packaging/kamafeu.desktop flatpak-context/packaging/kamafeu.desktop
+          cp assets/icon.png flatpak-context/assets/icon.png
+          cp packaging/flatpak/org.studiopomar.Kamafeu.yml flatpak-context/manifest.yml
           flatpak-builder --user --disable-rofiles-fuse --force-clean \
-            --repo=flatpak-repo flatpak-build packaging/flatpak/org.studiopomar.Kamafeu.yml
+            --repo=flatpak-repo flatpak-build flatpak-context/manifest.yml
           flatpak build-bundle flatpak-repo "dist/kamafeu-${GITHUB_REF_NAME}-linux-x64.flatpak" \
             org.studiopomar.Kamafeu
 
