@@ -47,6 +47,7 @@ jobs:
   build:
     name: Build ${{ matrix.job.name }}
     needs: quality
+    continue-on-error: ${{ matrix.job.use_cross }}
     runs-on: ${{ matrix.job.os }}
     strategy:
       fail-fast: false
