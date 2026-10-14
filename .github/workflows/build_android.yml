@@ -73,7 +73,6 @@ jobs:
           CARGO_APK_RELEASE_KEYSTORE_PASSWORD: ${{ env.ANDROID_KEYSTORE_PASSWORD }}
         run: |
           test -n "$CARGO_APK_RELEASE_KEYSTORE_PASSWORD"
-          unset ANDROID_SDK_ROOT
           LLVM_BIN="$ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin"
           env CC="$LLVM_BIN/aarch64-linux-android30-clang" \
             CXX="$LLVM_BIN/aarch64-linux-android30-clang++" \
@@ -85,7 +84,6 @@ jobs:
       - name: Build Android APKs (Unsigned test ARM64 & ARMv7)
         if: ${{ env.ANDROID_KEYSTORE_BASE64 == '' || env.ANDROID_KEYSTORE_PASSWORD == '' }}
         run: |
-          unset ANDROID_SDK_ROOT
           LLVM_BIN="$ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin"
           env CC="$LLVM_BIN/aarch64-linux-android30-clang" \
             CXX="$LLVM_BIN/aarch64-linux-android30-clang++" \
