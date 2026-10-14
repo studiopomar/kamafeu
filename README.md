@@ -45,7 +45,7 @@ O **Kamafeu Studio** é um ambiente completo de composição, edição e síntes
 
 O formato nativo `.aps` preserva discretamente a linhagem do antigo Projeto Saturno, antecessor espiritual do Kamafeu Studio.
 
-O nome **Kamafeu** faz referência à tradicional joia em camafeu, esculpida manualmente em relevo. O propósito central do projeto é fornecer controle técnico direto e transparente sobre o processo clássico de amostragem, calibração (*oto.ini*), afinação e transição acústica de bancos de voz gravados. Além do pipeline UTAU, a versão desktop também reconhece bancos **DiffSinger** e executa pares acústico/vocoder ONNX compatíveis; esse caminho ainda não está disponível na compilação WASM.
+O nome **Kamafeu** faz referência à tradicional joia em camafeu, esculpida manualmente em relevo. O propósito central do projeto é fornecer controle técnico direto e transparente sobre o processo clássico de amostragem, calibração (*oto.ini*), afinação e transição acústica de bancos de voz gravados.
 
 ## Sumário
 
@@ -541,7 +541,7 @@ cargo run --release --bin kamafeu -- voicebank-info "/caminho/do/voicebank"
 cargo run --release --bin kamafeu -- voicebank-info "/caminho/do/voicebank" \
   --alias "k a" --pitch C4 --json
 
-# Listar bancos UTAU, OpenUTAU e DiffSinger nas pastas padrão do sistema
+# Listar bancos UTAU e OpenUTAU nas pastas padrão do sistema
 cargo run --release --bin kamafeu -- voicebanks
 
 # Ou apontar uma ou mais bibliotecas de cantores explicitamente
@@ -549,9 +549,6 @@ cargo run --release --bin kamafeu -- voicebanks --path "/musica/Cantores" --path
 
 # Validar WAVs e tempos do oto.ini; retorna erro se houver problemas
 cargo run --release --bin kamafeu -- validate-voicebank "/caminho/do/voicebank"
-
-# Para DiffSinger, carregar os dois ONNX e conferir o contrato do modelo
-cargo run --release --bin kamafeu -- validate-voicebank --verify-runtime "/caminho/do/diffsinger"
 
 # Conferir as faixas, notas e duração de qualquer projeto suportado
 cargo run --release --bin kamafeu -- project-info "musica.svp"
@@ -634,16 +631,14 @@ Os comandos de inspeção (`voicebank-info`, `voicebanks`, `validate-voicebank`,
 um documento JSON e `validate-voicebank` continua retornando status diferente de
 zero quando encontrar problemas, o que o torna adequado para CI.
 
-Para um banco DiffSinger, `voicebank-info` e `validate-voicebank` detectam o
-tipo automaticamente e verificam `dsconfig.yaml`, modelo acústico, vocoder,
-fonemas e metadados de idioma, em vez de tratá-lo como um banco UTAU sem
-`oto.ini`. Acrescente `--verify-runtime` quando quiser abrir as sessões ONNX e
-confirmar as entradas e saídas exigidas pelo renderizador antes de renderizar.
+### Modelos neurais e DiffSinger
 
-O vocoder `.oudep` não é incluído no pacote do Kamafeu para manter o download
-pequeno. Ao usar um banco DiffSinger sem essa dependência instalada, a
-interface informa o problema e abre o catálogo oficial para instalação manual:
-<https://www.openutau.com/Dependency/>.
+A integração de DiffSinger em Rust ainda é experimental e tecnicamente
+desafiadora. O caminho acústico/vocoder não faz parte do suporte estável desta
+release, não é recomendado para produção e pode apresentar limitações de
+carregamento, compatibilidade de modelos e renderização. O foco atual do
+Kamafeu permanece no pipeline clássico UTAU/OpenUtau, com `oto.ini`, resampler
+e wavtool.
 
 Para integrações persistentes, `kamafeu automation` executa um protocolo local
 JSON Lines pelo `stdin`/`stdout`: uma requisição JSON por linha gera exatamente
