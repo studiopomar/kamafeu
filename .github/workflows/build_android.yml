@@ -168,8 +168,17 @@ jobs:
             TAG_OR_REF="latest"
           fi
           
-          ARM64_APK=$(find target/aarch64-linux-android -name "*.apk" | head -n 1)
-          ARMV7_APK=$(find target/armv7-linux-androideabi -name "*.apk" | head -n 1)
+          echo "APK files produced by cargo-apk:"
+          find target -type f -name "*.apk" -print
+          ARM64_APK=$(find target/aarch64-linux-android target -path '*/aarch64-linux-android/*' -type f -name "*.apk" -print -quit 2>/dev/null || true)
+          ARMV7_APK=$(find target/armv7-linux-androideabi target -path '*/armv7-linux-androideabi/*' -type f -name "*.apk" -print -quit 2>/dev/null || true)
+          if [ -z "$ARM64_APK" ] || [ -z "$ARMV7_APK" ]; then
+            mapfile -t APK_FILES < <(find target -type f -name "*.apk" -print)
+            [ -n "$ARM64_APK" ] || ARM64_APK="${APK_FILES[0]:-}"
+            [ -n "$ARMV7_APK" ] || ARMV7_APK="${APK_FILES[1]:-}"
+          fi
+          echo "Selected ARM64 APK: ${ARM64_APK:-<missing>}"
+          echo "Selected ARMv7 APK: ${ARMV7_APK:-<missing>}"
           test -f "$ARM64_APK"
           test -f "$ARMV7_APK"
           cp "$ARM64_APK" "./apk_output/kamafeu-${TAG_OR_REF}-android-arm64.apk"

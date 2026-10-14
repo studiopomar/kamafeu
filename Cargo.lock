@@ -1994,7 +1994,7 @@ dependencies = [
 
 [[package]]
 name = "kamafeu"
-version = "1.0.2-rc.18"
+version = "1.0.2-rc.19"
 dependencies = [
  "android-activity",
  "cc",
