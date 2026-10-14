@@ -365,7 +365,7 @@ A compilação do APK do Kamafeu utiliza a ferramenta `cargo-apk` e o Android ND
 
 ```bash
 # Compilar APK em modo release para arquitetura ARM64
-cargo apk build --lib --release --target aarch64-linux-android
+cargo apk build --lib --release --no-default-features --target aarch64-linux-android
 ```
 
 Os binários Android não são publicados pelo workflow desktop; a assinatura exige um keystore configurado conforme [docs/android-signing.md](docs/android-signing.md).
