@@ -49,6 +49,10 @@ jobs:
           LLVM_BIN="$ANDROID_HOME/ndk/26.1.10909125/toolchains/llvm/prebuilt/linux-x86_64/bin"
           test -x "$LLVM_BIN/aarch64-linux-android30-clang"
           test -x "$LLVM_BIN/armv7a-linux-androideabi30-clang"
+          ln -sf aarch64-linux-android30-clang "$LLVM_BIN/aarch64-linux-android-clang"
+          ln -sf aarch64-linux-android30-clang++ "$LLVM_BIN/aarch64-linux-android-clang++"
+          ln -sf armv7a-linux-androideabi30-clang "$LLVM_BIN/armv7a-linux-androideabi-clang"
+          ln -sf armv7a-linux-androideabi30-clang++ "$LLVM_BIN/armv7a-linux-androideabi-clang++"
           echo "$LLVM_BIN" >> $GITHUB_PATH
           echo "CC_aarch64_linux_android=$LLVM_BIN/aarch64-linux-android30-clang" >> $GITHUB_ENV
           echo "CXX_aarch64_linux_android=$LLVM_BIN/aarch64-linux-android30-clang++" >> $GITHUB_ENV
