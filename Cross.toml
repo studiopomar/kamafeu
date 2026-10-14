@@ -1,0 +1,19 @@
+# Dependencies needed by the native audio and windowing backends when the
+# Linux release targets are built inside cross containers.
+
+[target.aarch64-unknown-linux-gnu]
+pre-build = [
+  "apt-get update",
+  "apt-get install -y pkg-config libasound2-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev libfontconfig1-dev",
+]
+
+[target.armv7-unknown-linux-gnueabihf]
+pre-build = [
+  "apt-get update",
+  "apt-get install -y pkg-config libasound2-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-dev libfontconfig1-dev",
+]
+
+[target.x86_64-unknown-linux-musl]
+pre-build = [
+  "apk add --no-cache pkgconf alsa-lib-dev libxcb-dev libxkbcommon-dev fontconfig-dev",
+]
