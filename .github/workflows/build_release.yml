@@ -199,7 +199,7 @@ jobs:
           test -f "$BIN_PATH"
           test -f "$TOOLKIT_PATH"
           mkdir -p package_root/resamplers
-          if [[ "${{ matrix.job.os }}" == "macos-15" || "${{ matrix.job.os }}" == "macos-13" ]]; then
+          if [[ "${{ matrix.job.os }}" == "macos-15" || "${{ matrix.job.os }}" == "macos-15-intel" || "${{ matrix.job.os }}" == "macos-13" ]]; then
             mkdir -p package_root/Kamafeu.app/Contents/MacOS package_root/Kamafeu.app/Contents/Resources
             cp "$BIN_PATH" package_root/Kamafeu.app/Contents/MacOS/kamafeu
             cp assets/icon.png package_root/Kamafeu.app/Contents/Resources/icon.png
