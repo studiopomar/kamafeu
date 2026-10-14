@@ -151,11 +151,8 @@ jobs:
         run: |
           for logfile in android-arm64.log android-armv7.log; do
             if [ -f "$logfile" ]; then
-              grep -E '(^error:|^error\[|Caused by:|failed to run|could not compile|linking with)' "$logfile" \
-                | tail -20 \
-                | while IFS= read -r line; do
-                    echo "::error file=$logfile::$line"
-                  done
+              excerpt=$(tail -80 "$logfile" | tr '\n' ' ' | cut -c1-6000)
+              echo "::error file=$logfile::$excerpt"
             fi
           done
 
