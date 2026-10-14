@@ -1,9 +1,8 @@
 name: Build Android APK
 
+# Android is kept as an opt-in/manual build for now. Desktop releases do not
+# trigger this workflow while the mobile packaging path is being stabilized.
 on:
-  push:
-    tags:
-      - 'v*'
   workflow_dispatch:
 
 concurrency:
