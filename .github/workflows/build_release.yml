@@ -55,6 +55,16 @@ jobs:
             toolkit_binary: copaiba.exe
             archive: kamafeu-${{ github.ref_name }}-windows-x64.zip
             use_cross: false
+            smoke_test: true
+
+          - name: Windows ARM64
+            os: windows-latest
+            target: aarch64-pc-windows-msvc
+            binary: kamafeu.exe
+            toolkit_binary: copaiba.exe
+            archive: kamafeu-${{ github.ref_name }}-windows-arm64.zip
+            use_cross: false
+            smoke_test: false
 
           - name: Windows x86 (32-bit)
             os: windows-latest
@@ -63,6 +73,7 @@ jobs:
             toolkit_binary: copaiba.exe
             archive: kamafeu-${{ github.ref_name }}-windows-x86.zip
             use_cross: false
+            smoke_test: true
 
           - name: macOS Apple Silicon (ARM64)
             os: macos-15
@@ -184,10 +195,14 @@ jobs:
 
           # Fail the release job if the packaged GUI exits immediately (for
           # example because a native DLL or graphics dependency is missing).
-          $smoke = Start-Process -FilePath "package_root/kamafeu.exe" -WorkingDirectory "package_root" -PassThru
-          Start-Sleep -Seconds 8
-          if ($smoke.HasExited) { throw "Kamafeu exited during the Windows launch smoke test (exit code $($smoke.ExitCode))" }
-          Stop-Process -Id $smoke.Id -Force
+          if ("${{ matrix.job.smoke_test }}" -eq "true") {
+            $smoke = Start-Process -FilePath "package_root/kamafeu.exe" -WorkingDirectory "package_root" -PassThru
+            Start-Sleep -Seconds 8
+            if ($smoke.HasExited) { throw "Kamafeu exited during the Windows launch smoke test (exit code $($smoke.ExitCode))" }
+            Stop-Process -Id $smoke.Id -Force
+          } else {
+            Write-Host "Skipping launch smoke test for the ARM64 binary on the x64 runner."
+          }
 
           Compress-Archive -Path "package_root/*" -DestinationPath "${{ matrix.job.archive }}" -Force
 
