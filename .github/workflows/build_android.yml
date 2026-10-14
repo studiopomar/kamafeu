@@ -84,6 +84,7 @@ jobs:
           CARGO_APK_RELEASE_KEYSTORE: ${{ runner.temp }}/kamafeu-release.keystore
           CARGO_APK_RELEASE_KEYSTORE_PASSWORD: ${{ env.ANDROID_KEYSTORE_PASSWORD }}
         run: |
+          set -o pipefail
           test -n "$CARGO_APK_RELEASE_KEYSTORE_PASSWORD"
           LLVM_BIN="$ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin"
           env CC="$LLVM_BIN/aarch64-linux-android30-clang" \
@@ -91,7 +92,7 @@ jobs:
             CC_aarch64_linux_android="$LLVM_BIN/aarch64-linux-android30-clang" \
             CXX_aarch64_linux_android="$LLVM_BIN/aarch64-linux-android30-clang++" \
             CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$LLVM_BIN/aarch64-linux-android30-clang" \
-            cargo apk build --lib --release --no-default-features --target aarch64-linux-android
+            cargo apk build --lib --release --no-default-features --target aarch64-linux-android 2>&1 | tee android-arm64.log
 
       - name: Build Android APK (Release ARMv7)
         if: ${{ env.ANDROID_KEYSTORE_BASE64 != '' && env.ANDROID_KEYSTORE_PASSWORD != '' }}
@@ -99,6 +100,7 @@ jobs:
           CARGO_APK_RELEASE_KEYSTORE: ${{ runner.temp }}/kamafeu-release.keystore
           CARGO_APK_RELEASE_KEYSTORE_PASSWORD: ${{ env.ANDROID_KEYSTORE_PASSWORD }}
         run: |
+          set -o pipefail
           test -n "$CARGO_APK_RELEASE_KEYSTORE_PASSWORD"
           LLVM_BIN="$ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin"
           env CC="$LLVM_BIN/armv7a-linux-androideabi30-clang" \
@@ -106,33 +108,43 @@ jobs:
             CC_armv7_linux_androideabi="$LLVM_BIN/armv7a-linux-androideabi30-clang" \
             CXX_armv7_linux_androideabi="$LLVM_BIN/armv7a-linux-androideabi30-clang++" \
             CARGO_TARGET_ARMV7_LINUX_ANDROIDEABI_LINKER="$LLVM_BIN/armv7a-linux-androideabi30-clang" \
-            cargo apk build --lib --release --no-default-features --target armv7-linux-androideabi
+            cargo apk build --lib --release --no-default-features --target armv7-linux-androideabi 2>&1 | tee android-armv7.log
 
       - name: Build Android APK (Unsigned test ARM64)
         if: ${{ env.ANDROID_KEYSTORE_BASE64 == '' || env.ANDROID_KEYSTORE_PASSWORD == '' }}
         run: |
+          set -o pipefail
           LLVM_BIN="$ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin"
           env CC="$LLVM_BIN/aarch64-linux-android30-clang" \
             CXX="$LLVM_BIN/aarch64-linux-android30-clang++" \
             CC_aarch64_linux_android="$LLVM_BIN/aarch64-linux-android30-clang" \
             CXX_aarch64_linux_android="$LLVM_BIN/aarch64-linux-android30-clang++" \
             CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER="$LLVM_BIN/aarch64-linux-android30-clang" \
-            cargo apk build --lib --no-default-features --target aarch64-linux-android
+            cargo apk build --lib --no-default-features --target aarch64-linux-android 2>&1 | tee android-arm64.log
 
       - name: Build Android APK (Unsigned test ARMv7)
         if: ${{ env.ANDROID_KEYSTORE_BASE64 == '' || env.ANDROID_KEYSTORE_PASSWORD == '' }}
         run: |
+          set -o pipefail
           LLVM_BIN="$ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin"
           env CC="$LLVM_BIN/armv7a-linux-androideabi30-clang" \
             CXX="$LLVM_BIN/armv7a-linux-androideabi30-clang++" \
             CC_armv7_linux_androideabi="$LLVM_BIN/armv7a-linux-androideabi30-clang" \
             CXX_armv7_linux_androideabi="$LLVM_BIN/armv7a-linux-androideabi30-clang++" \
             CARGO_TARGET_ARMV7_LINUX_ANDROIDEABI_LINKER="$LLVM_BIN/armv7a-linux-androideabi30-clang" \
-            cargo apk build --lib --no-default-features --target armv7-linux-androideabi
+            cargo apk build --lib --no-default-features --target armv7-linux-androideabi 2>&1 | tee android-armv7.log
 
       - name: Remove Release Keystore
         if: always()
         run: rm -f "$RUNNER_TEMP/kamafeu-release.keystore"
+
+      - name: Upload Android build logs
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: kamafeu-android-build-logs
+          path: '*.log'
+          if-no-files-found: ignore
 
       - name: Prepare APK Artifacts
         run: |
