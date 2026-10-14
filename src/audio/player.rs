@@ -986,6 +986,18 @@ pub struct AudioPlayer {
 
 #[cfg(target_arch = "wasm32")]
 impl AudioPlayer {
+    pub fn begin_progressive_generation(&mut self) -> u64 {
+        0
+    }
+
+    pub fn progressive_handle(&self) -> Option<()> {
+        None
+    }
+
+    pub fn scheduler_is_running(&self) -> bool {
+        false
+    }
+
     pub fn set_flush_denormals_to_zero(&mut self, enabled: bool) {
         set_flush_denormals_to_zero(enabled);
     }

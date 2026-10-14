@@ -8,4 +8,6 @@ pub use fx::{FxRackConfig, FxRackProcessor, ISO_31_BAND_FREQS, ISO_31_BAND_LABEL
 pub use loader::{load_audio_file, probe_audio_file, AudioFileInfo, DecodedAudio};
 pub use metronome::apply_metronome_clicks;
 pub use playback_timeline::{PlaybackTimeline, TimelineChunk, TimelineDecision, TimelineState};
-pub use player::{AudioPlayer, PlaybackSchedulerEvent, ProgressivePlaybackHandle};
+pub use player::AudioPlayer;
+#[cfg(not(target_arch = "wasm32"))]
+pub use player::{PlaybackSchedulerEvent, ProgressivePlaybackHandle};

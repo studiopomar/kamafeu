@@ -352,19 +352,27 @@ impl KamafeuStudioApp {
         // Keep a generous audio runway: UI scrolling can temporarily delay
         // the main thread that transfers ready chunks into the rodio sink.
         let (audio_tx, audio_rx) = std::sync::mpsc::sync_channel(32);
+        #[cfg(not(target_arch = "wasm32"))]
         let (ui_tx, ui_rx) = std::sync::mpsc::channel();
-        self.audio_player.begin_progressive_generation();
-        spawn_progressive_audio_bridge(
-            audio_rx,
-            ui_tx,
-            self.audio_player.progressive_handle(),
-            self.transport_state.metronome_enabled,
-            self.transport_state.bpm,
-        );
-        let audio_rx = ui_rx;
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            self.audio_player.begin_progressive_generation();
+            spawn_progressive_audio_bridge(
+                audio_rx,
+                ui_tx,
+                self.audio_player.progressive_handle(),
+                self.transport_state.metronome_enabled,
+                self.transport_state.bpm,
+            );
+            let audio_rx = ui_rx;
+            self.render_rx = Some(audio_rx);
+        }
         #[cfg(target_arch = "wasm32")]
         let (audio_tx, audio_rx) = std::sync::mpsc::sync_channel(512);
-        self.render_rx = Some(audio_rx);
+        #[cfg(target_arch = "wasm32")]
+        {
+            self.render_rx = Some(audio_rx);
+        }
         let cancel = Arc::new(AtomicBool::new(false));
         self.render_cancel = Some(cancel.clone());
         self.playback_start_offset_ms = playhead_ms;

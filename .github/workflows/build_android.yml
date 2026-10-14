@@ -13,7 +13,6 @@ jobs:
   build-apk:
     name: Build Android APK (ARM64 & ARMv7)
     runs-on: ubuntu-latest
-    continue-on-error: true
     env:
       ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
       ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
@@ -67,7 +66,7 @@ jobs:
           umask 077
           printf '%s' "$ANDROID_KEYSTORE_BASE64" | base64 --decode > "$RUNNER_TEMP/kamafeu-release.keystore"
 
-      - name: Build Android APK (Release ARM64)
+      - name: Build Android APKs (Release ARM64 & ARMv7)
         if: ${{ env.ANDROID_KEYSTORE_BASE64 != '' && env.ANDROID_KEYSTORE_PASSWORD != '' }}
         env:
           CARGO_APK_RELEASE_KEYSTORE: ${{ runner.temp }}/kamafeu-release.keystore
@@ -76,12 +75,14 @@ jobs:
           test -n "$CARGO_APK_RELEASE_KEYSTORE_PASSWORD"
           unset ANDROID_SDK_ROOT
           cargo apk build --lib --release --target aarch64-linux-android
+          cargo apk build --lib --release --target armv7-linux-androideabi
 
-      - name: Build Android APK (Unsigned test ARM64)
+      - name: Build Android APKs (Unsigned test ARM64 & ARMv7)
         if: ${{ env.ANDROID_KEYSTORE_BASE64 == '' || env.ANDROID_KEYSTORE_PASSWORD == '' }}
         run: |
           unset ANDROID_SDK_ROOT
           cargo apk build --lib --target aarch64-linux-android
+          cargo apk build --lib --target armv7-linux-androideabi
 
       - name: Remove Release Keystore
         if: always()
@@ -95,15 +96,13 @@ jobs:
             TAG_OR_REF="latest"
           fi
           
-          # Localizar o APK gerado
-          APK_FILE=$(find target -name "*.apk" | head -n 1)
-          if [ -f "$APK_FILE" ]; then
-            cp "$APK_FILE" "./apk_output/kamafeu-${TAG_OR_REF}-android-arm64.apk"
-            echo "APK generated successfully: ./apk_output/kamafeu-${TAG_OR_REF}-android-arm64.apk"
-          else
-            echo "Error: No APK found in target/"
-            exit 1
-          fi
+          ARM64_APK=$(find target/aarch64-linux-android -name "*.apk" | head -n 1)
+          ARMV7_APK=$(find target/armv7-linux-androideabi -name "*.apk" | head -n 1)
+          test -f "$ARM64_APK"
+          test -f "$ARMV7_APK"
+          cp "$ARM64_APK" "./apk_output/kamafeu-${TAG_OR_REF}-android-arm64.apk"
+          cp "$ARMV7_APK" "./apk_output/kamafeu-${TAG_OR_REF}-android-armv7.apk"
+          echo "Android APKs generated successfully"
 
       - name: Upload APK Artifact
         uses: actions/upload-artifact@v4

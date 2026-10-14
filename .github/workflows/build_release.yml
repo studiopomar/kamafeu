@@ -56,12 +56,28 @@ jobs:
             archive: kamafeu-${{ github.ref_name }}-windows-x64.zip
             use_cross: false
 
+          - name: Windows x86 (32-bit)
+            os: windows-latest
+            target: i686-pc-windows-msvc
+            binary: kamafeu.exe
+            toolkit_binary: copaiba.exe
+            archive: kamafeu-${{ github.ref_name }}-windows-x86.zip
+            use_cross: false
+
           - name: macOS Apple Silicon (ARM64)
             os: macos-15
             target: aarch64-apple-darwin
             binary: kamafeu
             toolkit_binary: copaiba
             archive: kamafeu-${{ github.ref_name }}-macos-arm64.dmg
+            use_cross: false
+
+          - name: macOS Intel (x86_64)
+            os: macos-13
+            target: x86_64-apple-darwin
+            binary: kamafeu
+            toolkit_binary: copaiba
+            archive: kamafeu-${{ github.ref_name }}-macos-x86_64.dmg
             use_cross: false
 
           - name: Linux x64
@@ -71,6 +87,30 @@ jobs:
             toolkit_binary: copaiba
             archive: kamafeu-${{ github.ref_name }}-linux-x64.tar.gz
             use_cross: false
+
+          - name: Linux ARM64
+            os: ubuntu-latest
+            target: aarch64-unknown-linux-gnu
+            binary: kamafeu
+            toolkit_binary: copaiba
+            archive: kamafeu-${{ github.ref_name }}-linux-arm64.tar.gz
+            use_cross: true
+
+          - name: Linux ARMv7 (32-bit)
+            os: ubuntu-latest
+            target: armv7-unknown-linux-gnueabihf
+            binary: kamafeu
+            toolkit_binary: copaiba
+            archive: kamafeu-${{ github.ref_name }}-linux-armv7.tar.gz
+            use_cross: true
+
+          - name: Linux musl x64
+            os: ubuntu-latest
+            target: x86_64-unknown-linux-musl
+            binary: kamafeu
+            toolkit_binary: copaiba
+            archive: kamafeu-${{ github.ref_name }}-linux-musl-x64.tar.gz
+            use_cross: true
 
     steps:
       - name: Checkout repository
@@ -92,7 +132,18 @@ jobs:
         if: matrix.job.use_cross == false
         run: cargo build --release --bins --target ${{ matrix.job.target }}
 
+      - name: Install cross
+        if: matrix.job.use_cross == true
+        uses: taiki-e/install-action@v2
+        with:
+          tool: cross
+
+      - name: Build Binary (Cross)
+        if: matrix.job.use_cross == true
+        run: cross build --release --bins --target ${{ matrix.job.target }}
+
       - name: Build Bundled External Resamplers (straycat-rs & organum)
+        if: matrix.job.use_cross == false
         run: |
           cargo install --git https://github.com/UtaUtaUtau/straycat-rs.git --target ${{ matrix.job.target }} --root ./resamplers_dist straycat-rs
           cargo install --git https://github.com/KakouLabs/Organum.git --target ${{ matrix.job.target }} --root ./resamplers_dist organum
@@ -148,7 +199,7 @@ jobs:
           test -f "$BIN_PATH"
           test -f "$TOOLKIT_PATH"
           mkdir -p package_root/resamplers
-          if [[ "${{ matrix.job.os }}" == "macos-15" || "${{ matrix.job.os }}" == "macos-15-intel" ]]; then
+          if [[ "${{ matrix.job.os }}" == "macos-15" || "${{ matrix.job.os }}" == "macos-13" ]]; then
             mkdir -p package_root/Kamafeu.app/Contents/MacOS package_root/Kamafeu.app/Contents/Resources
             cp "$BIN_PATH" package_root/Kamafeu.app/Contents/MacOS/kamafeu
             cp assets/icon.png package_root/Kamafeu.app/Contents/Resources/icon.png
