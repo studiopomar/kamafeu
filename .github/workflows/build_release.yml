@@ -300,6 +300,63 @@ jobs:
           sha256sum * > SHA256SUMS.txt
           ls -la
 
+          VERSION="${GITHUB_REF_NAME#v}"
+          MAC_ARM="kamafeu-${GITHUB_REF_NAME}-macos-arm64.dmg"
+          MAC_INTEL="kamafeu-${GITHUB_REF_NAME}-macos-x86_64.dmg"
+          LINUX_X64="kamafeu-${GITHUB_REF_NAME}-linux-x64.tar.gz"
+          WINDOWS_X64="kamafeu-${GITHUB_REF_NAME}-windows-x64.zip"
+          test -f "$MAC_ARM" -a -f "$MAC_INTEL" -a -f "$LINUX_X64" -a -f "$WINDOWS_X64"
+          MAC_ARM_SHA=$(sha256sum "$MAC_ARM" | awk '{print $1}')
+          MAC_INTEL_SHA=$(sha256sum "$MAC_INTEL" | awk '{print $1}')
+          LINUX_X64_SHA=$(sha256sum "$LINUX_X64" | awk '{print $1}')
+          WINDOWS_X64_SHA=$(sha256sum "$WINDOWS_X64" | awk '{print $1}')
+
+          cat > kamafeu.rb <<FORMULA
+          class Kamafeu < Formula
+            desc "Editor e sintetizador vocal baseado em amostragem e splicing"
+            homepage "https://github.com/studiopomar/kamafeu"
+            version "$VERSION"
+            license "MIT"
+            on_macos do
+              if Hardware::CPU.arm?
+                url "https://github.com/studiopomar/kamafeu/releases/download/${GITHUB_REF_NAME}/$MAC_ARM"
+                sha256 "$MAC_ARM_SHA"
+              else
+                url "https://github.com/studiopomar/kamafeu/releases/download/${GITHUB_REF_NAME}/$MAC_INTEL"
+                sha256 "$MAC_INTEL_SHA"
+              end
+            end
+            on_linux do
+              url "https://github.com/studiopomar/kamafeu/releases/download/${GITHUB_REF_NAME}/$LINUX_X64"
+              sha256 "$LINUX_X64_SHA"
+            end
+            def install
+              bin.install "kamafeu"
+              bin.install "copaiba"
+            end
+            test do
+              assert_match "kamafeu", shell_output("#{bin}/kamafeu --help")
+            end
+          end
+          FORMULA
+
+          cat > studiopomar.Kamafeu.yaml <<WINGET
+          PackageIdentifier: studiopomar.Kamafeu
+          PackageVersion: $VERSION
+          PackageLocale: en-US
+          Publisher: Studio Pomar
+          PackageName: Kamafeu Studio
+          License: MIT
+          ShortDescription: Voice editor and synthesizer based on UTAU sampling and splicing.
+          Installers:
+            - Architecture: x64
+              InstallerType: zip
+              InstallerUrl: https://github.com/studiopomar/kamafeu/releases/download/${GITHUB_REF_NAME}/$WINDOWS_X64
+              InstallerSha256: $WINDOWS_X64_SHA
+          ManifestType: singleton
+          ManifestVersion: 1.6.0
+          WINGET
+
       - name: Publish Official GitHub Release
         id: release
         uses: softprops/action-gh-release@v2
