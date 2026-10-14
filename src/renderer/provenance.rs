@@ -42,6 +42,9 @@ pub struct TimingBoundaryDiagnostic {
 pub struct PhonemeResolutionDiagnostic {
     #[serde(default)]
     pub part_index: usize,
+    /// Implementation status at the time this phone was resolved.
+    #[serde(default)]
+    pub phonemizer_implementation: String,
     pub note_index: usize,
     pub lyric: String,
     pub pitch: String,
@@ -95,7 +98,7 @@ pub struct PhonemeRenderDiagnostic {
     pub wavtool_peak: f32,
     pub wavtool_rms: f32,
     pub wavtool_clipped_samples: usize,
-    pub envelope_points: [(f64, f64); 4],
+    pub envelope_points: [(f64, f64); 5],
     pub crossfade_ms: f64,
 }
 
@@ -515,6 +518,8 @@ mod tests {
             adjacent: false,
             preutter_ms: 30.0,
             overlap_ms: 12.0,
+            auto_preutter_ms: 30.0,
+            auto_overlap_ms: 10.0,
             leading_ms: 30.0,
             skip_over_ms: 0.0,
             tail_intrude_ms: 0.0,
@@ -624,6 +629,7 @@ mod tests {
         );
         let make = |part_index: usize, position_ms: f64, lyric: &str| PhonemeResolutionDiagnostic {
             part_index,
+            phonemizer_implementation: "Passthrough".to_string(),
             note_index: 0,
             lyric: lyric.to_string(),
             pitch: "C4".to_string(),

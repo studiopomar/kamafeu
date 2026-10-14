@@ -27,6 +27,7 @@ pub struct DiscordActivityState {
     pub small_asset: String,
     pub small_text: String,
     pub enabled: bool,
+    pub buttons_enabled: bool,
 }
 
 impl Default for DiscordActivityState {
@@ -35,8 +36,9 @@ impl Default for DiscordActivityState {
             details: "Novo Projeto".to_string(),
             state: "Editando • 0 notas • 120 BPM".to_string(),
             small_asset: EDIT_ASSET.to_string(),
-            small_text: "Editando no Kamafeu Studio".to_string(),
+            small_text: "Edição no Kamafeu Studio".to_string(),
             enabled: true,
+            buttons_enabled: true,
         }
     }
 }
@@ -174,6 +176,7 @@ fn rpc_worker_loop(rx: Receiver<RpcMessage>) {
             last_connect_attempt = Instant::now();
             if let Ok(mut new_client) = DiscordIpcClient::new(DISCORD_APP_ID) {
                 if new_client.connect().is_ok() {
+                    eprintln!("[DiscordRPC] connected");
                     client = Some(new_client);
                     activity_needs_update = true;
                 }
@@ -184,23 +187,24 @@ fn rpc_worker_loop(rx: Receiver<RpcMessage>) {
         if activity_needs_update {
             if let Some(ref mut c) = client {
                 if let Some(ref st) = current_state {
-                    let activity_builder = activity::Activity::new()
+                    let mut activity_builder = activity::Activity::new()
                         .details(&st.details)
                         .state(&st.state)
                         .assets(
                             activity::Assets::new()
                                 .large_image(LARGE_ASSET)
-                                .large_text("Kamafeu Studio • Sintetizador de voz")
-                                .small_image(&st.small_asset)
-                                .small_text(&st.small_text),
+                                .large_text("Kamafeu Studio • Sintetizador de voz"),
                         )
-                        .timestamps(activity::Timestamps::new().start(start_timestamp))
-                        .buttons(vec![
+                        .timestamps(activity::Timestamps::new().start(start_timestamp));
+                    if st.buttons_enabled {
+                        activity_builder = activity_builder.buttons(vec![
                             activity::Button::new("Ver projeto", PROJECT_URL),
                             activity::Button::new("Baixar Kamafeu", RELEASES_URL),
                         ]);
+                    }
 
                     if c.set_activity(activity_builder).is_err() {
+                        eprintln!("[DiscordRPC] activity update failed; reconnecting");
                         let _ = c.close();
                         client = None;
                     } else {
@@ -224,6 +228,9 @@ pub fn activity_presentation(
     note_count: usize,
     selected_count: usize,
     bpm: f64,
+    playhead_ms: f64,
+    project_duration_ms: f64,
+    is_dirty: bool,
     enabled: bool,
 ) -> DiscordActivityState {
     let project_name = if project_name.trim().is_empty() {
@@ -237,20 +244,28 @@ pub fn activity_presentation(
         voicebank_name
     };
 
+    let dirty_marker = if is_dirty { " • não salvo" } else { "" };
     let (state, small_asset, small_text) = if is_rendering {
         (
             format!(
-                "Exportando WAV • {:.0}%",
-                render_progress.clamp(0.0, 1.0) * 100.0
+                "Renderizando • {voicebank_name} • {:.0}%{}",
+                render_progress.clamp(0.0, 1.0) * 100.0,
+                dirty_marker
             ),
             RENDER_ASSET,
-            "Renderizando áudio",
+            "Renderização em andamento",
         )
     } else if is_playing {
         (
-            format!("Tocando • {voicebank_name} • {:.0} BPM", bpm),
+            format!(
+                "Tocando • {voicebank_name} • {} / {} • {:.0} BPM{}",
+                format_duration(playhead_ms),
+                format_duration(project_duration_ms),
+                bpm,
+                dirty_marker
+            ),
             PLAY_ASSET,
-            "Reprodução em andamento",
+            "Playback em andamento",
         )
     } else {
         let selection = if selected_count > 0 {
@@ -260,11 +275,11 @@ pub fn activity_presentation(
         };
         (
             format!(
-                "Editando {part_name} • {voicebank_name} • {note_count} notas • {:.0} BPM{selection}",
+                "Editando • {part_name} • {voicebank_name} • {note_count} notas • {:.0} BPM{selection}{dirty_marker}",
                 bpm,
             ),
             EDIT_ASSET,
-            "Editando no Kamafeu Studio",
+            "Edição no Kamafeu Studio",
         )
     };
 
@@ -274,7 +289,13 @@ pub fn activity_presentation(
         small_asset: small_asset.to_string(),
         small_text: small_text.to_string(),
         enabled,
+        buttons_enabled: true,
     }
+}
+
+fn format_duration(milliseconds: f64) -> String {
+    let total_seconds = (milliseconds.max(0.0) / 1000.0).round() as u64;
+    format!("{:02}:{:02}", total_seconds / 60, total_seconds % 60)
 }
 
 fn truncate_discord_text(text: &str, max_chars: usize) -> String {
@@ -304,36 +325,40 @@ mod tests {
             12,
             2,
             128.0,
+            0.0,
+            1000.0,
+            false,
             true,
         );
         assert_eq!(activity.details, "Canção");
         assert_eq!(activity.small_asset, EDIT_ASSET);
         assert_eq!(
             activity.state,
-            "Editando Voz principal • Cantor • 12 notas • 128 BPM • 2 selecionada(s)"
+            "Editando • Voz principal • Cantor • 12 notas • 128 BPM • 2 selecionada(s)"
         );
     }
 
     #[test]
     fn playback_and_rendering_take_priority_over_editing() {
         let playing = activity_presentation(
-            false, true, 0.0, "Canção", "Voz", "Cantor", 1, 0, 120.0, true,
+            false, true, 0.0, "Canção", "Voz", "Cantor", 1, 0, 120.0, 500.0, 2000.0, false, true,
         );
         assert_eq!(playing.small_asset, PLAY_ASSET);
-        assert_eq!(playing.state, "Tocando • Cantor • 120 BPM");
+        assert_eq!(playing.state, "Tocando • Cantor • 00:01 / 00:02 • 120 BPM");
 
         let rendering = activity_presentation(
-            true, true, 0.375, "Canção", "Voz", "Cantor", 1, 0, 120.0, true,
+            true, true, 0.375, "Canção", "Voz", "Cantor", 1, 0, 120.0, 0.0, 2000.0, false, true,
         );
         assert_eq!(rendering.small_asset, RENDER_ASSET);
-        assert_eq!(rendering.state, "Exportando WAV • 38%");
+        assert_eq!(rendering.state, "Renderizando • Cantor • 38%");
     }
 
     #[test]
     fn activity_text_stays_within_discords_field_limit() {
         let text = "á".repeat(200);
-        let activity =
-            activity_presentation(false, false, 0.0, &text, &text, "Cantor", 1, 0, 120.0, true);
+        let activity = activity_presentation(
+            false, false, 0.0, &text, &text, "Cantor", 1, 0, 120.0, 0.0, 0.0, false, true,
+        );
         assert_eq!(activity.details.chars().count(), 128);
         assert_eq!(activity.state.chars().count(), 128);
         assert!(activity.details.ends_with("..."));

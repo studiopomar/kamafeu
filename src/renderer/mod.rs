@@ -12,7 +12,7 @@ pub mod track;
 pub use chunked::ChunkedRenderer;
 pub use diagnostics::AudioDiagnostics;
 pub use exporter::{AudioExportFormat, AudioExporter, DitherMode, MasteringOptions};
-pub use options::{RenderOptions, VocalRenderPreset};
+pub use options::{CompatibilityMode, RenderOptions, VocalRenderPreset};
 pub use project::{PreviewTarget, ProgressiveChunk, ProjectRenderer, RenderedAudio};
 pub use provenance::{
     PhonemeRenderDiagnostic, PhonemeResolutionDiagnostic, RenderExtension, RenderProvenance,

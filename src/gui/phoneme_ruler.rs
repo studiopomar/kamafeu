@@ -18,7 +18,7 @@ pub fn draw_phoneme_ruler(
     state: &mut PianoRollState,
     notes: &mut [UNote],
     voicebank: Option<&Voicebank>,
-    ruler_rect: Rect,
+    _ruler_rect: Rect,
     keyboard_width: f32,
     timeline_scroll_x: f32,
     bpm: f64,
@@ -63,7 +63,8 @@ pub fn draw_phoneme_ruler(
                 let is_secondary_down = ui.input(|i| i.pointer.secondary_down());
                 let drag_active = state.dragging_phoneme_handle.is_some()
                     || state.dragging_subphoneme_boundary.is_some()
-                    || state.dragging_envelope_pt.is_some();
+                    || state.dragging_envelope_pt.is_some()
+                    || state.dragging_phoneme_envelope_pt.is_some();
                 let pointer_pos = ui.input(|i| {
                     let pos = i.pointer.latest_pos()?;
                     let started_in_ruler = i
@@ -82,7 +83,8 @@ pub fn draw_phoneme_ruler(
                 if is_primary_down
                     && (state.dragging_phoneme_handle.is_some()
                         || state.dragging_subphoneme_boundary.is_some()
-                        || state.dragging_envelope_pt.is_some())
+                        || state.dragging_envelope_pt.is_some()
+                        || state.dragging_phoneme_envelope_pt.is_some())
                 {
                     if let Some(pos) = pointer_pos {
                         let edge_margin = 40.0f32;
@@ -112,10 +114,12 @@ pub fn draw_phoneme_ruler(
                     if state.dragging_phoneme_handle.is_some()
                         || state.dragging_subphoneme_boundary.is_some()
                         || state.dragging_envelope_pt.is_some()
+                        || state.dragging_phoneme_envelope_pt.is_some()
                     {
                         state.dragging_phoneme_handle = None;
                         state.dragging_subphoneme_boundary = None;
                         state.dragging_envelope_pt = None;
+                        state.dragging_phoneme_envelope_pt = None;
                         state.continuous_edit_dirty = true;
                         on_note_changed();
                     }
@@ -150,8 +154,12 @@ pub fn draw_phoneme_ruler(
 
                 for bar in first_bar..=last_bar {
                     let bar_time = bar as f64 * bar_ms;
-                    let x = ruler_rect.min.x + keyboard_width + (bar_time * px_per_ms) as f32
-                        - timeline_scroll_x;
+                    let x = crate::gui::piano_roll::state::timeline_time_to_screen_x(
+                        strip_rect.min.x,
+                        bar_time,
+                        state.px_per_ms,
+                        timeline_scroll_x,
+                    );
                     if x >= strip_rect.min.x && x <= strip_rect.max.x {
                         painter.line_segment(
                             [
@@ -223,6 +231,36 @@ pub fn draw_phoneme_ruler(
 
                 let mut previous_note_end_ms: Option<f64> = None;
                 let mut previous_note_lyric: Option<String> = None;
+                // OpenUtau's P4 edits the overlap of `phoneme.Next`, which
+                // can be the first phoneme of the next adjacent note.
+                let phoneme_successors = {
+                    let mut ordered = Vec::<(usize, usize, f64, f64)>::new();
+                    for (cached_note_index, cached_phones) in
+                        state.note_phonemes_cache.iter().enumerate()
+                    {
+                        let note_start = notes
+                            .get(cached_note_index)
+                            .map(|note| note.position_ms)
+                            .unwrap_or(0.0);
+                        for (cached_phoneme_index, phone) in cached_phones.iter().enumerate() {
+                            let start = note_start + phone.relative_position_ms;
+                            ordered.push((
+                                cached_note_index,
+                                cached_phoneme_index,
+                                start,
+                                start + phone.duration_ms.max(0.0),
+                            ));
+                        }
+                    }
+                    ordered.sort_by(|left, right| left.2.total_cmp(&right.2));
+                    let mut successors = std::collections::HashMap::new();
+                    for pair in ordered.windows(2) {
+                        if (pair[1].2 - pair[0].3).abs() <= 0.001 {
+                            successors.insert((pair[0].0, pair[0].1), (pair[1].0, pair[1].1));
+                        }
+                    }
+                    successors
+                };
 
                 for (note_index, note) in notes.iter_mut().enumerate() {
                     let note_position_ms = if note.position_ms.is_finite() {
@@ -240,10 +278,18 @@ pub fn draw_phoneme_ruler(
                     previous_note_end_ms = Some(note_position_ms + note_duration_ms);
                     previous_note_lyric = Some(note.lyric.clone());
 
-                    let x_start =
-                        ruler_rect.min.x + keyboard_width + (note_position_ms * px_per_ms) as f32
-                            - timeline_scroll_x;
-                    let x_end = x_start + (note_duration_ms * px_per_ms) as f32;
+                    let x_start = crate::gui::piano_roll::state::timeline_time_to_screen_x(
+                        strip_rect.min.x,
+                        note_position_ms,
+                        state.px_per_ms,
+                        timeline_scroll_x,
+                    );
+                    let x_end = crate::gui::piano_roll::state::timeline_time_to_screen_x(
+                        strip_rect.min.x,
+                        note_position_ms + note_duration_ms,
+                        state.px_per_ms,
+                        timeline_scroll_x,
+                    );
 
                     if x_end < strip_rect.min.x - 300.0 || x_start > strip_rect.max.x + 300.0 {
                         continue;
@@ -444,464 +490,474 @@ pub fn draw_phoneme_ruler(
                     let attack_start_x = preutter_x;
                     let attack_end_x = overlap_x.max(preutter_x);
 
-                    // The editor uses four absolute, note-local boundaries.
-                    // Phoneme timing remains visible below as dividers, but it
-                    // never creates a second envelope curve.
-                    let shape = note.effective_envelope_shape();
-                    let shape_points = shape.effective_points(note_duration_ms);
-                    let env_pts: Vec<Pos2> = shape_points
-                        .iter()
-                        .map(|(time, level)| {
-                            Pos2::new(
-                                x_start + (*time * px_per_ms) as f32,
-                                y_bottom
-                                    - (level.clamp(0.0, 200.0) as f32 / 100.0)
-                                        * (y_bottom - y_top)
-                                        * 0.5,
-                            )
-                        })
-                        .collect();
+                    // The legacy aggregate note envelope and its auxiliary
+                    // handles are intentionally not painted here. OpenUtau's
+                    // phoneme canvas paints one P1-P5 envelope per phoneme.
+                    // Keep the old interaction code below for compatibility,
+                    // but keep it out of the visual lane.
+                    if false {
+                        // OpenUtau/UTAU uses one continuous five-point envelope
+                        // per note. Phoneme timing below is only geometry and
+                        // must never create a second envelope curve.
+                        let envelope_points = note.envelope.get_effective_points(note_duration_ms);
+                        let env_pts: Vec<Pos2> = envelope_points
+                            .iter()
+                            .map(|(time, level)| {
+                                Pos2::new(
+                                    x_start + (*time * px_per_ms) as f32,
+                                    y_bottom
+                                        - (level.clamp(0.0, 200.0) as f32 / 100.0)
+                                            * (y_bottom - y_top)
+                                            * 0.5,
+                                )
+                            })
+                            .collect();
 
-                    let start_base_x = preutter_x.min(env_pts[0].x);
-                    let end_base_x = x_end.max(env_pts[3].x);
+                        let start_base_x = preutter_x.min(env_pts[0].x);
+                        let end_base_x = x_end.max(env_pts[4].x);
 
-                    let poly_points = vec![
-                        Pos2::new(start_base_x, y_bottom),
-                        env_pts[0],
-                        env_pts[1],
-                        env_pts[2],
-                        env_pts[3],
-                        env_pts[3],
-                        Pos2::new(end_base_x, y_bottom),
-                    ];
+                        let poly_points = vec![
+                            Pos2::new(start_base_x, y_bottom),
+                            env_pts[0],
+                            env_pts[1],
+                            env_pts[2],
+                            env_pts[3],
+                            env_pts[4],
+                            Pos2::new(end_base_x, y_bottom),
+                        ];
 
-                    painter.add(egui::Shape::convex_polygon(
-                        poly_points,
-                        fill_color,
-                        Stroke::NONE,
-                    ));
+                        painter.add(egui::Shape::convex_polygon(
+                            poly_points,
+                            fill_color,
+                            Stroke::NONE,
+                        ));
 
-                    painter.line_segment(
-                        [Pos2::new(start_base_x, y_bottom), env_pts[0]],
-                        Stroke::new(if is_selected { 1.6_f32 } else { 1.0_f32 }, stroke_color),
-                    );
-                    for pair in env_pts.windows(2) {
                         painter.line_segment(
-                            [pair[0], pair[1]],
+                            [Pos2::new(start_base_x, y_bottom), env_pts[0]],
                             Stroke::new(if is_selected { 1.6_f32 } else { 1.0_f32 }, stroke_color),
                         );
-                    }
-                    painter.line_segment(
-                        [env_pts[3], Pos2::new(end_base_x, y_bottom)],
-                        Stroke::new(if is_selected { 1.6_f32 } else { 1.0_f32 }, stroke_color),
-                    );
-
-                    if !is_plus && consonant_x > x_start + 1.0 && consonant_x < x_end {
-                        let c_rect = Rect::from_min_max(
-                            Pos2::new(attack_end_x.max(x_start), y_top),
-                            Pos2::new(consonant_x, y_bottom),
-                        );
-                        if c_rect.width() > 1.0 {
-                            painter.rect_filled(
-                                c_rect,
-                                Rounding::ZERO,
-                                Color32::from_rgba_unmultiplied(40, 140, 180, 45),
+                        for pair in env_pts.windows(2) {
+                            painter.line_segment(
+                                [pair[0], pair[1]],
+                                Stroke::new(
+                                    if is_selected { 1.6_f32 } else { 1.0_f32 },
+                                    stroke_color,
+                                ),
                             );
                         }
                         painter.line_segment(
-                            [
-                                Pos2::new(consonant_x, y_top),
+                            [env_pts[4], Pos2::new(end_base_x, y_bottom)],
+                            Stroke::new(if is_selected { 1.6_f32 } else { 1.0_f32 }, stroke_color),
+                        );
+
+                        if !is_plus && consonant_x > x_start + 1.0 && consonant_x < x_end {
+                            let c_rect = Rect::from_min_max(
+                                Pos2::new(attack_end_x.max(x_start), y_top),
                                 Pos2::new(consonant_x, y_bottom),
-                            ],
-                            Stroke::new(
-                                1.2_f32,
-                                Color32::from_rgba_unmultiplied(120, 230, 200, 200),
-                            ),
-                        );
-                    }
-
-                    if !is_plus
-                        && has_previous_adjacent
-                        && active_overlap_ms > 0.0
-                        && overlap_x > preutter_x + 0.5
-                    {
-                        painter.line_segment(
-                            [Pos2::new(preutter_x, y_top), Pos2::new(overlap_x, y_bottom)],
-                            Stroke::new(if is_selected { 1.8_f32 } else { 1.2_f32 }, stroke_color),
-                        );
-                        painter.line_segment(
-                            [Pos2::new(preutter_x, y_bottom), Pos2::new(overlap_x, y_top)],
-                            Stroke::new(if is_selected { 1.8_f32 } else { 1.2_f32 }, stroke_color),
-                        );
-                        let circle_radius = 3.2f32;
-                        painter.circle(
-                            Pos2::new(preutter_x, y_top),
-                            circle_radius,
-                            Color32::from_rgb(22, 17, 34),
-                            Stroke::new(1.3_f32, stroke_color),
-                        );
-                        painter.circle(
-                            Pos2::new(overlap_x, y_bottom),
-                            circle_radius,
-                            Color32::from_rgb(22, 17, 34),
-                            Stroke::new(1.3_f32, stroke_color),
-                        );
-                    }
-
-                    let circle_radius = 4.0f32;
-                    let mut draw_anchor_handle =
-                        |pos: Pos2, kind: u8, color: Color32, tooltip: &str| {
-                            if pos.x >= strip_rect.min.x - 10.0 && pos.x <= strip_rect.max.x + 10.0
-                            {
-                                let clamped_x = pos.x.clamp(strip_rect.min.x, strip_rect.max.x);
-                                let draw_pos = Pos2::new(clamped_x, pos.y);
-                                let is_dragging_this = state.dragging_phoneme_handle.is_some_and(
-                                    |(d_note, d_kind, _, _)| d_note == note_index && d_kind == kind,
+                            );
+                            if c_rect.width() > 1.0 {
+                                painter.rect_filled(
+                                    c_rect,
+                                    Rounding::ZERO,
+                                    Color32::from_rgba_unmultiplied(40, 140, 180, 45),
                                 );
-                                let mut is_hover = false;
-                                if let Some(cursor_pos) = pointer_pos {
-                                    is_hover = (cursor_pos.x - clamped_x).abs() <= 10.0
-                                        && (cursor_pos.y - pos.y).abs() <= 10.0;
-                                }
-                                let active = is_hover || is_dragging_this;
-                                let node_stroke_color = if active {
-                                    theme.note_stroke_c32()
-                                } else {
-                                    color
-                                };
-                                let node_fill = if active {
-                                    color
-                                } else {
-                                    Color32::from_rgb(20, 16, 32)
-                                };
-                                painter.circle(
-                                    draw_pos,
-                                    if active {
-                                        circle_radius + 1.8
-                                    } else {
-                                        circle_radius
-                                    },
-                                    node_fill,
-                                    Stroke::new(
-                                        if active { 2.0_f32 } else { 1.3_f32 },
-                                        node_stroke_color,
-                                    ),
-                                );
-                                if active {
-                                    ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
-                                    let text_shape = painter.layout_no_wrap(
-                                        tooltip.to_string(),
-                                        egui::FontId::proportional(10.0),
-                                        theme.text_note_tag_c32().linear_multiply(0.82),
-                                    );
-                                    let pill_rect = Rect::from_center_size(
-                                        Pos2::new(clamped_x, strip_rect.min.y + 10.0),
-                                        Vec2::new(text_shape.size().x + 12.0, 16.0),
-                                    );
-                                    painter.rect_filled(
-                                        pill_rect,
-                                        Rounding::same(4.0),
-                                        Color32::from_rgba_unmultiplied(15, 20, 35, 230),
-                                    );
-                                    painter.rect_stroke(
-                                        pill_rect,
-                                        Rounding::same(4.0),
-                                        Stroke::new(1.0_f32, color),
-                                    );
-                                    painter.galley(
-                                        Pos2::new(
-                                            pill_rect.center().x - text_shape.size().x * 0.5,
-                                            pill_rect.center().y - text_shape.size().y * 0.5,
-                                        ),
-                                        text_shape,
-                                        theme.text_note_tag_c32().linear_multiply(0.82),
-                                    );
-                                    if is_primary_down
-                                        && state.dragging_phoneme_handle.is_none()
-                                        && state.dragging_subphoneme_boundary.is_none()
-                                    {
-                                        on_before_change();
-                                        let init_val = match kind {
-                                            0 => note.expressions.preutter_offset_ms,
-                                            1 => note.expressions.overlap_offset_ms,
-                                            2 => note.expressions.consonant_timing_offset_ms,
-                                            3 => note.position_ms,
-                                            4 => note.envelope.p5,
-                                            5 => note.duration_ms,
-                                            _ => 0.0,
-                                        };
-                                        let init_timeline_x = if let Some(cursor_pos) = pointer_pos
-                                        {
-                                            cursor_pos.x + timeline_scroll_x
-                                        } else {
-                                            draw_pos.x + timeline_scroll_x
-                                        };
-                                        state.dragging_phoneme_handle =
-                                            Some((note_index, kind, init_timeline_x, init_val));
-                                        state.selected_note_index = Some(note_index);
-                                    }
-                                }
                             }
-                        };
-
-                    // 1. Ponto de Preutter (Início de Emissão / Ataque)
-                    draw_anchor_handle(
-                        Pos2::new(preutter_x, y_bottom),
-                        0,
-                        theme.note_stroke_c32(),
-                        &format!(
-                            "Preutter: {:.1}ms ({:+.0}ms)",
-                            active_preutter_ms, note.expressions.preutter_offset_ms
-                        ),
-                    );
-
-                    // 2. Ponto de Overlap (Início da Vogal / Crossfade)
-                    draw_anchor_handle(
-                        Pos2::new(overlap_x, y_top),
-                        1,
-                        theme.accent_c32(),
-                        &format!(
-                            "Overlap: {:.1}ms ({:+.0}ms)",
-                            active_overlap_ms, note.expressions.overlap_offset_ms
-                        ),
-                    );
-
-                    // 3. Ponto de Limite de Consoante (Transição de Consoante/Vogal)
-                    if consonant_x > attack_start_x + 1.0 {
-                        draw_anchor_handle(
-                            Pos2::new(consonant_x, y_top),
-                            2,
-                            if is_selected {
-                                theme.accent_c32()
-                            } else {
-                                theme.note_stroke_c32()
-                            },
-                            &format!(
-                                "Consoante: {:.1}ms ({:+.0}ms)",
-                                active_consonant_ms, note.expressions.consonant_timing_offset_ms
-                            ),
-                        );
-                    }
-
-                    // 4. Ponto de Início da Nota (Onset)
-                    if (preutter_x - x_start).abs() > 4.0 {
-                        draw_anchor_handle(
-                            Pos2::new(x_start, y_top),
-                            3,
-                            theme.note_stroke_c32(),
-                            &format!("Início da Nota: {:.0}ms", note.position_ms),
-                        );
-                    }
-
-                    // 5. Ponto de início do release (a curva termina no fim da nota)
-                    draw_anchor_handle(
-                        Pos2::new(env_pts[2].x, y_top),
-                        4,
-                        theme.note_hover_c32(),
-                        &format!("Início do release: {:.1}ms", shape.release_start_ms),
-                    );
-
-                    // 6. Ponto de Fim da Nota / Cutoff
-                    draw_anchor_handle(
-                        Pos2::new(x_end, y_bottom),
-                        5,
-                        theme.note_stroke_c32(),
-                        &format!("Fim / Cutoff: {:.0}ms", note.duration_ms),
-                    );
-
-                    // Draggable Envelope Handles on the Ruler when active/selected
-                    if state.show_envelope_handles || is_selected {
-                        let env_labels = [
-                            ("Início", format!("Início: 0ms | {:.0}%", shape.start_level)),
-                            (
-                                "Ataque",
-                                format!(
-                                    "Ataque: {:.1}ms | {:.0}%",
-                                    shape.attack_end_ms, shape.attack_level
+                            painter.line_segment(
+                                [
+                                    Pos2::new(consonant_x, y_top),
+                                    Pos2::new(consonant_x, y_bottom),
+                                ],
+                                Stroke::new(
+                                    1.2_f32,
+                                    Color32::from_rgba_unmultiplied(120, 230, 200, 200),
                                 ),
-                            ),
-                            (
-                                "Sustain",
-                                format!(
-                                    "Sustain: {:.1}ms | {:.0}%",
-                                    shape.release_start_ms, shape.sustain_level
-                                ),
-                            ),
-                            (
-                                "Fim",
-                                format!("Fim: {:.1}ms | {:.0}%", note_duration_ms, shape.end_level),
-                            ),
-                        ];
-
-                        for (pt_i, (pos, (_lbl, tooltip))) in
-                            env_pts.iter().zip(env_labels.iter()).enumerate()
-                        {
-                            if pos.x >= strip_rect.min.x - 10.0 && pos.x <= strip_rect.max.x + 10.0
-                            {
-                                let clamped_x = pos.x.clamp(strip_rect.min.x, strip_rect.max.x);
-                                let draw_pos = Pos2::new(clamped_x, pos.y);
-                                let is_dragging_this =
-                                    state.dragging_envelope_pt == Some((note_index, pt_i));
-                                let mut is_hover = false;
-                                if let Some(cursor_pos) = pointer_pos {
-                                    is_hover = (cursor_pos.x - clamped_x).abs() <= 10.0
-                                        && (cursor_pos.y - pos.y).abs() <= 10.0;
-                                }
-                                let active = is_hover || is_dragging_this;
-                                let color = theme.note_stroke_c32();
-                                let node_stroke_color = if active {
-                                    theme.note_hover_c32()
-                                } else {
-                                    color
-                                };
-                                let node_fill = if active {
-                                    color
-                                } else {
-                                    Color32::from_rgb(20, 16, 32)
-                                };
-                                painter.circle(
-                                    draw_pos,
-                                    if active {
-                                        circle_radius + 1.8
-                                    } else {
-                                        circle_radius
-                                    },
-                                    node_fill,
-                                    Stroke::new(
-                                        if active { 2.0_f32 } else { 1.3_f32 },
-                                        node_stroke_color,
-                                    ),
-                                );
-                                if active {
-                                    ui.ctx().set_cursor_icon(egui::CursorIcon::Grab);
-                                    let text_shape = painter.layout_no_wrap(
-                                        tooltip.to_string(),
-                                        egui::FontId::proportional(10.0),
-                                        theme.text_note_tag_c32().linear_multiply(0.82),
-                                    );
-                                    let pill_rect = Rect::from_center_size(
-                                        Pos2::new(clamped_x, strip_rect.min.y + 10.0),
-                                        Vec2::new(text_shape.size().x + 12.0, 16.0),
-                                    );
-                                    painter.rect_filled(
-                                        pill_rect,
-                                        Rounding::same(4.0),
-                                        Color32::from_rgba_unmultiplied(15, 20, 35, 230),
-                                    );
-                                    painter.rect_stroke(
-                                        pill_rect,
-                                        Rounding::same(4.0),
-                                        Stroke::new(1.0_f32, color),
-                                    );
-                                    painter.galley(
-                                        Pos2::new(
-                                            pill_rect.center().x - text_shape.size().x * 0.5,
-                                            pill_rect.center().y - text_shape.size().y * 0.5,
-                                        ),
-                                        text_shape,
-                                        theme.text_note_tag_c32().linear_multiply(0.82),
-                                    );
-                                    if is_primary_down
-                                        && state.dragging_envelope_pt.is_none()
-                                        && state.dragging_phoneme_handle.is_none()
-                                        && state.dragging_subphoneme_boundary.is_none()
-                                    {
-                                        on_before_change();
-                                        state.dragging_envelope_pt = Some((note_index, pt_i));
-                                        state.selected_note_index = Some(note_index);
-                                    }
-                                    if ui.input(|i| i.pointer.secondary_clicked()) {
-                                        on_before_change();
-                                        let mut reset_shape = note.effective_envelope_shape();
-                                        reset_shape.reset_point(pt_i, note.duration_ms);
-                                        note.set_envelope_shape(reset_shape);
-                                        state.continuous_edit_dirty = true;
-                                        on_note_changed();
-                                    }
-                                }
-                            }
+                            );
                         }
 
-                        if note.envelope.crossfade_ms > 0.0 {
-                            let xfade_x = x_start - (note.envelope.crossfade_ms * px_per_ms) as f32;
-                            let xfade_pos = Pos2::new(xfade_x, y_top + (y_bottom - y_top) * 0.5);
-                            if xfade_pos.x >= strip_rect.min.x - 10.0
-                                && xfade_pos.x <= strip_rect.max.x + 10.0
-                            {
-                                let clamped_x =
-                                    xfade_pos.x.clamp(strip_rect.min.x, strip_rect.max.x);
-                                let draw_pos = Pos2::new(clamped_x, xfade_pos.y);
-                                let is_dragging_this =
-                                    state.dragging_envelope_pt == Some((note_index, 5));
-                                let mut is_hover = false;
-                                if let Some(cursor_pos) = pointer_pos {
-                                    is_hover = (cursor_pos.x - clamped_x).abs() <= 10.0
-                                        && (cursor_pos.y - draw_pos.y).abs() <= 10.0;
-                                }
-                                let active = is_hover || is_dragging_this;
-                                let color = theme.note_hover_c32();
-                                let node_stroke_color = if active {
-                                    theme.note_stroke_c32()
-                                } else {
-                                    color
-                                };
-                                let node_fill = if active {
-                                    color
-                                } else {
-                                    Color32::from_rgb(20, 16, 32)
-                                };
-                                painter.circle(
-                                    draw_pos,
-                                    if active {
-                                        circle_radius + 1.8
+                        if !is_plus
+                            && has_previous_adjacent
+                            && active_overlap_ms > 0.0
+                            && overlap_x > preutter_x + 0.5
+                        {
+                            painter.line_segment(
+                                [Pos2::new(preutter_x, y_top), Pos2::new(overlap_x, y_bottom)],
+                                Stroke::new(
+                                    if is_selected { 1.8_f32 } else { 1.2_f32 },
+                                    stroke_color,
+                                ),
+                            );
+                            painter.line_segment(
+                                [Pos2::new(preutter_x, y_bottom), Pos2::new(overlap_x, y_top)],
+                                Stroke::new(
+                                    if is_selected { 1.8_f32 } else { 1.2_f32 },
+                                    stroke_color,
+                                ),
+                            );
+                            let circle_radius = 3.2f32;
+                            painter.circle(
+                                Pos2::new(preutter_x, y_top),
+                                circle_radius,
+                                Color32::from_rgb(22, 17, 34),
+                                Stroke::new(1.3_f32, stroke_color),
+                            );
+                            painter.circle(
+                                Pos2::new(overlap_x, y_bottom),
+                                circle_radius,
+                                Color32::from_rgb(22, 17, 34),
+                                Stroke::new(1.3_f32, stroke_color),
+                            );
+                        }
+
+                        let circle_radius = 4.0f32;
+                        let mut draw_anchor_handle =
+                            |pos: Pos2, kind: u8, color: Color32, tooltip: &str| {
+                                if pos.x >= strip_rect.min.x - 10.0
+                                    && pos.x <= strip_rect.max.x + 10.0
+                                {
+                                    let clamped_x = pos.x.clamp(strip_rect.min.x, strip_rect.max.x);
+                                    let draw_pos = Pos2::new(clamped_x, pos.y);
+                                    let is_dragging_this = state
+                                        .dragging_phoneme_handle
+                                        .is_some_and(|(d_note, d_kind, _, _)| {
+                                            d_note == note_index && d_kind == kind
+                                        });
+                                    let mut is_hover = false;
+                                    if let Some(cursor_pos) = pointer_pos {
+                                        is_hover = (cursor_pos.x - clamped_x).abs() <= 10.0
+                                            && (cursor_pos.y - pos.y).abs() <= 10.0;
+                                    }
+                                    let active = is_hover || is_dragging_this;
+                                    let node_stroke_color = if active {
+                                        theme.note_stroke_c32()
                                     } else {
-                                        circle_radius
-                                    },
-                                    node_fill,
-                                    Stroke::new(
-                                        if active { 2.0_f32 } else { 1.3_f32 },
-                                        node_stroke_color,
-                                    ),
-                                );
-                                if active {
-                                    ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
-                                    let tooltip =
-                                        format!("Crossfade: {:.1}ms", note.envelope.crossfade_ms);
-                                    let text_shape = painter.layout_no_wrap(
-                                        tooltip,
-                                        egui::FontId::proportional(10.0),
-                                        theme.text_note_tag_c32().linear_multiply(0.82),
-                                    );
-                                    let pill_rect = Rect::from_center_size(
-                                        Pos2::new(clamped_x, strip_rect.min.y + 10.0),
-                                        Vec2::new(text_shape.size().x + 12.0, 16.0),
-                                    );
-                                    painter.rect_filled(
-                                        pill_rect,
-                                        Rounding::same(4.0),
-                                        Color32::from_rgba_unmultiplied(15, 20, 35, 230),
-                                    );
-                                    painter.rect_stroke(
-                                        pill_rect,
-                                        Rounding::same(4.0),
-                                        Stroke::new(1.0_f32, color),
-                                    );
-                                    painter.galley(
-                                        Pos2::new(
-                                            pill_rect.center().x - text_shape.size().x * 0.5,
-                                            pill_rect.center().y - text_shape.size().y * 0.5,
+                                        color
+                                    };
+                                    let node_fill = if active {
+                                        color
+                                    } else {
+                                        Color32::from_rgb(20, 16, 32)
+                                    };
+                                    painter.circle(
+                                        draw_pos,
+                                        if active {
+                                            circle_radius + 1.8
+                                        } else {
+                                            circle_radius
+                                        },
+                                        node_fill,
+                                        Stroke::new(
+                                            if active { 2.0_f32 } else { 1.3_f32 },
+                                            node_stroke_color,
                                         ),
-                                        text_shape,
-                                        theme.text_note_tag_c32().linear_multiply(0.82),
                                     );
-                                    if is_primary_down
-                                        && state.dragging_envelope_pt.is_none()
-                                        && state.dragging_phoneme_handle.is_none()
-                                        && state.dragging_subphoneme_boundary.is_none()
-                                    {
-                                        on_before_change();
-                                        state.dragging_envelope_pt = Some((note_index, 5));
-                                        state.selected_note_index = Some(note_index);
+                                    if active {
+                                        ui.ctx()
+                                            .set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
+                                        let text_shape = painter.layout_no_wrap(
+                                            tooltip.to_string(),
+                                            egui::FontId::proportional(10.0),
+                                            theme.text_note_tag_c32().linear_multiply(0.82),
+                                        );
+                                        let pill_rect = Rect::from_center_size(
+                                            Pos2::new(clamped_x, strip_rect.min.y + 10.0),
+                                            Vec2::new(text_shape.size().x + 12.0, 16.0),
+                                        );
+                                        painter.rect_filled(
+                                            pill_rect,
+                                            Rounding::same(4.0),
+                                            Color32::from_rgba_unmultiplied(15, 20, 35, 230),
+                                        );
+                                        painter.rect_stroke(
+                                            pill_rect,
+                                            Rounding::same(4.0),
+                                            Stroke::new(1.0_f32, color),
+                                        );
+                                        painter.galley(
+                                            Pos2::new(
+                                                pill_rect.center().x - text_shape.size().x * 0.5,
+                                                pill_rect.center().y - text_shape.size().y * 0.5,
+                                            ),
+                                            text_shape,
+                                            theme.text_note_tag_c32().linear_multiply(0.82),
+                                        );
+                                        if is_primary_down
+                                            && state.dragging_phoneme_handle.is_none()
+                                            && state.dragging_subphoneme_boundary.is_none()
+                                        {
+                                            on_before_change();
+                                            let init_val = match kind {
+                                                0 => note.expressions.preutter_offset_ms,
+                                                1 => note.expressions.overlap_offset_ms,
+                                                2 => note.expressions.consonant_timing_offset_ms,
+                                                3 => note.position_ms,
+                                                4 => note.envelope.p5,
+                                                5 => note.duration_ms,
+                                                _ => 0.0,
+                                            };
+                                            let init_timeline_x =
+                                                if let Some(cursor_pos) = pointer_pos {
+                                                    cursor_pos.x + timeline_scroll_x
+                                                } else {
+                                                    draw_pos.x + timeline_scroll_x
+                                                };
+                                            state.dragging_phoneme_handle =
+                                                Some((note_index, kind, init_timeline_x, init_val));
+                                            state.selected_note_index = Some(note_index);
+                                        }
+                                    }
+                                }
+                            };
+
+                        // 1. Ponto de Preutter (Início de Emissão / Ataque)
+                        draw_anchor_handle(
+                            Pos2::new(preutter_x, y_bottom),
+                            0,
+                            theme.note_stroke_c32(),
+                            &format!(
+                                "Preutter: {:.1}ms ({:+.0}ms)",
+                                active_preutter_ms, note.expressions.preutter_offset_ms
+                            ),
+                        );
+
+                        // 2. Ponto de Overlap (Início da Vogal / Crossfade)
+                        draw_anchor_handle(
+                            Pos2::new(overlap_x, y_top),
+                            1,
+                            theme.accent_c32(),
+                            &format!(
+                                "Overlap: {:.1}ms ({:+.0}ms)",
+                                active_overlap_ms, note.expressions.overlap_offset_ms
+                            ),
+                        );
+
+                        // 3. Ponto de Limite de Consoante (Transição de Consoante/Vogal)
+                        if consonant_x > attack_start_x + 1.0 {
+                            draw_anchor_handle(
+                                Pos2::new(consonant_x, y_top),
+                                2,
+                                if is_selected {
+                                    theme.accent_c32()
+                                } else {
+                                    theme.note_stroke_c32()
+                                },
+                                &format!(
+                                    "Consoante: {:.1}ms ({:+.0}ms)",
+                                    active_consonant_ms,
+                                    note.expressions.consonant_timing_offset_ms
+                                ),
+                            );
+                        }
+
+                        // 4. Ponto de Início da Nota (Onset)
+                        if (preutter_x - x_start).abs() > 4.0 {
+                            draw_anchor_handle(
+                                Pos2::new(x_start, y_top),
+                                3,
+                                theme.note_stroke_c32(),
+                                &format!("Início da Nota: {:.0}ms", note.position_ms),
+                            );
+                        }
+
+                        // Draggable Envelope Handles on the Ruler when active/selected
+                        if state.show_envelope_handles || is_selected {
+                            let env_labels = [
+                                format!(
+                                    "P1: {:.1}ms | {:.0}%",
+                                    envelope_points[0].0, envelope_points[0].1
+                                ),
+                                format!(
+                                    "P2: {:.1}ms | {:.0}%",
+                                    envelope_points[1].0, envelope_points[1].1
+                                ),
+                                format!(
+                                    "P3: {:.1}ms | {:.0}%",
+                                    envelope_points[2].0, envelope_points[2].1
+                                ),
+                                format!(
+                                    "P4: {:.1}ms | {:.0}%",
+                                    envelope_points[3].0, envelope_points[3].1
+                                ),
+                                format!(
+                                    "P5: {:.1}ms | {:.0}%",
+                                    envelope_points[4].0, envelope_points[4].1
+                                ),
+                            ];
+
+                            for (pt_i, (pos, tooltip)) in
+                                env_pts.iter().zip(env_labels.iter()).enumerate()
+                            {
+                                if pos.x >= strip_rect.min.x - 10.0
+                                    && pos.x <= strip_rect.max.x + 10.0
+                                {
+                                    let clamped_x = pos.x.clamp(strip_rect.min.x, strip_rect.max.x);
+                                    let draw_pos = Pos2::new(clamped_x, pos.y);
+                                    let is_dragging_this =
+                                        state.dragging_envelope_pt == Some((note_index, pt_i));
+                                    let mut is_hover = false;
+                                    if let Some(cursor_pos) = pointer_pos {
+                                        is_hover = (cursor_pos.x - clamped_x).abs() <= 10.0
+                                            && (cursor_pos.y - pos.y).abs() <= 10.0;
+                                    }
+                                    let active = is_hover || is_dragging_this;
+                                    let color = theme.note_stroke_c32();
+                                    let node_stroke_color = if active {
+                                        theme.note_hover_c32()
+                                    } else {
+                                        color
+                                    };
+                                    let node_fill = if active {
+                                        color
+                                    } else {
+                                        Color32::from_rgb(20, 16, 32)
+                                    };
+                                    painter.circle(
+                                        draw_pos,
+                                        if active {
+                                            circle_radius + 1.8
+                                        } else {
+                                            circle_radius
+                                        },
+                                        node_fill,
+                                        Stroke::new(
+                                            if active { 2.0_f32 } else { 1.3_f32 },
+                                            node_stroke_color,
+                                        ),
+                                    );
+                                    if active {
+                                        ui.ctx().set_cursor_icon(egui::CursorIcon::Grab);
+                                        let text_shape = painter.layout_no_wrap(
+                                            tooltip.to_string(),
+                                            egui::FontId::proportional(10.0),
+                                            theme.text_note_tag_c32().linear_multiply(0.82),
+                                        );
+                                        let pill_rect = Rect::from_center_size(
+                                            Pos2::new(clamped_x, strip_rect.min.y + 10.0),
+                                            Vec2::new(text_shape.size().x + 12.0, 16.0),
+                                        );
+                                        painter.rect_filled(
+                                            pill_rect,
+                                            Rounding::same(4.0),
+                                            Color32::from_rgba_unmultiplied(15, 20, 35, 230),
+                                        );
+                                        painter.rect_stroke(
+                                            pill_rect,
+                                            Rounding::same(4.0),
+                                            Stroke::new(1.0_f32, color),
+                                        );
+                                        painter.galley(
+                                            Pos2::new(
+                                                pill_rect.center().x - text_shape.size().x * 0.5,
+                                                pill_rect.center().y - text_shape.size().y * 0.5,
+                                            ),
+                                            text_shape,
+                                            theme.text_note_tag_c32().linear_multiply(0.82),
+                                        );
+                                        if is_primary_down
+                                            && state.dragging_envelope_pt.is_none()
+                                            && state.dragging_phoneme_handle.is_none()
+                                            && state.dragging_subphoneme_boundary.is_none()
+                                        {
+                                            on_before_change();
+                                            state.dragging_envelope_pt = Some((note_index, pt_i));
+                                            state.selected_note_index = Some(note_index);
+                                        }
+                                        if ui.input(|i| i.pointer.secondary_clicked()) {
+                                            on_before_change();
+                                            note.envelope.reset_point(pt_i);
+                                            note.envelope.normalize(note.duration_ms);
+                                            state.continuous_edit_dirty = true;
+                                            on_note_changed();
+                                        }
+                                    }
+                                }
+                            }
+
+                            if note.envelope.crossfade_ms > 0.0 {
+                                let xfade_x =
+                                    x_start - (note.envelope.crossfade_ms * px_per_ms) as f32;
+                                let xfade_pos =
+                                    Pos2::new(xfade_x, y_top + (y_bottom - y_top) * 0.5);
+                                if xfade_pos.x >= strip_rect.min.x - 10.0
+                                    && xfade_pos.x <= strip_rect.max.x + 10.0
+                                {
+                                    let clamped_x =
+                                        xfade_pos.x.clamp(strip_rect.min.x, strip_rect.max.x);
+                                    let draw_pos = Pos2::new(clamped_x, xfade_pos.y);
+                                    let is_dragging_this =
+                                        state.dragging_envelope_pt == Some((note_index, 5));
+                                    let mut is_hover = false;
+                                    if let Some(cursor_pos) = pointer_pos {
+                                        is_hover = (cursor_pos.x - clamped_x).abs() <= 10.0
+                                            && (cursor_pos.y - draw_pos.y).abs() <= 10.0;
+                                    }
+                                    let active = is_hover || is_dragging_this;
+                                    let color = theme.note_hover_c32();
+                                    let node_stroke_color = if active {
+                                        theme.note_stroke_c32()
+                                    } else {
+                                        color
+                                    };
+                                    let node_fill = if active {
+                                        color
+                                    } else {
+                                        Color32::from_rgb(20, 16, 32)
+                                    };
+                                    painter.circle(
+                                        draw_pos,
+                                        if active {
+                                            circle_radius + 1.8
+                                        } else {
+                                            circle_radius
+                                        },
+                                        node_fill,
+                                        Stroke::new(
+                                            if active { 2.0_f32 } else { 1.3_f32 },
+                                            node_stroke_color,
+                                        ),
+                                    );
+                                    if active {
+                                        ui.ctx()
+                                            .set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
+                                        let tooltip = format!(
+                                            "Crossfade: {:.1}ms",
+                                            note.envelope.crossfade_ms
+                                        );
+                                        let text_shape = painter.layout_no_wrap(
+                                            tooltip,
+                                            egui::FontId::proportional(10.0),
+                                            theme.text_note_tag_c32().linear_multiply(0.82),
+                                        );
+                                        let pill_rect = Rect::from_center_size(
+                                            Pos2::new(clamped_x, strip_rect.min.y + 10.0),
+                                            Vec2::new(text_shape.size().x + 12.0, 16.0),
+                                        );
+                                        painter.rect_filled(
+                                            pill_rect,
+                                            Rounding::same(4.0),
+                                            Color32::from_rgba_unmultiplied(15, 20, 35, 230),
+                                        );
+                                        painter.rect_stroke(
+                                            pill_rect,
+                                            Rounding::same(4.0),
+                                            Stroke::new(1.0_f32, color),
+                                        );
+                                        painter.galley(
+                                            Pos2::new(
+                                                pill_rect.center().x - text_shape.size().x * 0.5,
+                                                pill_rect.center().y - text_shape.size().y * 0.5,
+                                            ),
+                                            text_shape,
+                                            theme.text_note_tag_c32().linear_multiply(0.82),
+                                        );
+                                        if is_primary_down
+                                            && state.dragging_envelope_pt.is_none()
+                                            && state.dragging_phoneme_handle.is_none()
+                                            && state.dragging_subphoneme_boundary.is_none()
+                                        {
+                                            on_before_change();
+                                            state.dragging_envelope_pt = Some((note_index, 5));
+                                            state.selected_note_index = Some(note_index);
+                                        }
                                     }
                                 }
                             }
@@ -917,6 +973,325 @@ pub fn draw_phoneme_ruler(
                             let seg_end_x = x_start + ((*rel_pos + *duration) * px_per_ms) as f32;
                             let visible_start = seg_start_x.max(strip_rect.min.x);
                             let visible_end = seg_end_x.min(strip_rect.max.x);
+
+                            // OpenUtau-style phoneme canvas: fixed blue lane,
+                            // five effective points, and no theme-colour or
+                            // note-level overlay. The points are resolved once
+                            // from the same envelope model used by the renderer.
+                            let cached_phone = state
+                                .note_phonemes_cache
+                                .get(note_index)
+                                .and_then(|phones| phones.get(index));
+                            let overlap_ms = cached_phone
+                                .map(|phone| finite_or_zero(phone.overlap_ms))
+                                .unwrap_or(0.0);
+                            // The lane never guesses from a note-level oto.ini
+                            // entry. It paints the exact five points resolved
+                            // for this phoneme by the OpenUtau timing model.
+                            let points = cached_phone
+                                .map(|phone| phone.envelope_points)
+                                .unwrap_or([(0.0, 0.0); 5]);
+                            let point_positions: Vec<Pos2> = points
+                                .iter()
+                                .map(|(time, level)| {
+                                    Pos2::new(
+                                        x_start + ((*rel_pos + *time) * px_per_ms) as f32,
+                                        y_bottom
+                                            - (level.clamp(0.0, 2.0) as f32)
+                                                * (y_bottom - y_top)
+                                                * 0.5,
+                                    )
+                                })
+                                .collect();
+                            let block_left = point_positions
+                                .first()
+                                .map_or(seg_start_x, |point| point.x)
+                                .min(seg_end_x);
+                            let block_right = point_positions
+                                .last()
+                                .map_or(seg_end_x, |point| point.x)
+                                .max(seg_end_x);
+                            let lane_fill = if is_selected {
+                                Color32::from_rgba_unmultiplied(30, 170, 225, 115)
+                            } else {
+                                Color32::from_rgba_unmultiplied(20, 125, 185, 105)
+                            };
+                            let lane_stroke = if is_selected {
+                                Color32::from_rgb(45, 190, 240)
+                            } else {
+                                Color32::from_rgb(25, 145, 205)
+                            };
+                            // `convex_polygon` cannot represent an envelope
+                            // with valleys: egui triangulates it as a fan,
+                            // producing the broken blue triangles seen in the
+                            // lane. Fill each monotonic segment independently
+                            // with a convex quad instead.
+                            let fill_segment = |a: Pos2, b: Pos2| {
+                                painter.add(egui::Shape::convex_polygon(
+                                    vec![a, b, Pos2::new(b.x, y_bottom), Pos2::new(a.x, y_bottom)],
+                                    lane_fill,
+                                    Stroke::NONE,
+                                ));
+                            };
+                            if let Some(first) = point_positions.first().copied() {
+                                fill_segment(Pos2::new(block_left, first.y), first);
+                            }
+                            for pair in point_positions.windows(2) {
+                                fill_segment(pair[0], pair[1]);
+                            }
+                            if let Some(last) = point_positions.last().copied() {
+                                fill_segment(last, Pos2::new(block_right, last.y));
+                            }
+                            painter.line_segment(
+                                [
+                                    Pos2::new(block_left, y_bottom),
+                                    Pos2::new(block_right, y_bottom),
+                                ],
+                                Stroke::new(1.2, lane_stroke),
+                            );
+                            for pair in point_positions.windows(2) {
+                                painter.line_segment(
+                                    [pair[0], pair[1]],
+                                    Stroke::new(1.25, lane_stroke),
+                                );
+                            }
+                            let block_response = ui.interact(
+                                Rect::from_min_max(
+                                    Pos2::new(block_left.max(strip_rect.min.x), y_top),
+                                    Pos2::new(block_right.min(strip_rect.max.x), y_bottom),
+                                ),
+                                ui.id().with(("phoneme_envelope_block", note_index, index)),
+                                Sense::click(),
+                            );
+                            if block_response.clicked() {
+                                state.selected_note_index = Some(note_index);
+                            }
+                            if block_response.secondary_clicked() {
+                                on_before_change();
+                                if let Some(override_item) = note
+                                    .phoneme_overrides
+                                    .iter_mut()
+                                    .find(|item| item.index == index)
+                                {
+                                    // Equivalent to OpenUtau's "clear phoneme
+                                    // timing": the canvas edits timing deltas,
+                                    // never an independent P1-P5 shape.
+                                    override_item.preutter_delta_ms = None;
+                                    override_item.overlap_delta_ms = None;
+                                    override_item.attack_time_delta_ms = None;
+                                    override_item.release_time_delta_ms = None;
+                                }
+                                state.continuous_edit_dirty = true;
+                                on_note_changed();
+                            }
+                            for (point_index, point) in point_positions.iter().enumerate() {
+                                // OpenUtau exposes P0, P1, P3 and P4 as
+                                // timing handles. P2 is the computed sustain
+                                // point and is intentionally not draggable.
+                                let overlap_target =
+                                    phoneme_successors.get(&(note_index, index)).copied();
+                                let editable = matches!(point_index, 0 | 1 | 3)
+                                    || (point_index == 4 && overlap_target.is_some());
+                                if point.x >= strip_rect.min.x - 5.0
+                                    && point.x <= strip_rect.max.x + 5.0
+                                {
+                                    let point_pos = point.clamp(
+                                        Pos2::new(strip_rect.min.x, y_top),
+                                        Pos2::new(strip_rect.max.x, y_bottom),
+                                    );
+                                    let point_response = ui.interact(
+                                        Rect::from_center_size(point_pos, Vec2::splat(18.0)),
+                                        ui.id().with((
+                                            "phoneme_envelope_point",
+                                            note_index,
+                                            index,
+                                            point_index,
+                                        )),
+                                        if editable {
+                                            Sense::click_and_drag()
+                                        } else {
+                                            Sense::hover()
+                                        },
+                                    );
+                                    let hovered = point_response.hovered();
+                                    let dragging = state.dragging_phoneme_envelope_pt
+                                        == Some((note_index, index, point_index));
+                                    painter.circle_filled(
+                                        point_pos,
+                                        if hovered || dragging { 4.5 } else { 3.2 },
+                                        if hovered || dragging {
+                                            Color32::from_rgb(110, 225, 255)
+                                        } else {
+                                            Color32::from_rgb(45, 190, 240)
+                                        },
+                                    );
+                                    if editable && (hovered || dragging) {
+                                        ui.ctx().set_cursor_icon(egui::CursorIcon::Grab);
+                                        if point_response.drag_started()
+                                            && state.dragging_phoneme_envelope_pt.is_none()
+                                            && state.dragging_phoneme_handle.is_none()
+                                            && state.dragging_subphoneme_boundary.is_none()
+                                        {
+                                            on_before_change();
+                                            let (target_note, target_index) = if point_index == 4 {
+                                                overlap_target.unwrap_or((note_index, index))
+                                            } else {
+                                                (note_index, index)
+                                            };
+                                            if target_note == note_index
+                                                && !note
+                                                    .phoneme_overrides
+                                                    .iter()
+                                                    .any(|item| item.index == target_index)
+                                            {
+                                                note.phoneme_overrides.push(
+                                                    crate::project::model::UPhonemeOverride {
+                                                        index: target_index,
+                                                        ..Default::default()
+                                                    },
+                                                );
+                                            }
+                                            state.dragging_phoneme_envelope_pt =
+                                                Some((target_note, target_index, point_index));
+                                            state.selected_note_index = Some(note_index);
+                                        }
+                                    }
+                                    if point_response.clicked() {
+                                        state.selected_note_index = Some(note_index);
+                                    }
+                                    if point_response.secondary_clicked() {
+                                        on_before_change();
+                                        let (target_note, target_index) = if point_index == 4 {
+                                            overlap_target.unwrap_or((note_index, index))
+                                        } else {
+                                            (note_index, index)
+                                        };
+                                        if target_note == note_index {
+                                            if let Some(override_item) = note
+                                                .phoneme_overrides
+                                                .iter_mut()
+                                                .find(|item| item.index == target_index)
+                                            {
+                                                match point_index {
+                                                    0 => override_item.preutter_delta_ms = None,
+                                                    1 => override_item.attack_time_delta_ms = None,
+                                                    3 => override_item.release_time_delta_ms = None,
+                                                    4 => override_item.overlap_delta_ms = None,
+                                                    _ => {}
+                                                }
+                                            }
+                                        }
+                                        state.continuous_edit_dirty = true;
+                                        on_note_changed();
+                                    }
+                                }
+                            }
+
+                            if let Some((drag_note, drag_phoneme, drag_point)) =
+                                state.dragging_phoneme_envelope_pt
+                            {
+                                if drag_note == note_index && drag_phoneme == index {
+                                    if let Some(cursor) = pointer_pos {
+                                        let time = ((cursor.x - x_start) as f64 / px_per_ms
+                                            - *rel_pos)
+                                            .clamp(-2_000.0, (*duration).max(1.0) + 2_000.0);
+                                        if let Some(override_item) = note
+                                            .phoneme_overrides
+                                            .iter_mut()
+                                            .find(|item| item.index == index)
+                                        {
+                                            let current_delta = match drag_point {
+                                                1 => override_item
+                                                    .attack_time_delta_ms
+                                                    .unwrap_or(0.0),
+                                                3 => override_item
+                                                    .release_time_delta_ms
+                                                    .unwrap_or(0.0),
+                                                _ => 0.0,
+                                            };
+                                            let updated = match drag_point {
+                                                // P0: position is -preutter.
+                                                0 => {
+                                                    override_item.preutter_delta_ms = Some(
+                                                        (-time
+                                                            - cached_phone.map_or(0.0, |p| {
+                                                                p.auto_preutter_ms
+                                                            }))
+                                                        .clamp(-2_000.0, 2_000.0),
+                                                    );
+                                                    true
+                                                }
+                                                // P1: attack-time delta is measured from the
+                                                // OpenUtau fade-in baseline.
+                                                1 => {
+                                                    let base = points[1].0 - current_delta;
+                                                    override_item.attack_time_delta_ms = Some(
+                                                        (time - base).clamp(-2_000.0, 2_000.0),
+                                                    );
+                                                    true
+                                                }
+                                                // P3: release delta is measured backwards from
+                                                // the fade-out baseline.
+                                                3 => {
+                                                    let fade_out = cached_phone.map_or(35.0, |p| {
+                                                        if p.tail_overlap_ms > 0.0 {
+                                                            p.tail_overlap_ms
+                                                        } else {
+                                                            35.0
+                                                        }
+                                                    });
+                                                    let base =
+                                                        points[2].0.max(points[4].0 - fade_out);
+                                                    override_item.release_time_delta_ms = Some(
+                                                        (base - time).clamp(-2_000.0, 2_000.0),
+                                                    );
+                                                    true
+                                                }
+                                                // P4 belongs to the next adjacent phoneme's
+                                                // overlap, as in OpenUtau.
+                                                4 => {
+                                                    let base = cached_phone.map_or(0.0, |p| {
+                                                        -p.preutter_ms + p.auto_overlap_ms
+                                                    });
+                                                    override_item.overlap_delta_ms = Some(
+                                                        (time - base).clamp(-2_000.0, 2_000.0),
+                                                    );
+                                                    true
+                                                }
+                                                _ => false,
+                                            };
+                                            if updated {
+                                                state.continuous_edit_dirty = true;
+                                            }
+                                        } else {
+                                            note.phoneme_overrides.push(
+                                                crate::project::model::UPhonemeOverride {
+                                                    index,
+                                                    ..Default::default()
+                                                },
+                                            );
+                                        }
+                                    }
+                                }
+                            }
+
+                            if index + 1 < subphonemes.len() && seg_end_x > seg_start_x {
+                                let next_start =
+                                    x_start + (subphonemes[index + 1].1 * px_per_ms) as f32;
+                                let x_left = (seg_end_x - (overlap_ms.max(0.0) * px_per_ms) as f32)
+                                    .max(seg_start_x);
+                                let x_right = next_start.min(seg_end_x + 24.0);
+                                if x_right > x_left + 1.0 {
+                                    painter.line_segment(
+                                        [Pos2::new(x_left, y_top), Pos2::new(x_right, y_bottom)],
+                                        Stroke::new(1.0, Color32::from_rgb(30, 150, 215)),
+                                    );
+                                    painter.line_segment(
+                                        [Pos2::new(x_left, y_bottom), Pos2::new(x_right, y_top)],
+                                        Stroke::new(1.0, Color32::from_rgb(30, 150, 215)),
+                                    );
+                                }
+                            }
 
                             if seg_start_x >= strip_rect.min.x - 1.0
                                 && seg_start_x <= strip_rect.max.x + 1.0
@@ -1207,7 +1582,10 @@ pub fn draw_phoneme_ruler(
                                 }
                             }
 
-                            if visible_end > visible_start + 14.0 {
+                            // The alias pill above the block is the only label
+                            // at normal zoom. The old centered label duplicated
+                            // aliases and made adjacent phonemes unreadable.
+                            if false && visible_end > visible_start + 14.0 {
                                 painter.text(
                                     Pos2::new(
                                         (visible_start + visible_end) * 0.5,
@@ -1229,7 +1607,7 @@ pub fn draw_phoneme_ruler(
                                 {
                                     let boundary_x =
                                         boundary_x.clamp(strip_rect.min.x, strip_rect.max.x);
-                                    let color = Color32::from_rgb(255, 205, 70);
+                                    let color = Color32::from_rgb(235, 55, 155);
                                     let separator_hit_rect = Rect::from_min_max(
                                         Pos2::new(boundary_x - 9.0, y_top - 2.0),
                                         Pos2::new(boundary_x + 9.0, y_bottom + 2.0),
@@ -1673,20 +2051,8 @@ pub fn draw_phoneme_ruler(
                                     .clamp(0.0, 1.0)
                                     as f64)
                                     * 200.0;
-                                if pt_idx < 4 {
-                                    let mut edited_shape = note.effective_envelope_shape();
-                                    edited_shape.set_point(pt_idx, time, volume, duration);
-                                    note.set_envelope_shape(edited_shape);
-                                } else if pt_idx == 5 {
-                                    let mut crossfade_shape = note.effective_envelope_shape();
-                                    crossfade_shape.crossfade_ms =
-                                        (((x_start - pos.x) as f64) / px_per_ms).clamp(0.0, 600.0);
-                                    note.envelope_shape = Some(crossfade_shape.clone());
-                                    note.envelope = note
-                                        .envelope_shape
-                                        .as_ref()
-                                        .map(|shape| shape.to_utau(note.duration_ms))
-                                        .unwrap_or_else(|| note.envelope.clone());
+                                if pt_idx < 5 {
+                                    note.envelope.set_point(pt_idx, time, volume, duration);
                                 }
                                 state.continuous_edit_dirty = true;
                             }

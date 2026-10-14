@@ -1,4 +1,4 @@
-use eframe::egui;
+use eframe::{egui, HardwareAcceleration, Renderer};
 use kamafeu::audio::AudioPlayer;
 use kamafeu::copaiba::gui::{draw_copaiba_toolkit_ui, CopaibaToolkitApp};
 
@@ -15,6 +15,17 @@ fn main() -> eframe::Result<()> {
 
     let options = eframe::NativeOptions {
         viewport,
+        hardware_acceleration: HardwareAcceleration::Preferred,
+        vsync: true,
+        multisampling: 0,
+        renderer: match std::env::var("KAMAFEU_RENDERER")
+            .unwrap_or_else(|_| "auto".to_string())
+            .to_ascii_lowercase()
+            .as_str()
+        {
+            "glow" | "opengl" => Renderer::Glow,
+            _ => Renderer::Wgpu,
+        },
         ..Default::default()
     };
 

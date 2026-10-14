@@ -1,3 +1,4 @@
+use super::options::CompatibilityMode;
 use crate::phonemizer::consonant_velocity_time_scale;
 use serde::{Deserialize, Serialize};
 
@@ -16,6 +17,25 @@ pub struct PhonemeTiming {
     /// Initial rendered audio that must be discarded so the pitch timeline and
     /// validated audible lead remain aligned.
     pub skip_over_ms: f64,
+    pub tail_intrude_ms: f64,
+    pub tail_overlap_ms: f64,
+    /// Velocity-scaled oto.ini values after neighbour validation and before
+    /// user deltas. These are the OpenUtau `autoPreutter`/`autoOverlap`.
+    pub auto_preutter_ms: f64,
+    pub auto_overlap_ms: f64,
+}
+
+/// One fully resolved OpenUtau phoneme envelope. The points are in milliseconds
+/// relative to the phoneme musical position and gains (0.0..=2.0), matching the
+/// values consumed by the native wavtool path and the Piano Roll canvas.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct ResolvedPhonemeEnvelope {
+    pub points: [(f64, f64); 5],
+    pub preutter_ms: f64,
+    pub overlap_ms: f64,
+    pub auto_preutter_ms: f64,
+    pub auto_overlap_ms: f64,
+    pub velocity: f64,
     pub tail_intrude_ms: f64,
     pub tail_overlap_ms: f64,
 }
@@ -48,6 +68,8 @@ pub struct PhonemeTimingDiagnostic {
     pub adjacent: bool,
     pub preutter_ms: f64,
     pub overlap_ms: f64,
+    pub auto_preutter_ms: f64,
+    pub auto_overlap_ms: f64,
     pub leading_ms: f64,
     pub skip_over_ms: f64,
     pub tail_intrude_ms: f64,
@@ -73,6 +95,8 @@ pub fn diagnostics(
             adjacent: timing.adjacent,
             preutter_ms: timing.preutter_ms,
             overlap_ms: timing.overlap_ms,
+            auto_preutter_ms: timing.auto_preutter_ms,
+            auto_overlap_ms: timing.auto_overlap_ms,
             leading_ms: timing.leading_ms,
             skip_over_ms: timing.skip_over_ms,
             tail_intrude_ms: timing.tail_intrude_ms,
@@ -91,6 +115,20 @@ pub fn plan_inputs(
     phones: &[crate::phonemizer::RenderPhone],
     voicebank: &crate::oto::Voicebank,
     crossfade_ms: f64,
+) -> Vec<PhonemeTimingInput> {
+    plan_inputs_with_mode(
+        phones,
+        voicebank,
+        crossfade_ms,
+        CompatibilityMode::KamafeuExtended,
+    )
+}
+
+pub fn plan_inputs_with_mode(
+    phones: &[crate::phonemizer::RenderPhone],
+    voicebank: &crate::oto::Voicebank,
+    crossfade_ms: f64,
+    compatibility_mode: CompatibilityMode,
 ) -> Vec<PhonemeTimingInput> {
     phones
         .iter()
@@ -111,6 +149,8 @@ pub fn plan_inputs(
                     <= 0.001;
             let manual_overlap = if phone.expressions.presamp_no_crossfade {
                 None
+            } else if compatibility_mode == CompatibilityMode::UtauLegacy {
+                None
             } else if phone.envelope.crossfade_ms > 0.0 {
                 Some(phone.envelope.crossfade_ms)
             } else if raw_overlap.abs() <= f64::EPSILON && adjacent_handoff && crossfade_ms > 0.0 {
@@ -120,7 +160,8 @@ pub fn plan_inputs(
                 && phone.expressions.overlap_override_ms.is_none()
                 && phone.expressions.overlap_offset_ms.abs() <= f64::EPSILON
             {
-                Some(SAFETY_CROSSFADE_MS)
+                (compatibility_mode == CompatibilityMode::KamafeuExtended)
+                    .then_some(SAFETY_CROSSFADE_MS)
             } else {
                 None
             };
@@ -220,6 +261,8 @@ pub fn resolve_phoneme_timings(inputs: &[PhonemeTimingInput]) -> Vec<PhonemeTimi
         }
         result[index].preutter_ms = preutter;
         result[index].overlap_ms = overlap;
+        result[index].auto_preutter_ms = auto_preutter;
+        result[index].auto_overlap_ms = auto_overlap;
         result[index].pitch_leading_ms = max_oto_preutter;
         // OpenUtau positions the segment at note position minus the complete
         // preutterance. The overlap is the fade duration inside that lead, not
@@ -245,9 +288,101 @@ pub fn resolve_phoneme_timings(inputs: &[PhonemeTimingInput]) -> Vec<PhonemeTimi
     result
 }
 
+/// Mirrors OpenUtau `UPhoneme.ValidateEnvelope`. Do not derive the visible
+/// envelope from the legacy P1-P5 fields: in OpenUtau mode the five points are
+/// a consequence of oto.ini, VEL and the four editable phoneme timing deltas.
+pub fn resolve_openutau_envelopes(
+    phones: &[crate::phonemizer::RenderPhone],
+    timings: &[PhonemeTiming],
+) -> Vec<ResolvedPhonemeEnvelope> {
+    phones
+        .iter()
+        .zip(timings.iter())
+        .map(|(phone, timing)| {
+            let volume = phone.expressions.volume.clamp(0.0, 200.0) / 100.0;
+            let attack = phone.expressions.attack.clamp(0.0, 200.0) / 100.0;
+            let decay = phone.expressions.decay.clamp(0.0, 100.0) / 100.0;
+            let fade_in = if timing.adjacent && timing.overlap_ms > 0.0 {
+                timing.overlap_ms
+            } else {
+                5.0
+            };
+            let fade_out = if timing.tail_overlap_ms > 0.0 {
+                timing.tail_overlap_ms
+            } else {
+                35.0
+            };
+            let p0_x = -timing.preutter_ms;
+            let p1_x = (p0_x + 5.0).max(p0_x + fade_in + phone.expressions.attack_time_delta_ms);
+            let p2_x = p1_x.max(0.0);
+            let p4_x = phone.duration_ms.max(0.0) - timing.tail_intrude_ms + timing.tail_overlap_ms;
+            let p3_x = p2_x.max(p4_x - fade_out - phone.expressions.release_time_delta_ms);
+            ResolvedPhonemeEnvelope {
+                points: [
+                    (p0_x, 0.0),
+                    (p1_x, volume * attack),
+                    (p2_x, volume),
+                    (p3_x, volume * (1.0 - decay)),
+                    (p4_x.max(p3_x), 0.0),
+                ],
+                preutter_ms: timing.preutter_ms,
+                overlap_ms: timing.overlap_ms,
+                auto_preutter_ms: timing.auto_preutter_ms,
+                auto_overlap_ms: timing.auto_overlap_ms,
+                velocity: phone.expressions.consonant_velocity,
+                tail_intrude_ms: timing.tail_intrude_ms,
+                tail_overlap_ms: timing.tail_overlap_ms,
+            }
+        })
+        .collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn phone(position_ms: f64, duration_ms: f64, velocity: f64) -> crate::phonemizer::RenderPhone {
+        let mut expressions = crate::project::model::UExpressions::default();
+        expressions.consonant_velocity = velocity;
+        crate::phonemizer::RenderPhone {
+            note_index: 0,
+            lyric: "a".to_string(),
+            pitch: "C4".to_string(),
+            position_ms,
+            duration_ms,
+            envelope: crate::dsp::envelope::UtauEnvelope::default(),
+            expressions,
+            pitch_bend: crate::project::model::UPitchBend::default(),
+            vibrato: crate::dsp::pitch::VibratoParam::default(),
+            flags: String::new(),
+            resolved_alias: None,
+            resolved_timbre: None,
+        }
+    }
+
+    #[test]
+    fn openutau_envelope_moves_preutter_with_velocity() {
+        let slow = phone(0.0, 500.0, 50.0);
+        let mut fast = slow.clone();
+        fast.expressions.consonant_velocity = 200.0;
+        let input = |velocity| PhonemeTimingInput {
+            position_ms: 0.0,
+            duration_ms: 500.0,
+            oto_preutter_ms: 100.0,
+            oto_overlap_ms: 40.0,
+            velocity,
+            preutter_delta_ms: 0.0,
+            overlap_delta_ms: 0.0,
+        };
+        let slow_timing = resolve_phoneme_timings(&[input(50.0)]);
+        let fast_timing = resolve_phoneme_timings(&[input(200.0)]);
+        let slow_envelope = resolve_openutau_envelopes(&[slow], &slow_timing);
+        let fast_envelope = resolve_openutau_envelopes(&[fast], &fast_timing);
+        assert!((slow_envelope[0].points[0].0 + 141.421356).abs() < 1e-3);
+        assert!((fast_envelope[0].points[0].0 + 50.0).abs() < 1e-6);
+        assert!(slow_envelope[0].points[1].0 < 0.0);
+        assert!(fast_envelope[0].points[1].0 < 0.0);
+    }
 
     #[test]
     fn velocity_stretches_oto_timing() {

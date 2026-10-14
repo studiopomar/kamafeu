@@ -130,7 +130,7 @@ pub struct KamafeuStudioApp {
     retry_options: Option<crate::renderer::RenderOptions>,
     failed_chunk: Option<(usize, f64, f64, bool)>,
     progressive_playback_started: bool,
-    progressive_startup_audio: Vec<(Vec<f32>, u32, u16)>,
+    progressive_startup_audio: Vec<(Vec<f32>, u32, u16, bool)>,
     playback_chunk_buffer: playback_buffer::PlaybackChunkBuffer,
     render_log_window_open: bool,
     render_log_messages: Vec<String>,

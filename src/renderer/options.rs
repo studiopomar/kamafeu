@@ -1,5 +1,22 @@
 use crate::phonemizer::PhonemizerMode;
 
+/// Selects how closely rendering follows the original UTAU processing model.
+/// The legacy mode keeps oto.ini authoritative and leaves crossfading to the
+/// wavtool boundary rather than inventing a handoff in the renderer.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum CompatibilityMode {
+    #[serde(rename = "utau_legacy")]
+    UtauLegacy,
+    #[serde(rename = "kamafeu_extended")]
+    KamafeuExtended,
+}
+
+impl Default for CompatibilityMode {
+    fn default() -> Self {
+        Self::UtauLegacy
+    }
+}
+
 /// Estilos globais de renderização. Eles não alteram o fonemizador nem as
 /// expressões já desenhadas por nota; apenas definem o ponto de partida do
 /// motor para toda a voz.
@@ -13,6 +30,8 @@ pub enum VocalRenderPreset {
 /// Rendering parameters that apply to a singer independently of the GUI.
 #[derive(Debug, Clone, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct RenderOptions {
+    #[serde(default)]
+    pub compatibility_mode: CompatibilityMode,
     /// Literal project/track flags merged before each note's flags.
     #[serde(default)]
     pub flags: String,
@@ -31,6 +50,7 @@ pub struct RenderOptions {
 impl Default for RenderOptions {
     fn default() -> Self {
         Self {
+            compatibility_mode: CompatibilityMode::UtauLegacy,
             flags: String::new(),
             loudness: 0.0,
             tension: 20.0,
@@ -63,7 +83,7 @@ impl RenderOptions {
 
 #[cfg(test)]
 mod tests {
-    use super::{RenderOptions, VocalRenderPreset};
+    use super::{CompatibilityMode, RenderOptions, VocalRenderPreset};
 
     #[test]
     fn default_breathiness_preserves_the_resampler_native_balance() {
@@ -78,6 +98,7 @@ mod tests {
     #[test]
     fn render_options_roundtrip_through_config_serialization() {
         let options = RenderOptions {
+            compatibility_mode: CompatibilityMode::KamafeuExtended,
             flags: "P86g-3Unknown".to_string(),
             loudness: 2.5,
             tension: 68.0,

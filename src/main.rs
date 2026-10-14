@@ -1,5 +1,5 @@
 use clap::{Parser, Subcommand};
-use eframe::NativeOptions;
+use eframe::{HardwareAcceleration, NativeOptions, Renderer};
 use serde_json::{json, Value};
 use std::fs;
 use std::io::BufRead;
@@ -538,16 +538,48 @@ fn real_main() -> Result<(), Box<dyn std::error::Error>> {
                 viewport = viewport.with_icon(icon);
             }
 
+            let renderer = requested_renderer();
+            let fallback_viewport = viewport.clone();
+            eprintln!(
+                "[Graphics] renderer={renderer:?} hardware_acceleration=preferred vsync=true platform={} window=1280x750",
+                std::env::consts::OS
+            );
             let options = NativeOptions {
                 viewport,
+                hardware_acceleration: HardwareAcceleration::Preferred,
+                vsync: true,
+                multisampling: 0,
+                renderer,
                 ..Default::default()
             };
 
-            eframe::run_native(
+            let result = eframe::run_native(
                 &format!("Kamafeu Studio v{} (Bariloche)", kamafeu::APP_VERSION),
                 options,
                 Box::new(|cc| Ok(Box::new(KamafeuStudioApp::new(cc)))),
-            )?;
+            );
+            if let Err(error) = result {
+                if renderer == Renderer::Wgpu {
+                    eprintln!(
+                        "[Graphics] WGPU não pôde iniciar ({error}); tentando fallback Glow/OpenGL"
+                    );
+                    let fallback_options = NativeOptions {
+                        viewport: fallback_viewport,
+                        hardware_acceleration: HardwareAcceleration::Preferred,
+                        vsync: true,
+                        multisampling: 0,
+                        renderer: Renderer::Glow,
+                        ..Default::default()
+                    };
+                    eframe::run_native(
+                        &format!("Kamafeu Studio v{} (Bariloche)", kamafeu::APP_VERSION),
+                        fallback_options,
+                        Box::new(|cc| Ok(Box::new(KamafeuStudioApp::new(cc)))),
+                    )?;
+                } else {
+                    return Err(error.into());
+                }
+            }
         }
 
         Some(Commands::VoicebankInfo { path, alias, pitch }) => {
@@ -1266,6 +1298,34 @@ fn real_main() -> Result<(), Box<dyn std::error::Error>> {
     }
 
     Ok(())
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn requested_renderer() -> Renderer {
+    match std::env::var("KAMAFEU_RENDERER")
+        .unwrap_or_else(|_| "auto".to_string())
+        .to_ascii_lowercase()
+        .as_str()
+    {
+        "glow" | "opengl" => {
+            eprintln!("[Graphics] KAMAFEU_RENDERER=glow: usando OpenGL via Glow");
+            Renderer::Glow
+        }
+        "wgpu" => {
+            eprintln!("[Graphics] KAMAFEU_RENDERER=wgpu: usando WGPU");
+            Renderer::Wgpu
+        }
+        "auto" => {
+            eprintln!(
+                "[Graphics] modo automático: WGPU selecionará Metal, DirectX, Vulkan ou OpenGL"
+            );
+            Renderer::Wgpu
+        }
+        other => {
+            eprintln!("[Graphics] backend desconhecido '{other}', usando modo automático WGPU");
+            Renderer::Wgpu
+        }
+    }
 }
 
 fn print_json(value: &serde_json::Value) -> Result<(), serde_json::Error> {
@@ -2673,6 +2733,12 @@ fn render_project_to_file(
                     .unwrap_or_default();
                 kamafeu::renderer::PhonemeResolutionDiagnostic {
                     part_index,
+                    phonemizer_implementation: format!(
+                        "{:?}",
+                        kamafeu::phonemizer::OpenUtauPhonemizer::implementation(
+                            render_options.phonemizer_mode
+                        )
+                    ),
                     note_index: phone.note_index,
                     lyric: phone.lyric,
                     pitch: phone.pitch,

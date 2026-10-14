@@ -4,6 +4,96 @@ use web_time::Instant;
 
 impl KamafeuStudioApp {
     pub(super) fn update_background_tasks(&mut self, ctx: &egui::Context) {
+        // Progressive audio still crosses the UI boundary before reaching the
+        // dedicated scheduler. Keep egui polling while rendering so an idle or
+        // expensive piano-roll frame cannot starve the sink.
+        if self.render_rx.is_some() {
+            ctx.request_repaint_after(std::time::Duration::from_millis(8));
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        let mut scheduler_finished = false;
+        #[cfg(not(target_arch = "wasm32"))]
+        let mut scheduler_stopped = false;
+        #[cfg(not(target_arch = "wasm32"))]
+        for event in self.audio_player.drain_scheduler_events() {
+            let render_state = self
+                .project
+                .render_state
+                .get_or_insert_with(Default::default);
+            let (generation, state, played_ms) = match &event {
+                crate::audio::PlaybackSchedulerEvent::PlaybackStarted { generation, .. } => {
+                    (*generation, "running", 0.0)
+                }
+                crate::audio::PlaybackSchedulerEvent::ChunkAccepted { generation, .. } => (
+                    *generation,
+                    "running",
+                    self.audio_player.scheduler_position_ms(),
+                ),
+                crate::audio::PlaybackSchedulerEvent::ChunkRejected { generation, .. } => (
+                    *generation,
+                    "invalid",
+                    self.audio_player.scheduler_position_ms(),
+                ),
+                crate::audio::PlaybackSchedulerEvent::WaitingForChunk {
+                    generation,
+                    played_ms,
+                } => (*generation, "waiting", *played_ms),
+                crate::audio::PlaybackSchedulerEvent::PlaybackResumed {
+                    generation,
+                    played_ms,
+                } => (*generation, "running", *played_ms),
+                crate::audio::PlaybackSchedulerEvent::Underrun {
+                    generation,
+                    played_ms,
+                } => (*generation, "underrun", *played_ms),
+                crate::audio::PlaybackSchedulerEvent::PlaybackFinished {
+                    generation,
+                    played_ms,
+                } => {
+                    scheduler_finished = true;
+                    (*generation, "finished", *played_ms)
+                }
+                crate::audio::PlaybackSchedulerEvent::PlaybackStopped {
+                    generation,
+                    played_ms,
+                } => {
+                    scheduler_stopped = true;
+                    (*generation, "stopped", *played_ms)
+                }
+                crate::audio::PlaybackSchedulerEvent::ProducerClosed {
+                    generation,
+                    final_chunk_received,
+                    played_ms,
+                } => {
+                    if !final_chunk_received {
+                        scheduler_stopped = true;
+                    }
+                    (*generation, "producer_closed", *played_ms)
+                }
+            };
+            render_state.scheduler_generation = generation;
+            render_state.scheduler_state = state.to_string();
+            render_state.scheduler_played_ms = played_ms;
+            render_state.scheduler_queued_until_ms = self.audio_player.scheduler_queued_until_ms();
+            render_state.scheduler_last_event = format!("{event:?}");
+            self.render_log_messages.push(format!(
+                "[AudioScheduler] {event:?} played_ms={:.1} queued_until_ms={:.1} runway_ms={:.1}",
+                self.audio_player.scheduler_position_ms(),
+                self.audio_player.scheduler_queued_until_ms(),
+                (self.audio_player.scheduler_queued_until_ms()
+                    - self.audio_player.scheduler_position_ms())
+                .max(0.0)
+            ));
+        }
+        #[cfg(not(target_arch = "wasm32"))]
+        if scheduler_finished || scheduler_stopped {
+            // The scheduler is the authority for progressive playback. Do
+            // not leave the UI transport marked as playing after the sink
+            // reached the final timestamp or the producer failed.
+            self.piano_roll_state.is_playing = false;
+            self.progressive_playback_started = false;
+            self.playback_start_instant = None;
+        }
         if let Some(ref rx) = self.render_log_channel_rx {
             // Keep UI frames responsive even if a renderer emits a burst of logs.
             for _ in 0..64 {
@@ -67,9 +157,16 @@ impl KamafeuStudioApp {
             // a busy piano-roll frame leave the sink without the next block.
             // Drain the whole ready window in one frame. The producer may
             // already have rendered ahead while egui was busy scrolling.
-            for _ in 0..16 {
+            for _ in 0..64 {
                 match rx.try_recv() {
                     Ok(chunk) => {
+                        #[cfg(not(target_arch = "wasm32"))]
+                        if let Some(delay_ms) = std::env::var("KAMAFEU_DEBUG_UI_CHUNK_DELAY_MS")
+                            .ok()
+                            .and_then(|value| value.parse::<u64>().ok())
+                        {
+                            std::thread::sleep(std::time::Duration::from_millis(delay_ms));
+                        }
                         let ready_chunks = if chunk.audio.error.is_some() {
                             vec![chunk]
                         } else {
@@ -78,23 +175,29 @@ impl KamafeuStudioApp {
                                 self.playback_chunk_buffer.gaps,
                                 self.playback_chunk_buffer.out_of_order,
                                 self.playback_chunk_buffer.duplicates,
+                                self.playback_chunk_buffer.format_mismatches,
+                                self.playback_chunk_buffer.timing_mismatches,
                             );
                             let ready = self.playback_chunk_buffer.push(chunk);
                             let counters = (
                                 self.playback_chunk_buffer.gaps,
                                 self.playback_chunk_buffer.out_of_order,
                                 self.playback_chunk_buffer.duplicates,
+                                self.playback_chunk_buffer.format_mismatches,
+                                self.playback_chunk_buffer.timing_mismatches,
                             );
                             if counters != before_counters
                                 || (ready.is_empty()
                                     && self.playback_chunk_buffer.pending_len() > before)
                             {
                                 self.render_log_messages.push(format!(
-                                    "[PlaybackBuffer] pending={} gaps={} out_of_order={} duplicates={}",
+                                    "[PlaybackBuffer] pending={} gaps={} out_of_order={} duplicates={} format_mismatches={} timing_mismatches={}",
                                     self.playback_chunk_buffer.pending_len(),
                                     self.playback_chunk_buffer.gaps,
                                     self.playback_chunk_buffer.out_of_order,
                                     self.playback_chunk_buffer.duplicates,
+                                    self.playback_chunk_buffer.format_mismatches,
+                                    self.playback_chunk_buffer.timing_mismatches,
                                 ));
                             }
                             ready
@@ -156,75 +259,31 @@ impl KamafeuStudioApp {
                             }
 
                             let chunk_is_final = chunk.is_final;
-                            let mut samples = std::mem::take(&mut chunk.audio.samples);
-
-                            // Mix metronome clicks if enabled
-                            if self.transport_state.metronome_enabled {
-                                crate::audio::apply_metronome_clicks(
-                                    &mut samples,
-                                    chunk.audio.sample_rate,
-                                    chunk.audio.channels,
-                                    chunk.chunk_start_ms,
-                                    self.transport_state.bpm,
-                                );
-                            }
+                            // The waveform represents the renderer output,
+                            // never transport-only audio such as metronome
+                            // clicks. Keep this copy untouched; the mutable
+                            // buffer below is exclusively for playback.
+                            let waveform_samples = chunk.audio.samples.clone();
 
                             self.piano_roll_state.merge_rendered_waveform(
-                                &samples,
+                                &waveform_samples,
                                 chunk.audio.sample_rate,
                                 chunk.audio.channels,
                                 chunk.chunk_start_ms,
                             );
 
-                            if !self.progressive_playback_started {
-                                self.progressive_startup_audio.push((
-                                    samples,
-                                    chunk.audio.sample_rate,
-                                    chunk.audio.channels,
-                                ));
-
-                                // Starting from a single page makes the sink race
-                                // the renderer and the egui layout work performed
-                                // when horizontal page-follow changes viewports.
-                                // Keep a complete extra page queued before the
-                                // playback clock starts. Short previews still
-                                // start immediately when their first page is final.
-                                if !crate::gui::playback::progressive_startup_ready(
-                                    self.progressive_startup_audio.len(),
-                                    chunk_is_final,
-                                ) {
-                                    continue;
-                                }
-
-                                let mut startup = self.progressive_startup_audio.drain(..);
-                                if let Some((first, sample_rate, channels)) = startup.next() {
-                                    self.audio_player.start_scheduler(
-                                        first,
-                                        sample_rate,
-                                        channels,
-                                        chunk_is_final,
-                                    );
-                                }
-                                for (queued, sample_rate, channels) in startup {
-                                    self.audio_player.append_scheduler_chunk(
-                                        queued,
-                                        sample_rate,
-                                        channels,
-                                        false,
-                                    );
-                                }
+                            // The dedicated audio bridge already sends the
+                            // playback copy to the scheduler. The UI only
+                            // merges the untouched renderer output into the
+                            // waveform and observes scheduler state.
+                            if !self.progressive_playback_started
+                                && self.audio_player.scheduler_is_running()
+                            {
                                 self.piano_roll_state.is_playing = true;
                                 self.playback_start_instant = Some(Instant::now());
                                 self.progressive_playback_started = true;
                                 self.transport_state.status_message =
                                     "Reproduzindo áudio...".to_string();
-                            } else {
-                                self.audio_player.append_scheduler_chunk(
-                                    samples,
-                                    chunk.audio.sample_rate,
-                                    chunk.audio.channels,
-                                    chunk_is_final,
-                                );
                             }
 
                             if chunk_is_final {
@@ -263,9 +322,12 @@ impl KamafeuStudioApp {
         }
 
         if self.piano_roll_state.is_playing {
-            if let Some(start_t) = self.playback_start_instant {
+            if let Some(_start_t) = self.playback_start_instant {
+                #[cfg(not(target_arch = "wasm32"))]
+                let elapsed_ms = self.audio_player.scheduler_position_ms();
+                #[cfg(target_arch = "wasm32")]
                 let elapsed_ms =
-                    start_t.elapsed().as_secs_f64() * 1000.0 * self.playback_speed_rate;
+                    _start_t.elapsed().as_secs_f64() * 1000.0 * self.playback_speed_rate;
                 self.piano_roll_state.playhead_ms = self.playback_start_offset_ms + elapsed_ms;
 
                 // Finding the final note is O(all notes). It is only needed

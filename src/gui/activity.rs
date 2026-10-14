@@ -35,6 +35,12 @@ impl KamafeuStudioApp {
             note_count,
             selected_count,
             self.transport_state.bpm,
+            self.piano_roll_state.playhead_ms,
+            self.current_notes()
+                .iter()
+                .map(|note| note.position_ms + note.duration_ms)
+                .fold(0.0_f64, f64::max),
+            self.is_dirty,
             self.config.discord_rpc_enabled,
         );
 

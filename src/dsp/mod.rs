@@ -159,7 +159,7 @@ mod oto_bounds_tests {
 }
 
 pub use autopitch::{AutoPitchEngine, AutoPitchOptions, AutoPitchPreset, AutoPitchScope};
-pub use envelope::{EnvelopeShape, UtauEnvelope};
+pub use envelope::UtauEnvelope;
 pub use lpc::LpcExtractor;
 pub use pitch::{midi_to_freq, midi_to_note_name, note_name_to_midi, PitchBendPoint, VibratoParam};
 pub use pitch_bend::PitchBendSolver;

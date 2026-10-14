@@ -12,6 +12,57 @@ const CONSONANTS: &[&str] = &[
     "th", "v", "w", "y", "z", "zh", "dd", "hh", "sp", "st",
 ];
 
+fn arpabet_to_vccv(symbol: &str) -> Option<&'static str> {
+    Some(match symbol {
+        "ax" => "x",
+        "aa" => "a",
+        "ae" => "@",
+        "ah" => "u",
+        "ao" => "9",
+        "aw" => "8",
+        "ay" => "I",
+        "b" => "b",
+        "ch" => "ch",
+        "d" => "d",
+        "dh" => "dh",
+        "eh" => "e",
+        "er" => "3",
+        "ey" => "A",
+        "f" => "f",
+        "g" => "g",
+        "hh" | "hhy" => "h",
+        "ih" => "i",
+        "iy" => "E",
+        "jh" => "j",
+        "k" => "k",
+        "l" => "l",
+        "m" => "m",
+        "n" => "n",
+        "ng" => "ng",
+        "ow" => "O",
+        "oy" => "Q",
+        "p" => "p",
+        "r" => "r",
+        "s" => "s",
+        "sh" => "sh",
+        "t" => "t",
+        "th" => "th",
+        "uh" => "6",
+        "uw" => "o",
+        "v" => "v",
+        "w" => "w",
+        "y" => "y",
+        "z" => "z",
+        "zh" => "zh",
+        "dx" => "dd",
+        _ => return None,
+    })
+}
+
+pub(crate) fn is_explicit_symbol(symbol: &str) -> bool {
+    VOWELS.contains(&symbol) || CONSONANTS.contains(&symbol)
+}
+
 fn select(vb: &Voicebank, pitch: &str, candidates: Vec<String>) -> String {
     candidates
         .iter()
@@ -22,6 +73,10 @@ fn select(vb: &Voicebank, pitch: &str, candidates: Vec<String>) -> String {
 fn tokens(text: &str) -> Vec<String> {
     let mut result = Vec::new();
     for word in text.split_whitespace() {
+        if let Some(mapped) = arpabet_to_vccv(word) {
+            result.push(mapped.to_string());
+            continue;
+        }
         let mut remaining = word;
         while !remaining.is_empty() {
             let symbol = VOWELS
@@ -293,4 +348,16 @@ pub fn apply(notes: &[UNote], vb: &Voicebank) -> Vec<RenderPhone> {
         previous_pitch = Some(note.pitch.clone());
     }
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn openutau_arpabet_replacements_are_used_before_vccv_tokenization() {
+        assert_eq!(tokens("aa ae ih iy"), vec!["a", "@", "i", "E"]);
+        assert_eq!(tokens("s t E"), vec!["s", "t", "E"]);
+        assert_eq!(tokens("unknown"), vec!["u", "n", "k", "n", "o", "w", "n"]);
+    }
 }

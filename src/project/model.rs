@@ -1,4 +1,4 @@
-use crate::dsp::envelope::{EnvelopeShape, UtauEnvelope};
+use crate::dsp::envelope::UtauEnvelope;
 use crate::dsp::pitch::{midi_to_note_name, note_name_to_midi, VibratoParam};
 use serde::{Deserialize, Serialize};
 
@@ -180,6 +180,12 @@ pub struct UExpressions {
     pub preutter_offset_ms: f64, // Pré-emissão / Início de transição timing shift (-500ms to +500ms)
     #[serde(default)]
     pub overlap_offset_ms: f64, // Overlap / Crossfade timing shift (-500ms to +500ms)
+    /// OpenUtau per-phoneme attack-handle delta. This is timing, not ATK.
+    #[serde(default)]
+    pub attack_time_delta_ms: f64,
+    /// OpenUtau per-phoneme release-handle delta. This is timing, not DEC.
+    #[serde(default)]
+    pub release_time_delta_ms: f64,
     /// Presamp marks this consonant as incompatible with VC/CV crossfading.
     /// It is an internal phonemizer decision, not an UTAU resampler flag.
     #[serde(default)]
@@ -231,6 +237,8 @@ impl Default for UExpressions {
             consonant_timing_offset_ms: 0.0,
             preutter_offset_ms: 0.0,
             overlap_offset_ms: 0.0,
+            attack_time_delta_ms: 0.0,
+            release_time_delta_ms: 0.0,
             presamp_no_crossfade: false,
             presamp_normalization: None,
             preutter_override_ms: None,
@@ -258,6 +266,10 @@ pub struct UPhonemeOverride {
     pub preutter_delta_ms: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub overlap_delta_ms: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub attack_time_delta_ms: Option<f64>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub release_time_delta_ms: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub consonant_timing_offset_ms: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -299,6 +311,20 @@ impl UPhonemeOverride {
             } else {
                 0.0
             };
+        }
+        for value in [
+            &mut self.preutter_delta_ms,
+            &mut self.overlap_delta_ms,
+            &mut self.attack_time_delta_ms,
+            &mut self.release_time_delta_ms,
+        ] {
+            if let Some(delta) = value {
+                *delta = if delta.is_finite() {
+                    delta.clamp(-2_000.0, 2_000.0)
+                } else {
+                    0.0
+                };
+            }
         }
         if let Some(envelope) = &mut self.envelope {
             envelope.normalize(note_duration_ms);
@@ -350,10 +376,6 @@ pub struct UNote {
     pub duration_ms: f64,
     #[serde(default)]
     pub envelope: UtauEnvelope,
-    /// Modern monotonic note envelope. `None` means legacy projects are
-    /// converted from `envelope` on load without changing their schema.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub envelope_shape: Option<EnvelopeShape>,
     #[serde(default)]
     pub vibrato: VibratoParam,
     #[serde(default)]
@@ -393,7 +415,6 @@ impl UNote {
             position_ms,
             duration_ms,
             envelope: UtauEnvelope::default(),
-            envelope_shape: None,
             vibrato: VibratoParam::default(),
             pitch_bend: UPitchBend::default(),
             expressions: UExpressions::default(),
@@ -410,7 +431,6 @@ impl UNote {
         self.voicebank_pitch = None;
         self.timbre = None;
         self.envelope = UtauEnvelope::default();
-        self.envelope_shape = None;
         self.vibrato = VibratoParam::default();
         self.pitch_bend = UPitchBend::default();
         self.expressions = UExpressions::default();
@@ -418,19 +438,6 @@ impl UNote {
         self.phoneme_durations_ms.clear();
         self.phoneme_overrides.clear();
         self.phonemizer_override = None;
-    }
-
-    pub fn effective_envelope_shape(&self) -> EnvelopeShape {
-        // Keep the legacy interchange field authoritative for old editors and
-        // imported projects. The modern shape is regenerated as a validated
-        // note-local view, so legacy changes never leave a stale curve behind.
-        EnvelopeShape::from_utau(&self.envelope, self.duration_ms)
-    }
-
-    pub fn set_envelope_shape(&mut self, mut shape: EnvelopeShape) {
-        shape.normalize(self.duration_ms);
-        self.envelope = shape.to_utau(self.duration_ms);
-        self.envelope_shape = Some(shape);
     }
 
     /// Resolve durações internas válidas para `count` fonemas, preservando as
@@ -623,6 +630,11 @@ pub struct UProjectSection {
 pub struct UProjectRenderState {
     pub pipeline_fingerprint: String,
     pub chunks: Vec<UProjectRenderChunk>,
+    pub scheduler_generation: u64,
+    pub scheduler_state: String,
+    pub scheduler_played_ms: f64,
+    pub scheduler_queued_until_ms: f64,
+    pub scheduler_last_event: String,
 }
 
 impl Default for UProjectRenderState {
@@ -630,6 +642,11 @@ impl Default for UProjectRenderState {
         Self {
             pipeline_fingerprint: String::new(),
             chunks: Vec::new(),
+            scheduler_generation: 0,
+            scheduler_state: "idle".to_string(),
+            scheduler_played_ms: 0.0,
+            scheduler_queued_until_ms: 0.0,
+            scheduler_last_event: String::new(),
         }
     }
 }
@@ -994,10 +1011,6 @@ impl UProject {
                 } else {
                     35.0
                 };
-                if let Some(shape) = &mut note.envelope_shape {
-                    shape.normalize(note.duration_ms);
-                    note.envelope = shape.to_utau(note.duration_ms);
-                }
                 if note
                     .phoneme_durations_ms
                     .iter()

@@ -9,6 +9,19 @@ use rayon::prelude::*;
 
 use super::{RenderOptions, TrackRenderer};
 
+#[cfg(not(target_arch = "wasm32"))]
+fn debug_render_chunk_delay() {
+    if let Some(delay_ms) = std::env::var("KAMAFEU_DEBUG_RENDER_CHUNK_DELAY_MS")
+        .ok()
+        .and_then(|value| value.parse::<u64>().ok())
+    {
+        std::thread::sleep(std::time::Duration::from_millis(delay_ms));
+    }
+}
+
+#[cfg(target_arch = "wasm32")]
+fn debug_render_chunk_delay() {}
+
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 #[inline]
 fn accumulate_stereo_scaled(
@@ -865,6 +878,7 @@ impl ProjectRenderer {
             error: None,
         };
         report_chunk_diagnostics(&priority_chunk, cursor);
+        debug_render_chunk_delay();
         if chunk_tx
             .send(ProgressiveChunk {
                 audio: priority_chunk,
@@ -932,6 +946,7 @@ impl ProjectRenderer {
                 error: None,
             };
             report_chunk_diagnostics(&page_chunk, cursor);
+            debug_render_chunk_delay();
             if chunk_tx
                 .send(ProgressiveChunk {
                     audio: page_chunk,

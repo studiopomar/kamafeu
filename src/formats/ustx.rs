@@ -286,6 +286,16 @@ impl UstxFormat {
                                         "overlapDelta",
                                         "overlap_delta",
                                     ),
+                                    attack_time_delta_ms: number(
+                                        override_value,
+                                        "attackTimeDelta",
+                                        "attack_time_delta",
+                                    ),
+                                    release_time_delta_ms: number(
+                                        override_value,
+                                        "releaseTimeDelta",
+                                        "release_time_delta",
+                                    ),
                                     consonant_timing_offset_ms: number(
                                         override_value,
                                         "consonantTiming",
@@ -808,6 +818,8 @@ impl UstxFormat {
                                     "offset": item.offset_ms.map(|value| value * ticks_per_ms),
                                     "preutterDelta": item.preutter_delta_ms,
                                     "overlapDelta": item.overlap_delta_ms,
+                                    "attackTimeDelta": item.attack_time_delta_ms,
+                                    "releaseTimeDelta": item.release_time_delta_ms,
                                     "consonantTiming": item.consonant_timing_offset_ms,
                                     "envelope": item.envelope.as_ref().map(|envelope| serde_json::json!({
                                         "p1": envelope.p1, "p2": envelope.p2, "p3": envelope.p3,
@@ -964,6 +976,8 @@ voice_parts:
             offset: -48
             preutterDelta: 12.5
             overlapDelta: -3.0
+            attackTimeDelta: 7.5
+            releaseTimeDelta: -4.0
             envelope:
               p2: 17
               crossfade: 22
@@ -997,6 +1011,8 @@ voice_parts:
         assert!((item.offset_ms.unwrap() + 50.0).abs() < 1e-6);
         assert_eq!(item.preutter_delta_ms, Some(12.5));
         assert_eq!(item.overlap_delta_ms, Some(-3.0));
+        assert_eq!(item.attack_time_delta_ms, Some(7.5));
+        assert_eq!(item.release_time_delta_ms, Some(-4.0));
         assert_eq!(item.volume, Some(73.0));
         assert_eq!(item.envelope.as_ref().unwrap().p2, 17.0);
         assert_eq!(item.envelope.as_ref().unwrap().crossfade_ms, 22.0);

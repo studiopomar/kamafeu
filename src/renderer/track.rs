@@ -453,8 +453,16 @@ impl TrackRenderer {
             return Ok(track_buffer);
         }
 
-        let timing_inputs = super::timing::plan_inputs(&phones, voicebank, crossfade_ms);
+        let timing_inputs = super::timing::plan_inputs_with_mode(
+            &phones,
+            voicebank,
+            crossfade_ms,
+            vocal_mode
+                .map(|options| options.compatibility_mode)
+                .unwrap_or_default(),
+        );
         let timings = resolve_phoneme_timings(&timing_inputs);
+        let resolved_envelopes = super::timing::resolve_openutau_envelopes(&phones, &timings);
         for diagnostic in super::timing::diagnostics(&timing_inputs, &timings) {
             let serialized = serde_json::to_string(&diagnostic)
                 .expect("phoneme timing diagnostic is serializable");
@@ -476,6 +484,7 @@ impl TrackRenderer {
         let pitch_notes_ref = &pitch_notes;
         let completed_phones = std::sync::atomic::AtomicUsize::new(0);
         let completed_ref = &completed_phones;
+        let resolved_envelopes_ref = &resolved_envelopes;
 
         // Schedule the earliest audible leads first. A VCV/CVVC alias often
         // begins before its musical note because of preutterance, so this is a
@@ -495,6 +504,7 @@ impl TrackRenderer {
             let mut logs: Vec<(f32, String)> = Vec::new();
             let progress = idx as f32 / total_phones as f32;
             let timing = timings[idx];
+            let resolved_envelope = resolved_envelopes_ref[idx];
 
             let entry = phone
                 .find_entry(voicebank)
@@ -707,16 +717,7 @@ impl TrackRenderer {
                 0.0
             };
             let envelope_duration_ms = (phone.duration_ms + duration_correction_ms).max(1.0);
-            let phoneme_envelope = phone.envelope.phoneme_points(
-                timing.preutter_ms,
-                phone.duration_ms,
-                timing.tail_intrude_ms,
-                timing.tail_overlap_ms,
-                active_overlap,
-                phone.expressions.volume,
-                phone.expressions.attack,
-                phone.expressions.decay,
-            );
+            let phoneme_envelope = resolved_envelope.points;
 
             let p2_diff = (phoneme_envelope[1].0 - phoneme_envelope[0].0).max(0.0);
             let p3_diff = (phoneme_envelope[4].0 - phoneme_envelope[3].0).max(0.0);
@@ -821,12 +822,8 @@ impl TrackRenderer {
                 wavtool_peak: wavtool_diagnostics.peak,
                 wavtool_rms: wavtool_diagnostics.rms,
                 wavtool_clipped_samples: wavtool_diagnostics.clipped_samples,
-                envelope_points: crate::dsp::EnvelopeShape::from_utau(
-                    &phone.envelope,
-                    phone.duration_ms,
-                )
-                .effective_points(phone.duration_ms),
-                crossfade_ms: phone.envelope.crossfade_ms,
+                envelope_points: phoneme_envelope,
+                crossfade_ms: active_overlap.max(0.0),
             };
             logs.push((
                 progress,

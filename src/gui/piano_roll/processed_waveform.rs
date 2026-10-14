@@ -8,7 +8,7 @@ pub(super) fn draw(
     keyboard_width: f32,
     timeline_scroll_x: f32,
     theme: &ThemeConfig,
-    ruler_rect: Rect,
+    _ruler_rect: Rect,
     bpm: f64,
     lang: crate::config::AppLanguage,
     on_playhead_scrubbed: &mut dyn FnMut(f64),
@@ -104,7 +104,14 @@ pub(super) fn draw(
                     Stroke::new(0.8, theme.grid_line_sub_c32()),
                 );
 
-                let timeline_origin_x = ruler_rect.min.x + keyboard_width - timeline_scroll_x;
+                // The waveform lives in its own bottom panel.  Do not derive
+                // its content origin from `ruler_rect`: that rect belongs to
+                // the upper piano-roll layout and can have a different
+                // parent origin/spacing after scrolling or relayout.  The
+                // left edge immediately after the waveform gutter is the
+                // canonical zero-time edge for this panel, just like the
+                // piano-roll canvas edge is for the note grid.
+                let content_left = strip_rect.min.x;
                 let px_per_ms = state.px_per_ms as f64;
                 let mid_y = strip_rect.center().y;
 
@@ -122,15 +129,34 @@ pub(super) fn draw(
                 let beats_per_bar = 4.0_f64;
                 let bar_dur_ms = beat_dur_ms * beats_per_bar;
 
-                let t_min_visible = (strip_rect.min.x - timeline_origin_x) as f64 / px_per_ms;
-                let t_max_visible = (strip_rect.max.x - timeline_origin_x) as f64 / px_per_ms;
+                let t_min_visible = (strip_rect.min.x
+                    - crate::gui::piano_roll::state::timeline_time_to_screen_x(
+                        content_left,
+                        0.0,
+                        state.px_per_ms,
+                        timeline_scroll_x,
+                    )) as f64
+                    / px_per_ms;
+                let t_max_visible = (strip_rect.max.x
+                    - crate::gui::piano_roll::state::timeline_time_to_screen_x(
+                        content_left,
+                        0.0,
+                        state.px_per_ms,
+                        timeline_scroll_x,
+                    )) as f64
+                    / px_per_ms;
 
                 let start_bar = (t_min_visible / bar_dur_ms).floor() as i64;
                 let end_bar = (t_max_visible / bar_dur_ms).ceil() as i64 + 1;
 
                 for b in start_bar..=end_bar {
                     let bar_t = b as f64 * bar_dur_ms;
-                    let bar_x = timeline_origin_x + (bar_t * px_per_ms) as f32;
+                    let bar_x = crate::gui::piano_roll::state::timeline_time_to_screen_x(
+                        content_left,
+                        bar_t,
+                        state.px_per_ms,
+                        timeline_scroll_x,
+                    );
 
                     if bar_x >= strip_rect.min.x && bar_x <= strip_rect.max.x {
                         painter.line_segment(
@@ -150,16 +176,21 @@ pub(super) fn draw(
                     // much smoother than the former one-column bars.
                     let step_px = 0.75f32;
                     let num_steps = ((strip_rect.width() / step_px).ceil() as usize).max(1);
-                    let display_peak = state.waveform_display_peak();
-                    let display_gain = if display_peak > 1e-5 {
-                        (0.92 / display_peak).clamp(1.0, 4.0)
-                    } else {
-                        1.0
-                    };
+                    // Preserve the renderer's real amplitude. Auto-scaling
+                    // every preview to 92% made volume-link and dynamics
+                    // edits look identical even though the samples changed.
+                    let display_gain = 1.0_f32;
 
                     for step in 0..num_steps {
                         let x_pos = strip_rect.min.x + step as f32 * step_px;
                         let next_x = (x_pos + step_px).min(strip_rect.max.x);
+                        let timeline_origin_x =
+                            crate::gui::piano_roll::state::timeline_time_to_screen_x(
+                                content_left,
+                                0.0,
+                                state.px_per_ms,
+                                timeline_scroll_x,
+                            );
                         let t_start_ms = ((x_pos - timeline_origin_x) as f64 / px_per_ms) as f32;
                         let t_end_ms = ((next_x - timeline_origin_x) as f64 / px_per_ms) as f32;
 
@@ -197,7 +228,12 @@ pub(super) fn draw(
                 }
 
                 // Playhead Needle
-                let playhead_x = timeline_origin_x + (state.playhead_ms * px_per_ms) as f32;
+                let playhead_x = crate::gui::piano_roll::state::timeline_time_to_screen_x(
+                    content_left,
+                    state.playhead_ms,
+                    state.px_per_ms,
+                    timeline_scroll_x,
+                );
                 if playhead_x >= strip_rect.min.x && playhead_x <= strip_rect.max.x {
                     painter.line_segment(
                         [
@@ -219,6 +255,13 @@ pub(super) fn draw(
 
                 if (strip_response.dragged() || strip_response.clicked()) && is_primary_down {
                     if let Some(pos) = pointer_pos {
+                        let timeline_origin_x =
+                            crate::gui::piano_roll::state::timeline_time_to_screen_x(
+                                content_left,
+                                0.0,
+                                state.px_per_ms,
+                                timeline_scroll_x,
+                            );
                         let scrubbed_t = ((pos.x - timeline_origin_x) as f64 / px_per_ms).max(0.0);
                         state.playhead_ms = scrubbed_t;
                         on_playhead_scrubbed(scrubbed_t);

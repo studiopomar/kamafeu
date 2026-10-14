@@ -18,6 +18,12 @@ pub struct CachedPhoneme {
     pub overlap_ms: f64,
     pub tail_intrude_ms: f64,
     pub tail_overlap_ms: f64,
+    /// Five points resolved from the same OpenUtau timing calculation used by
+    /// the renderer. X is relative to `relative_position_ms`, Y is gain.
+    pub envelope_points: [(f64, f64); 5],
+    pub auto_preutter_ms: f64,
+    pub auto_overlap_ms: f64,
+    pub consonant_velocity: f64,
 }
 
 pub fn active_phoneme_query(lyric: &str) -> &str {
@@ -45,6 +51,68 @@ pub fn replace_active_phoneme(lyric: &str, alias: &str) -> String {
         &active[..whitespace_bytes],
         alias
     )
+}
+
+fn waveform_bucket_index(time_ms: f64) -> i64 {
+    let bucket_ms = f64::from(waveform_cache_resolution());
+    (time_ms / bucket_ms).floor() as i64
+}
+
+/// Maps an absolute project time to a screen coordinate.  All horizontally
+/// scrolling piano-roll layers use this same affine transform so waveform,
+/// grid, notes and playhead cannot accumulate different origins.
+pub(crate) fn timeline_time_to_screen_x(
+    content_left: f32,
+    time_ms: f64,
+    px_per_ms: f32,
+    scroll_offset: f32,
+) -> f32 {
+    content_left + (time_ms * px_per_ms as f64) as f32 - scroll_offset
+}
+
+fn waveform_bucket_time(bucket: i64) -> f32 {
+    (bucket as f64 * f64::from(waveform_cache_resolution())) as f32
+}
+
+/// Builds peaks on the global timeline.  The start of a progressive chunk is
+/// only an offset into that timeline; it is never the origin of a new mip
+/// grid.  This is also used by complete previews so both paths have identical
+/// bucket boundaries.
+fn waveform_buckets(
+    samples: &[f32],
+    sample_rate: u32,
+    channels: u16,
+    start_offset_ms: f64,
+) -> Vec<(f32, f32, f32)> {
+    if samples.is_empty() || sample_rate == 0 || channels == 0 || !start_offset_ms.is_finite() {
+        return Vec::new();
+    }
+
+    let ch = usize::from(channels);
+    let total_frames = samples.len() / ch;
+    if total_frames == 0 {
+        return Vec::new();
+    }
+
+    let ms_per_frame = 1000.0 / sample_rate as f64;
+    let mut buckets = std::collections::BTreeMap::<i64, (f32, f32)>::new();
+    for (frame_index, frame) in samples.chunks(ch).take(total_frames).enumerate() {
+        let time_ms = start_offset_ms + frame_index as f64 * ms_per_frame;
+        let bucket = waveform_bucket_index(time_ms);
+        for &sample in frame {
+            if !sample.is_finite() {
+                continue;
+            }
+            let entry = buckets.entry(bucket).or_insert((sample, sample));
+            entry.0 = entry.0.min(sample);
+            entry.1 = entry.1.max(sample);
+        }
+    }
+
+    buckets
+        .into_iter()
+        .map(|(bucket, (min, max))| (waveform_bucket_time(bucket), min, max))
+        .collect()
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
@@ -261,7 +329,9 @@ pub struct PianoRollState {
     pub context_menu_hovered_category: Option<ContextMenuCategory>,
     pub context_menu_category_y_offset: f32,
     pub dragging_envelope_pt: Option<(usize, usize)>, // (note_idx, pt_idx)
-    pub dragging_pitch_pt: Option<(usize, usize)>,    // (note_idx, pt_idx)
+    /// Per-phoneme P1-P5 drag: (note_idx, phoneme_idx, point_idx).
+    pub dragging_phoneme_envelope_pt: Option<(usize, usize, usize)>,
+    pub dragging_pitch_pt: Option<(usize, usize)>, // (note_idx, pt_idx)
     pub continuous_edit_dirty: bool,
     pub lyric_needs_select_all: bool,
     /// High-resolution audio peak envelope: (time_ms, min_amplitude, max_amplitude) in range [-1.0, 1.0]
@@ -384,51 +454,8 @@ impl PianoRollState {
         channels: u16,
         start_offset_ms: f64,
     ) {
-        self.rendered_waveform_peaks.clear();
-        if samples.is_empty() || sample_rate == 0 {
-            self.rendered_waveform_peaks.shrink_to_fit();
-            return;
-        }
-
-        let ch = usize::from(channels.max(1));
-        let total_frames = samples.len() / ch;
-        if total_frames == 0 {
-            self.rendered_waveform_peaks.shrink_to_fit();
-            return;
-        }
-
-        // Higher mip levels reduce memory and drawing work while preserving
-        // the min/max envelope of every bucket.
-        let bucket_ms = f64::from(waveform_cache_resolution());
-        let frames_per_bucket = ((bucket_ms * sample_rate as f64) / 1000.0).max(1.0) as usize;
-        let ms_per_frame = 1000.0 / sample_rate as f64;
-
-        let num_buckets = (total_frames + frames_per_bucket - 1) / frames_per_bucket;
-        let mut raw_peaks: Vec<(f32, f32, f32)> = Vec::with_capacity(num_buckets);
-
-        for (bucket_idx, frame_chunk) in samples.chunks(frames_per_bucket * ch).enumerate() {
-            let start_frame = bucket_idx * frames_per_bucket;
-            let time_ms = (start_offset_ms + start_frame as f64 * ms_per_frame) as f32;
-
-            let mut min_val: f32 = 0.0;
-            let mut max_val: f32 = 0.0;
-
-            for frame in frame_chunk.chunks(ch) {
-                for &s in frame {
-                    if s < min_val {
-                        min_val = s;
-                    }
-                    if s > max_val {
-                        max_val = s;
-                    }
-                }
-            }
-
-            raw_peaks.push((time_ms, min_val, max_val));
-        }
-
-        // Keep the audio scale identical across full renders and progressive chunks.
-        self.rendered_waveform_peaks = raw_peaks;
+        self.rendered_waveform_peaks =
+            waveform_buckets(samples, sample_rate, channels, start_offset_ms);
         self.rendered_waveform_peaks.shrink_to_fit();
     }
 
@@ -439,19 +466,30 @@ impl PianoRollState {
         channels: u16,
         start_offset_ms: f64,
     ) {
-        let mut chunk_state = PianoRollState::default();
-        chunk_state.update_rendered_waveform(samples, sample_rate, channels, start_offset_ms);
-        if chunk_state.rendered_waveform_peaks.is_empty() {
+        let chunk_peaks = waveform_buckets(samples, sample_rate, channels, start_offset_ms);
+        if chunk_peaks.is_empty() {
             return;
         }
-        let chunk_start = chunk_state.rendered_waveform_peaks[0].0;
-        let chunk_end = chunk_state.rendered_waveform_peaks.last().unwrap().0;
-        self.rendered_waveform_peaks
-            .retain(|(time_ms, _, _)| *time_ms < chunk_start || *time_ms > chunk_end);
-        self.rendered_waveform_peaks
-            .extend(chunk_state.rendered_waveform_peaks);
-        self.rendered_waveform_peaks
-            .sort_unstable_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
+
+        // Chunks may start and end in the middle of a bucket. Merge by the
+        // absolute bucket timestamp instead of replacing a timestamp range.
+        // This keeps one stable grid across page boundaries and preserves the
+        // strongest peak when a bucket is delivered in multiple chunks.
+        let mut merged = std::collections::BTreeMap::<i64, (f32, f32)>::new();
+        for &(time, min, max) in &self.rendered_waveform_peaks {
+            let bucket = waveform_bucket_index(time as f64);
+            merged.insert(bucket, (min, max));
+        }
+        for &(time, min, max) in &chunk_peaks {
+            let bucket = waveform_bucket_index(time as f64);
+            let entry = merged.entry(bucket).or_insert((min, max));
+            entry.0 = entry.0.min(min);
+            entry.1 = entry.1.max(max);
+        }
+        self.rendered_waveform_peaks = merged
+            .into_iter()
+            .map(|(bucket, (min, max))| (waveform_bucket_time(bucket), min, max))
+            .collect();
     }
 
     pub fn append_rendered_waveform(
@@ -662,6 +700,7 @@ impl Default for PianoRollState {
             context_menu_hovered_category: None,
             context_menu_category_y_offset: 0.0,
             dragging_envelope_pt: None,
+            dragging_phoneme_envelope_pt: None,
             dragging_pitch_pt: None,
             continuous_edit_dirty: false,
             rendered_waveform_peaks: Vec::new(),
@@ -830,6 +869,53 @@ mod tests {
         assert_eq!(state.waveform_amplitude_at(50.0), Some(0.5));
         assert_eq!(state.waveform_amplitude_at(150.0), Some(0.25));
         assert_eq!(state.waveform_amplitude_at(250.0), None);
+    }
+
+    #[test]
+    fn timeline_screen_mapping_is_shared_by_scrolled_lanes() {
+        let left = 120.0;
+        let px_per_ms = 0.25;
+        let scroll = 500.0;
+
+        assert_eq!(
+            timeline_time_to_screen_x(left, 2_000.0, px_per_ms, scroll),
+            120.0
+        );
+        assert_eq!(
+            timeline_time_to_screen_x(left, 2_400.0, px_per_ms, scroll),
+            220.0
+        );
+    }
+
+    #[test]
+    fn progressive_chunks_share_absolute_buckets_at_boundaries() {
+        let mut state = PianoRollState::default();
+        // At 1 kHz the default 2 ms bucket contains both chunks.  The second
+        // chunk must merge into bucket 0 instead of creating a second point.
+        state.merge_rendered_waveform(&[0.2, 0.2], 1_000, 1, 0.0);
+        state.merge_rendered_waveform(&[-0.8], 1_000, 1, 1.0);
+
+        assert_eq!(state.rendered_waveform_peaks.len(), 1);
+        assert_eq!(state.rendered_waveform_peaks[0].0, 0.0);
+        assert_eq!(state.rendered_waveform_peaks[0].1, -0.8);
+        assert_eq!(state.rendered_waveform_peaks[0].2, 0.2);
+    }
+
+    #[test]
+    fn duplicate_progressive_chunk_does_not_duplicate_buckets() {
+        let mut state = PianoRollState::default();
+        state.merge_rendered_waveform(&[0.5; 4], 1_000, 1, 0.0);
+        let first = state.rendered_waveform_peaks.clone();
+        state.merge_rendered_waveform(&[0.5; 4], 1_000, 1, 0.0);
+
+        assert_eq!(state.rendered_waveform_peaks, first);
+    }
+
+    #[test]
+    fn waveform_rejects_zero_channel_chunks_instead_of_treating_them_as_mono() {
+        let mut state = PianoRollState::default();
+        state.merge_rendered_waveform(&[0.8, -0.8], 1_000, 0, 0.0);
+        assert!(state.rendered_waveform_peaks.is_empty());
     }
 
     #[test]

@@ -150,6 +150,7 @@ mod tests {
                 status: "failed".to_string(),
                 error: Some("engine unavailable".to_string()),
             }],
+            ..Default::default()
         });
         let mut note = UNote::new("k ae.ae n.", "C4", 0.0, 480.0);
         note.timbre = Some("Soft".to_string());

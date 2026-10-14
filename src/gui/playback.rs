@@ -1,3 +1,5 @@
+#[cfg(not(target_arch = "wasm32"))]
+use crate::audio::ProgressivePlaybackHandle;
 use crate::gui::piano_roll::PianoRollState;
 use crate::gui::KamafeuStudioApp;
 use crate::oto::Voicebank;
@@ -25,6 +27,88 @@ fn progressive_chunk_ms(lookahead_ms: f32, render_chunk_bars: u32, bpm: f64) -> 
 
 pub(super) fn progressive_startup_ready(buffered_chunks: usize, current_is_final: bool) -> bool {
     buffered_chunks >= 2 || (buffered_chunks >= 1 && current_is_final)
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn spawn_progressive_audio_bridge(
+    audio_rx: std::sync::mpsc::Receiver<ProgressiveChunk>,
+    ui_tx: std::sync::mpsc::Sender<ProgressiveChunk>,
+    playback: Option<ProgressivePlaybackHandle>,
+    metronome_enabled: bool,
+    bpm: f64,
+) {
+    std::thread::Builder::new()
+        .name("kamafeu-progressive-audio-bridge".to_string())
+        .spawn(move || {
+            let mut startup = Vec::new();
+            let mut started = false;
+            let mut final_chunk_received = false;
+            for mut chunk in audio_rx {
+                let _ = ui_tx.send(chunk.clone());
+                if chunk.audio.error.is_some() {
+                    continue;
+                }
+                let final_chunk = chunk.is_final;
+                final_chunk_received |= final_chunk;
+                let chunk_end_ms = chunk.end_ms();
+                let mut samples = std::mem::take(&mut chunk.audio.samples);
+                if metronome_enabled {
+                    crate::audio::apply_metronome_clicks(
+                        &mut samples,
+                        chunk.audio.sample_rate,
+                        chunk.audio.channels,
+                        chunk.chunk_start_ms,
+                        bpm,
+                    );
+                }
+                if !started {
+                    startup.push((
+                        chunk.chunk_index,
+                        chunk.chunk_start_ms,
+                        chunk_end_ms,
+                        samples,
+                        chunk.audio.sample_rate,
+                        chunk.audio.channels,
+                        final_chunk,
+                    ));
+                    if !progressive_startup_ready(startup.len(), final_chunk) {
+                        continue;
+                    }
+                    let mut queued = startup.drain(..);
+                    if let Some((index, start_ms, end_ms, first, rate, channels, is_final)) =
+                        queued.next()
+                    {
+                        if let Some(playback) = &playback {
+                            playback
+                                .start(index, start_ms, end_ms, first, rate, channels, is_final);
+                        }
+                    }
+                    for (index, start_ms, end_ms, samples, rate, channels, is_final) in queued {
+                        if let Some(playback) = &playback {
+                            playback
+                                .append(index, start_ms, end_ms, samples, rate, channels, is_final);
+                        }
+                    }
+                    started = true;
+                } else {
+                    if let Some(playback) = &playback {
+                        playback.append(
+                            chunk.chunk_index,
+                            chunk.chunk_start_ms,
+                            chunk_end_ms,
+                            samples,
+                            chunk.audio.sample_rate,
+                            chunk.audio.channels,
+                            final_chunk,
+                        );
+                    }
+                }
+            }
+            if let Some(playback) = &playback {
+                playback.producer_closed(final_chunk_received);
+            }
+        })
+        .ok();
 }
 
 impl KamafeuStudioApp {
@@ -58,15 +142,33 @@ impl KamafeuStudioApp {
 
             let (log_tx, log_rx) = std::sync::mpsc::channel();
             let (audio_tx, audio_rx) = std::sync::mpsc::sync_channel(16);
+            let (ui_tx, ui_rx) = std::sync::mpsc::channel();
+            if let Some(cancel) = self.preview_waveform_cancel.take() {
+                cancel.store(true, Ordering::Relaxed);
+            }
+            self.preview_waveform_rx = None;
             let cancel = Arc::new(AtomicBool::new(false));
             self.render_log_channel_rx = Some(log_rx);
-            self.render_rx = Some(audio_rx);
+            self.render_rx = Some(ui_rx);
             self.render_cancel = Some(cancel.clone());
             self.render_progress = 0.0;
             self.render_status_title = format!("Retry chunk #{chunk_index}");
             self.failed_chunk = None;
             self.progressive_startup_audio.clear();
             self.playback_chunk_buffer.reset(start_ms);
+
+            // Retry must use the same renderer -> bridge -> scheduler path as
+            // normal playback.  Feeding the UI receiver directly used to
+            // make retry depend on frame frequency and could recreate the
+            // exact underrun that the retry was meant to fix.
+            self.audio_player.begin_progressive_generation();
+            spawn_progressive_audio_bridge(
+                audio_rx,
+                ui_tx,
+                self.audio_player.progressive_handle(),
+                self.transport_state.metronome_enabled,
+                self.project.bpm,
+            );
 
             let resampler_driver = self.create_resampler_driver();
             let wavtool_driver = self.create_wavtool_driver();
@@ -216,6 +318,18 @@ impl KamafeuStudioApp {
             self.piano_roll_state.playhead_ms = 0.0;
         }
 
+        // A progressive render publishes absolute waveform buckets by
+        // merging them into the current cache. When playback starts from the
+        // beginning, that cache belongs to a previous render generation and
+        // must not remain visible before the first note. Keep the cache for a
+        // mid-project resume, where it still represents already rendered
+        // audio, but reset it for a fresh timeline.
+        if playhead_ms <= f64::EPSILON {
+            self.piano_roll_state.rendered_waveform_peaks.clear();
+            self.render_log_messages
+                .push("[Waveform] cache reset: nova geração iniciada no tempo 0ms".to_string());
+        }
+
         self.retry_project = Some(project.clone());
         self.retry_voicebank = Some(active_vb.clone());
         self.retry_options = Some(vocal_mode_params.clone());
@@ -228,12 +342,26 @@ impl KamafeuStudioApp {
 
         let (tx, rx) = std::sync::mpsc::channel();
         self.render_log_channel_rx = Some(rx);
+        if let Some(cancel) = self.preview_waveform_cancel.take() {
+            cancel.store(true, Ordering::Relaxed);
+        }
+        self.preview_waveform_rx = None;
         #[cfg(not(target_arch = "wasm32"))]
         // Keep several seconds queued so a costly piano-roll frame or a
         // short resampler stall cannot turn into audible dropouts.
         // Keep a generous audio runway: UI scrolling can temporarily delay
         // the main thread that transfers ready chunks into the rodio sink.
         let (audio_tx, audio_rx) = std::sync::mpsc::sync_channel(32);
+        let (ui_tx, ui_rx) = std::sync::mpsc::channel();
+        self.audio_player.begin_progressive_generation();
+        spawn_progressive_audio_bridge(
+            audio_rx,
+            ui_tx,
+            self.audio_player.progressive_handle(),
+            self.transport_state.metronome_enabled,
+            self.transport_state.bpm,
+        );
+        let audio_rx = ui_rx;
         #[cfg(target_arch = "wasm32")]
         let (audio_tx, audio_rx) = std::sync::mpsc::sync_channel(512);
         self.render_rx = Some(audio_rx);
@@ -357,6 +485,14 @@ impl KamafeuStudioApp {
         let mut hasher = DefaultHasher::new();
         self.active_track_index.hash(&mut hasher);
         self.sample_rate.hash(&mut hasher);
+        if let Ok(options) = serde_json::to_vec(&self.vocal_mode_params) {
+            options.hash(&mut hasher);
+        }
+        if let Some(track) = self.project.tracks.get(self.active_track_index) {
+            if let Ok(track_data) = serde_json::to_vec(track) {
+                track_data.hash(&mut hasher);
+            }
+        }
         (self.project.bpm * 1000.0)
             .round()
             .to_bits()
@@ -381,6 +517,12 @@ impl KamafeuStudioApp {
                 .to_bits()
                 .hash(&mut hasher);
             for n in &part.notes {
+                // Hash the complete sound-producing note model. The former
+                // hand-picked list omitted volume, dynamics, envelopes,
+                // vibrato volume-link, flags and per-phoneme overrides.
+                if let Ok(note_data) = serde_json::to_vec(n) {
+                    note_data.hash(&mut hasher);
+                }
                 n.lyric.hash(&mut hasher);
                 n.timbre.hash(&mut hasher);
                 n.voicebank_pitch.hash(&mut hasher);
@@ -430,9 +572,9 @@ impl KamafeuStudioApp {
             cancel.store(true, Ordering::Relaxed);
         }
 
-        // Never keep the previous track's waveform visible while the new
-        // vocal-only preview is being rendered.
-        self.piano_roll_state.rendered_waveform_peaks.clear();
+        // Keep the last valid waveform visible while the replacement is
+        // rendering. Clearing here creates the same apparent "fixed after
+        // pause and rerender" symptom as a broken progressive merge.
         self.preview_waveform_cache_hash = current_hash;
         let cancel = Arc::new(AtomicBool::new(false));
         self.preview_waveform_cancel = Some(cancel.clone());

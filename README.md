@@ -10,6 +10,10 @@
 [![Licença: MIT](https://img.shields.io/badge/licen%C3%A7a-MIT-yellow.svg?style=flat-square)](LICENSE)
 [![Studio Pomar](https://img.shields.io/badge/Studio-Pomar-brightgreen?style=flat-square)](https://studiopomar.github.io/pomar-lts/)
 
+[![Download latest](https://img.shields.io/badge/Download-latest-7c3aed?style=for-the-badge&logo=github&logoColor=white)](https://github.com/studiopomar/kamafeu/releases/latest)
+[![Downloads](https://img.shields.io/github/downloads/studiopomar/kamafeu/total?style=for-the-badge&label=Downloads&logo=github&logoColor=white&color=2563eb)](https://github.com/studiopomar/kamafeu/releases)
+[![Stars](https://img.shields.io/github/stars/studiopomar/kamafeu?style=flat-square&label=Stars&logo=github&labelColor=444&color=DAAA3F)](https://star-history.com/#studiopomar/kamafeu&Date)
+
 **Programador:** xiao | **Direção de arte:** mori-p | **Bug reporter e QA (Linux):** makki | **Testador e QA (Windows e Linux):** zoneryth | **Testador e QA (macOS):** xiao
 
 [Downloads](https://github.com/studiopomar/kamafeu/releases) | [Primeiros passos](#primeiros-passos) | [Compilação](#instruções-de-compilação) | [Histórico de alterações](CHANGELOG.md)
@@ -19,6 +23,23 @@
 O formato nativo `.aps` preserva discretamente a linhagem do antigo Projeto Saturno, antecessor espiritual do Kamafeu Studio.
 
 <img src="assets/kamafeu_banner.png" alt="Kamafeu Studio" width="1200" />
+
+## Download
+
+<table>
+  <tr>
+    <td><a href="https://github.com/studiopomar/kamafeu/releases"><img src="https://raw.githubusercontent.com/ungive/discord-music-presence/master/assets/download_windows-installer-x64.png" width="190" alt="Windows Installer x64" /></a></td>
+    <td><a href="https://github.com/studiopomar/kamafeu/releases"><img src="https://raw.githubusercontent.com/ungive/discord-music-presence/master/assets/download_windows-zip-x64.png" width="190" alt="Windows zip x64" /></a></td>
+    <td><a href="https://github.com/studiopomar/kamafeu/releases"><img src="https://raw.githubusercontent.com/ungive/discord-music-presence/master/assets/download_mac-dmg-arm64.png" width="190" alt="Mac Apple Silicon" /></a></td>
+    <td><a href="https://github.com/studiopomar/kamafeu/releases"><img src="https://raw.githubusercontent.com/ungive/discord-music-presence/master/assets/download_mac-dmg-x86_64.png" width="190" alt="Mac Intel x86_64" /></a></td>
+  </tr>
+  <tr>
+    <td><a href="https://github.com/studiopomar/kamafeu/releases"><img src="https://raw.githubusercontent.com/ungive/discord-music-presence/master/assets/download_linux-AppImage-x64.png" width="190" alt="Linux AppImage x86_64" /></a></td>
+    <td><a href="https://github.com/studiopomar/kamafeu/releases"><img src="https://raw.githubusercontent.com/ungive/discord-music-presence/master/assets/download_linux-deb-x64.png" width="190" alt="Linux deb x86_64" /></a></td>
+    <td><a href="https://github.com/studiopomar/kamafeu/releases"><img src="https://raw.githubusercontent.com/ungive/discord-music-presence/master/assets/download_linux-rpm-x64.png" width="190" alt="Linux rpm x86_64" /></a></td>
+    <td><a href="https://github.com/studiopomar/kamafeu/releases"><img src="https://raw.githubusercontent.com/ungive/discord-music-presence/master/assets/download_linux-tar-gz-x64.png" width="190" alt="Linux tar.gz x86_64" /></a></td>
+  </tr>
+</table>
 
 </div>
 
@@ -56,6 +77,7 @@ O nome **Kamafeu** faz referência à tradicional joia em camafeu, esculpida man
 - [Guia detalhado dos arquivos](docs/GUIA_DO_CODIGO.md)
 - [Roteiro de produto](docs/roadmap-produto.md)
 - [Auditoria comparativa](docs/upstream-improvement-audit.md)
+- [Star History](#star-history)
 - [Licença](#licença)
 
 ## Recursos do sistema
@@ -702,6 +724,24 @@ Os formatos incluídos no aplicativo já usam o mesmo registro de adaptadores de
 precisa alterar o CLI: ele se registra com suas extensões de arquivo e fornece
 as operações de leitura e gravação para o modelo `UProject`.
 
+## Diagnóstico de playback progressivo
+
+O playback progressivo possui scheduler independente da interface. Para
+reproduzir atrasos controlados durante uma investigação, inicie o Kamafeu com
+as variáveis abaixo:
+
+```bash
+KAMAFEU_DEBUG_RENDER_CHUNK_DELAY_MS=1500 \
+KAMAFEU_DEBUG_UI_CHUNK_DELAY_MS=1000 \
+cargo run
+```
+
+`KAMAFEU_DEBUG_RENDER_CHUNK_DELAY_MS` atrasa a produção de cada chunk e
+`KAMAFEU_DEBUG_UI_CHUNK_DELAY_MS` atrasa o processamento visual recebido pela
+UI. Os eventos `[AudioScheduler]` registram geração, estado, tempo reproduzido,
+tempo enfileirado e runway. Essas variáveis não têm efeito quando não estão
+definidas.
+
 ## Tabela de atalhos de teclado
 
 No macOS, utilize a tecla `Cmd` no lugar de `Ctrl`.
@@ -826,6 +866,10 @@ kamafeu/
 
 Para a descrição dos arquivos centrais, do fluxo entre camadas e dos novos
 utilitários VENUS, consulte o [Guia do código-fonte](docs/GUIA_DO_CODIGO.md).
+
+## Star History
+
+[![Histórico de estrelas do Kamafeu Studio](https://api.star-history.com/svg?repos=studiopomar/kamafeu&type=Date)](https://star-history.com/#studiopomar/kamafeu&Date)
 
 ## Licença
 

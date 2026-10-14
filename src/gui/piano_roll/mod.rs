@@ -78,7 +78,7 @@ pub fn draw_piano_roll(
     };
     if state.is_playing && state.ui_animations_enabled {
         ui.ctx()
-            .request_repaint_after(std::time::Duration::from_millis(16));
+            .request_repaint_after(std::time::Duration::from_millis(8));
     }
     let keyboard_width = if is_narrow_screen { 44.0f32 } else { 62.0f32 };
     let navigation = navigation::update(ui, state, ruler_height, keyboard_width);

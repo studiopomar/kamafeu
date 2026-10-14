@@ -34,6 +34,14 @@ pub(super) fn draw(
                     .overlap_delta_ms
                     .map(f64::to_bits)
                     .hash(&mut hasher);
+                override_item
+                    .attack_time_delta_ms
+                    .map(f64::to_bits)
+                    .hash(&mut hasher);
+                override_item
+                    .release_time_delta_ms
+                    .map(f64::to_bits)
+                    .hash(&mut hasher);
                 override_item.velocity.map(f64::to_bits).hash(&mut hasher);
                 override_item.volume.map(f64::to_bits).hash(&mut hasher);
                 override_item.attack.map(f64::to_bits).hash(&mut hasher);
@@ -57,6 +65,14 @@ pub(super) fn draw(
             n.expressions.preutter_offset_ms.to_bits().hash(&mut hasher);
             n.expressions.overlap_offset_ms.to_bits().hash(&mut hasher);
             n.expressions.consonant_velocity.to_bits().hash(&mut hasher);
+            n.expressions
+                .attack_time_delta_ms
+                .to_bits()
+                .hash(&mut hasher);
+            n.expressions
+                .release_time_delta_ms
+                .to_bits()
+                .hash(&mut hasher);
         }
         if let Some(vb) = voicebank {
             vb.name.hash(&mut hasher);
@@ -79,7 +95,9 @@ pub(super) fn draw(
                 );
                 let timing_inputs = crate::renderer::timing::plan_inputs(&phones, vb, 0.0);
                 let timings = crate::renderer::timing::resolve_phoneme_timings(&timing_inputs);
-                for (p, timing) in phones.into_iter().zip(timings) {
+                let envelopes =
+                    crate::renderer::timing::resolve_openutau_envelopes(&phones, &timings);
+                for ((p, timing), envelope) in phones.into_iter().zip(timings).zip(envelopes) {
                     if p.note_index < state.phoneme_cache.len() {
                         let is_first_phone = state.note_phonemes_cache[p.note_index].is_empty();
                         if is_first_phone {
@@ -106,6 +124,10 @@ pub(super) fn draw(
                             overlap_ms: timing.overlap_ms,
                             tail_intrude_ms: timing.tail_intrude_ms,
                             tail_overlap_ms: timing.tail_overlap_ms,
+                            envelope_points: envelope.points,
+                            auto_preutter_ms: envelope.auto_preutter_ms,
+                            auto_overlap_ms: envelope.auto_overlap_ms,
+                            consonant_velocity: envelope.velocity,
                         });
                     }
                 }
