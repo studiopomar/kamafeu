@@ -1,6 +1,6 @@
 [package]
 name = "kamafeu"
-version = "1.0.2-rc.3"
+version = "1.0.2-rc.4"
 edition = "2021"
 rust-version = "1.82"
 description = "Kamafeu Studio - OpenUTAU-style voice synthesizer and DAW in Rust with UTAU voicebank support"
@@ -65,7 +65,7 @@ assets = [
 ]
 
 [package.metadata.generate-rpm]
-version = "1.0.2~rc.3"
+version = "1.0.2~rc.4"
 assets = [
   { source = "target/release/kamafeu", dest = "/usr/bin/kamafeu", mode = "755" },
   { source = "target/release/copaiba", dest = "/usr/bin/copaiba", mode = "755" },
