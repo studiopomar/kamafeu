@@ -6,6 +6,10 @@ on:
       - 'v*'
   workflow_dispatch:
 
+concurrency:
+  group: kamafeu-linux-packages
+  cancel-in-progress: true
+
 permissions:
   contents: write
 

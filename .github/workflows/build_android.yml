@@ -6,6 +6,10 @@ on:
       - 'v*'
   workflow_dispatch:
 
+concurrency:
+  group: kamafeu-android-build
+  cancel-in-progress: true
+
 permissions:
   contents: write
 
