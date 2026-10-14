@@ -146,6 +146,19 @@ jobs:
           path: '*.log'
           if-no-files-found: ignore
 
+      - name: Report Android compiler errors
+        if: failure()
+        run: |
+          for logfile in android-arm64.log android-armv7.log; do
+            if [ -f "$logfile" ]; then
+              grep -E '(^error:|^error\[|Caused by:|failed to run|could not compile|linking with)' "$logfile" \
+                | tail -20 \
+                | while IFS= read -r line; do
+                    echo "::error file=$logfile::$line"
+                  done
+            fi
+          done
+
       - name: Prepare APK Artifacts
         run: |
           mkdir -p ./apk_output
