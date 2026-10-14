@@ -14,10 +14,10 @@ modules:
   - name: kamafeu
     buildsystem: simple
     build-commands:
-      - install -Dm755 kamafeu /app/bin/kamafeu
-      - install -Dm755 copaiba /app/bin/copaiba
+      - install -Dm755 target/release/kamafeu /app/bin/kamafeu
+      - install -Dm755 target/release/copaiba /app/bin/copaiba
       - install -Dm644 packaging/kamafeu.desktop /app/share/applications/org.studiopomar.Kamafeu.desktop
       - install -Dm644 assets/icon.png /app/share/icons/hicolor/256x256/apps/kamafeu.png
     sources:
       - type: dir
-        path: flatpak-context
+        path: .
