@@ -50,6 +50,27 @@ label = "Kamafeu Studio"
 # automaticamente quando a largura disponível é pequena.
 orientation = "sensor"
 
+[package.metadata.deb]
+maintainer = "Studio Pomar"
+copyright = "2026, Studio Pomar"
+section = "sound"
+priority = "optional"
+depends = "$auto"
+assets = [
+  ["target/release/kamafeu", "usr/bin/kamafeu", "755"],
+  ["target/release/copaiba", "usr/bin/copaiba", "755"],
+  ["README.md", "usr/share/doc/kamafeu/README.md", "644"],
+  ["LICENSE", "usr/share/doc/kamafeu/LICENSE", "644"],
+]
+
+[package.metadata.generate-rpm]
+assets = [
+  { source = "target/release/kamafeu", dest = "/usr/bin/kamafeu", mode = "755" },
+  { source = "target/release/copaiba", dest = "/usr/bin/copaiba", mode = "755" },
+  { source = "README.md", dest = "/usr/share/doc/kamafeu/README.md", mode = "644" },
+  { source = "LICENSE", dest = "/usr/share/licenses/kamafeu/LICENSE", mode = "644" },
+]
+
 # Release signing is supplied through CARGO_APK_RELEASE_KEYSTORE and
 # CARGO_APK_RELEASE_KEYSTORE_PASSWORD (see docs/android-signing.md).
 

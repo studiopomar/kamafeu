@@ -1,0 +1,85 @@
+name: Package Linux distributions
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  package-linux-x64:
+    name: Linux x86_64 packages
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y build-essential pkg-config libasound2-dev \
+            libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev \
+            libxkbcommon-dev libfontconfig1-dev flatpak flatpak-builder
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.98.1
+
+      - name: Build binaries
+        run: cargo build --release --bins
+
+      - name: Build Debian and RPM packages
+        run: |
+          cargo install cargo-deb --locked
+          cargo install cargo-generate-rpm --locked
+          cargo deb --no-build
+          cargo generate-rpm --auto-req disabled
+          mkdir -p dist
+          cp target/debian/*.deb dist/
+          cp target/generate-rpm/*.rpm dist/
+
+      - name: Build AppImage
+        run: |
+          mkdir -p AppDir/usr/bin AppDir/usr/share/applications \
+            AppDir/usr/share/icons/hicolor/256x256/apps
+          cp target/release/kamafeu AppDir/usr/bin/
+          cp target/release/copaiba AppDir/usr/bin/
+          cp packaging/kamafeu.desktop AppDir/usr/share/applications/
+          cp assets/icon.png AppDir/usr/share/icons/hicolor/256x256/apps/kamafeu.png
+          cp assets/icon.png AppDir/kamafeu.png
+          cp packaging/kamafeu.desktop AppDir/
+          curl -L --fail --retry 3 -o appimagetool \
+            https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
+          chmod +x appimagetool
+          ARCH=x86_64 ./appimagetool AppDir "dist/kamafeu-${GITHUB_REF_NAME}-linux-x64.AppImage"
+
+      - name: Build Flatpak
+        run: |
+          flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+          flatpak install --user -y flathub org.freedesktop.Platform//24.08 org.freedesktop.Sdk//24.08
+          cp target/release/kamafeu ./kamafeu
+          cp target/release/copaiba ./copaiba
+          flatpak-builder --user --disable-rofiles-fuse --force-clean \
+            --repo=flatpak-repo flatpak-build packaging/flatpak/org.studiopomar.Kamafeu.yml
+          flatpak build-bundle flatpak-repo "dist/kamafeu-${GITHUB_REF_NAME}-linux-x64.flatpak" \
+            org.studiopomar.Kamafeu
+
+      - name: Upload package artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: kamafeu-linux-packages
+          path: dist/*
+
+      - name: Attach packages to GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.ref_name }}
+          prerelease: true
+          files: dist/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

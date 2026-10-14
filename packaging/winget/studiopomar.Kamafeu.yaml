@@ -1,0 +1,14 @@
+PackageIdentifier: studiopomar.Kamafeu
+PackageVersion: 1.0.2-rc.1
+PackageLocale: en-US
+Publisher: Studio Pomar
+PackageName: Kamafeu Studio
+License: MIT
+ShortDescription: Voice editor and synthesizer based on UTAU sampling and splicing.
+Installers:
+  - Architecture: x64
+    InstallerType: zip
+    InstallerUrl: https://github.com/studiopomar/kamafeu/releases/download/v1.0.2-rc.1/kamafeu-v1.0.2-rc.1-windows-x64.zip
+    InstallerSha256: REPLACE_WITH_RELEASE_SHA256
+ManifestType: singleton
+ManifestVersion: 1.6.0
