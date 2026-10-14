@@ -20,7 +20,7 @@
 
 [Downloads](https://github.com/studiopomar/kamafeu/releases) | [Primeiros passos](#primeiros-passos) | [Compilação](#instruções-de-compilação) | [Histórico de alterações](CHANGELOG.md)
 
-> **Estado atual:** `1.0.2-rc.2` (release candidate). O núcleo do editor e os formatos principais estão maduros; motores externos, voicebanks e drivers de áudio devem ser validados na máquina do usuário.
+> **Estado atual:** `1.0.2-rc.3` (release candidate). O núcleo do editor e os formatos principais estão maduros; motores externos, voicebanks e drivers de áudio devem ser validados na máquina do usuário.
 
 ## Download
 
