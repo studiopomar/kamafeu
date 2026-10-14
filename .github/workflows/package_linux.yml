@@ -67,9 +67,9 @@ jobs:
           cp target/release/copaiba flatpak-context/copaiba
           cp packaging/kamafeu.desktop flatpak-context/packaging/kamafeu.desktop
           cp assets/icon.png flatpak-context/assets/icon.png
-          cp packaging/flatpak/org.studiopomar.Kamafeu.yml flatpak-context/manifest.yml
+          cp packaging/flatpak/org.studiopomar.Kamafeu.yml flatpak-manifest.yml
           flatpak-builder --user --disable-rofiles-fuse --force-clean \
-            --repo=flatpak-repo flatpak-build flatpak-context/manifest.yml
+            --repo=flatpak-repo flatpak-build flatpak-manifest.yml
           flatpak build-bundle flatpak-repo "dist/kamafeu-${GITHUB_REF_NAME}-linux-x64.flatpak" \
             org.studiopomar.Kamafeu
 
