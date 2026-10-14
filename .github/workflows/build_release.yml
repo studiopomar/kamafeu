@@ -73,7 +73,7 @@ jobs:
             use_cross: false
 
           - name: macOS Intel (x86_64)
-            os: macos-13
+            os: macos-15-intel
             target: x86_64-apple-darwin
             binary: kamafeu
             toolkit_binary: copaiba
