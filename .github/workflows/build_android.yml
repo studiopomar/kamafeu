@@ -74,15 +74,25 @@ jobs:
         run: |
           test -n "$CARGO_APK_RELEASE_KEYSTORE_PASSWORD"
           unset ANDROID_SDK_ROOT
-          cargo apk build --lib --release --target aarch64-linux-android
-          cargo apk build --lib --release --target armv7-linux-androideabi
+          LLVM_BIN="$ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          env CC="$LLVM_BIN/aarch64-linux-android30-clang" \
+            CXX="$LLVM_BIN/aarch64-linux-android30-clang++" \
+            cargo apk build --lib --release --target aarch64-linux-android
+          env CC="$LLVM_BIN/armv7a-linux-androideabi30-clang" \
+            CXX="$LLVM_BIN/armv7a-linux-androideabi30-clang++" \
+            cargo apk build --lib --release --target armv7-linux-androideabi
 
       - name: Build Android APKs (Unsigned test ARM64 & ARMv7)
         if: ${{ env.ANDROID_KEYSTORE_BASE64 == '' || env.ANDROID_KEYSTORE_PASSWORD == '' }}
         run: |
           unset ANDROID_SDK_ROOT
-          cargo apk build --lib --target aarch64-linux-android
-          cargo apk build --lib --target armv7-linux-androideabi
+          LLVM_BIN="$ANDROID_NDK_ROOT/toolchains/llvm/prebuilt/linux-x86_64/bin"
+          env CC="$LLVM_BIN/aarch64-linux-android30-clang" \
+            CXX="$LLVM_BIN/aarch64-linux-android30-clang++" \
+            cargo apk build --lib --target aarch64-linux-android
+          env CC="$LLVM_BIN/armv7a-linux-androideabi30-clang" \
+            CXX="$LLVM_BIN/armv7a-linux-androideabi30-clang++" \
+            cargo apk build --lib --target armv7-linux-androideabi
 
       - name: Remove Release Keystore
         if: always()
