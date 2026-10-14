@@ -631,14 +631,14 @@ Os comandos de inspeção (`voicebank-info`, `voicebanks`, `validate-voicebank`,
 um documento JSON e `validate-voicebank` continua retornando status diferente de
 zero quando encontrar problemas, o que o torna adequado para CI.
 
-### Modelos neurais e DiffSinger
+### Modelos neurais
 
-A integração de DiffSinger em Rust ainda é experimental e tecnicamente
-desafiadora. O caminho acústico/vocoder não faz parte do suporte estável desta
-release, não é recomendado para produção e pode apresentar limitações de
-carregamento, compatibilidade de modelos e renderização. O foco atual do
-Kamafeu permanece no pipeline clássico UTAU/OpenUtau, com `oto.ini`, resampler
-e wavtool.
+A integração de modelos neurais acústicos e vocoders em Rust ainda é
+experimental e tecnicamente desafiadora. Esse caminho não faz parte do suporte
+estável desta release, não é recomendado para produção e pode apresentar
+limitações de carregamento, compatibilidade de modelos e renderização. O foco
+atual do Kamafeu permanece no pipeline clássico UTAU/OpenUtau, com `oto.ini`,
+resampler e wavtool.
 
 Para integrações persistentes, `kamafeu automation` executa um protocolo local
 JSON Lines pelo `stdin`/`stdout`: uma requisição JSON por linha gera exatamente
