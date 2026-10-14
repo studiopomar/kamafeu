@@ -339,6 +339,7 @@ jobs:
             end
           end
           FORMULA
+          sed -i 's/^          //' kamafeu.rb
 
           cat > studiopomar.Kamafeu.yaml <<WINGET
           PackageIdentifier: studiopomar.Kamafeu
@@ -356,6 +357,7 @@ jobs:
           ManifestType: singleton
           ManifestVersion: 1.6.0
           WINGET
+          sed -i 's/^          //' studiopomar.Kamafeu.yaml
 
       - name: Publish Official GitHub Release
         id: release
