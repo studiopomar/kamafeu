@@ -35,7 +35,7 @@ seguinte; não representam uma política de suporte estendida para versões anti
 | --- | --- | --- | --- | --- |
 | `0.1.0-alpha.1` | — | 30/07/2026 | 06/09/2026 | encerrada |
 | `0.0.4-hotfix` | — | 06/09/2026 | 06/09/2026 | substituída por `0.0.4-hotfix.1` |
-| `0.0.4-hotfix.1` | — | 06/09/2026 | 08/09/2026 | substituída por `1.0.0-A` |
+| `0.0.4-hotfix.1` | Âmbar | 06/09/2026 | 08/09/2026 | substituída por `1.0.0-A` |
 | `1.0.0-A` | Bariloche | 08/09/2026 | 19/09/2026 | substituída pela linha RC |
 | `1.0.2-rc.1` → `rc.22` | Bariloche | 19/09/2026 → 14/10/2026 | 15/10/2026 | encerrada na transição para `3.0` |
 | `3.0` (`3.0.0`) | Calafate | 15/10/2026 | em aberto | linha atual |
