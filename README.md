@@ -20,9 +20,27 @@
 
 [Downloads](https://github.com/studiopomar/kamafeu/releases) | [Primeiros passos](#primeiros-passos) | [Compilação](#instruções-de-compilação) | [Histórico de alterações](CHANGELOG.md)
 
-> **Estado atual:** `1.0.2-rc.22` (release candidate). O núcleo do editor e os formatos principais estão maduros; motores externos, voicebanks e drivers de áudio devem ser validados na máquina do usuário.
+> **Estado atual:** `3.0` — codinome **Calafate**. Esta é a nova série principal do Kamafeu; o núcleo do editor e os formatos principais estão maduros, enquanto motores externos, voicebanks e drivers de áudio devem ser validados na máquina do usuário.
 
-> **Release pública:** [Kamafeu Pre-release v1.0.2-rc.22](https://github.com/studiopomar/kamafeu/releases/tag/v1.0.2-rc.22). Esta versão é pública, mas continua identificada como *pre-release* porque motores externos, drivers de áudio e combinações específicas de voicebank ainda dependem de validação no ambiente de cada usuário.
+> **Codinome da série:** **Calafate**. O número `3.0` marca a nova linha de desenvolvimento; internamente, o pacote usa SemVer `3.0.0`.
+
+<details>
+<summary>Linha de lançamentos, suporte e codinomes</summary>
+
+As datas abaixo foram reconstruídas a partir do `CHANGELOG.md` e das tags
+existentes no repositório. Os fins de suporte indicam a transição para a linha
+seguinte; não representam uma política de suporte estendida para versões antigas.
+
+| Versão | Codinome | Lançamento | Fim de suporte | Situação |
+| --- | --- | --- | --- | --- |
+| `0.1.0-alpha.1` | — | 30/07/2026 | 06/09/2026 | encerrada |
+| `0.0.4-hotfix` | — | 06/09/2026 | 06/09/2026 | substituída por `0.0.4-hotfix.1` |
+| `0.0.4-hotfix.1` | — | 06/09/2026 | 08/09/2026 | substituída por `1.0.0-A` |
+| `1.0.0-A` | Bariloche | 08/09/2026 | 19/09/2026 | substituída pela linha RC |
+| `1.0.2-rc.1` → `rc.22` | Bariloche | 19/09/2026 → 14/10/2026 | 15/10/2026 | encerrada na transição para `3.0` |
+| `3.0` (`3.0.0`) | Calafate | 15/10/2026 | em aberto | linha atual |
+
+</details>
 
 ## Download
 
@@ -137,8 +155,8 @@ diagnostiquem combinações de baixo contraste sem alterar a escolha do usuário
 #### Pomar Neon (Esmeralda)
 <img src="assets/themes/theme_pomar_neon.png" alt="Tema Pomar Neon (Esmeralda)" width="100%" />
 
-#### Melodina Classico (Bariloche)
-<img src="assets/themes/theme_melodyne_gold.png" alt="Tema Melodina Classico (Bariloche)" width="100%" />
+#### Melodina Classico (Calafate)
+<img src="assets/themes/theme_melodyne_gold.png" alt="Tema Melodina Classico (Calafate)" width="100%" />
 
 #### Cyberpunk (Synthwave)
 <img src="assets/themes/theme_cyberpunk.png" alt="Tema Cyberpunk (Synthwave)" width="100%" />
@@ -318,7 +336,7 @@ O catálogo de extensões separa descoberta, consentimento e execução. Um mani
 
 Extensões WASM passam por verificação de versão da API antes da ativação. O runtime valida assinatura de exports e limites do buffer invocado; a existência de um arquivo `.wasm` não significa que o módulo seja um fonemizador, resampler ou efeito funcional. A execução deve possuir contrato de entrada, saída, codificação fonética, pré-processamento e decodificação documentados.
 
-### 10. O que esta pre-release garante — e o que ainda depende do ambiente
+### 10. O que esta série garante — e o que ainda depende do ambiente
 
 Os testes automatizados cobrem modelo, formatos, fonemização, timing, drivers nativos, mixagem, cache, playback progressivo, contratos de extensão e interações importantes da UI. A release também publica artefatos por plataforma através do workflow de build.
 
@@ -328,7 +346,7 @@ Ainda assim, três camadas exigem validação no computador do usuário:
 - voicebank específico, codificação, aliases e qualidade do `oto.ini`;
 - executáveis externos, Wine, bibliotecas compartilhadas e comportamento do resampler escolhido.
 
-Por isso `v1.0.2-rc.22` é pública e utilizável, mas permanece uma *pre-release*: o núcleo é verificável no repositório, enquanto a última milha acústica depende dos recursos instalados em cada máquina.
+Por isso `3.0` inaugura a série Calafate, enquanto a última milha acústica continua dependendo dos recursos instalados em cada máquina.
 
 ## Formatos de arquivo suportados
 
@@ -475,7 +493,7 @@ mecanismo funciona nas versões desktop; a edição Web não grava snapshots loc
 
 ## Versão mobile (Android; iOS em avaliação)
 
-O Kamafeu Studio conta com infraestrutura baseada em `winit` e `egui`, permitindo a compilação para Android. O suporte a iOS permanece em avaliação e não faz parte dos artefatos oficiais desta release candidate. O ecossistema mobile impõe desafios arquiteturais e restrições técnicas significativas:
+O Kamafeu Studio conta com infraestrutura baseada em `winit` e `egui`, permitindo a compilação para Android. O suporte a iOS permanece em avaliação e não faz parte dos artefatos oficiais desta série. O ecossistema mobile impõe desafios arquiteturais e restrições técnicas significativas:
 
 ### Desafios de adaptação e build
 

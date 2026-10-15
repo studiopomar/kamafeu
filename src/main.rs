@@ -520,14 +520,14 @@ fn real_main() -> Result<(), Box<dyn std::error::Error>> {
     match command {
         None | Some(Commands::Gui) => {
             println!(
-                "Starting Kamafeu Studio v{} (Bariloche)...",
+                "Starting Kamafeu Studio v{} (Calafate)...",
                 kamafeu::APP_VERSION
             );
             kamafeu::drivers::process::prewarm_wine_in_background();
             let icon_data = kamafeu::gui::window_icon::load_window_icon().ok();
             let mut viewport = eframe::egui::ViewportBuilder::default()
                 .with_title(format!(
-                    "Kamafeu Studio v{} (Bariloche)",
+                    "Kamafeu Studio v{} (Calafate)",
                     kamafeu::APP_VERSION
                 ))
                 .with_inner_size([1280.0, 750.0])
@@ -554,7 +554,7 @@ fn real_main() -> Result<(), Box<dyn std::error::Error>> {
             };
 
             let result = eframe::run_native(
-                &format!("Kamafeu Studio v{} (Bariloche)", kamafeu::APP_VERSION),
+                &format!("Kamafeu Studio v{} (Calafate)", kamafeu::APP_VERSION),
                 options,
                 Box::new(|cc| Ok(Box::new(KamafeuStudioApp::new(cc)))),
             );
@@ -572,7 +572,7 @@ fn real_main() -> Result<(), Box<dyn std::error::Error>> {
                         ..Default::default()
                     };
                     eframe::run_native(
-                        &format!("Kamafeu Studio v{} (Bariloche)", kamafeu::APP_VERSION),
+                        &format!("Kamafeu Studio v{} (Calafate)", kamafeu::APP_VERSION),
                         fallback_options,
                         Box::new(|cc| Ok(Box::new(KamafeuStudioApp::new(cc)))),
                     )?;

@@ -50,7 +50,7 @@ pub use renderer::*;
 /// in-app version badge. Cargo remains the single source of truth.
 pub const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
 /// Internal lineage codename, intentionally kept out of the primary branding.
-pub const APP_CODENAME: &str = "projeto_saturno";
+pub const APP_CODENAME: &str = "Calafate";
 
 #[cfg(target_os = "android")]
 use android_activity::AndroidApp;
@@ -67,11 +67,7 @@ fn android_main(app: AndroidApp) {
     }));
 
     if let Err(error) = eframe::run_native(
-        concat!(
-            "Kamafeu Studio v",
-            env!("CARGO_PKG_VERSION"),
-            " (Bariloche)"
-        ),
+        concat!("Kamafeu Studio v", env!("CARGO_PKG_VERSION"), " (Calafate)"),
         options,
         Box::new(|cc| Ok(Box::new(gui::KamafeuStudioApp::new(cc)))),
     ) {

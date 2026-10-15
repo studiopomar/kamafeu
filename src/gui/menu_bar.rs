@@ -212,8 +212,8 @@ impl KamafeuStudioApp {
                         .rounding(egui::Rounding::same(4.0));
 
                         let version_resp = ui.add(version_badge).on_hover_text(lang.tr(
-                            &format!("Kamafeu Studio v{} (Bariloche)\nCodinome interno: {}\nMotor de Síntese de Voz & DAW", crate::APP_VERSION, crate::APP_CODENAME),
-                            &format!("Kamafeu Studio v{} (Bariloche)\nInternal codename: {}\nVoice Synthesis Engine & DAW", crate::APP_VERSION, crate::APP_CODENAME),
+                            &format!("Kamafeu Studio v{} ({})\nCodinome: {}\nMotor de Síntese de Voz & DAW", crate::APP_VERSION, crate::APP_CODENAME, crate::APP_CODENAME),
+                            &format!("Kamafeu Studio v{} ({})\nCodename: {}\nVoice Synthesis Engine & DAW", crate::APP_VERSION, crate::APP_CODENAME, crate::APP_CODENAME),
                         ));
                         if version_resp.clicked() {
                             self.shortcuts_guide_open = true;

@@ -1,7 +1,7 @@
 class Kamafeu < Formula
   desc "Editor e sintetizador vocal baseado em amostragem e splicing"
   homepage "https://github.com/studiopomar/kamafeu"
-  version "1.0.2-rc.5"
+  version "3.0.0"
   license "MIT"
 
   on_macos do

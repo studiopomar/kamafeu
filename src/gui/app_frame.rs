@@ -159,13 +159,13 @@ impl eframe::App for KamafeuStudioApp {
         };
         let window_title = if self.is_dirty {
             format!(
-                "* {} - Kamafeu Studio v{} (Bariloche)",
+                "* {} - Kamafeu Studio v{} (Calafate)",
                 project_name,
                 crate::APP_VERSION,
             )
         } else {
             format!(
-                "{} - Kamafeu Studio v{} (Bariloche)",
+                "{} - Kamafeu Studio v{} (Calafate)",
                 project_name,
                 crate::APP_VERSION
             )

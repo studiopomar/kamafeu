@@ -73,8 +73,8 @@ impl KamafeuStudioApp {
             ui.separator();
             ui.label(
                 egui::RichText::new(lang.tr(
-                    &format!("Kamafeu Studio v{} (Bariloche)", crate::APP_VERSION),
-                    &format!("Kamafeu Studio v{} (Bariloche)", crate::APP_VERSION),
+                    &format!("Kamafeu Studio v{} (Calafate)", crate::APP_VERSION),
+                    &format!("Kamafeu Studio v{} (Calafate)", crate::APP_VERSION),
                 ))
                 .strong()
                 .size(11.5)
@@ -89,13 +89,10 @@ impl KamafeuStudioApp {
                 .color(self.config.theme.text_muted_c32()),
             );
             ui.label(
-                egui::RichText::new(lang.tr(
-                    "Codinome interno: projeto_saturno",
-                    "Internal codename: projeto_saturno",
-                ))
-                .size(9.0)
-                .italics()
-                .color(self.config.theme.text_muted_c32()),
+                egui::RichText::new(lang.tr("Codinome: Calafate", "Codename: Calafate"))
+                    .size(9.0)
+                    .italics()
+                    .color(self.config.theme.text_muted_c32()),
             );
         });
     }

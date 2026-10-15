@@ -439,7 +439,7 @@ impl KamafeuStudioApp {
 
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                             ui.label(
-                                egui::RichText::new(format!("Kamafeu Engine v{} ({})", crate::APP_VERSION, lang.tr("Bariloche", "Bariloche")))
+                                egui::RichText::new(format!("Kamafeu Engine v{} ({})", crate::APP_VERSION, crate::APP_CODENAME))
                                     .size(10.0)
                                     .monospace()
                                     .color(egui::Color32::from_rgb(110, 100, 130)),

@@ -7,6 +7,20 @@ e este projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR
 
 ---
 
+## [3.0.0] — Calafate
+
+Esta versão inaugura a nova série principal do Kamafeu Studio. O codinome
+Calafate substitui Cafaye e Bariloche na identidade da aplicação e passa a
+acompanhar a versão em interfaces nativas, documentação e pacotes.
+
+### Identidade e distribuição
+- Versão do pacote, Cargo, lockfile, janela nativa, Android e interface web
+  atualizada para `3.0.0` (exibida como `3.0`).
+- Codinome da série atualizado para **Calafate** em títulos, ajuda, logs de render
+  e identificação do tema visual correspondente.
+- A home estática apresenta a nova série sem prometer uma release/tag pública
+  antes da publicação efetiva dos artefatos.
+
 ## [Não lançado]
 
 ### Contratos e extensibilidade
