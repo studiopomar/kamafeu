@@ -1,6 +1,6 @@
 use crate::gui::types::{AutoScrollMode, EditTool, GridSnapOption, PitchSubTool};
 use crate::project::model::{UNote, UPitchBendPoint};
-use eframe::egui::Pos2;
+use eframe::egui::{Pos2, Rect};
 use std::collections::HashSet;
 use std::sync::{OnceLock, RwLock};
 
@@ -68,6 +68,33 @@ pub(crate) fn timeline_time_to_screen_x(
     scroll_offset: f32,
 ) -> f32 {
     content_left + (time_ms * px_per_ms as f64) as f32 - scroll_offset
+}
+
+/// Returns the absolute timeline interval covered by a screen rectangle.
+/// Keeping this conversion beside the shared affine transform prevents a
+/// footer layer from sampling waveform data outside its actual viewport.
+pub(crate) fn timeline_visible_time_range(
+    viewport: Rect,
+    content_left: f32,
+    px_per_ms: f32,
+    scroll_offset: f32,
+) -> Option<(f64, f64)> {
+    if !viewport.is_positive() || px_per_ms <= 0.0 {
+        return None;
+    }
+
+    let origin_x = timeline_time_to_screen_x(content_left, 0.0, px_per_ms, scroll_offset);
+    let start_ms = ((viewport.min.x - origin_x) / px_per_ms) as f64;
+    let end_ms = ((viewport.max.x - origin_x) / px_per_ms) as f64;
+    Some((start_ms, end_ms))
+}
+
+/// Returns the absolute screen-space edge where time zero starts for every
+/// fixed piano-roll lane. Bottom panels must use the ruler's origin instead of
+/// their own allocated rectangle because egui layouts may insert item spacing
+/// between their gutter and canvas.
+pub(crate) fn timeline_content_left(ruler_left: f32, keyboard_width: f32) -> f32 {
+    ruler_left + keyboard_width
 }
 
 fn waveform_bucket_time(bucket: i64) -> f32 {
@@ -276,6 +303,8 @@ pub struct PianoRollState {
     pub default_note_decay: f64,
     pub ui_animations_enabled: bool,
     pub ui_animation_speed: f32,
+    pub ui_reduce_motion: bool,
+    pub animation_quality_reduced: bool,
     pub vertical_pitch_follow: bool,
     pub pitch_follow_smoothed_midi: Option<f32>,
     pub is_scrubbing_ruler: bool,
@@ -650,6 +679,8 @@ impl Default for PianoRollState {
             default_note_decay: 0.0,
             ui_animations_enabled: true,
             ui_animation_speed: 1.0,
+            ui_reduce_motion: false,
+            animation_quality_reduced: false,
             vertical_pitch_follow: false,
             pitch_follow_smoothed_midi: None,
             is_scrubbing_ruler: false,
@@ -885,6 +916,51 @@ mod tests {
             timeline_time_to_screen_x(left, 2_400.0, px_per_ms, scroll),
             220.0
         );
+    }
+
+    #[test]
+    fn bottom_lanes_use_the_ruler_origin_instead_of_their_layout_rect() {
+        let ruler_left = 14.0;
+        let keyboard_width = 62.0;
+        let lower_layout_left = 84.0; // Includes an egui item-spacing offset.
+        let timeline_left = timeline_content_left(ruler_left, keyboard_width);
+
+        assert_eq!(timeline_left, 76.0);
+        assert_ne!(timeline_left, lower_layout_left);
+        assert_eq!(
+            timeline_time_to_screen_x(timeline_left, 2_000.0, 0.25, 125.0),
+            451.0
+        );
+    }
+
+    #[test]
+    fn visible_time_range_uses_the_same_scroll_for_footer_and_notes() {
+        let viewport = Rect::from_min_max(Pos2::new(76.0, 0.0), Pos2::new(276.0, 40.0));
+        for px_per_ms in [0.05, 0.25, 1.0] {
+            let range = timeline_visible_time_range(viewport, 76.0, px_per_ms, 125.0).unwrap();
+            let expected_start = 125.0 / px_per_ms as f64;
+            let expected_end = (125.0 + 200.0) / px_per_ms as f64;
+
+            assert!((range.0 - expected_start).abs() < 0.01);
+            assert!((range.1 - expected_end).abs() < 0.01);
+            assert!(
+                (timeline_time_to_screen_x(76.0, range.0, px_per_ms, 125.0) - viewport.min.x).abs()
+                    < 0.01
+            );
+            assert!(
+                (timeline_time_to_screen_x(76.0, range.1, px_per_ms, 125.0) - viewport.max.x).abs()
+                    < 0.01
+            );
+        }
+    }
+
+    #[test]
+    fn visible_time_range_rejects_empty_viewports_and_invalid_zoom() {
+        let empty = Rect::from_min_max(Pos2::new(10.0, 10.0), Pos2::new(10.0, 20.0));
+        assert_eq!(timeline_visible_time_range(empty, 0.0, 0.25, 0.0), None);
+
+        let viewport = Rect::from_min_max(Pos2::new(10.0, 0.0), Pos2::new(20.0, 10.0));
+        assert_eq!(timeline_visible_time_range(viewport, 0.0, 0.0, 0.0), None);
     }
 
     #[test]

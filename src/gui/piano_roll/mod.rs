@@ -2,6 +2,7 @@ mod context_menu;
 #[cfg(test)]
 mod interaction_tests;
 mod minimap;
+pub(crate) use minimap::TimelinePlaybackStatus;
 mod navigation;
 mod note_properties;
 mod parameter_drawer;
@@ -36,7 +37,7 @@ fn format_timeline_time(ms: f64) -> String {
     format!("{minutes}:{seconds:02}.{millis:03}")
 }
 
-pub fn draw_piano_roll(
+pub(crate) fn draw_piano_roll(
     ui: &mut egui::Ui,
     notes: &mut Vec<UNote>,
     markers: &[UProjectMarker],
@@ -51,6 +52,7 @@ pub fn draw_piano_roll(
     time_signature_denominator: u8,
     phonemizer_mode: crate::phonemizer::PhonemizerMode,
     lang: crate::config::AppLanguage,
+    playback: minimap::TimelinePlaybackStatus<'_>,
     on_preview_freq: &mut dyn FnMut(f64),
     on_before_change: &mut dyn FnMut(),
     on_note_changed: &mut dyn FnMut(),
@@ -70,15 +72,32 @@ pub fn draw_piano_roll(
     let touch_first = cfg!(target_os = "android")
         || viewport.width() < 1100.0
         || (viewport.height() < 600.0 && viewport.width() < 1200.0);
+    let animation_policy = crate::gui::animation::AnimationPolicy {
+        enabled: state.ui_animations_enabled,
+        reduce_motion: state.ui_reduce_motion,
+        speed: state.ui_animation_speed,
+        frame_time_ema_ms: if state.animation_quality_reduced {
+            24.0
+        } else {
+            16.0
+        },
+    };
     let animation_time = ui.input(|input| input.time) as f32;
-    let playback_pulse = if state.ui_animations_enabled {
-        0.5 + 0.5 * (animation_time * std::f32::consts::TAU * 1.2 * state.ui_animation_speed).sin()
+    let playback_pulse = if animation_policy.enabled {
+        0.5 + 0.5
+            * animation_policy.pulse_amplitude()
+            * (animation_time * std::f32::consts::TAU * 0.9 * animation_policy.visual_speed()).sin()
     } else {
         0.0
     };
     if state.is_playing && state.ui_animations_enabled {
+        let interval = if state.animation_quality_reduced {
+            crate::gui::animation::REDUCED_FRAME_MS
+        } else {
+            crate::gui::animation::NORMAL_FRAME_MS
+        };
         ui.ctx()
-            .request_repaint_after(std::time::Duration::from_millis(8));
+            .request_repaint_after(std::time::Duration::from_secs_f32(interval / 1000.0));
     }
     let keyboard_width = if is_narrow_screen { 44.0f32 } else { 62.0f32 };
     let navigation = navigation::update(ui, state, ruler_height, keyboard_width);
@@ -117,6 +136,8 @@ pub fn draw_piano_roll(
         keyboard_width,
         timeline_scroll_x,
         total_canvas_ms,
+        playback,
+        on_playhead_scrubbed,
     );
 
     let (ruler_rect, _ruler_resp) = ui.allocate_exact_size(
@@ -992,10 +1013,17 @@ pub fn draw_piano_roll(
                 painter.rect_filled(
                     crossfade_rect,
                     Rounding::same(2.0),
-                    theme.c32_alpha(theme.note_stroke, if is_selected { 0.18 } else { 0.10 }),
+                    theme.c32_alpha(
+                        theme.note_stroke,
+                        (if is_selected { 0.18 } else { 0.10 })
+                            + playback_pulse * if is_selected { 0.08 } else { 0.04 },
+                    ),
                 );
-                let cross_color =
-                    theme.c32_alpha(theme.note_stroke, if is_selected { 0.72 } else { 0.48 });
+                let cross_color = theme.c32_alpha(
+                    theme.note_stroke,
+                    (if is_selected { 0.72 } else { 0.48 })
+                        + playback_pulse * if is_selected { 0.10 } else { 0.06 },
+                );
                 painter.line_segment(
                     [
                         Pos2::new(crossfade_left_x, y_bottom),
@@ -1074,9 +1102,9 @@ pub fn draw_piano_roll(
 
                 // Smooth glowing outline curve
                 let env_color = if is_selected {
-                    theme.c32_alpha(theme.note_stroke, 0.62)
+                    theme.c32_alpha(theme.note_stroke, 0.62 + playback_pulse * 0.08)
                 } else {
-                    theme.c32_alpha(theme.note_stroke, 0.48)
+                    theme.c32_alpha(theme.note_stroke, 0.48 + playback_pulse * 0.05)
                 };
 
                 for i in 0..curve_screen_pts.len().saturating_sub(1) {

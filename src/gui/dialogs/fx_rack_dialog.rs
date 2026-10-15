@@ -26,7 +26,7 @@ impl KamafeuStudioApp {
             }
             if self.fx_preview_refresh_pending && !ctx.input(|input| input.pointer.primary_down()) {
                 self.fx_preview_refresh_pending = false;
-                if self.audio_player.is_playing() || self.render_rx.is_some() {
+                if self.transport_is_active() {
                     self.pause_audio();
                     self.play_current_track();
                     self.transport_state.status_message = lang

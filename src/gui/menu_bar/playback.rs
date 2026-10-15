@@ -4,7 +4,7 @@ impl KamafeuStudioApp {
     pub(super) fn menu_playback(&mut self, ui: &mut egui::Ui) {
         let lang = self.config.language;
         ui.menu_button(lang.tr("Reprodução", "Playback"), |ui| {
-            let is_playing = self.audio_player.is_playing() || self.render_rx.is_some();
+            let is_playing = self.transport_is_active();
             if ui
                 .button(if is_playing {
                     lang.tr("Pausar Reprodução (Espaço)", "Pause Playback (Space)")

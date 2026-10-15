@@ -2,13 +2,45 @@ use crate::gui::KamafeuStudioApp;
 use eframe::egui;
 use web_time::Instant;
 
+fn scheduler_may_stop_transport(
+    scheduler_finished: bool,
+    scheduler_stopped: bool,
+    direct_playback_active: bool,
+) -> bool {
+    (scheduler_finished || scheduler_stopped) && !direct_playback_active
+}
+
+fn playback_playhead_ms(
+    start_offset_ms: f64,
+    rendered_duration_ms: f64,
+    player_position_ms: Option<f64>,
+    fallback_elapsed_ms: f64,
+) -> f64 {
+    let elapsed_ms = player_position_ms.unwrap_or(fallback_elapsed_ms).max(0.0);
+    let bounded_ms = if rendered_duration_ms > 0.0 {
+        elapsed_ms.min(rendered_duration_ms)
+    } else {
+        elapsed_ms
+    };
+    start_offset_ms.max(0.0) + bounded_ms
+}
+
 impl KamafeuStudioApp {
     pub(super) fn update_background_tasks(&mut self, ctx: &egui::Context) {
         // Progressive audio still crosses the UI boundary before reaching the
         // dedicated scheduler. Keep egui polling while rendering so an idle or
         // expensive piano-roll frame cannot starve the sink.
-        if self.render_rx.is_some() {
-            ctx.request_repaint_after(std::time::Duration::from_millis(8));
+        if self.render_rx.is_some()
+            || self.direct_playback_rx.is_some()
+            || self.piano_roll_state.is_playing
+        {
+            if let Some(interval) = self.animation_policy().interval() {
+                ctx.request_repaint_after(interval);
+            } else {
+                // Playback/render polling remains functional when visual
+                // animations are disabled, but does not spin continuously.
+                ctx.request_repaint_after(std::time::Duration::from_millis(33));
+            }
         }
         #[cfg(not(target_arch = "wasm32"))]
         let mut scheduler_finished = false;
@@ -84,9 +116,56 @@ impl KamafeuStudioApp {
                     - self.audio_player.scheduler_position_ms())
                 .max(0.0)
             ));
+            if !self.direct_playback_active {
+                self.transport_state.status_message = match &event {
+                    crate::audio::PlaybackSchedulerEvent::PlaybackStarted { start_ms, .. } => {
+                        format!("Áudio iniciado em {:.0} ms", start_ms)
+                    }
+                    crate::audio::PlaybackSchedulerEvent::ChunkAccepted {
+                        index,
+                        start_ms,
+                        end_ms,
+                        ..
+                    } => format!(
+                        "Chunk de áudio aceito #{index}: {:.0}–{:.0} ms",
+                        start_ms, end_ms
+                    ),
+                    crate::audio::PlaybackSchedulerEvent::ChunkRejected { reason, .. } => {
+                        format!("Áudio rejeitado pelo dispositivo: {reason}")
+                    }
+                    crate::audio::PlaybackSchedulerEvent::PlaybackFinished {
+                        played_ms, ..
+                    } => format!("Áudio finalizado em {:.0} ms", played_ms),
+                    crate::audio::PlaybackSchedulerEvent::PlaybackStopped { played_ms, .. } => {
+                        format!("Áudio parado em {:.0} ms", played_ms)
+                    }
+                    crate::audio::PlaybackSchedulerEvent::Underrun { played_ms, .. } => {
+                        format!("Dispositivo de áudio sem dados em {:.0} ms", played_ms)
+                    }
+                    _ => self.transport_state.status_message.clone(),
+                };
+            }
+            match &event {
+                crate::audio::PlaybackSchedulerEvent::ChunkRejected { reason, .. } => {
+                    self.transport_state.status_message =
+                        format!("Áudio rejeitado pelo dispositivo: {reason}");
+                }
+                crate::audio::PlaybackSchedulerEvent::PlaybackStopped { played_ms, .. }
+                    if *played_ms < 50.0 && self.render_rx.is_some() =>
+                {
+                    self.transport_state.status_message =
+                        "O dispositivo de áudio parou o primeiro bloco antes de reproduzi-lo."
+                            .to_string();
+                }
+                _ => {}
+            }
         }
         #[cfg(not(target_arch = "wasm32"))]
-        if scheduler_finished || scheduler_stopped {
+        if scheduler_may_stop_transport(
+            scheduler_finished,
+            scheduler_stopped,
+            self.direct_playback_active,
+        ) {
             // The scheduler is the authority for progressive playback. Do
             // not leave the UI transport marked as playing after the sink
             // reached the final timestamp or the producer failed.
@@ -148,6 +227,92 @@ impl KamafeuStudioApp {
                 self.export_result = Some(result);
                 self.export_rx = None;
                 self.export_cancel = None;
+            }
+        }
+
+        if let Some(ref rx) = self.direct_playback_rx {
+            match rx.try_recv() {
+                Ok(mut audio) => {
+                    self.direct_playback_rx = None;
+                    self.render_cancel = None;
+                    self.render_progress = 1.0;
+                    self.transport_state.render_progress = 1.0;
+                    if let Some(error) = audio.error.take() {
+                        self.audio_player.stop();
+                        self.piano_roll_state.is_playing = false;
+                        self.transport_state.status_message = format!("Erro de render: {error}");
+                        self.render_status_title = "Erro de áudio".to_string();
+                    } else if audio.samples.is_empty()
+                        || audio.sample_rate == 0
+                        || audio.channels == 0
+                        || audio.samples.len() % audio.channels as usize != 0
+                    {
+                        self.audio_player.stop();
+                        self.piano_roll_state.is_playing = false;
+                        self.transport_state.status_message =
+                            "Erro de áudio: render vazio ou com formato inválido.".to_string();
+                        self.render_status_title = "Erro de áudio".to_string();
+                    } else {
+                        let waveform_samples = audio.samples.clone();
+                        if !self
+                            .project
+                            .tracks
+                            .get(self.active_track_index)
+                            .and_then(|track| track.fx_rack.as_ref())
+                            .is_some_and(|fx| fx.master_enabled)
+                        {
+                            self.piano_roll_state.merge_rendered_waveform(
+                                &waveform_samples,
+                                audio.sample_rate,
+                                audio.channels,
+                                self.playback_start_offset_ms,
+                            );
+                        }
+                        if self.transport_state.metronome_enabled {
+                            crate::audio::apply_metronome_clicks(
+                                &mut audio.samples,
+                                audio.sample_rate,
+                                audio.channels,
+                                self.playback_start_offset_ms,
+                                self.transport_state.bpm,
+                            );
+                        }
+                        self.playback_duration_ms =
+                            audio.frame_count() as f64 * 1000.0 / audio.sample_rate.max(1) as f64;
+                        match self.audio_player.try_play_samples_with_channels(
+                            audio.samples,
+                            audio.sample_rate,
+                            audio.channels,
+                        ) {
+                            Ok(()) => {
+                                self.direct_playback_active = true;
+                                self.piano_roll_state.is_playing = true;
+                                self.playback_start_instant = Some(Instant::now());
+                                self.progressive_playback_started = false;
+                                self.transport_state.status_message =
+                                    "Reproduzindo áudio...".to_string();
+                                self.render_status_title = "Reproduzindo...".to_string();
+                            }
+                            Err(error) => {
+                                self.audio_player.stop();
+                                self.piano_roll_state.is_playing = false;
+                                self.transport_state.status_message =
+                                    format!("Erro de áudio: {error}");
+                                self.render_status_title = "Dispositivo indisponível".to_string();
+                            }
+                        }
+                    }
+                }
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                    self.direct_playback_rx = None;
+                    self.render_cancel = None;
+                    self.audio_player.stop();
+                    self.piano_roll_state.is_playing = false;
+                    self.transport_state.status_message =
+                        "Erro de áudio: o renderizador encerrou sem resultado.".to_string();
+                    self.render_status_title = "Erro de áudio".to_string();
+                }
+                Err(std::sync::mpsc::TryRecvError::Empty) => {}
             }
         }
 
@@ -265,19 +430,27 @@ impl KamafeuStudioApp {
                             // buffer below is exclusively for playback.
                             let waveform_samples = chunk.audio.samples.clone();
 
-                            self.piano_roll_state.merge_rendered_waveform(
-                                &waveform_samples,
-                                chunk.audio.sample_rate,
-                                chunk.audio.channels,
-                                chunk.chunk_start_ms,
-                            );
+                            let active_track_has_fx = self
+                                .project
+                                .tracks
+                                .get(self.active_track_index)
+                                .and_then(|track| track.fx_rack.as_ref())
+                                .is_some_and(|fx| fx.master_enabled);
+                            if !active_track_has_fx {
+                                self.piano_roll_state.merge_rendered_waveform(
+                                    &waveform_samples,
+                                    chunk.audio.sample_rate,
+                                    chunk.audio.channels,
+                                    chunk.chunk_start_ms,
+                                );
+                            }
 
                             // The dedicated audio bridge already sends the
                             // playback copy to the scheduler. The UI only
                             // merges the untouched renderer output into the
                             // waveform and observes scheduler state.
                             if !self.progressive_playback_started
-                                && self.audio_player.scheduler_is_running()
+                                && self.audio_player.scheduler_is_active()
                             {
                                 self.piano_roll_state.is_playing = true;
                                 self.playback_start_instant = Some(Instant::now());
@@ -285,6 +458,13 @@ impl KamafeuStudioApp {
                                 self.transport_state.status_message =
                                     "Reproduzindo áudio...".to_string();
                             }
+
+                            // The scheduler can consume a short first chunk
+                            // and move to Waiting/Underrun before this UI
+                            // frame observes it. Keep the transport alive for
+                            // every accepted generation instead of leaving a
+                            // rendered project visually frozen at its old
+                            // playhead position.
 
                             if chunk_is_final {
                                 self.transport_state.render_progress = 1.0;
@@ -323,17 +503,37 @@ impl KamafeuStudioApp {
 
         if self.piano_roll_state.is_playing {
             if let Some(_start_t) = self.playback_start_instant {
-                #[cfg(not(target_arch = "wasm32"))]
-                let elapsed_ms = self.audio_player.scheduler_position_ms();
-                #[cfg(target_arch = "wasm32")]
-                let elapsed_ms =
+                let fallback_elapsed_ms =
                     _start_t.elapsed().as_secs_f64() * 1000.0 * self.playback_speed_rate;
-                self.piano_roll_state.playhead_ms = self.playback_start_offset_ms + elapsed_ms;
+                let player_position_ms = if self.direct_playback_active {
+                    self.audio_player.playback_position_ms()
+                } else {
+                    None
+                };
+                let playhead_ms = if self.direct_playback_active {
+                    playback_playhead_ms(
+                        self.playback_start_offset_ms,
+                        self.playback_duration_ms,
+                        player_position_ms,
+                        fallback_elapsed_ms,
+                    )
+                } else {
+                    self.playback_start_offset_ms + fallback_elapsed_ms
+                };
+                let elapsed_ms = (playhead_ms - self.playback_start_offset_ms).max(0.0);
+                self.piano_roll_state.playhead_ms = playhead_ms;
 
                 // Finding the final note is O(all notes). It is only needed
                 // after the audio sink has stopped, not on every live playback
                 // frame where the sink is still advancing normally.
-                if elapsed_ms > 1000.0 && !self.audio_player.is_playing() {
+                if self.direct_playback_active && !self.audio_player.is_playing() {
+                    self.piano_roll_state.playhead_ms =
+                        self.playback_start_offset_ms + self.playback_duration_ms;
+                    self.direct_playback_active = false;
+                    self.piano_roll_state.is_playing = false;
+                    self.playback_start_instant = None;
+                    self.transport_state.status_message = "Reprodução concluída".to_string();
+                } else if elapsed_ms > 1000.0 && !self.audio_player.is_playing() {
                     let max_end_ms = self
                         .project
                         .parts
@@ -385,7 +585,11 @@ impl KamafeuStudioApp {
             self.transport_state.vu_peak_r =
                 (self.transport_state.vu_peak_r - 0.015).max(self.transport_state.vu_level_r);
 
-            ctx.request_repaint();
+            ctx.request_repaint_after(
+                self.animation_policy()
+                    .interval()
+                    .unwrap_or(std::time::Duration::from_millis(33)),
+            );
         } else {
             self.transport_state.vu_level_l = (self.transport_state.vu_level_l - 0.08).max(0.0);
             self.transport_state.vu_level_r = (self.transport_state.vu_level_r - 0.08).max(0.0);
@@ -401,7 +605,11 @@ impl KamafeuStudioApp {
             || self.export_rx.is_some()
             || self.preview_waveform_rx.is_some()
         {
-            ctx.request_repaint_after(std::time::Duration::from_millis(16));
+            ctx.request_repaint_after(
+                self.animation_policy()
+                    .interval()
+                    .unwrap_or(std::time::Duration::from_millis(33)),
+            );
         }
 
         // Receive pre-rendered background waveform preview
@@ -436,5 +644,29 @@ impl KamafeuStudioApp {
         let secs = total_sec % 60;
         let ms_rem = (cur_ms % 1000.0) as u32;
         self.transport_state.playhead_time_str = format!("{:02}:{:02}.{:03}", mins, secs, ms_rem);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{playback_playhead_ms, scheduler_may_stop_transport};
+
+    #[test]
+    fn stale_scheduler_stop_never_freezes_direct_playback() {
+        assert!(!scheduler_may_stop_transport(false, true, true));
+        assert!(!scheduler_may_stop_transport(true, false, true));
+        assert!(scheduler_may_stop_transport(false, true, false));
+        assert!(scheduler_may_stop_transport(true, false, false));
+    }
+
+    #[test]
+    fn direct_playhead_advances_from_player_position_and_keeps_timeline_offset() {
+        assert_eq!(playback_playhead_ms(875.0, 500.0, Some(125.0), 0.0), 1000.0);
+        assert_eq!(playback_playhead_ms(875.0, 500.0, Some(900.0), 0.0), 1375.0);
+    }
+
+    #[test]
+    fn direct_playhead_uses_monotonic_fallback_when_backend_has_no_position() {
+        assert_eq!(playback_playhead_ms(250.0, 1_000.0, None, 300.0), 550.0);
     }
 }

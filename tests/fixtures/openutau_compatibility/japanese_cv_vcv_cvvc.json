@@ -1,0 +1,37 @@
+{
+  "format": "kamafeu.openutau-compatibility/v1",
+  "voicebank": {
+    "oto": "oto.ini",
+    "prefix_map": "prefix.map",
+    "encoding_cases": ["UTF-8", "Shift-JIS"]
+  },
+  "cases": [
+    {
+      "id": "cv_phrase_start_and_plus",
+      "mode": "BasicCV",
+      "notes": ["あ", "+"],
+      "expected_aliases": ["- あ"],
+      "expected_duration_ms": [800.0]
+    },
+    {
+      "id": "vcv_connected_transition",
+      "mode": "VCV",
+      "notes": ["あ", "か"],
+      "expected_aliases": ["- あ", "a か"]
+    },
+    {
+      "id": "cvvc_outgoing_transition",
+      "mode": "CVVC",
+      "notes": ["あ", "か"],
+      "expected_aliases": ["- あ", "a k", "か"]
+    },
+    {
+      "id": "manual_hint_and_missing_alias",
+      "mode": "BasicCV",
+      "notes": ["か", "き"],
+      "phonetic_hints": ["ka", null],
+      "expected_aliases": ["ka", "き"],
+      "expected_diagnostics": [null, "alias_not_found"]
+    }
+  ]
+}

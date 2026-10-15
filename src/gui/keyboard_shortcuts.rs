@@ -9,12 +9,23 @@ impl KamafeuStudioApp {
         if !is_editing_lyric {
             let mut toggle_play = false;
             ctx.input(|i| {
-                if i.key_pressed(Key::Space) {
+                let space_released = i.events.iter().any(|event| {
+                    matches!(
+                        event,
+                        egui::Event::Key {
+                            key: Key::Space,
+                            pressed: false,
+                            repeat: false,
+                            ..
+                        }
+                    )
+                });
+                if i.key_released(Key::Space) || space_released {
                     toggle_play = true;
                 }
             });
             if toggle_play {
-                if self.piano_roll_state.is_playing || self.render_rx.is_some() {
+                if self.transport_is_active() {
                     self.pause_audio();
                 } else {
                     self.play_current_track();

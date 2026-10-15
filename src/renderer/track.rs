@@ -15,7 +15,7 @@ use self::phone_result::PhoneResult;
 use self::slots::ResamplerSlots;
 use crate::drivers::{
     NativeResamplerDriver, NativeWavtoolDriver, ResamplerArgs, ResamplerDriver, WavtoolArgs,
-    WavtoolDriver,
+    WavtoolDriver, WavtoolMixStrategy,
 };
 use crate::oto::Voicebank;
 use crate::phonemizer::RenderPhone;
@@ -31,6 +31,33 @@ static NEXT_RENDER_SESSION_ID: AtomicU64 = AtomicU64::new(1);
 fn io_thread_count() -> &'static RwLock<usize> {
     static THREADS: OnceLock<RwLock<usize>> = OnceLock::new();
     THREADS.get_or_init(|| RwLock::new(4))
+}
+
+fn segment_placement(
+    phone_position_ms: f64,
+    preutter_ms: f64,
+    skip_over_ms: f64,
+    wavtool_consumed_skip: bool,
+) -> (f64, f64) {
+    let mut source_skip_ms = if wavtool_consumed_skip {
+        0.0
+    } else {
+        skip_over_ms
+    };
+    let unclamped_start_ms = phone_position_ms - preutter_ms;
+    let mut actual_start_ms = unclamped_start_ms.max(0.0);
+    if unclamped_start_ms < 0.0 {
+        source_skip_ms += -unclamped_start_ms;
+    }
+    if source_skip_ms < 0.0 {
+        actual_start_ms += -source_skip_ms;
+        source_skip_ms = 0.0;
+    }
+    (actual_start_ms, source_skip_ms)
+}
+
+fn quantized_render_duration_ms(target_render_ms: f64) -> f64 {
+    ((target_render_ms.max(1.0) / 50.0).ceil() * 50.0).max(50.0)
 }
 
 impl TrackRenderer {
@@ -232,11 +259,11 @@ impl TrackRenderer {
         } else {
             crate::phonemizer::PhonemizerMode::BasicCV
         };
-        let phase_alignment = wavtool_driver.phase_alignment();
+        let mix_strategy = wavtool_driver.mix_strategy();
         log(
             0.0,
             &format!(
-                "[Render][Start] notes={} sample_rate={}Hz tempo={:.3}BPM voicebank='{}' root='{}' resampler='{}' wavtool='{}' phonemizer={:?} flags='{}' crossfade_ms={:.3} resampler_instances={} lazy_wav_loading={} phase_alignment={}",
+                "[Render][Start] notes={} sample_rate={}Hz tempo={:.3}BPM voicebank='{}' root='{}' resampler='{}' wavtool='{}' phonemizer={:?} flags='{}' crossfade_ms={:.3} resampler_instances={} lazy_wav_loading={} mix_strategy={:?} envelope_curve={}",
                 notes.len(),
                 sample_rate,
                 tempo_bpm,
@@ -249,7 +276,8 @@ impl TrackRenderer {
                 crossfade_ms,
                 resampler_instances,
                 LAZY_WAV_LOADING.load(Ordering::Relaxed),
-                phase_alignment,
+                mix_strategy,
+                wavtool_driver.envelope_curve_name(),
             ),
         );
         let mut phones =
@@ -557,7 +585,7 @@ impl TrackRenderer {
                 (phone.duration_ms + duration_correction_ms + timing.skip_over_ms)
                     .max(consonant_ms.max(0.0))
                     .max(1.0);
-            let dur_required = ((target_render_ms / 50.0 + 0.5).ceil() * 50.0).max(50.0);
+            let dur_required = quantized_render_duration_ms(target_render_ms);
             logs.push((
                 progress,
                 format!(
@@ -745,6 +773,46 @@ impl TrackRenderer {
                 sample_time_zero_ms: -timing.pitch_leading_ms,
             };
 
+            // SharpWavtool measures phase on the raw resampler output, before
+            // applying either the amplitude envelope or post-wavtool dynamics.
+            // Only two short windows are analyzed; the raw segment is not
+            // cloned into the ordered merge result.
+            let phase_metadata = if mix_strategy == WavtoolMixStrategy::OpenUtauConvergence {
+                let (nominal_start_ms, nominal_skip_ms) = segment_placement(
+                    phone.position_ms,
+                    timing.preutter_ms,
+                    timing.skip_over_ms,
+                    false,
+                );
+                let nominal_start_samples =
+                    (nominal_start_ms * sample_rate as f64 / 1000.0).round() as isize;
+                let nominal_skip_samples =
+                    (nominal_skip_ms * sample_rate as f64 / 1000.0).round() as isize;
+                let head_center_ms = (phoneme_envelope[0].0 + phoneme_envelope[1].0) * 0.5;
+                let tail_center_ms = (phoneme_envelope[3].0 + phoneme_envelope[4].0) * 0.5;
+                let head_pitch_cents = Self::phrase_pitch_cents_at(
+                    pitch_notes_ref,
+                    phone.position_ms + head_center_ms,
+                    tone_shift,
+                );
+                let tail_pitch_cents = Self::phrase_pitch_cents_at(
+                    pitch_notes_ref,
+                    phone.position_ms + tail_center_ms,
+                    tone_shift,
+                );
+                crate::renderer::phase::analyze_openutau_segment(
+                    &note_rendered,
+                    sample_rate,
+                    wav_args.sample_time_zero_ms,
+                    &phoneme_envelope,
+                    nominal_start_samples - nominal_skip_samples,
+                    midi_to_freq(head_pitch_cents / 100.0),
+                    midi_to_freq(tail_pitch_cents / 100.0),
+                )
+            } else {
+                crate::renderer::phase::SegmentPhaseMetadata::default()
+            };
+
             let wavtool_command = crate::drivers::wavtool_driver::describe_wavtool_command(
                 wavtool_driver.name(),
                 &wav_args,
@@ -756,9 +824,10 @@ impl TrackRenderer {
             logs.push((
                 progress,
                 format!(
-                    "  [Wavtool] Motor: '{}' | modo: {}",
+                    "  [Wavtool] Motor: '{}' | modo: {} | envelope: {}",
                     wavtool_driver.name(),
-                    if external_phrase { "externo" } else { "nativo" }
+                    if external_phrase { "externo" } else { "nativo" },
+                    wavtool_driver.envelope_curve_name(),
                 ),
             ));
 
@@ -913,21 +982,12 @@ impl TrackRenderer {
                 ),
             ));
 
-            let mut source_skip_ms = if wavtool_consumed_skip {
-                0.0
-            } else {
-                timing.skip_over_ms
-            };
-            let unclamped_start_ms = phone.position_ms - timing.preutter_ms;
-            let mut actual_start_ms = unclamped_start_ms.max(0.0);
-            if unclamped_start_ms < 0.0 {
-                source_skip_ms += -unclamped_start_ms;
-            }
-
-            if source_skip_ms < 0.0 {
-                actual_start_ms += -source_skip_ms;
-                source_skip_ms = 0.0;
-            }
+            let (actual_start_ms, source_skip_ms) = segment_placement(
+                phone.position_ms,
+                timing.preutter_ms,
+                timing.skip_over_ms,
+                wavtool_consumed_skip,
+            );
             if external_phrase {
                 Self::save_wav_samples(&wav_args.input_rendered_wav, &note_rendered, sample_rate)?;
             }
@@ -947,18 +1007,22 @@ impl TrackRenderer {
 
             Ok(PhoneResult {
                 idx,
+                lyric: phone.lyric.clone(),
                 wav_args,
                 adjacent: timing.adjacent,
                 note_rendered,
                 actual_start_ms,
                 source_skip_ms,
-                crossfade_ms: if phase_alignment && timing.overlap_ms > 0.0 {
+                crossfade_ms: if mix_strategy == WavtoolMixStrategy::LegacyPhaseAligned
+                    && timing.overlap_ms > 0.0
+                {
                     active_overlap
                 } else {
                     0.0
                 },
                 pitch_freq: target_freq,
                 logs,
+                phase_metadata,
             })
         };
 
@@ -973,8 +1037,8 @@ impl TrackRenderer {
         // ------------------------------------------------------------------
         // Phase 2: Sequential merge.
         //
-        // `mix_phase_aligned` is order-dependent (uses `previous_phone_end`
-        // for phase-locked crossfade), so it must run in idx order.
+        // Convergence is order-dependent: each correction contributes to the
+        // phase used by the following phone, so this must run in idx order.
         // ------------------------------------------------------------------
         if cancel.is_some_and(|t| t.load(Ordering::Relaxed)) {
             log(1.0, "[Render] Cancelled");
@@ -1024,6 +1088,9 @@ impl TrackRenderer {
             return Ok(track_buffer);
         }
 
+        let mut previous_phase_tail = None;
+        let mut previous_phase_correction = 0isize;
+        let mut previous_lyric: Option<String> = None;
         for result in phone_results {
             // Replay per-phone log messages in-order now that we are sequential.
             for (progress, msg) in result.logs {
@@ -1038,21 +1105,85 @@ impl TrackRenderer {
                 .unwrap_or(&[]);
             let start_sample_idx =
                 ((result.actual_start_ms / 1000.0) * sample_rate as f64).round() as usize;
-            let crossfade_samples =
-                ((result.crossfade_ms / 1000.0) * sample_rate as f64).round() as usize;
             // The wavtool envelope is the authority for transition energy.
             // Do not apply RMS matching here: even a synthetic safety overlap
             // can otherwise raise a consonant by up to 1.5x and make it sound
             // like a separate, overly loud phoneme.
-            previous_phone_end_sample = Self::mix_phase_aligned(
-                &mut track_buffer,
-                audible_samples,
-                start_sample_idx,
-                previous_phone_end_sample,
-                crossfade_samples,
-                result.pitch_freq,
-                sample_rate,
-            );
+            match mix_strategy {
+                WavtoolMixStrategy::OpenUtauConvergence => {
+                    if !result.adjacent {
+                        previous_phase_correction = 0;
+                    }
+                    let correction = if result.adjacent {
+                        crate::renderer::phase::openutau_convergence_correction(
+                            previous_phase_tail,
+                            result.phase_metadata.head,
+                            previous_phase_correction,
+                            sample_rate,
+                        )
+                    } else {
+                        0
+                    };
+                    let mixed = Self::mix_with_resolved_correction(
+                        &mut track_buffer,
+                        audible_samples,
+                        start_sample_idx,
+                        previous_phone_end_sample,
+                        correction,
+                    );
+                    previous_phone_end_sample = mixed.end_sample;
+                    let head = result.phase_metadata.head;
+                    let tail = previous_phase_tail;
+                    log(
+                        result.idx as f32 / total_phones as f32,
+                        &format!(
+                            "  [Transition] strategy=OpenUtauConvergence from='{}' to='{}' adjacent={} tail_valid={} head_valid={} head_window={} tail_window={} correction_samples={} correction_ms={:.3} source_trim_samples={} envelope=linear-openutau",
+                            previous_lyric.as_deref().unwrap_or("<none>"),
+                            result.lyric,
+                            result.adjacent,
+                            tail.is_some(),
+                            head.is_some(),
+                            head.map_or_else(|| "none".to_string(), |signature| format!(
+                                "{}+{}@{:.3}Hz",
+                                signature.window_start, signature.window_len, signature.frequency
+                            )),
+                            tail.map_or_else(|| "none".to_string(), |signature| format!(
+                                "{}+{}@{:.3}Hz",
+                                signature.window_start, signature.window_len, signature.frequency
+                            )),
+                            mixed.correction_samples,
+                            mixed.correction_samples as f64 * 1000.0 / sample_rate.max(1) as f64,
+                            mixed.source_trim_samples,
+                        ),
+                    );
+                    previous_phase_correction = correction;
+                }
+                WavtoolMixStrategy::LegacyPhaseAligned => {
+                    let crossfade_samples =
+                        ((result.crossfade_ms / 1000.0) * sample_rate as f64).round() as usize;
+                    previous_phone_end_sample = Self::mix_phase_aligned(
+                        &mut track_buffer,
+                        audible_samples,
+                        start_sample_idx,
+                        previous_phone_end_sample,
+                        crossfade_samples,
+                        result.pitch_freq,
+                        sample_rate,
+                    );
+                }
+                WavtoolMixStrategy::Plain => {
+                    previous_phone_end_sample = Self::mix_with_resolved_correction(
+                        &mut track_buffer,
+                        audible_samples,
+                        start_sample_idx,
+                        previous_phone_end_sample,
+                        0,
+                    )
+                    .end_sample;
+                }
+            }
+            previous_phase_tail = result.phase_metadata.tail;
+            previous_lyric = Some(result.lyric);
         }
 
         if let Some(target_peak) = crate::renderer::project::configured_render_limiter_peak() {

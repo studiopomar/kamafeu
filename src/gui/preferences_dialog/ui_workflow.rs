@@ -189,6 +189,15 @@ impl KamafeuStudioApp {
                     self.piano_roll_state.ui_animations_enabled =
                         self.config.workflow.ui_animations_enabled;
                 }
+                if ui
+                    .checkbox(
+                        &mut self.config.workflow.reduce_motion,
+                        lang.tr("Reduzir movimento", "Reduce motion"),
+                    )
+                    .changed()
+                {
+                    self.piano_roll_state.ui_reduce_motion = self.config.workflow.reduce_motion;
+                }
                 ui.horizontal(|ui| {
                     ui.label(lang.tr("Velocidade:", "Speed:"));
                     ui.add_enabled(

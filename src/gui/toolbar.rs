@@ -174,8 +174,6 @@ pub fn draw_unified_toolbar(
                     // piscante.
                     let playback_pulse = if is_playing {
                         let phase = ui.input(|input| input.time) as f32;
-                        ui.ctx()
-                            .request_repaint_after(std::time::Duration::from_millis(40));
                         0.18 + 0.10 * (phase * std::f32::consts::TAU * 1.2).sin().abs()
                     } else {
                         0.20

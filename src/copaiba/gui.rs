@@ -12,6 +12,9 @@ pub enum ListFilterMode {
 
 pub struct CopaibaToolkitApp {
     pub current_dir: Option<PathBuf>,
+    pub active_oto_path: Option<PathBuf>,
+    pub selected_source_alias: Option<String>,
+    pub preserve_oto_entry: bool,
     pub config: CopaibaConfig,
     pub selected_entry_index: Option<usize>,
     pub search_query: String,
@@ -35,6 +38,9 @@ impl Default for CopaibaToolkitApp {
     fn default() -> Self {
         Self {
             current_dir: None,
+            active_oto_path: None,
+            selected_source_alias: None,
+            preserve_oto_entry: false,
             config: CopaibaConfig::default(),
             selected_entry_index: None,
             search_query: String::new(),
@@ -57,10 +63,46 @@ impl Default for CopaibaToolkitApp {
 }
 
 impl CopaibaToolkitApp {
+    /// Opens a voicebank and selects the exact alias requested by the editor.
+    /// This is used by the Kamafeu phoneme ruler so manual OTO fixes start on
+    /// the offending sample instead of making the user search the bank again.
+    pub fn open_alias(&mut self, path: PathBuf, alias: &str) {
+        let oto_path = crate::copaiba_bridge::oto_path_for_alias(&path, alias).ok();
+        let load_dir = oto_path
+            .as_ref()
+            .and_then(|oto| oto.parent().map(PathBuf::from))
+            .unwrap_or(path);
+        self.open_dir(load_dir);
+        self.active_oto_path = oto_path;
+        self.selected_source_alias = Some(alias.trim().to_string());
+        self.preserve_oto_entry = self.active_oto_path.is_some();
+        let wanted = alias.trim();
+        if let Some(index) = self
+            .config
+            .entries
+            .iter()
+            .position(|entry| entry.alias.trim().eq_ignore_ascii_case(wanted))
+        {
+            self.selected_entry_index = Some(index);
+            self.search_query.clear();
+            self.filter_mode = ListFilterMode::ByAlias;
+            self.load_selected_wav_samples();
+            self.status_message = format!("Alias selecionado: {wanted}");
+        } else {
+            self.search_query = wanted.to_string();
+            self.status_message = format!(
+                "Alias '{wanted}' não foi encontrado; verifique o banco e crie ou ajuste a entrada."
+            );
+        }
+    }
+
     pub fn open_dir(&mut self, path: PathBuf) {
         match CopaibaConfig::load_from_dir(&path) {
             Ok(cfg) => {
                 self.current_dir = Some(path);
+                self.active_oto_path = None;
+                self.selected_source_alias = None;
+                self.preserve_oto_entry = false;
                 self.config = cfg;
                 self.avatar_texture = None;
                 self.status_message.clear();
@@ -289,10 +331,55 @@ impl CopaibaToolkitApp {
     }
 
     pub fn save_config(&mut self) -> Result<(), String> {
+        if self.preserve_oto_entry {
+            let oto_path = self
+                .active_oto_path
+                .as_ref()
+                .ok_or_else(|| "nenhum oto.ini ativo".to_string())?;
+            let index = self
+                .selected_entry_index
+                .ok_or_else(|| "nenhum alias selecionado".to_string())?;
+            let entry = self
+                .config
+                .entries
+                .get(index)
+                .ok_or_else(|| "alias selecionado inválido".to_string())?;
+            let oto_entry = crate::oto::OtoEntry::new(
+                entry.wav_filename.clone(),
+                entry.alias.clone(),
+                entry.corte_inicial_ms,
+                entry.consoante_ms,
+                entry.corte_final_ms,
+                entry.preutterance_ms,
+                entry.overlap_ms,
+            );
+            let original_alias = self
+                .selected_source_alias
+                .as_deref()
+                .unwrap_or(entry.alias.as_str());
+            crate::copaiba_bridge::update_oto_entry(oto_path, original_alias, &oto_entry)?;
+            self.selected_source_alias = Some(entry.alias.clone());
+            self.status_message = format!("Entrada salva em {}", oto_path.display());
+            return Ok(());
+        }
         if let Some(ref dir) = self.current_dir {
             self.config.save_to_dir(dir)
         } else {
             Err("Nenhum diretório aberto".to_string())
+        }
+    }
+
+    pub fn reload_current(&mut self) {
+        if let Some(alias) = self.selected_source_alias.clone() {
+            if let Some(oto_path) = self.active_oto_path.clone() {
+                if let Some(dir) = oto_path.parent() {
+                    self.open_alias(dir.to_path_buf(), &alias);
+                    return;
+                }
+            }
+        }
+        if let Some(dir) = self.current_dir.clone() {
+            self.open_dir(dir);
         }
     }
 
@@ -455,6 +542,10 @@ pub fn draw_copaiba_toolkit_ui(
                     };
                 }
 
+                if ui.button(RichText::new("Recarregar").strong().color(Color32::WHITE)).clicked() {
+                    app.reload_current();
+                }
+
                 ui.add_space(10.0);
                 if ui.button(RichText::new("Compilar e Empacotar (.kfv)").strong().color(Color32::BLACK)).clicked() {
                     let default_name = format!("{}.kfv", app.config.voicebank_name);
@@ -490,6 +581,10 @@ pub fn draw_copaiba_toolkit_ui(
                 ui.label(RichText::new(format!("Pasta: {}", dir.display())).size(11.0).color(Color32::from_rgb(180, 170, 210)));
             } else {
                 ui.label(RichText::new("Nenhuma pasta aberta").size(11.0).color(Color32::from_rgb(150, 140, 170)));
+            }
+
+            if let Some(ref oto_path) = app.active_oto_path {
+                ui.label(RichText::new(format!("OTO ativo: {}", oto_path.display())).size(10.0).color(Color32::from_rgb(100, 210, 255)));
             }
 
             if !app.status_message.is_empty() {

@@ -1,7 +1,9 @@
-use super::{ResamplerSlots, TrackRenderer};
+use super::{quantized_render_duration_ms, ResamplerSlots, TrackRenderer};
 use crate::drivers::{
     GalapagosWavtoolDriver, NativeResamplerDriver, NativeWavtoolDriver, NativeWorldResamplerDriver,
+    WavtoolArgs, WavtoolDriver,
 };
+use crate::dsp::envelope::UtauEnvelope;
 use crate::oto::Voicebank;
 use crate::phonemizer::PhonemizerMode;
 use crate::project::model::UNote;
@@ -9,6 +11,13 @@ use crate::renderer::{diagnostics::window_rms, RenderOptions};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
+
+#[test]
+fn render_duration_quantization_does_not_add_an_extra_bucket_at_exact_boundaries() {
+    assert_eq!(quantized_render_duration_ms(800.0), 800.0);
+    assert_eq!(quantized_render_duration_ms(800.1), 850.0);
+    assert_eq!(quantized_render_duration_ms(1.0), 50.0);
+}
 
 #[test]
 fn resampler_instances_cap_concurrent_synthesis() {
@@ -195,6 +204,114 @@ fn mixer_adds_pre_enveloped_segments_without_a_second_fade() {
 }
 
 #[test]
+fn resolved_negative_correction_trims_source_at_track_origin() {
+    let mut track = vec![0.0; 8];
+    let incoming: Vec<_> = (1..=8).map(|value| value as f32).collect();
+
+    let mixed = TrackRenderer::mix_with_resolved_correction(&mut track, &incoming, 1, 0, -3);
+
+    assert_eq!(mixed.correction_samples, -3);
+    assert_eq!(mixed.source_trim_samples, 2);
+    assert_eq!(mixed.end_sample, 6);
+    assert_eq!(&track[..6], &[3.0, 4.0, 5.0, 6.0, 7.0, 8.0]);
+}
+
+#[test]
+fn galapagos_pcm_matches_openutau_linear_overlap_without_level_bump() {
+    fn oracle_gain(time: f64, points: &[(f64, f64); 5]) -> f64 {
+        if time <= points[0].0 {
+            return points[0].1;
+        }
+        for pair in points.windows(2) {
+            if time <= pair[1].0 {
+                let width = pair[1].0 - pair[0].0;
+                return if width <= 0.0 {
+                    pair[0].1
+                } else {
+                    pair[0].1 + (pair[1].1 - pair[0].1) * (time - pair[0].0) / width
+                };
+            }
+        }
+        points[4].1
+    }
+
+    let previous_points = [
+        (0.0, 1.0),
+        (0.0, 1.0),
+        (0.0, 1.0),
+        (50.0, 1.0),
+        (100.0, 0.0),
+    ];
+    let incoming_points = [
+        (0.0, 0.0),
+        (50.0, 1.0),
+        (50.0, 1.0),
+        (99.0, 1.0),
+        (100.0, 0.0),
+    ];
+    let args = |points| WavtoolArgs {
+        output_wav: std::path::PathBuf::new(),
+        input_rendered_wav: std::path::PathBuf::new(),
+        skip_over_ms: 0.0,
+        duration_ms: 100.0,
+        envelope: UtauEnvelope::default(),
+        overlap_ms: 50.0,
+        phoneme_envelope: points,
+        sample_time_zero_ms: 0.0,
+    };
+    let driver = GalapagosWavtoolDriver;
+    let mut previous = vec![1.0f32; 100];
+    let mut incoming = vec![1.0f32; 100];
+    driver
+        .process_note(&mut previous, 1_000, &args(previous_points), None)
+        .unwrap();
+    driver
+        .process_note(&mut incoming, 1_000, &args(incoming_points), None)
+        .unwrap();
+
+    let mut mixed = vec![0.0f32; 150];
+    TrackRenderer::mix_with_resolved_correction(&mut mixed, &previous, 0, 0, 0);
+    TrackRenderer::mix_with_resolved_correction(&mut mixed, &incoming, 50, 100, 0);
+
+    for (index, &actual) in mixed.iter().enumerate() {
+        let expected_previous = if index < 100 {
+            oracle_gain(index as f64, &previous_points)
+        } else {
+            0.0
+        };
+        let expected_incoming = if (50..150).contains(&index) {
+            oracle_gain((index - 50) as f64, &incoming_points)
+        } else {
+            0.0
+        };
+        let expected = (expected_previous + expected_incoming) as f32;
+        assert!(
+            (actual - expected).abs() < 1e-6,
+            "OpenUtau PCM mismatch at {index}: expected {expected}, got {actual}"
+        );
+    }
+
+    let rms = |samples: &[f32]| {
+        (samples
+            .iter()
+            .map(|sample| f64::from(*sample).powi(2))
+            .sum::<f64>()
+            / samples.len() as f64)
+            .sqrt()
+    };
+    let before = rms(&mixed[25..45]);
+    let overlap = rms(&mixed[65..85]);
+    let after = rms(&mixed[105..125]);
+    for compared in [overlap, after] {
+        let difference_db = 20.0 * (compared / before).log10().abs();
+        assert!(
+            difference_db < 1.0,
+            "transition level changed by {difference_db:.3} dB"
+        );
+    }
+}
+
+#[test]
 fn adjacent_notes_crossfade_smoothly_without_discontinuities() {
     let sample_rate = 44_100;
     let mut track = vec![0.0f32; 1_000];
@@ -281,7 +398,7 @@ fn generated_vcv_fixture_has_no_silent_transition_hole() {
         44_100,
         120.0,
         &NativeResamplerDriver,
-        &NativeWavtoolDriver,
+        &GalapagosWavtoolDriver,
         Some(&options),
     );
 
@@ -362,7 +479,7 @@ fn generated_cvvc_fixture_keeps_one_continuous_vc_to_cv_handoff() {
         sample_rate,
         120.0,
         &NativeResamplerDriver,
-        &NativeWavtoolDriver,
+        &GalapagosWavtoolDriver,
         Some(&options),
     );
 

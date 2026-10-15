@@ -332,6 +332,15 @@ impl AudioPlayer {
                                 volume,
                                 speed,
                             } => {
+                                eprintln!(
+                                    "[AudioScheduler] recebendo início generation={} chunk={} start={:.1}ms end={:.1}ms frames={} final={}",
+                                    generation,
+                                    index,
+                                    start_ms,
+                                    end_ms,
+                                    samples.len() / usize::from(channels.max(1)),
+                                    is_final
+                                );
                                 // A new generation always supersedes the
                                 // previous sink, even when its first chunk is
                                 // rejected. Otherwise an invalid restart can
@@ -641,7 +650,7 @@ impl AudioPlayer {
                             }
                         }
                     }
-                    if let Some(active) = sink.as_ref() {
+                    if sink.is_some() {
                         if PlaybackSchedulerState::from_raw(
                             worker_state.load(Ordering::Acquire),
                         ) == PlaybackSchedulerState::Running
@@ -684,26 +693,6 @@ impl AudioPlayer {
                                         }
                                     },
                                 );
-                                last_clock_tick = now;
-                            } else if active.empty() {
-                                // A device can report an empty sink slightly
-                                // before the scheduler clock reaches the
-                                // temporal boundary. Treat this only as a
-                                // safety signal; the timeline remains the
-                                // authority for normal completion.
-                                if timeline.report_underrun() == TimelineDecision::Underrun {
-                                    worker_state.store(
-                                        PlaybackSchedulerState::Underrun as u8,
-                                        Ordering::Release,
-                                    );
-                                    push_scheduler_event(
-                                        &worker_events,
-                                        PlaybackSchedulerEvent::Underrun {
-                                            generation: active_generation,
-                                            played_ms: timeline_position_ms,
-                                        },
-                                    );
-                                }
                                 last_clock_tick = now;
                             }
                         }
@@ -750,12 +739,21 @@ impl AudioPlayer {
 
     pub fn play_samples_with_channels(
         &mut self,
-        mut samples: Vec<f32>,
+        samples: Vec<f32>,
         sample_rate: u32,
         channels: u16,
     ) {
+        let _ = self.try_play_samples_with_channels(samples, sample_rate, channels);
+    }
+
+    pub fn try_play_samples_with_channels(
+        &mut self,
+        mut samples: Vec<f32>,
+        sample_rate: u32,
+        channels: u16,
+    ) -> Result<(), String> {
         if samples.is_empty() {
-            return;
+            return Err("O render não contém amostras de áudio.".to_string());
         }
         self.stop_scheduler();
         Self::sanitize_samples(&mut samples);
@@ -765,19 +763,18 @@ impl AudioPlayer {
             old_sink.detach();
         }
 
-        if let Some(ref handle) = self.stream_handle {
-            match Sink::try_new(handle) {
-                Ok(sink) => {
-                    let buffer = SamplesBuffer::new(channels.max(1), sample_rate, samples);
-                    sink.append(buffer);
-                    sink.set_volume(self.volume);
-                    sink.set_speed(self.speed);
-                    sink.play();
-                    self.active_sink = Some(sink);
-                }
-                Err(err) => eprintln!("[AudioPlayer] Error creating Sink: {}", err),
-            }
-        }
+        let Some(handle) = self.stream_handle.as_ref() else {
+            return Err("Nenhum dispositivo de saída de áudio está disponível.".to_string());
+        };
+        let sink = Sink::try_new(handle)
+            .map_err(|error| format!("Não foi possível criar a saída de áudio: {error}"))?;
+        let buffer = SamplesBuffer::new(channels.max(1), sample_rate, samples);
+        sink.append(buffer);
+        sink.set_volume(self.volume);
+        sink.set_speed(self.speed);
+        sink.play();
+        self.active_sink = Some(sink);
+        Ok(())
     }
 
     /// Queue the next contiguous preview chunk without interrupting playback.
@@ -869,7 +866,10 @@ impl AudioPlayer {
         // may still be unwinding and must not be able to enqueue audio after
         // an explicit pause/stop or a new playback generation.
         self.playback_generation.fetch_add(1, Ordering::AcqRel);
-        if let Some(tx) = &self.scheduler_tx {
+        if self.scheduler_is_active() {
+            let Some(tx) = &self.scheduler_tx else {
+                return;
+            };
             let _ = tx.send(SchedulerCommand::Stop);
         }
     }
@@ -897,6 +897,14 @@ impl AudioPlayer {
 
     pub fn scheduler_queued_until_ms(&self) -> f64 {
         self.scheduler_queued_until_ms.load(Ordering::Acquire) as f64
+    }
+
+    /// Position of the currently playing direct buffer, relative to its start.
+    /// Rodio's position already accounts for Sink::set_speed().
+    pub fn playback_position_ms(&self) -> Option<f64> {
+        self.active_sink
+            .as_ref()
+            .map(|sink| sink.get_pos().as_secs_f64() * 1000.0)
     }
 
     pub fn drain_scheduler_events(&self) -> Vec<PlaybackSchedulerEvent> {
@@ -982,6 +990,7 @@ pub struct AudioPlayer {
     volume: f32,
     speed: f32,
     is_playing: bool,
+    playback_start_time: f64,
 }
 
 #[cfg(target_arch = "wasm32")]
@@ -1010,6 +1019,7 @@ impl AudioPlayer {
             volume: 1.0,
             speed: 1.0,
             is_playing: false,
+            playback_start_time: 0.0,
         }
     }
 
@@ -1085,7 +1095,8 @@ impl AudioPlayer {
                     let now = ctx.current_time();
                     let dur = (frame_count as f64) / (sample_rate as f64);
                     let _ = source.start_with_when(now);
-                    self.next_play_time = now + dur;
+                    self.playback_start_time = now;
+                    self.next_play_time = now + dur / speed.max(0.001) as f64;
                     self.scheduled_sources.push(source);
                     self.is_playing = true;
                 }
@@ -1176,6 +1187,15 @@ impl AudioPlayer {
         self.speed = speed.clamp(0.25, 4.0);
     }
 
+    pub fn playback_position_ms(&self) -> Option<f64> {
+        if !self.is_playing {
+            return None;
+        }
+        self.ctx.as_ref().map(|ctx| {
+            ((ctx.current_time() - self.playback_start_time).max(0.0) * self.speed as f64 * 1000.0)
+        })
+    }
+
     pub fn speed(&self) -> f32 {
         self.speed
     }
@@ -1220,11 +1240,12 @@ impl AudioPlayer {
     /// Desktop output is initialized by `new`; this keeps the playback call
     /// site identical across native and WebAssembly targets.
     pub fn prepare_for_playback(&mut self) -> Result<(), String> {
-        if self.stream_handle.is_some() {
-            Ok(())
-        } else {
-            Err("Nenhum dispositivo de saída de áudio está disponível.".to_string())
-        }
+        let Some(handle) = self.stream_handle.as_ref() else {
+            return Err("Nenhum dispositivo de saída de áudio está disponível.".to_string());
+        };
+
+        let _ = handle;
+        Ok(())
     }
 }
 
@@ -1255,5 +1276,35 @@ mod tests {
         assert_eq!(samples[1], -0.99);
         assert_eq!(samples[2], 0.0);
         assert_eq!(samples[3], 0.0);
+    }
+
+    #[test]
+    fn stopping_an_inactive_scheduler_does_not_emit_a_transport_stop() {
+        let mut player = AudioPlayer::new();
+        let _ = player.drain_scheduler_events();
+        player.stop_scheduler();
+        std::thread::sleep(std::time::Duration::from_millis(30));
+        assert!(player.drain_scheduler_events().is_empty());
+    }
+
+    #[test]
+    fn direct_sink_reports_an_advancing_playback_position_when_audio_is_available() {
+        let mut player = AudioPlayer::new();
+        if player.prepare_for_playback().is_err() {
+            return;
+        }
+        let samples = vec![0.0_f32; 44_100];
+        player
+            .try_play_samples_with_channels(samples, 44_100, 1)
+            .expect("the initialized output device should accept a direct buffer");
+        std::thread::sleep(std::time::Duration::from_millis(80));
+        let position_ms = player
+            .playback_position_ms()
+            .expect("a direct sink should publish its playback position");
+        player.stop();
+        assert!(
+            position_ms > 0.0,
+            "direct sink position remained frozen at {position_ms}ms"
+        );
     }
 }

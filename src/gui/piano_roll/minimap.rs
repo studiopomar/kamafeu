@@ -1,5 +1,32 @@
 use super::*;
 
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub(crate) struct TimelinePlaybackStatus<'a> {
+    pub is_rendering: bool,
+    pub is_playing: bool,
+    pub render_progress: f32,
+    pub title: &'a str,
+    pub message: &'a str,
+    pub engine: &'a str,
+    pub total_duration_ms: f64,
+    pub has_error: bool,
+}
+
+impl Default for TimelinePlaybackStatus<'static> {
+    fn default() -> Self {
+        Self {
+            is_rendering: false,
+            is_playing: false,
+            render_progress: 1.0,
+            title: "Pronto",
+            message: "Pronto",
+            engine: "",
+            total_duration_ms: 0.0,
+            has_error: false,
+        }
+    }
+}
+
 pub(super) fn draw(
     ui: &mut egui::Ui,
     notes: &[UNote],
@@ -8,6 +35,8 @@ pub(super) fn draw(
     keyboard_width: f32,
     timeline_scroll_x: f32,
     total_canvas_ms: f64,
+    playback: TimelinePlaybackStatus<'_>,
+    on_playhead_scrubbed: &mut dyn FnMut(f64),
 ) {
     // Timeline Mini-Map (Radar)
     if state.show_minimap {
@@ -28,6 +57,26 @@ pub(super) fn draw(
             ],
             Stroke::new(1.0, theme.grid_line_bar_c32().linear_multiply(0.72)),
         );
+
+        let animation_policy = crate::gui::animation::AnimationPolicy {
+            enabled: state.ui_animations_enabled,
+            reduce_motion: state.ui_reduce_motion,
+            speed: state.ui_animation_speed,
+            frame_time_ema_ms: if state.animation_quality_reduced {
+                crate::gui::animation::HIGH_FRAME_TIME_MS
+            } else {
+                16.0
+            },
+        };
+        let animation_time = ui.input(|input| input.time) as f32;
+        let pulse = if animation_policy.enabled {
+            0.5 + 0.5
+                * animation_policy.pulse_amplitude()
+                * (animation_time * std::f32::consts::TAU * 0.9 * animation_policy.visual_speed())
+                    .sin()
+        } else {
+            0.0
+        };
 
         // Corner label
         m_painter.text(
@@ -109,26 +158,52 @@ pub(super) fn draw(
         m_painter.rect_filled(vp_rect, theme.ui_rounding(), vp_fill);
         m_painter.rect_stroke(vp_rect, theme.ui_rounding(), vp_stroke);
 
-        // Playhead in minimap
+        // Playhead in minimap: a strong line, a small tracker head, and a
+        // restrained halo make the shared transport clock easy to follow.
         let playhead_norm = (state.playhead_ms / total_canvas_ms).clamp(0.0, 1.0) as f32;
         let playhead_map_x = map_origin_x + playhead_norm * map_span_x;
+        if state.is_playing && animation_policy.enabled {
+            if let Some(interval) = animation_policy.interval() {
+                ui.ctx().request_repaint_after(interval);
+            }
+        }
         m_painter.line_segment(
             [
                 Pos2::new(playhead_map_x, minimap_rect.min.y),
                 Pos2::new(playhead_map_x, minimap_rect.max.y),
             ],
-            Stroke::new(1.5, theme.playhead_c32()),
+            Stroke::new(
+                3.0 + pulse * 2.0,
+                theme.playhead_c32().linear_multiply(0.16 + pulse * 0.12),
+            ),
         );
+        m_painter.line_segment(
+            [
+                Pos2::new(playhead_map_x, minimap_rect.min.y),
+                Pos2::new(playhead_map_x, minimap_rect.max.y),
+            ],
+            Stroke::new(1.2 + pulse * 0.8, theme.playhead_c32()),
+        );
+        m_painter.add(egui::Shape::convex_polygon(
+            vec![
+                Pos2::new(playhead_map_x - 4.0, minimap_rect.min.y),
+                Pos2::new(playhead_map_x + 4.0, minimap_rect.min.y),
+                Pos2::new(playhead_map_x, minimap_rect.min.y + 6.0),
+            ],
+            theme.playhead_c32(),
+            Stroke::NONE,
+        ));
 
-        // Minimap drag interaction. A drag keeps the initial grab offset, so
-        // grabbing the viewport edge does not jump the piano roll to center.
+        // A drag that starts inside the viewport keeps the existing viewport
+        // navigation. A simple click anywhere on the timeline scrubs the
+        // shared playhead instead.
         if minimap_resp.drag_started() {
             state.minimap_drag_scroll_origin = Some(state.horizontal_scroll_offset);
             state.minimap_navigation_active = true;
             state.horizontal_follow_user_override = true;
             state.auto_scroll_mode = crate::gui::types::AutoScrollMode::Off;
         }
-        if minimap_resp.dragged() {
+        if minimap_resp.dragged() && state.minimap_drag_scroll_origin.is_some() {
             state.minimap_navigation_active = true;
             state.horizontal_follow_user_override = true;
             state.auto_scroll_mode = crate::gui::types::AutoScrollMode::Off;
@@ -151,11 +226,9 @@ pub(super) fn draw(
             if let Some(mpos) = minimap_resp.interact_pointer_pos() {
                 if mpos.x >= map_origin_x && mpos.x <= map_origin_x + map_span_x {
                     let click_norm = ((mpos.x - map_origin_x) / map_span_x).clamp(0.0, 1.0) as f64;
-                    state.horizontal_scroll_offset =
-                        (click_norm * total_canvas_ms * state.px_per_ms as f64) as f32
-                            - visible_w * 0.5;
-                    state.horizontal_scroll_offset =
-                        state.horizontal_scroll_offset.clamp(0.0, max_scroll_x);
+                    let scrubbed_t = click_norm * total_canvas_ms;
+                    state.playhead_ms = scrubbed_t;
+                    on_playhead_scrubbed(scrubbed_t);
                 }
             }
         } else if !ui.input(|input| input.pointer.primary_down()) {
@@ -163,5 +236,129 @@ pub(super) fn draw(
             // state so a completed drag always drops its saved origin.
             state.minimap_drag_scroll_origin = None;
         }
+
+        if playback.is_rendering || playback.is_playing || playback.has_error {
+            draw_playback_bar(ui, state, theme, playback, animation_policy, pulse);
+        }
+    }
+}
+
+fn draw_playback_bar(
+    ui: &mut egui::Ui,
+    state: &PianoRollState,
+    _theme: &ThemeConfig,
+    playback: TimelinePlaybackStatus<'_>,
+    animation_policy: crate::gui::animation::AnimationPolicy,
+    pulse: f32,
+) {
+    if playback.is_rendering && animation_policy.enabled && !animation_policy.reduce_motion {
+        if let Some(interval) = animation_policy.interval() {
+            ui.ctx().request_repaint_after(interval);
+        }
+    }
+    let height = 30.0;
+    let (bar_rect, _) =
+        ui.allocate_exact_size(Vec2::new(ui.available_width(), height), Sense::hover());
+    let painter = ui.painter_at(bar_rect);
+    let black = Color32::from_rgb(15, 13, 11);
+    let amber = Color32::from_rgb(255, 181, 52);
+    let muted_amber = Color32::from_rgb(112, 79, 30);
+    let red = Color32::from_rgb(238, 82, 65);
+
+    painter.rect_filled(bar_rect, Rounding::ZERO, black);
+    painter.rect_stroke(
+        bar_rect,
+        Rounding::ZERO,
+        Stroke::new(2.0, if playback.has_error { red } else { amber }),
+    );
+
+    let label = if playback.has_error {
+        "ERROR"
+    } else if playback.is_playing {
+        "PLAY"
+    } else if playback.render_progress <= 0.001 {
+        "PREPARANDO"
+    } else {
+        "RESAMPLER"
+    };
+    painter.text(
+        Pos2::new(bar_rect.min.x + 8.0, bar_rect.center().y),
+        egui::Align2::LEFT_CENTER,
+        label,
+        egui::FontId::monospace(10.0),
+        if playback.has_error { red } else { amber },
+    );
+
+    let bar_left = bar_rect.min.x + 98.0;
+    let bar_right = (bar_rect.max.x - 112.0).max(bar_left + 20.0);
+    let segment_count = 28usize;
+    let gap = 2.0;
+    let segment_width =
+        ((bar_right - bar_left) - gap * (segment_count as f32 - 1.0)) / segment_count as f32;
+    let progress = if playback.is_playing {
+        if playback.total_duration_ms > 0.0 {
+            (state.playhead_ms / playback.total_duration_ms).clamp(0.0, 1.0) as f32
+        } else {
+            0.0
+        }
+    } else {
+        playback.render_progress.clamp(0.0, 1.0)
+    };
+    let filled = (progress * segment_count as f32).floor() as usize;
+    let sweep = if playback.is_rendering && playback.render_progress <= 0.001 {
+        ((ui.input(|input| input.time) as f32 * animation_policy.visual_speed() * 12.0) as usize)
+            % segment_count
+    } else {
+        0
+    };
+    for index in 0..segment_count {
+        let x = bar_left + index as f32 * (segment_width + gap);
+        let active = index < filled
+            || (playback.is_rendering && playback.render_progress <= 0.001 && index == sweep);
+        let color = if active {
+            amber.linear_multiply(0.75 + pulse * 0.25)
+        } else {
+            muted_amber
+        };
+        painter.rect_filled(
+            Rect::from_min_size(
+                Pos2::new(x, bar_rect.min.y + 9.0),
+                Vec2::new(segment_width.max(1.0), 10.0),
+            ),
+            Rounding::ZERO,
+            color,
+        );
+    }
+
+    let percent = format!("{:>3.0}%", progress * 100.0);
+    painter.text(
+        Pos2::new(bar_rect.max.x - 8.0, bar_rect.center().y),
+        egui::Align2::RIGHT_CENTER,
+        percent,
+        egui::FontId::monospace(10.0),
+        if playback.has_error { red } else { amber },
+    );
+    let detail = if playback.is_playing {
+        playback.message
+    } else if !playback.title.is_empty() {
+        playback.title
+    } else {
+        ""
+    };
+    painter.text(
+        Pos2::new(bar_rect.min.x + 98.0, bar_rect.max.y - 4.0),
+        egui::Align2::LEFT_BOTTOM,
+        detail,
+        egui::FontId::monospace(7.0),
+        amber.linear_multiply(0.7),
+    );
+    if !playback.engine.is_empty() {
+        painter.text(
+            Pos2::new(bar_rect.min.x + 8.0, bar_rect.max.y - 4.0),
+            egui::Align2::LEFT_BOTTOM,
+            playback.engine,
+            egui::FontId::monospace(7.0),
+            amber.linear_multiply(0.7),
+        );
     }
 }

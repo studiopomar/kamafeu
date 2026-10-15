@@ -1,6 +1,13 @@
 use super::TrackRenderer;
 use std::sync::{OnceLock, RwLock};
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct MixResult {
+    pub(super) end_sample: usize,
+    pub(super) correction_samples: isize,
+    pub(super) source_trim_samples: usize,
+}
+
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 #[inline]
 fn accumulate_samples(destination: &mut [f32], source: &[f32]) {
@@ -202,6 +209,52 @@ impl TrackRenderer {
         accumulate_samples(destination, source);
 
         previous_end_sample.max(start_sample + available)
+    }
+
+    /// Places a segment using a correction already resolved from raw phase
+    /// signatures. No gain, RMS matching, or second crossfade is applied.
+    /// When a negative correction crosses the track origin, the unavailable
+    /// source prefix is skipped so the remaining audio stays time-aligned.
+    pub(super) fn mix_with_resolved_correction(
+        track_buffer: &mut [f32],
+        note_samples: &[f32],
+        start_sample: usize,
+        previous_end_sample: usize,
+        correction_samples: isize,
+    ) -> MixResult {
+        if note_samples.is_empty() || track_buffer.is_empty() {
+            return MixResult {
+                end_sample: previous_end_sample,
+                correction_samples,
+                source_trim_samples: 0,
+            };
+        }
+
+        let corrected_start = start_sample as i128 + correction_samples as i128;
+        let (destination_start, source_start) = if corrected_start < 0 {
+            (0usize, (-corrected_start) as usize)
+        } else {
+            (corrected_start.min(usize::MAX as i128) as usize, 0usize)
+        };
+        if destination_start >= track_buffer.len() || source_start >= note_samples.len() {
+            return MixResult {
+                end_sample: previous_end_sample,
+                correction_samples,
+                source_trim_samples: source_start,
+            };
+        }
+
+        let available =
+            (track_buffer.len() - destination_start).min(note_samples.len() - source_start);
+        accumulate_samples(
+            &mut track_buffer[destination_start..destination_start + available],
+            &note_samples[source_start..source_start + available],
+        );
+        MixResult {
+            end_sample: previous_end_sample.max(destination_start + available),
+            correction_samples,
+            source_trim_samples: source_start,
+        }
     }
 }
 

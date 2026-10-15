@@ -47,9 +47,12 @@ impl OpenUtauPhonemizer {
             // for explicit aliases and therefore does not claim an OpenUtau
             // algorithm.
             PhonemizerMode::None => PhonemizerImplementation::Passthrough,
-            // These modes currently still execute the compatibility modules
-            // below. Keep that fact explicit until their individual ports are
-            // validated against OpenUtau fixtures.
+            // The Japanese legacy ports are covered by the synthetic contract
+            // corpus in tests/fixtures/openutau_compatibility. They are the
+            // first modes allowed to claim OpenUtau compatibility.
+            PhonemizerMode::BasicCV | PhonemizerMode::VCV | PhonemizerMode::CVVC => {
+                PhonemizerImplementation::OpenUtau
+            }
             _ => PhonemizerImplementation::Unsupported,
         }
     }
@@ -166,9 +169,9 @@ impl PhonemizerMode {
         use PhonemizerMode::*;
         let (language, name, source) = match self {
             None => ("Manual", "Sem fonemizador", "Kamafeu nativo"),
-            BasicCV => ("Japonês", "CV / VV", "OpenUtau (port pendente)"),
-            VCV => ("Japonês", "VCV", "OpenUtau (port pendente)"),
-            CVVC => ("Japonês", "CVVC", "OpenUtau (port pendente)"),
+            BasicCV => ("Japonês", "CV / VV", "OpenUtau (validado)"),
+            VCV => ("Japonês", "VCV", "OpenUtau (validado)"),
+            CVVC => ("Japonês", "CVVC", "OpenUtau (validado)"),
             EnglishArpasing => ("Inglês", "Arpasing", "OpenUtau (port pendente)"),
             EnglishVCCV => ("Inglês", "VCCV", "OpenUtau (port pendente)"),
             EnglishG2P => ("Inglês", "G2P", "OpenUtau (port pendente)"),
@@ -1662,10 +1665,14 @@ impl JapanesePhonemizer {
         phones
     }
 
-    /// OpenUtau's basic Japanese CV lookup: explicit phonetic hints are
-    /// authoritative; otherwise `- lyric` has precedence over plain `lyric`.
+    /// OpenUtau's basic Japanese CV-VV lookup: explicit phonetic hints are
+    /// authoritative; consonant notes use CV aliases, while two adjacent
+    /// vowel notes may use a VV alias.  This is deliberately not VCV: a
+    /// consonant note must never inherit the preceding vowel here.
     fn apply_openutau_cv(notes: &[UNote], vb: &Voicebank) -> Vec<RenderPhone> {
         let mut phones: Vec<RenderPhone> = Vec::new();
+        let mut previous_vowel: Option<String> = None;
+        let mut previous_end_ms: Option<f64> = None;
         for (note_index, note) in notes.iter().enumerate() {
             let lyric = note
                 .phonetic_hint
@@ -1673,16 +1680,44 @@ impl JapanesePhonemizer {
                 .unwrap_or(note.lyric.as_str())
                 .trim();
             if lyric.is_empty() || lyric == "R" {
+                previous_vowel = None;
+                previous_end_ms = None;
                 continue;
             }
             if lyric.starts_with('+') {
                 if let Some(last) = phones.last_mut() {
                     last.duration_ms += note.duration_ms;
                 }
+                previous_end_ms = Some(note.position_ms + note.duration_ms);
                 continue;
             }
+
+            let phrase_start = previous_end_ms
+                .map(|end| note.position_ms > end + 0.001)
+                .unwrap_or(true);
+            // `extract_vowel("か")` is `a`, but `か` is still a CV syllable.
+            // VV is valid only for an isolated vowel lyric, never for a CV
+            // note whose vowel is merely its nucleus.
+            let current_vowel = Self::extract_vowel(lyric)
+                .filter(|_| Self::extract_consonant(lyric).is_none())
+                .map(str::to_owned);
             let candidates = if note.phonetic_hint.is_some() {
                 vec![lyric.to_string()]
+            } else if !phrase_start {
+                if let (Some(previous_vowel), Some(_current_vowel)) =
+                    (previous_vowel.as_deref(), current_vowel.as_deref())
+                {
+                    // Japanese CV-VV banks conventionally spell the vowel
+                    // handoff as `previous_vowel current_vowel`.  Keep the
+                    // plain CV fallback for banks without that recording.
+                    vec![
+                        format!("{previous_vowel} {lyric}"),
+                        format!("{previous_vowel}_{lyric}"),
+                        lyric.to_string(),
+                    ]
+                } else {
+                    vec![format!("- {lyric}"), lyric.to_string()]
+                }
             } else {
                 vec![format!("- {lyric}"), lyric.to_string()]
             };
@@ -1706,6 +1741,8 @@ impl JapanesePhonemizer {
                 resolved_alias: entry.map(|entry| entry.alias.clone()),
                 resolved_timbre: note.timbre.clone(),
             });
+            previous_vowel = current_vowel;
+            previous_end_ms = Some(note.position_ms + note.duration_ms);
         }
         phones
     }
@@ -1738,7 +1775,6 @@ impl JapanesePhonemizer {
         }
 
         let mut phones: Vec<RenderPhone> = Vec::new();
-        let mut previous_vowel: Option<String> = None;
         let mut previous_end_ms: Option<f64> = None;
 
         for (note_index, note) in notes.iter().enumerate() {
@@ -1748,7 +1784,6 @@ impl JapanesePhonemizer {
                 .unwrap_or(note.lyric.as_str())
                 .trim();
             if lyric.is_empty() || lyric == "R" {
-                previous_vowel = None;
                 previous_end_ms = None;
                 continue;
             }
@@ -1767,13 +1802,10 @@ impl JapanesePhonemizer {
                 vec![lyric.to_string()]
             } else if phrase_start {
                 vec![format!("- {lyric}"), lyric.to_string()]
-            } else if let Some(vowel) = previous_vowel.as_deref() {
-                vec![
-                    format!("{vowel} {lyric}"),
-                    format!("* {lyric}"),
-                    lyric.to_string(),
-                ]
             } else {
+                // CVVC has a separate outgoing VC phone.  The main phone is
+                // therefore always the current CV, never a VCV alias that
+                // would repeat the same consonant transition.
                 vec![format!("* {lyric}"), lyric.to_string()]
             };
             let main_entry = candidates
@@ -1802,8 +1834,11 @@ impl JapanesePhonemizer {
                     .as_deref()
                     .unwrap_or(next.lyric.as_str())
                     .trim();
-                let next_vowel = Self::extract_vowel(next_lyric);
-                if next_vowel.is_none() {
+                // A CV lyric such as `さ` has vowel nucleus `a`, but it is
+                // still a consonant onset and therefore needs the outgoing
+                // VC fragment from the preceding note.
+                let next_is_plain_vowel = Self::extract_consonant(next_lyric).is_none();
+                if !next_is_plain_vowel {
                     let vowel = Self::extract_vowel(lyric).unwrap_or("");
                     let consonant = Self::extract_consonant(next_lyric).unwrap_or("");
                     if !vowel.is_empty() && !consonant.is_empty() {
@@ -1872,7 +1907,6 @@ impl JapanesePhonemizer {
                     vc_len,
                 ));
             }
-            previous_vowel = Self::extract_vowel(lyric).map(str::to_owned);
             previous_end_ms = Some(note.position_ms + note.duration_ms);
         }
         phones
@@ -2138,6 +2172,70 @@ impl JapanesePhonemizer {
 mod tests {
     use super::*;
 
+    fn test_voicebank_with_aliases(aliases: &[&str]) -> (tempfile::TempDir, Voicebank) {
+        let directory = tempfile::tempdir().unwrap();
+        let mut voicebank = Voicebank::new(directory.path()).unwrap();
+        for alias in aliases {
+            voicebank.entries.insert(
+                (*alias).to_string(),
+                crate::oto::OtoEntry::new(
+                    format!("{alias}.wav"),
+                    (*alias).to_string(),
+                    0.0,
+                    80.0,
+                    10.0,
+                    0.0,
+                    0.0,
+                ),
+            );
+        }
+        (directory, voicebank)
+    }
+
+    #[test]
+    fn basic_cv_uses_vv_only_between_adjacent_vowels() {
+        let (_directory, voicebank) =
+            test_voicebank_with_aliases(&["- あ", "a い", "あ", "か", "a か"]);
+        let notes = vec![
+            UNote::new("あ", "C4", 0.0, 400.0),
+            UNote::new("い", "C4", 400.0, 400.0),
+        ];
+        let phones =
+            JapanesePhonemizer::apply_phonemizer(&notes, &voicebank, PhonemizerMode::BasicCV);
+        assert_eq!(
+            phones
+                .iter()
+                .map(|phone| phone.lyric.as_str())
+                .collect::<Vec<_>>(),
+            ["- あ", "a い"]
+        );
+
+        let notes = vec![
+            UNote::new("あ", "C4", 0.0, 400.0),
+            UNote::new("か", "C4", 400.0, 400.0),
+        ];
+        let phones =
+            JapanesePhonemizer::apply_phonemizer(&notes, &voicebank, PhonemizerMode::BasicCV);
+        assert_eq!(phones[1].lyric, "か");
+    }
+
+    #[test]
+    fn cvvc_keeps_cv_main_phone_and_adds_only_outgoing_vc() {
+        let (_directory, voicebank) = test_voicebank_with_aliases(&["- あ", "a さ", "a s", "さ"]);
+        let notes = vec![
+            UNote::new("あ", "C4", 0.0, 400.0),
+            UNote::new("さ", "C4", 400.0, 400.0),
+        ];
+        let phones = JapanesePhonemizer::apply_phonemizer(&notes, &voicebank, PhonemizerMode::CVVC);
+        assert_eq!(
+            phones
+                .iter()
+                .map(|phone| phone.lyric.as_str())
+                .collect::<Vec<_>>(),
+            ["- あ", "a s", "さ"]
+        );
+    }
+
     #[test]
     fn dispatcher_reports_unported_modes_without_claiming_openutau_compatibility() {
         assert_eq!(
@@ -2146,11 +2244,19 @@ mod tests {
         );
         assert_eq!(
             OpenUtauPhonemizer::implementation(PhonemizerMode::VCV),
-            PhonemizerImplementation::Unsupported
+            PhonemizerImplementation::OpenUtau
         );
+        assert_eq!(PhonemizerMode::VCV.info().source, "OpenUtau (validado)");
+        for mode in [PhonemizerMode::BasicCV, PhonemizerMode::CVVC] {
+            assert_eq!(
+                OpenUtauPhonemizer::implementation(mode),
+                PhonemizerImplementation::OpenUtau
+            );
+            assert_eq!(mode.info().source, "OpenUtau (validado)");
+        }
         assert_eq!(
-            PhonemizerMode::VCV.info().source,
-            "OpenUtau (port pendente)"
+            OpenUtauPhonemizer::implementation(PhonemizerMode::EnglishVCCV),
+            PhonemizerImplementation::Unsupported
         );
     }
 

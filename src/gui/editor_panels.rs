@@ -19,7 +19,7 @@ impl KamafeuStudioApp {
         let toolbar_fill = self.config.theme.elevated_surface_c32();
         let toolbar_stroke = self.config.theme.card_stroke();
         let mut draw_toolbar = |ui: &mut egui::Ui| {
-            let transport_active = self.audio_player.is_playing() || self.render_rx.is_some();
+            let transport_active = self.transport_is_active();
             let bpm_before = self.project.bpm;
             let mut play_clicked = false;
             let mut stop_clicked = false;
@@ -95,7 +95,7 @@ impl KamafeuStudioApp {
 
             let requested_bpm = self.transport_state.bpm;
             if (requested_bpm - bpm_before).abs() > f64::EPSILON {
-                let was_active = self.audio_player.is_playing() || self.render_rx.is_some();
+                let was_active = self.transport_is_active();
                 if was_active {
                     self.pause_audio();
                 }
@@ -241,9 +241,7 @@ impl KamafeuStudioApp {
             }
         }
 
-        if self.vocal_mode_params != vocal_mode_params_before
-            && (self.audio_player.is_playing() || self.render_rx.is_some())
-        {
+        if self.vocal_mode_params != vocal_mode_params_before && self.transport_is_active() {
             let lang = self.config.language;
             self.pause_audio();
             self.transport_state.status_message = lang

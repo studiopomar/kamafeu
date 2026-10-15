@@ -398,12 +398,12 @@ pub(super) fn draw(
                                     .add_sized(
                                         Vec2::new(ui.available_width(), 20.0),
                                         egui::Button::new(
-                                            RichText::new(lang.tr("Editar no Copaiba NEO", "Edit in Copaiba NEO"))
+                                            RichText::new(lang.tr("Editar no Copaiba", "Edit in Copaiba"))
                                                 .size(9.5)
                                                 .color(Color32::from_rgb(0, 220, 255)),
                                         ),
                                     )
-                                    .on_hover_text(format!("{} '{}' {}", lang.tr("Editar alias", "Edit alias"), ruler_name, lang.tr("no editor Copaiba NEO", "in Copaiba NEO editor")))
+                                    .on_hover_text(format!("{} '{}' {}", lang.tr("Editar alias", "Edit alias"), ruler_name, lang.tr("no editor Copaiba", "in Copaiba editor")))
                                     .clicked()
                                 {
                                     on_edit_selected_ruler_alias();

@@ -626,6 +626,8 @@ pub struct EditorWorkflowConfig {
     pub ui_animations_enabled: bool,
     #[serde(default = "default_ui_animation_speed")]
     pub ui_animation_speed: f32,
+    #[serde(default)]
+    pub reduce_motion: bool,
     #[serde(default = "default_true")]
     pub confirm_on_exit_dirty: bool,
     #[serde(default)]
@@ -662,6 +664,7 @@ impl Default for EditorWorkflowConfig {
             auto_vibrato_fade_in_pct: default_vibrato_fade_in(),
             ui_animations_enabled: true,
             ui_animation_speed: default_ui_animation_speed(),
+            reduce_motion: false,
             confirm_on_exit_dirty: true,
             allow_overlapping_notes: false,
         }

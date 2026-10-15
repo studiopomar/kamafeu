@@ -66,11 +66,10 @@ impl KamafeuStudioApp {
             self.piano_roll_state.phoneme_cache_hash = 0;
             self.piano_roll_state.phoneme_cache.clear();
             self.piano_roll_state.note_phonemes_cache.clear();
-            self.transport_state.status_message = "oto.ini atualizado pelo Copaiba NEO".to_string();
+            self.transport_state.status_message = "oto.ini atualizado pelo Copaiba".to_string();
         }
     }
 
-    #[cfg(not(target_os = "android"))]
     pub(super) fn open_copaiba_for_alias(&mut self, requested_alias: &str, pitch: &str) {
         if requested_alias.trim().is_empty() || requested_alias.trim() == "+" {
             return;
@@ -91,10 +90,13 @@ impl KamafeuStudioApp {
                     .map(|entry| entry.alias.clone())
             })
             .unwrap_or_else(|| requested_alias.trim().to_string());
-        let result = crate::copaiba_bridge::launch_editor(&voicebank.root_path, &alias);
-        self.transport_state.status_message = match result {
-            Ok(()) => format!("Copaiba NEO aberto em: {alias}"),
-            Err(error) => error,
-        };
+        // Use the embedded Copaiba editor so the selected phoneme, its WAV and
+        // all OTO timing fields are immediately editable. The external NEO
+        // launcher remains available to callers that explicitly need it.
+        self.copaiba_app
+            .open_alias(voicebank.root_path.clone(), &alias);
+        self.copaiba_window_open = true;
+        self.transport_state.status_message =
+            format!("Copaiba aberto no alias {alias}; ajuste os parâmetros e clique em Salvar.");
     }
 }

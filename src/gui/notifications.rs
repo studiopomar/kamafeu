@@ -12,15 +12,23 @@ impl KamafeuStudioApp {
             if elapsed > 25.0 {
                 dismiss = true;
             } else {
-                let animated = self.config.workflow.ui_animations_enabled;
-                let speed = self.config.workflow.ui_animation_speed.clamp(0.25, 4.0);
-                let fade_in = (elapsed * speed / 0.22).clamp(0.0, 1.0);
-                let fade_out = ((25.0 - elapsed) * speed / 0.45).clamp(0.0, 1.0);
+                let animation_policy = self.animation_policy();
+                let animated = animation_policy.enabled && !animation_policy.reduce_motion;
+                let fade_in = crate::gui::animation::normalized_progress(
+                    elapsed,
+                    animation_policy.transition_duration(0.22),
+                );
+                let fade_out = crate::gui::animation::normalized_progress(
+                    25.0 - elapsed,
+                    animation_policy.transition_duration(0.45),
+                );
                 let visibility = if animated { fade_in.min(fade_out) } else { 1.0 };
                 let success = self.config.theme.success_c32();
                 let muted = self.config.theme.text_muted_c32();
                 if animated && visibility < 0.999 {
-                    ctx.request_repaint_after(std::time::Duration::from_millis(16));
+                    if let Some(interval) = self.animation_policy().interval() {
+                        ctx.request_repaint_after(interval);
+                    }
                 }
                 egui::Area::new(egui::Id::new("export_floating_toast_area"))
                     .anchor(
@@ -149,8 +157,11 @@ impl KamafeuStudioApp {
             return;
         }
 
-        // Request repaint while tips are alive to ensure smooth fade animation
-        ctx.request_repaint();
+        // Keep the fade alive only while it is visible, using the same cadence
+        // as playback and the piano roll.
+        if let Some(interval) = self.animation_policy().interval() {
+            ctx.request_repaint_after(interval);
+        }
 
         let alpha = if elapsed > TOTAL_DURATION_SECS - FADE_DURATION_SECS {
             ((TOTAL_DURATION_SECS - elapsed) / FADE_DURATION_SECS).clamp(0.0, 1.0)

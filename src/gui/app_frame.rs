@@ -81,6 +81,11 @@ impl eframe::App for KamafeuStudioApp {
         if frame_ms.is_finite() && frame_ms < 1_000.0 {
             self.frame_time_ema_ms = self.frame_time_ema_ms * 0.9 + frame_ms * 0.1;
         }
+        let animation_policy = self.animation_policy();
+        self.piano_roll_state.animation_quality_reduced = matches!(
+            animation_policy.quality(),
+            crate::gui::animation::AnimationQuality::Reduced
+        );
         let active_scale = self.config.ui_scale_factor.clamp(0.7, 2.0);
         if (ctx.zoom_factor() - active_scale).abs() > 0.001 {
             ctx.set_zoom_factor(active_scale);
@@ -95,8 +100,13 @@ impl eframe::App for KamafeuStudioApp {
         ctx.style_mut(|style| {
             // Give hover/focus states a short, quiet interpolation instead of
             // switching abruptly between high-contrast surfaces.
-            style.animation_time = if self.config.workflow.ui_animations_enabled {
-                0.16 / self.config.workflow.ui_animation_speed.clamp(0.25, 4.0)
+            style.animation_time = if animation_policy.enabled && !animation_policy.reduce_motion {
+                let base = if animation_policy.allows_motion() {
+                    0.16
+                } else {
+                    0.08
+                };
+                base / animation_policy.normalized_speed()
             } else {
                 0.0
             };
@@ -269,6 +279,15 @@ impl eframe::App for KamafeuStudioApp {
 }
 
 impl KamafeuStudioApp {
+    pub(crate) fn animation_policy(&self) -> crate::gui::animation::AnimationPolicy {
+        crate::gui::animation::AnimationPolicy {
+            enabled: self.config.workflow.ui_animations_enabled,
+            reduce_motion: self.config.workflow.reduce_motion,
+            speed: self.config.workflow.ui_animation_speed,
+            frame_time_ema_ms: self.frame_time_ema_ms,
+        }
+    }
+
     fn show_exit_confirmation(&mut self, ctx: &egui::Context) {
         if !self.exit_confirmation_open {
             return;

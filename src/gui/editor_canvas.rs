@@ -175,6 +175,36 @@ impl KamafeuStudioApp {
 
         let markers = self.project.markers.clone();
         let sections = self.project.sections.clone();
+        let total_duration_ms = self
+            .project
+            .parts
+            .iter()
+            .map(|part| {
+                part.position_ms
+                    + part
+                        .notes
+                        .iter()
+                        .map(|note| note.position_ms + note.duration_ms)
+                        .fold(0.0_f64, f64::max)
+            })
+            .chain(
+                self.project
+                    .wave_parts
+                    .iter()
+                    .map(|wave| wave.position_ms + wave.duration_ms.max(30_000.0)),
+            )
+            .fold(0.0_f64, f64::max);
+        let playback_status = crate::gui::piano_roll::TimelinePlaybackStatus {
+            is_rendering: self.render_rx.is_some() || self.direct_playback_rx.is_some(),
+            is_playing: self.piano_roll_state.is_playing,
+            render_progress: self.render_progress,
+            title: &self.render_status_title,
+            message: &self.transport_state.status_message,
+            engine: &self.selected_resampler,
+            total_duration_ms,
+            has_error: self.transport_state.status_message.starts_with("Erro")
+                || self.transport_state.status_message.starts_with("Error"),
+        };
         let active_notes = &mut self.project.parts[part_idx].notes;
 
         // Sync loop state to piano_roll_state
@@ -197,6 +227,7 @@ impl KamafeuStudioApp {
             self.project.time_signature_denominator,
             self.vocal_mode_params.phonemizer_mode,
             self.config.language,
+            playback_status,
             &mut |freq| preview_freq = Some(freq),
             &mut || before_changed = true,
             &mut || note_changed = true,
@@ -349,7 +380,7 @@ impl KamafeuStudioApp {
         }
         if self.piano_roll_state.request_clear_selected_render_cache {
             self.piano_roll_state.request_clear_selected_render_cache = false;
-            let was_previewing = self.audio_player.is_playing() || self.render_rx.is_some();
+            let was_previewing = self.transport_is_active();
             self.pause_audio();
             crate::renderer::resampler_cache::clear_memory_cache();
             let _ = crate::renderer::resampler_cache::clear_disk_cache();

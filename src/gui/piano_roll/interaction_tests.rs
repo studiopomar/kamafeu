@@ -33,6 +33,7 @@ fn frame(
                     4,
                     crate::phonemizer::PhonemizerMode::default(),
                     crate::config::AppLanguage::PtBr,
+                    TimelinePlaybackStatus::default(),
                     &mut |_| {},
                     &mut || before += 1,
                     &mut || changed += 1,
@@ -174,7 +175,7 @@ fn selecting_note_keeps_scroll_and_double_click_edits_lyric() {
 }
 
 #[test]
-fn radar_click_moves_the_full_piano_roll_while_playing() {
+fn radar_click_scrubs_the_shared_playhead_while_playing() {
     let ctx = egui::Context::default();
     let mut state = PianoRollState {
         is_playing: true,
@@ -207,7 +208,8 @@ fn radar_click_moves_the_full_piano_roll_while_playing() {
         crate::gui::types::AutoScrollMode::Off
     );
     assert!(state.horizontal_follow_user_override);
-    assert!(state.horizontal_scroll_offset > 8_000.0);
+    assert!(state.playhead_ms > 50_000.0);
+    assert!(state.horizontal_scroll_offset < 8_000.0);
 }
 
 #[test]

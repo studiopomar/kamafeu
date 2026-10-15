@@ -562,6 +562,8 @@ impl KamafeuStudioApp {
                                     self.config.workflow.ui_animations_enabled;
                                 self.piano_roll_state.ui_animation_speed =
                                     self.config.workflow.ui_animation_speed;
+                                self.piano_roll_state.ui_reduce_motion =
+                                    self.config.workflow.reduce_motion;
                                 self.humanize_dialog_state.humanize_params.timing_jitter_ms =
                                     self.config.workflow.humanize_timing_jitter_ms;
                                 self.humanize_dialog_state.humanize_params.pitch_cents_jitter =

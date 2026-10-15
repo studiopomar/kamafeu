@@ -8,5 +8,5 @@ pub use resampler_driver::{
 };
 pub use wavtool_driver::{
     ExternalWavtoolDriver, GalapagosWavtoolDriver, KnownWavtool, NativeWavtoolDriver,
-    OpenUtauWavtoolDriver, WavtoolArgs, WavtoolDriver, WavtoolYawuDriver,
+    OpenUtauWavtoolDriver, WavtoolArgs, WavtoolDriver, WavtoolMixStrategy, WavtoolYawuDriver,
 };

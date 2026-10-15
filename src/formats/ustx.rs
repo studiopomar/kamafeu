@@ -693,7 +693,13 @@ impl UstxFormat {
         name: &str,
     ) -> Option<crate::phonemizer::PhonemizerMode> {
         let n = name.to_lowercase();
-        if n.contains("japanesecvvc")
+        if n.contains("japanesepresamp") {
+            // JapanesePresampPhonemizer is OpenUtau's configurable Japanese
+            // VCV phonemizer. Presamp changes alias selection through the
+            // voicebank configuration, but it still needs the VCV pipeline;
+            // treating it as `None` loses aliases such as `o を` and `a わ`.
+            Some(crate::phonemizer::PhonemizerMode::VCV)
+        } else if n.contains("japanesecvvc")
             || n.contains("ja cvvc")
             || (n.contains("cvvc") && n.contains("ja"))
         {
@@ -943,6 +949,16 @@ impl UstxFormat {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn imports_japanese_presamp_as_vcv_instead_of_raw_mode() {
+        assert_eq!(
+            UstxFormat::openutau_name_to_phonemizer_mode(
+                "OpenUtau.Plugin.Builtin.JapanesePresampPhonemizer"
+            ),
+            Some(crate::phonemizer::PhonemizerMode::VCV)
+        );
+    }
 
     #[test]
     fn test_ustx_roundtrip() {

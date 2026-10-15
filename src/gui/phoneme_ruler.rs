@@ -1355,7 +1355,7 @@ pub fn draw_phoneme_ruler(
                                 }
                                 if let Some(alias) = alias_for_copaiba {
                                     pill_resp.context_menu(|ui| {
-                                        if ui.button("Editar no Copaiba NEO").clicked() {
+                                        if ui.button("Editar no Copaiba").clicked() {
                                             on_edit_oto_alias(alias, &pitch_for_copaiba);
                                             ui.close_menu();
                                         }
@@ -1771,7 +1771,7 @@ pub fn draw_phoneme_ruler(
                         }
                         if let Some(alias) = alias_for_copaiba {
                             pill_resp.context_menu(|ui| {
-                                if ui.button("Editar no Copaiba NEO").clicked() {
+                                if ui.button("Editar no Copaiba").clicked() {
                                     on_edit_oto_alias(alias, &pitch_for_copaiba);
                                     ui.close_menu();
                                 }

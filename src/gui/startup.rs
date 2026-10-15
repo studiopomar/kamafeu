@@ -229,6 +229,7 @@ impl KamafeuStudioApp {
                 state.default_note_decay = config.workflow.default_note_decay.clamp(0.0, 100.0);
                 state.ui_animations_enabled = config.workflow.ui_animations_enabled;
                 state.ui_animation_speed = config.workflow.ui_animation_speed.clamp(0.25, 4.0);
+                state.ui_reduce_motion = config.workflow.reduce_motion;
                 state.active_tool = match config.workflow.default_edit_tool.as_str() {
                     "Pencil" => crate::gui::types::EditTool::Pencil,
                     "PitchDraw" => crate::gui::types::EditTool::PitchDraw,
@@ -288,7 +289,10 @@ impl KamafeuStudioApp {
 
             playback_start_instant: None,
             playback_start_offset_ms: 0.0,
+            playback_duration_ms: 0.0,
             render_rx: None,
+            direct_playback_rx: None,
+            direct_playback_active: false,
             progressive_playback_started: false,
             progressive_startup_audio: Vec::new(),
             playback_chunk_buffer: Default::default(),

@@ -3,6 +3,19 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
 use std::time::Duration;
 
+/// How the track renderer should place segments produced by a wavtool.
+///
+/// `OpenUtauConvergence` deliberately names the compatibility contract rather
+/// than a generic phase-align flag: it measures phase on the raw resampler
+/// output and shifts the complete, already-enveloped segment during the
+/// ordered merge, matching OpenUtau's SharpWavtool pipeline.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum WavtoolMixStrategy {
+    Plain,
+    LegacyPhaseAligned,
+    OpenUtauConvergence,
+}
+
 #[derive(Debug, Clone)]
 pub struct WavtoolArgs {
     pub output_wav: PathBuf,
@@ -34,6 +47,18 @@ pub trait WavtoolDriver: Send + Sync {
     /// must never be shifted again by the track mixer.
     fn phase_alignment(&self) -> bool {
         false
+    }
+    /// Additive replacement for the historical boolean capability. Existing
+    /// drivers that only override `phase_alignment` keep the legacy behavior.
+    fn mix_strategy(&self) -> WavtoolMixStrategy {
+        if self.phase_alignment() {
+            WavtoolMixStrategy::LegacyPhaseAligned
+        } else {
+            WavtoolMixStrategy::Plain
+        }
+    }
+    fn envelope_curve_name(&self) -> &'static str {
+        "driver-defined"
     }
     fn phrase_executable(&self) -> Option<PathBuf> {
         None
@@ -357,6 +382,10 @@ impl WavtoolDriver for NativeWavtoolDriver {
         "Andromeda (Alternativo)"
     }
 
+    fn envelope_curve_name(&self) -> &'static str {
+        "cosine"
+    }
+
     fn process_note(
         &self,
         note_samples: &mut [f32],
@@ -394,6 +423,14 @@ impl WavtoolDriver for GalapagosWavtoolDriver {
         true
     }
 
+    fn mix_strategy(&self) -> WavtoolMixStrategy {
+        WavtoolMixStrategy::OpenUtauConvergence
+    }
+
+    fn envelope_curve_name(&self) -> &'static str {
+        "linear-openutau"
+    }
+
     fn process_note(
         &self,
         note_samples: &mut [f32],
@@ -405,8 +442,10 @@ impl WavtoolDriver for GalapagosWavtoolDriver {
             return Ok(());
         }
 
-        // Apply Galapagos equal-power cosine S-curve envelope.
-        UtauEnvelope::apply_points_cosine(
+        // OpenUtau SharpWavtool applies piecewise-linear gain between the five
+        // resolved envelope points. Phase analysis is performed by the track
+        // renderer before this method mutates the samples.
+        UtauEnvelope::apply_points(
             note_samples,
             sample_rate,
             args.sample_time_zero_ms,
@@ -469,6 +508,10 @@ impl WavtoolDriver for WavtoolYawuDriver {
         } else {
             "wavtool-yawu (externo)"
         }
+    }
+
+    fn envelope_curve_name(&self) -> &'static str {
+        "linear"
     }
 
     fn consumes_skip_over(&self) -> bool {
@@ -804,10 +847,15 @@ mod tests {
     }
 
     #[test]
-    fn galapagos_driver_applies_smooth_s_curve_envelope() {
+    fn galapagos_driver_applies_openutau_linear_envelope() {
         let driver = GalapagosWavtoolDriver;
         assert_eq!(driver.name(), "Galapagos Convergence (Nativo)");
         assert!(driver.phase_alignment());
+        assert_eq!(
+            driver.mix_strategy(),
+            WavtoolMixStrategy::OpenUtauConvergence
+        );
+        assert_eq!(driver.envelope_curve_name(), "linear-openutau");
         assert!(!driver.consumes_skip_over());
         assert!(driver.phrase_executable().is_none());
 
@@ -818,6 +866,8 @@ mod tests {
             .unwrap();
 
         assert_eq!(samples[0], 0.0);
+        assert!((samples[25] - 0.5).abs() < 1e-6);
+        assert!((samples[50] - 1.0).abs() < 1e-6);
         assert!(samples[100] > 0.9);
         assert!(samples.iter().all(|s| s.is_finite()));
     }
@@ -825,6 +875,8 @@ mod tests {
     #[test]
     fn native_wavtool_uses_a_soft_curve_at_phoneme_attacks() {
         let driver = NativeWavtoolDriver;
+        assert_eq!(driver.mix_strategy(), WavtoolMixStrategy::Plain);
+        assert_eq!(driver.envelope_curve_name(), "cosine");
         let mut samples = vec![1.0f32; 1_000];
         let args = yawu_test_args(1_000.0, 0.0);
 

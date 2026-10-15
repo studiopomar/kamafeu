@@ -1,6 +1,7 @@
 //! Application state and module entry points. Frame orchestration lives in `app_frame`.
 
 mod activity;
+pub(crate) mod animation;
 mod app_frame;
 pub mod arrangement;
 mod audio_export;
@@ -123,7 +124,10 @@ pub struct KamafeuStudioApp {
     custom_wavtool_path: Option<PathBuf>,
     playback_start_instant: Option<Instant>,
     playback_start_offset_ms: f64,
+    playback_duration_ms: f64,
     render_rx: Option<std::sync::mpsc::Receiver<ProgressiveChunk>>,
+    direct_playback_rx: Option<std::sync::mpsc::Receiver<RenderedAudio>>,
+    direct_playback_active: bool,
     render_cancel: Option<Arc<AtomicBool>>,
     retry_project: Option<UProject>,
     retry_voicebank: Option<Voicebank>,
