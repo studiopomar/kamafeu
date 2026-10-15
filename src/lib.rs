@@ -96,14 +96,6 @@ pub async fn start() -> Result<(), JsValue> {
         .dyn_into::<web_sys::HtmlCanvasElement>()
         .map_err(|_| JsValue::from_str("Element is not a canvas"))?;
 
-    if let Some(callback) =
-        js_sys::Reflect::get(&js_sys::global(), &JsValue::from_str("kamafeuWasmStarted"))
-            .ok()
-            .and_then(|value| value.dyn_into::<js_sys::Function>().ok())
-    {
-        let _ = callback.call0(&JsValue::NULL);
-    }
-
     eframe::WebRunner::new()
         .start(
             canvas,
@@ -112,6 +104,18 @@ pub async fn start() -> Result<(), JsValue> {
         )
         .await
         .map_err(|e| JsValue::from_str(&format!("Failed to start eframe: {e:?}")))?;
+
+    // Only dismiss the loading screen after the graphics backend and the
+    // first app runner have actually started. If WebGL is unavailable, the
+    // rejected promise must remain visible to the HTML fallback instead of
+    // leaving a blank canvas behind.
+    if let Some(callback) =
+        js_sys::Reflect::get(&js_sys::global(), &JsValue::from_str("kamafeuWasmStarted"))
+            .ok()
+            .and_then(|value| value.dyn_into::<js_sys::Function>().ok())
+    {
+        let _ = callback.call0(&JsValue::NULL);
+    }
 
     Ok(())
 }

@@ -56,6 +56,10 @@ jobs:
           
           # Copy website landing page and assets into dist/
           cp -r site/* dist/
+          # The Web route is nested one level below the landing page, so it
+          # needs its own copy of the favicon and other local assets.
+          mkdir -p dist/web/assets
+          cp -r site/assets/* dist/web/assets/
 
       - name: Upload GitHub Pages artifact
         uses: actions/upload-pages-artifact@v3

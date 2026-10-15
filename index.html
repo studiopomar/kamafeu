@@ -201,7 +201,12 @@
     });
 
     window.addEventListener("unhandledrejection", (event) => {
-      showLoadingError("O módulo WASM encontrou um erro ao iniciar.\n" + event.reason);
+      const reason = String(event.reason || "");
+      if (reason.includes("WebGL isn't supported")) {
+        showLoadingError("O navegador não disponibilizou WebGL para o editor.\nAtive a aceleração gráfica ou tente outro navegador.");
+      } else {
+        showLoadingError("O módulo WASM encontrou um erro ao iniciar.\n" + reason);
+      }
     });
 
     // Monitor when egui takes over canvas rendering to fade out the splash screen
