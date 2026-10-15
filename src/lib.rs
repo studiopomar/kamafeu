@@ -5,7 +5,6 @@
     clippy::collapsible_if,
     dependency_on_unit_never_type_fallback,
     bindings_with_variant_name,
-    float_literal_f32_fallback,
     unreachable_code
 )]
 #![allow(unknown_lints)]

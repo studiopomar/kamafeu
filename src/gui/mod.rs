@@ -13,6 +13,7 @@ mod engine_setup;
 pub mod fonts;
 mod format_actions;
 pub mod fx_rack_dialog;
+mod fx_rack_ui;
 pub mod history;
 pub mod humanize_dialog;
 pub mod i18n;

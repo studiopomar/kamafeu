@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 84" role="img" aria-label="Chorus modulation">
+  <rect width="240" height="84" rx="8" fill="#111918"/>
+  <path d="M8 42 C32 12 56 72 80 42 S128 12 152 42 S200 72 232 42" fill="none" stroke="#70d9df" stroke-width="3"/>
+  <path d="M8 48 C32 18 56 78 80 48 S128 18 152 48 S200 78 232 48" fill="none" stroke="#75e2a0" stroke-width="2" opacity=".7"/>
+</svg>

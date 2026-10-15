@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 84" role="img" aria-label="Equalizer curve">
+  <rect width="240" height="84" rx="8" fill="#111918"/>
+  <path d="M8 66H232M8 43H232M8 20H232" stroke="#34514b" stroke-width="1"/>
+  <path d="M8 57 C34 57 35 54 52 55 S73 64 91 57 S111 35 127 39 S146 52 160 44 S177 20 192 27 S213 42 232 20" fill="none" stroke="#75e2a0" stroke-width="3"/>
+  <circle cx="127" cy="39" r="4" fill="#ff735f"/>
+</svg>

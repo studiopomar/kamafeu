@@ -590,10 +590,11 @@ impl KamafeuStudioApp {
             &mut self.project.wave_parts,
             &mut self.active_track_index,
             &mut self.piano_roll_state.playhead_ms,
-            self.piano_roll_state.px_per_ms,
+            &mut self.piano_roll_state.px_per_ms,
             self.transport_state.bpm,
             &mut self.piano_roll_state.arrangement_horizontal_scroll_offset,
             &mut self.piano_roll_state.arrangement_vertical_scroll_offset,
+            &mut self.piano_roll_state.horizontal_follow_user_override,
             &mut self.fx_rack_dialog_state,
             self.config.language,
         );

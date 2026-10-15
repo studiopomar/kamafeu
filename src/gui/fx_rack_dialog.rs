@@ -4,6 +4,7 @@ use crate::gui::theme::ThemeConfig;
 use crate::project::model::UTrack;
 use eframe::egui::{self, Frame, RichText};
 
+#[allow(dead_code)]
 fn fx_knob(
     ui: &mut egui::Ui,
     value: &mut f32,
@@ -53,6 +54,7 @@ fn fx_knob(
 pub struct FxRackDialogState {
     pub is_open: bool,
     pub target_track: Option<usize>, // None = Master FX, Some(idx) = Track FX
+    pub selected_module: u8,
 }
 
 impl Default for FxRackDialogState {
@@ -60,6 +62,7 @@ impl Default for FxRackDialogState {
         Self {
             is_open: false,
             target_track: None,
+            selected_module: 0,
         }
     }
 }
@@ -115,6 +118,7 @@ pub fn draw_fx_rack_dialog(
         None => master_fx_config.clone(),
     };
     let initial_fx = working_fx.clone();
+    let initial_target = state.target_track;
 
     ctx.show_viewport_immediate(
         egui::ViewportId::from_hash_of("fx_rack_native_viewport"),
@@ -130,7 +134,7 @@ pub fn draw_fx_rack_dialog(
                         .inner_margin(egui::Margin::same(12.0)),
                 )
                 .show(ctx, |ui| {
-                    render_fx_rack_ui(
+                    crate::gui::fx_rack_ui::render_fx_rack_ui(
                         ui,
                         lang,
                         theme,
@@ -148,7 +152,7 @@ pub fn draw_fx_rack_dialog(
         },
     );
 
-    if working_fx != initial_fx {
+    if state.target_track == initial_target && working_fx != initial_fx {
         match state.target_track {
             Some(idx) => {
                 if let Some(track) = tracks.get_mut(idx) {
@@ -168,6 +172,7 @@ pub fn draw_fx_rack_dialog(
 }
 
 #[allow(clippy::too_many_arguments)]
+#[allow(dead_code)]
 fn render_fx_rack_ui(
     ui: &mut egui::Ui,
     lang: AppLanguage,

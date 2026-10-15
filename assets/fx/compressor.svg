@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 84" role="img" aria-label="Compressor envelope">
+  <rect width="240" height="84" rx="8" fill="#111918"/>
+  <path d="M8 66H232M8 20V66" stroke="#34514b" stroke-width="1"/>
+  <path d="M10 63 L48 59 L76 46 L103 25 L132 31 L160 41 L190 48 L230 52" fill="none" stroke="#ff735f" stroke-width="3"/>
+  <path d="M10 63 L48 59 L76 52 L103 43 L132 45 L160 50 L190 54 L230 56" fill="none" stroke="#70d9df" stroke-width="2" stroke-dasharray="4 4"/>
+</svg>

@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 84" role="img" aria-label="Limiter ceiling">
+  <rect width="240" height="84" rx="8" fill="#111918"/>
+  <path d="M14 20H226" stroke="#ff735f" stroke-width="2" stroke-dasharray="5 4"/>
+  <path d="M14 66 C38 63 46 28 68 35 S94 58 116 42 S143 29 162 44 S188 55 226 49" fill="none" stroke="#75e2a0" stroke-width="3"/>
+</svg>

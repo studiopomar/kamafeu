@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 84" role="img" aria-label="Stereo delay echoes">
+  <rect width="240" height="84" rx="8" fill="#111918"/>
+  <path d="M10 42H230" stroke="#34514b" stroke-width="1"/>
+  <path d="M12 42 L28 19 L44 42 L62 29 L78 42 L96 34 L112 42 L130 37 L146 42 L164 39 L180 42 L198 40 L214 42" fill="none" stroke="#70d9df" stroke-width="3"/>
+  <path d="M12 50 L28 73 L44 50 L62 63 L78 50 L96 58 L112 50 L130 55 L146 50 L164 53 L180 50 L198 52 L214 50" fill="none" stroke="#ff735f" stroke-width="2" opacity=".8"/>
+</svg>

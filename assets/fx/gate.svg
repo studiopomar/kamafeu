@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 84" role="img" aria-label="Noise gate envelope">
+  <rect width="240" height="84" rx="8" fill="#111918"/>
+  <path d="M8 66H232M8 20V66" stroke="#34514b" stroke-width="1"/>
+  <path d="M10 60 L43 60 L58 29 L78 29 L90 60 L142 60 L155 37 L180 37 L193 60 L230 60" fill="none" stroke="#d7ed73" stroke-width="3"/>
+</svg>

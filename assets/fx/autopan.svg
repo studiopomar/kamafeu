@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 84" role="img" aria-label="Auto pan stereo field">
+  <rect width="240" height="84" rx="8" fill="#111918"/>
+  <path d="M24 42H216M120 16V68" stroke="#34514b" stroke-width="1"/>
+  <path d="M28 42 C48 12 72 12 92 42 S136 72 156 42 S200 12 212 42" fill="none" stroke="#d7ed73" stroke-width="3"/>
+  <circle cx="92" cy="42" r="4" fill="#ff735f"/>
+</svg>

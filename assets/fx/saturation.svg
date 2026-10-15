@@ -1,0 +1,5 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 240 84" role="img" aria-label="Saturation curve">
+  <rect width="240" height="84" rx="8" fill="#111918"/>
+  <path d="M16 68L224 16M16 16L224 68" stroke="#34514b" stroke-width="1"/>
+  <path d="M20 66 C58 63 70 48 94 39 S139 28 160 24 S198 20 220 18" fill="none" stroke="#ff735f" stroke-width="3"/>
+</svg>

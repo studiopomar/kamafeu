@@ -117,10 +117,11 @@ pub fn draw_arrangement_view(
     wave_parts: &mut Vec<UWavePart>,
     active_track_index: &mut usize,
     playhead_ms: &mut f64,
-    px_per_ms: f32,
+    px_per_ms: &mut f32,
     bpm: f64,
     horizontal_scroll_offset: &mut f32,
     vertical_scroll_offset: &mut f32,
+    horizontal_follow_user_override: &mut bool,
     fx_rack_dialog_state: &mut crate::gui::fx_rack_dialog::FxRackDialogState,
     lang: crate::config::AppLanguage,
 ) -> bool {
@@ -252,9 +253,41 @@ pub fn draw_arrangement_view(
                 .size(11.0)
                 .color(Color32::from_rgb(0, 255, 157)),
             );
+
+            ui.separator();
+            ui.label(
+                egui::RichText::new(lang.tr("Zoom", "Zoom"))
+                    .size(9.5)
+                    .color(theme.text_muted_c32()),
+            );
+            if ui.small_button("−").on_hover_text(lang.tr("Afastar timeline", "Zoom out timeline")).clicked() {
+                *px_per_ms = (*px_per_ms * 0.82).clamp(0.01, 0.5);
+            }
+            ui.add(
+                egui::Slider::new(px_per_ms, 0.01..=0.5)
+                    .show_value(false)
+                    .clamping(egui::SliderClamping::Always),
+            )
+            .on_hover_text(lang.tr("Arraste para alterar o zoom", "Drag to change timeline zoom"));
+            if ui.small_button("+").on_hover_text(lang.tr("Aproximar timeline", "Zoom in timeline")).clicked() {
+                *px_per_ms = (*px_per_ms * 1.22).clamp(0.01, 0.5);
+            }
+            if ui.small_button(lang.tr("Ajustar", "Fit")).on_hover_text(lang.tr("Zoom confortável para a sessão", "Comfortable session zoom")).clicked() {
+                *px_per_ms = 0.08;
+            }
+            let mut follow = !*horizontal_follow_user_override;
+            if ui
+                .checkbox(&mut follow, lang.tr("Seguir", "Follow"))
+                .on_hover_text(lang.tr("Acompanhar o playhead durante a reprodução", "Follow the playhead during playback"))
+                .changed()
+            {
+                *horizontal_follow_user_override = !follow;
+            }
         });
 
         ui.add_space(4.0);
+
+        let px_per_ms = (*px_per_ms).clamp(0.01, 0.5);
 
         if *active_track_index >= tracks.len() && !tracks.is_empty() {
             *active_track_index = 0;
@@ -449,6 +482,15 @@ pub fn draw_arrangement_view(
                                     Rounding::same(4.0),
                                     card_stroke,
                                 );
+                                if idx == 0 {
+                                    ui.painter().text(
+                                        card_rect.min + Vec2::new(12.0, 6.0),
+                                        egui::Align2::LEFT_TOP,
+                                        lang.tr("FAIXAS / MIXER", "TRACKS / MIXER"),
+                                        egui::FontId::monospace(8.0),
+                                        theme.text_muted_c32(),
+                                    );
+                                }
 
                                 let color_badge = match idx % 4 {
                                     0 => theme.note_fill_c32(),
@@ -859,6 +901,14 @@ pub fn draw_arrangement_view(
                                                 ruler_rect,
                                                 Rounding::ZERO,
                                                 Stroke::new(1.0_f32, theme.grid_line_bar_c32()),
+                                            );
+                                            let playhead_seconds = (*playhead_ms / 1000.0).max(0.0);
+                                            ui.painter().text(
+                                                ruler_rect.right_top() + Vec2::new(-8.0, 3.0),
+                                                egui::Align2::RIGHT_TOP,
+                                                format!("{:02}:{:05.2}", (playhead_seconds / 60.0) as u32, playhead_seconds % 60.0),
+                                                egui::FontId::monospace(9.0),
+                                                theme.playhead_c32(),
                                             );
 
                                             let beat_ms = 60000.0 / bpm;

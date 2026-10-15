@@ -46,6 +46,7 @@ fn configured_export_scope(export: &crate::config::ExportDefaultsConfig) -> Expo
 
 impl KamafeuStudioApp {
     pub fn new(cc: &eframe::CreationContext<'_>) -> Self {
+        egui_extras::install_image_loaders(&cc.egui_ctx);
         setup_custom_fonts(&cc.egui_ctx);
 
         let (config, config_error) = match KamafeuConfig::load() {
