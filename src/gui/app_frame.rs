@@ -15,20 +15,23 @@ impl eframe::App for KamafeuStudioApp {
                 )
             });
         if primary_pressed || secondary_pressed || middle_pressed {
-            eprintln!(
-                "[UI][Pointer] button={} position={:?} modifiers=shift:{} ctrl:{} alt:{} command:{}",
-                if primary_pressed {
-                    "primary"
-                } else if secondary_pressed {
-                    "secondary"
-                } else {
-                    "middle"
-                },
-                pointer_pos,
-                modifiers.shift,
-                modifiers.ctrl,
-                modifiers.alt,
-                modifiers.command,
+            crate::terminal_log::debug(
+                "UI",
+                format!(
+                    "pointer={} position={:?} modifiers=shift:{} ctrl:{} alt:{} command:{}",
+                    if primary_pressed {
+                        "primary"
+                    } else if secondary_pressed {
+                        "secondary"
+                    } else {
+                        "middle"
+                    },
+                    pointer_pos,
+                    modifiers.shift,
+                    modifiers.ctrl,
+                    modifiers.alt,
+                    modifiers.command,
+                ),
             );
         }
 
@@ -56,7 +59,7 @@ impl eframe::App for KamafeuStudioApp {
                 .collect()
         });
         for event in key_events {
-            eprintln!("[UI][Keyboard] {event}");
+            crate::terminal_log::debug("UI", format!("keyboard {event}"));
         }
 
         if ctx.input(|input| input.viewport().close_requested())

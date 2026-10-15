@@ -176,7 +176,7 @@ fn rpc_worker_loop(rx: Receiver<RpcMessage>) {
             last_connect_attempt = Instant::now();
             if let Ok(mut new_client) = DiscordIpcClient::new(DISCORD_APP_ID) {
                 if new_client.connect().is_ok() {
-                    eprintln!("[DiscordRPC] connected");
+                    crate::terminal_log::info("Discord", "conectado");
                     client = Some(new_client);
                     activity_needs_update = true;
                 }
@@ -204,7 +204,10 @@ fn rpc_worker_loop(rx: Receiver<RpcMessage>) {
                     }
 
                     if c.set_activity(activity_builder).is_err() {
-                        eprintln!("[DiscordRPC] activity update failed; reconnecting");
+                        crate::terminal_log::warn(
+                            "Discord",
+                            "falha ao atualizar atividade; reconectando",
+                        );
                         let _ = c.close();
                         client = None;
                     } else {

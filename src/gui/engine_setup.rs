@@ -75,6 +75,7 @@ impl KamafeuStudioApp {
         self.config.layout.is_maximized = self.piano_roll_state.is_maximized;
         self.config.layout.px_per_ms = self.piano_roll_state.px_per_ms;
         self.config.layout.row_height = self.piano_roll_state.row_height;
+        self.config.layout.arrangement_height = self.piano_roll_state.arrangement_height;
         self.config.dsp.render_threads = self.render_threads;
         self.config.dsp.default_resampler = self.selected_resampler.clone();
         self.config.dsp.default_wavtool = self.selected_wavtool.clone();

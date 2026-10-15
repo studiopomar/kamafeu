@@ -519,10 +519,7 @@ fn real_main() -> Result<(), Box<dyn std::error::Error>> {
 
     match command {
         None | Some(Commands::Gui) => {
-            println!(
-                "Starting Kamafeu Studio v{} (Calafate)...",
-                kamafeu::APP_VERSION
-            );
+            kamafeu::terminal_log::banner(kamafeu::APP_VERSION, kamafeu::APP_CODENAME);
             kamafeu::drivers::process::prewarm_wine_in_background();
             let icon_data = kamafeu::gui::window_icon::load_window_icon().ok();
             let mut viewport = eframe::egui::ViewportBuilder::default()
@@ -540,9 +537,12 @@ fn real_main() -> Result<(), Box<dyn std::error::Error>> {
 
             let renderer = requested_renderer();
             let fallback_viewport = viewport.clone();
-            eprintln!(
-                "[Graphics] renderer={renderer:?} hardware_acceleration=preferred vsync=true platform={} window=1280x750",
-                std::env::consts::OS
+            kamafeu::terminal_log::info(
+                "Graphics",
+                format!(
+                    "renderer={renderer:?} acceleration=preferred vsync=true platform={} window=1280x750",
+                    std::env::consts::OS
+                ),
             );
             let options = NativeOptions {
                 viewport,
@@ -560,8 +560,9 @@ fn real_main() -> Result<(), Box<dyn std::error::Error>> {
             );
             if let Err(error) = result {
                 if renderer == Renderer::Wgpu {
-                    eprintln!(
-                        "[Graphics] WGPU não pôde iniciar ({error}); tentando fallback Glow/OpenGL"
+                    kamafeu::terminal_log::warn(
+                        "Graphics",
+                        format!("WGPU não pôde iniciar ({error}); tentando fallback Glow/OpenGL"),
                     );
                     let fallback_options = NativeOptions {
                         viewport: fallback_viewport,
@@ -1308,21 +1309,28 @@ fn requested_renderer() -> Renderer {
         .as_str()
     {
         "glow" | "opengl" => {
-            eprintln!("[Graphics] KAMAFEU_RENDERER=glow: usando OpenGL via Glow");
+            kamafeu::terminal_log::info(
+                "Graphics",
+                "backend=Glow / OpenGL (KAMAFEU_RENDERER=glow)",
+            );
             Renderer::Glow
         }
         "wgpu" => {
-            eprintln!("[Graphics] KAMAFEU_RENDERER=wgpu: usando WGPU");
+            kamafeu::terminal_log::info("Graphics", "backend=WGPU (KAMAFEU_RENDERER=wgpu)");
             Renderer::Wgpu
         }
         "auto" => {
-            eprintln!(
-                "[Graphics] modo automático: WGPU selecionará Metal, DirectX, Vulkan ou OpenGL"
+            kamafeu::terminal_log::info(
+                "Graphics",
+                "backend=auto; WGPU selecionará Metal, DirectX, Vulkan ou OpenGL",
             );
             Renderer::Wgpu
         }
         other => {
-            eprintln!("[Graphics] backend desconhecido '{other}', usando modo automático WGPU");
+            kamafeu::terminal_log::warn(
+                "Graphics",
+                format!("backend desconhecido '{other}'; usando modo automático WGPU"),
+            );
             Renderer::Wgpu
         }
     }

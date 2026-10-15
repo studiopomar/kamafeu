@@ -1,0 +1,19 @@
+{
+  "format": "kamafeu.openutau-compatibility/v1",
+  "upstream": {
+    "project": "OpenUtau",
+    "commit": "13184085f2cee51c174de9ee99163a76ee970e8c",
+    "class": "OpenUtau.Plugin.Builtin.FrenchCMUSphinxPhonemizer"
+  },
+  "voicebank": {
+    "oto": "french_sphinx_oto.ini",
+    "encoding_cases": ["UTF-8", "Shift-JIS"]
+  },
+  "cases": [
+    {
+      "id": "latin-diphone-tail",
+      "phonetic_hints": ["s a n"],
+      "expected_aliases": ["- s", "s a", "a n", "n -"]
+    }
+  ]
+}

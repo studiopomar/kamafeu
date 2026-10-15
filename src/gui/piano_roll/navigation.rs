@@ -160,7 +160,10 @@ pub(crate) fn update_playhead_scroll(
     if !state.is_playing {
         return;
     }
-    if state.horizontal_follow_user_override {
+    if state.horizontal_follow_user_override
+        || state.minimap_navigation_active
+        || state.minimap_drag_scroll_origin.is_some()
+    {
         return;
     }
     let playhead_x = (state.playhead_ms * state.px_per_ms as f64) as f32;

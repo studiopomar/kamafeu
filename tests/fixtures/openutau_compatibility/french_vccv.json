@@ -1,0 +1,19 @@
+{
+  "format": "kamafeu.openutau-compatibility/v1",
+  "upstream": {
+    "project": "OpenUtau",
+    "commit": "13184085f2cee51c174de9ee99163a76ee970e8c",
+    "class": "FrenchVCCVPhonemizer"
+  },
+  "voicebank": {
+    "oto": "french_vccv_oto.ini",
+    "encoding_cases": ["UTF-8", "Shift-JIS"]
+  },
+  "cases": [
+    {
+      "id": "phrase-transition-and-tail",
+      "phonetic_hints": ["b a", "m a"],
+      "expected_aliases": ["- ba", "a m", "ma", "a -"]
+    }
+  ]
+}

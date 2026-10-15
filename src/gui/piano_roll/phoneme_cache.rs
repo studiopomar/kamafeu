@@ -14,6 +14,7 @@ pub(super) fn draw(
         for n in notes.iter() {
             n.timbre.hash(&mut hasher);
             n.voicebank_pitch.hash(&mut hasher);
+            n.phonemizer_override.hash(&mut hasher);
             n.lyric.hash(&mut hasher);
             n.pitch.hash(&mut hasher);
             n.position_ms.to_bits().hash(&mut hasher);

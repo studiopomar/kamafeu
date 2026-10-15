@@ -488,7 +488,12 @@ pub(super) fn draw(
                                 ui.selectable_value(
                                     &mut vocal_mode_params.phonemizer_mode,
                                     mode,
-                                    format!("  {} [{}]", info.name, info.source),
+                                    format!(
+                                        "  {} · {} [{}]",
+                                        info.name,
+                                        mode.author(),
+                                        info.source
+                                    ),
                                 );
                             }
                         });

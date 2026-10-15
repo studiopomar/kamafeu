@@ -568,6 +568,11 @@ impl KamafeuStudioApp {
                 .unwrap_or(0.0);
             let target_l = (amp * 1.0).clamp(0.0, 1.0);
             let target_r = (amp * 0.98).clamp(0.0, 1.0);
+            self.piano_roll_state.update_arrangement_meter(
+                self.project.tracks.len(),
+                self.active_track_index,
+                amp,
+            );
             self.transport_state.vu_level_l =
                 self.transport_state.vu_level_l * 0.65 + target_l * 0.35;
             self.transport_state.vu_level_r =
@@ -595,6 +600,8 @@ impl KamafeuStudioApp {
             self.transport_state.vu_level_r = (self.transport_state.vu_level_r - 0.08).max(0.0);
             self.transport_state.vu_peak_l = (self.transport_state.vu_peak_l - 0.02).max(0.0);
             self.transport_state.vu_peak_r = (self.transport_state.vu_peak_r - 0.02).max(0.0);
+            self.piano_roll_state
+                .decay_arrangement_meters(self.project.tracks.len());
 
             if self.piano_roll_state.is_scrubbing_ruler {
                 ctx.request_repaint();

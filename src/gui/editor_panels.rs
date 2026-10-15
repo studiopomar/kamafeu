@@ -276,7 +276,7 @@ impl KamafeuStudioApp {
             } else {
                 TopBottomPanel::top("arrangement_multitrack_panel")
                     .resizable(true)
-                    .height_range(60.0..=500.0)
+                    .height_range(120.0..=420.0)
                     .default_height(default_arr_h)
                     .frame(Frame::none().fill(bg_panel).stroke(border_stroke))
                     .show(ctx, &mut draw_arrangement);
@@ -351,6 +351,7 @@ impl KamafeuStudioApp {
         let mut reload_singers_flag = false;
         let mut add_singers_dir_flag = false;
         let mut open_folder_picker = false;
+        let phonemizer_before_panel = self.vocal_mode_params.phonemizer_mode;
 
         draw_unified_panel(
             ui,
@@ -407,6 +408,16 @@ impl KamafeuStudioApp {
             &mut |alias| palette_edit_alias = Some(alias.to_string()),
             &mut || selected_ruler_alias_to_edit = selected_ruler_alias.clone(),
         );
+
+        // The phonemizer selector lives in the sidebar, outside the note
+        // editor's project snapshot. Invalidate phoneme previews immediately
+        // when it changes so the next frame cannot keep showing aliases from
+        // the previous family.
+        if self.vocal_mode_params.phonemizer_mode != phonemizer_before_panel {
+            self.piano_roll_state.phoneme_cache_hash = 0;
+            self.piano_roll_state.phoneme_cache.clear();
+            self.piano_roll_state.note_phonemes_cache.clear();
+        }
 
         if project_snapshot_before_panel
             .as_ref()
@@ -555,6 +566,7 @@ impl KamafeuStudioApp {
         // piano-roll navigation explicitly opts out through this override.
         if self.piano_roll_state.is_playing
             && !self.piano_roll_state.horizontal_follow_user_override
+            && self.piano_roll_state.minimap_drag_scroll_origin.is_none()
         {
             self.piano_roll_state.arrangement_horizontal_scroll_offset =
                 self.piano_roll_state.horizontal_scroll_offset;
@@ -595,6 +607,9 @@ impl KamafeuStudioApp {
             &mut self.piano_roll_state.arrangement_horizontal_scroll_offset,
             &mut self.piano_roll_state.arrangement_vertical_scroll_offset,
             &mut self.piano_roll_state.horizontal_follow_user_override,
+            &mut self.piano_roll_state.arrangement_drag_track,
+            &mut self.piano_roll_state.arrangement_track_meters,
+            self.piano_roll_state.is_playing,
             &mut self.fx_rack_dialog_state,
             self.config.language,
         );

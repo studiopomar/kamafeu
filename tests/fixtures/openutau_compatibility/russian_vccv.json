@@ -1,0 +1,19 @@
+{
+  "format": "kamafeu.openutau-compatibility/v1",
+  "upstream": {
+    "project": "OpenUtau",
+    "commit": "13184085f2cee51c174de9ee99163a76ee970e8c",
+    "class": "OpenUtau.Plugin.Builtin.RussianVCCVPhonemizer"
+  },
+  "voicebank": {
+    "oto": "russian_vccv_oto.ini",
+    "encoding_cases": ["UTF-8", "Shift-JIS"]
+  },
+  "cases": [
+    {
+      "id": "space-separated-vccv",
+      "phonetic_hints": ["m a", "n a"],
+      "expected_aliases": ["- ma", "a n", "na", "a -"]
+    }
+  ]
+}

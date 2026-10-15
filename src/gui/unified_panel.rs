@@ -43,7 +43,50 @@ pub fn draw_unified_panel(
     _on_edit_phoneme: &mut dyn FnMut(&str),
     on_edit_selected_ruler_alias: &mut dyn FnMut(),
 ) {
+    let touch_first = cfg!(target_os = "android") || ui.ctx().screen_rect().width() < 1100.0;
+
     ui.vertical(|ui| {
+        Frame::none()
+            .fill(theme.c32_alpha(theme.bg_header, 0.72))
+            .rounding(theme.ui_rounding())
+            .stroke(theme.card_stroke())
+            .inner_margin(egui::Margin::symmetric(8.0, 5.0))
+            .show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    ui.label(
+                        RichText::new(lang.tr("INSPETOR", "INSPECTOR"))
+                            .monospace()
+                            .size(9.0)
+                            .strong()
+                            .color(theme.text_muted_c32()),
+                    );
+                    ui.separator();
+                    let context = if selected_indices.len() > 1 {
+                        format!(
+                            "{} {}",
+                            selected_indices.len(),
+                            lang.tr("notas selecionadas", "notes selected")
+                        )
+                    } else if selected_note_idx.is_some() {
+                        lang.tr("uma nota selecionada", "one note selected")
+                            .to_string()
+                    } else {
+                        lang.tr("nenhuma nota selecionada", "no note selected")
+                            .to_string()
+                    };
+                    ui.label(
+                        RichText::new(context)
+                            .size(if touch_first { 10.5 } else { 9.5 })
+                            .color(if selected_note_idx.is_some() {
+                                theme.accent_c32()
+                            } else {
+                                theme.text_muted_c32()
+                            }),
+                    );
+                });
+            });
+        ui.add_space(5.0);
+
         // --- 1. SEGMENTED TABS HEADER ---
         Frame::none()
             .fill(theme.elevated_surface_c32())
@@ -92,7 +135,10 @@ pub fn draw_unified_panel(
                         .fill(bg)
                         .stroke(stroke)
                         .rounding(theme.ui_rounding())
-                        .min_size(Vec2::new(cols[i].available_width(), 22.0));
+                        .min_size(Vec2::new(
+                            cols[i].available_width(),
+                            if touch_first { 32.0 } else { 24.0 },
+                        ));
 
                         let response = cols[i].add(btn);
                         if is_selected {

@@ -1,3 +1,4 @@
+use crate::gui::piano_roll::state::ArrangementMeterState;
 use crate::gui::theme::ThemeConfig;
 use crate::project::model::{UTrack, UVoicePart, UWavePart};
 use eframe::egui::{self, Color32, Pos2, Rect, Rounding, Stroke, Vec2};
@@ -26,6 +27,67 @@ fn horizontal_gesture_delta(delta: Vec2, shift: bool) -> f32 {
 
 fn move_clip_by_frame_delta(position_ms: f64, delta_x: f32, px_per_ms: f32) -> f64 {
     (position_ms + (delta_x / px_per_ms.max(f32::EPSILON)) as f64).max(0.0)
+}
+
+fn move_track_and_remap_parts(
+    tracks: &mut Vec<UTrack>,
+    parts: &mut [UVoicePart],
+    wave_parts: &mut [UWavePart],
+    meters: &mut Vec<ArrangementMeterState>,
+    active_track_index: &mut usize,
+    from: usize,
+    to: usize,
+) -> bool {
+    if from >= tracks.len() || to >= tracks.len() || from == to {
+        return false;
+    }
+
+    let track = tracks.remove(from);
+    tracks.insert(to, track);
+    if from < meters.len() {
+        let meter = meters.remove(from);
+        meters.insert(to.min(meters.len()), meter);
+    }
+    for part in parts {
+        part.track_index = remap_track_index(part.track_index, from, to);
+    }
+    for wave in wave_parts {
+        wave.track_index = remap_track_index(wave.track_index, from, to);
+    }
+    *active_track_index = remap_track_index(*active_track_index, from, to);
+    true
+}
+
+fn remap_track_index(index: usize, from: usize, to: usize) -> usize {
+    if index == from {
+        return to;
+    }
+    if from < to && (from..=to).contains(&index) {
+        return index.saturating_sub(1);
+    }
+    if to < from && (to..=from).contains(&index) {
+        return index.saturating_add(1);
+    }
+    index
+}
+
+fn audio_part_level(wave: &UWavePart, track: &UTrack, playhead_ms: f64) -> Option<f32> {
+    let duration = wave.duration_ms.max(0.0);
+    if duration <= 0.0
+        || playhead_ms < wave.position_ms
+        || playhead_ms >= wave.position_ms + duration
+    {
+        return None;
+    }
+    let preview = cached_waveform(&wave.file_path)?;
+    let source_ms =
+        (wave.file_offset_ms + playhead_ms - wave.position_ms).clamp(0.0, preview.duration_ms);
+    let bucket = (source_ms / preview.bucket_ms).floor() as usize;
+    let (low, high) = *preview
+        .peaks
+        .get(bucket.min(preview.peaks.len().saturating_sub(1)))?;
+    let linear_gain = 10.0f32.powf(((wave.volume_db + track.volume_db) as f32) / 20.0);
+    Some((low.abs().max(high.abs()) * linear_gain).clamp(0.0, 1.0))
 }
 
 fn cached_waveform(path: &str) -> Option<Arc<WaveformPreview>> {
@@ -122,16 +184,20 @@ pub fn draw_arrangement_view(
     horizontal_scroll_offset: &mut f32,
     vertical_scroll_offset: &mut f32,
     horizontal_follow_user_override: &mut bool,
+    arrangement_drag_track: &mut Option<usize>,
+    arrangement_track_meters: &mut Vec<ArrangementMeterState>,
+    is_playing: bool,
     fx_rack_dialog_state: &mut crate::gui::fx_rack_dialog::FxRackDialogState,
     lang: crate::config::AppLanguage,
 ) -> bool {
     let mut changed = false;
-    let header_width = 220.0f32;
-    let track_height = 64.0f32;
-    let ruler_height = 24.0f32;
+    let header_width = 310.0f32;
+    let track_height = 68.0f32;
+    let ruler_height = 26.0f32;
+    arrangement_track_meters.resize(tracks.len(), ArrangementMeterState::default());
 
     ui.vertical(|ui| {
-        ui.horizontal(|ui| {
+        ui.horizontal_wrapped(|ui| {
             ui.heading(
                 egui::RichText::new(lang.tr("Arrangement (Faixas)", "Arrangement (Tracks)"))
                     .strong()
@@ -139,6 +205,26 @@ pub fn draw_arrangement_view(
                     .color(theme.text_primary_c32()),
             );
             ui.add_space(10.0);
+            ui.label(
+                egui::RichText::new(format!(
+                    "{} {}  •  {}",
+                    tracks.len(),
+                    lang.tr("faixas", "tracks"),
+                    if is_playing {
+                        lang.tr("TOCANDO", "PLAYING")
+                    } else {
+                        lang.tr("PRONTO", "READY")
+                    }
+                ))
+                .monospace()
+                .size(9.0)
+                .color(if is_playing {
+                    theme.playhead_c32()
+                } else {
+                    theme.text_muted_c32()
+                }),
+            );
+            ui.add_space(4.0);
 
             if ui
                 .button(
@@ -220,6 +306,9 @@ pub fn draw_arrangement_view(
                 let del_idx = *active_track_index;
                 if del_idx < tracks.len() {
                     tracks.remove(del_idx);
+                    if del_idx < arrangement_track_meters.len() {
+                        arrangement_track_meters.remove(del_idx);
+                    }
                     parts.retain(|p| p.track_index != del_idx);
                     wave_parts.retain(|w| w.track_index != del_idx);
                     for p in parts.iter_mut() {
@@ -337,6 +426,7 @@ pub fn draw_arrangement_view(
             });
         }
 
+        let mut reorder_target: Option<usize> = None;
         let vertical_scroll_output = egui::ScrollArea::vertical()
             .id_salt("arrangement_tracks_scroll_v")
             .vertical_scroll_offset(*vertical_scroll_offset)
@@ -366,6 +456,48 @@ pub fn draw_arrangement_view(
 
                                 if card_resp.clicked() {
                                     *active_track_index = idx;
+                                }
+                                if card_resp.hovered() && arrangement_drag_track.is_some() {
+                                    reorder_target = Some(idx);
+                                }
+
+                                let grip_rect = Rect::from_min_size(
+                                    card_rect.min + Vec2::new(7.0, 10.0 + track_y_offset),
+                                    Vec2::new(15.0, track_height - 18.0),
+                                );
+                                let grip_resp = ui.allocate_rect(grip_rect, egui::Sense::drag());
+                                if grip_resp.drag_started() {
+                                    *arrangement_drag_track = Some(idx);
+                                    *active_track_index = idx;
+                                }
+                                if grip_resp.hovered() || arrangement_drag_track == &Some(idx) {
+                                    ui.painter().rect_filled(
+                                        grip_rect,
+                                        Rounding::same(3.0),
+                                        theme.accent_soft_c32(),
+                                    );
+                                }
+                                for line in 0..3 {
+                                    let y = grip_rect.center().y - 5.0 + line as f32 * 5.0;
+                                    ui.painter().line_segment(
+                                        [Pos2::new(grip_rect.min.x + 3.0, y), Pos2::new(grip_rect.max.x - 3.0, y)],
+                                        Stroke::new(1.0_f32, theme.text_muted_c32()),
+                                    );
+                                }
+                                grip_resp.on_hover_text(lang.tr(
+                                    "Arraste para reorganizar a faixa",
+                                    "Drag to reorder this track",
+                                ));
+
+                                if is_active {
+                                    ui.painter().rect_filled(
+                                        Rect::from_min_max(
+                                            Pos2::new(card_rect.min.x, card_rect.min.y + track_y_offset),
+                                            Pos2::new(card_rect.min.x + 3.0, card_rect.max.y),
+                                        ),
+                                        Rounding::same(1.0),
+                                        theme.accent_c32(),
+                                    );
                                 }
 
                                 card_resp.context_menu(|ui| {
@@ -482,6 +614,27 @@ pub fn draw_arrangement_view(
                                     Rounding::same(4.0),
                                     card_stroke,
                                 );
+                                if arrangement_drag_track.is_some_and(|from| from != idx)
+                                    && reorder_target == Some(idx)
+                                {
+                                    let marker_y = if arrangement_drag_track
+                                        .as_ref()
+                                        .copied()
+                                        .unwrap_or(idx)
+                                        < idx
+                                    {
+                                        card_rect.max.y
+                                    } else {
+                                        card_rect.min.y
+                                    };
+                                    ui.painter().line_segment(
+                                        [
+                                            Pos2::new(card_rect.min.x + 8.0, marker_y),
+                                            Pos2::new(card_rect.max.x - 8.0, marker_y),
+                                        ],
+                                        Stroke::new(2.0_f32, theme.playhead_c32()),
+                                    );
+                                }
                                 if idx == 0 {
                                     ui.painter().text(
                                         card_rect.min + Vec2::new(12.0, 6.0),
@@ -501,8 +654,8 @@ pub fn draw_arrangement_view(
 
                                 ui.painter().rect_filled(
                                     Rect::from_min_size(
-                                        card_rect.min + Vec2::new(4.0, 4.0 + track_y_offset),
-                                        Vec2::new(6.0, track_height - 8.0),
+                                        card_rect.min + Vec2::new(25.0, 4.0 + track_y_offset),
+                                        Vec2::new(5.0, track_height - 8.0),
                                     ),
                                     Rounding::same(2.0),
                                     color_badge,
@@ -582,7 +735,7 @@ pub fn draw_arrangement_view(
                                     ui.painter().rect_stroke(
                                         fx_rect,
                                         Rounding::same(3.0),
-                                        Stroke::new(1.0, Color32::WHITE),
+                                        Stroke::new(1.0_f32, Color32::WHITE),
                                     );
                                 }
                                 ui.painter().text(
@@ -603,15 +756,15 @@ pub fn draw_arrangement_view(
                                 });
 
                                 let name_rect = Rect::from_min_size(
-                                    card_rect.min + Vec2::new(16.0, 4.0 + track_y_offset),
-                                    Vec2::new(110.0, 18.0),
+                                    card_rect.min + Vec2::new(34.0, 4.0 + track_y_offset),
+                                    Vec2::new(92.0, 18.0),
                                 );
                                 ui.allocate_new_ui(
                                     egui::UiBuilder::new().max_rect(name_rect),
                                     |ui| {
                                         let name_resp = ui.add(
                                             egui::TextEdit::singleline(&mut track.name)
-                                                .desired_width(110.0)
+                                                .desired_width(92.0)
                                                 .font(egui::FontId::proportional(11.0)),
                                         );
                                         if name_resp.changed() {
@@ -620,8 +773,20 @@ pub fn draw_arrangement_view(
                                     },
                                 );
 
+                                ui.painter().text(
+                                    card_rect.min + Vec2::new(34.0, 21.0 + track_y_offset),
+                                    egui::Align2::LEFT_TOP,
+                                    if track.singer.is_empty() {
+                                        lang.tr("Sem cantor", "No singer")
+                                    } else {
+                                        &track.singer
+                                    },
+                                    egui::FontId::proportional(9.0),
+                                    theme.text_muted_c32(),
+                                );
+
                                 let vol_rect = Rect::from_min_size(
-                                    card_rect.min + Vec2::new(16.0, 24.0 + track_y_offset),
+                                    card_rect.min + Vec2::new(28.0, 34.0 + track_y_offset),
                                     Vec2::new(190.0, 14.0),
                                 );
                                 ui.allocate_new_ui(
@@ -676,6 +841,53 @@ pub fn draw_arrangement_view(
                                             }
                                         });
                                     },
+                                );
+
+                                let source_level = if is_playing {
+                                    wave_parts
+                                        .iter()
+                                        .filter(|wave| wave.track_index == idx)
+                                        .filter_map(|wave| audio_part_level(wave, track, *playhead_ms))
+                                        .fold(0.0f32, f32::max)
+                                } else {
+                                    0.0
+                                };
+                                let meter = arrangement_track_meters
+                                    .get(idx)
+                                    .copied()
+                                    .unwrap_or_default();
+                                let level = source_level.max(meter.level).clamp(0.0, 1.0);
+                                let meter_rect = Rect::from_min_size(
+                                    card_rect.min + Vec2::new(222.0, 54.0 + track_y_offset),
+                                    Vec2::new(62.0, 8.0),
+                                );
+                                ui.painter().rect_filled(
+                                    meter_rect,
+                                    Rounding::same(2.0),
+                                    theme.bg_header_c32(),
+                                );
+                                if level > 0.001 {
+                                    let fill = Rect::from_min_max(
+                                        meter_rect.min,
+                                        Pos2::new(meter_rect.min.x + meter_rect.width() * level, meter_rect.max.y),
+                                    );
+                                    ui.painter().rect_filled(
+                                        fill,
+                                        Rounding::same(2.0),
+                                        if level > 0.9 { theme.danger_c32() } else { theme.accent_c32() },
+                                    );
+                                }
+                                let peak_x = meter_rect.min.x + meter_rect.width() * meter.peak.clamp(0.0, 1.0);
+                                ui.painter().line_segment(
+                                    [Pos2::new(peak_x, meter_rect.min.y), Pos2::new(peak_x, meter_rect.max.y)],
+                                        Stroke::new(1.0_f32, theme.playhead_c32()),
+                                );
+                                ui.painter().text(
+                                    meter_rect.left_top() + Vec2::new(0.0, -11.0),
+                                    egui::Align2::LEFT_TOP,
+                                    if level > 0.001 { format!("{:>3.0}%", level * 100.0) } else { "—".to_string() },
+                                    egui::FontId::monospace(8.0),
+                                    theme.text_muted_c32(),
                                 );
                             });
                         }
@@ -752,6 +964,9 @@ pub fn draw_arrangement_view(
                             HeaderAction::DeleteTrack(del_idx) => {
                                 if del_idx < tracks.len() && tracks.len() > 1 {
                                     tracks.remove(del_idx);
+                                    if del_idx < arrangement_track_meters.len() {
+                                        arrangement_track_meters.remove(del_idx);
+                                    }
                                     parts.retain(|p| p.track_index != del_idx);
                                     wave_parts.retain(|w| w.track_index != del_idx);
                                     for p in parts.iter_mut() {
@@ -1411,7 +1626,7 @@ pub fn draw_arrangement_view(
                                                                 Pos2::new(wave_rect.max.x - 4.0, center_y),
                                                             ],
                                                             Stroke::new(
-                                                                0.5,
+                                                                0.5_f32,
                                                                 Color32::from_rgba_unmultiplied(100, 210, 255, 70),
                                                             ),
                                                         );
@@ -1438,7 +1653,7 @@ pub fn draw_arrangement_view(
                                                             if hi >= lo {
                                                                 ui.painter().line_segment(
                                                                     [Pos2::new(bx, center_y - hi * half_h), Pos2::new(bx, center_y - lo * half_h)],
-                                                                    Stroke::new(1.0, Color32::from_rgb(44, 205, 255)),
+                                                                    Stroke::new(1.0_f32, Color32::from_rgb(44, 205, 255)),
                                                                 );
                                                             }
                                                         }
@@ -1526,13 +1741,36 @@ pub fn draw_arrangement_view(
                 });
             });
         *vertical_scroll_offset = vertical_scroll_output.state.offset.y;
+
+        if ui.input(|input| input.pointer.any_released()) {
+            if let Some(from) = arrangement_drag_track.take() {
+                if let Some(to) = reorder_target {
+                    if move_track_and_remap_parts(
+                        tracks,
+                        parts,
+                        wave_parts,
+                        arrangement_track_meters,
+                        active_track_index,
+                        from,
+                        to,
+                    ) {
+                        changed = true;
+                    }
+                }
+            }
+        }
     });
     changed
 }
 
 #[cfg(test)]
 mod tests {
-    use super::{horizontal_gesture_delta, move_clip_by_frame_delta};
+    use super::{
+        horizontal_gesture_delta, move_clip_by_frame_delta, move_track_and_remap_parts,
+        remap_track_index,
+    };
+    use crate::gui::piano_roll::state::ArrangementMeterState;
+    use crate::project::model::{UTrack, UVoicePart, UWavePart};
     use eframe::egui::Vec2;
 
     #[test]
@@ -1548,5 +1786,85 @@ mod tests {
     fn arrangement_maps_trackpad_and_shift_wheel_to_horizontal_axis() {
         assert_eq!(horizontal_gesture_delta(Vec2::new(12.0, 40.0), false), 12.0);
         assert_eq!(horizontal_gesture_delta(Vec2::new(12.0, 40.0), true), 52.0);
+    }
+
+    #[test]
+    fn moving_a_track_remaps_all_part_indices_and_selection() {
+        let mut tracks = vec![
+            UTrack {
+                name: "A".into(),
+                ..UTrack::default()
+            },
+            UTrack {
+                name: "B".into(),
+                ..UTrack::default()
+            },
+            UTrack {
+                name: "C".into(),
+                ..UTrack::default()
+            },
+        ];
+        let mut parts = vec![UVoicePart::new("part-a", 0), UVoicePart::new("part-c", 2)];
+        let mut waves = vec![UWavePart {
+            name: "audio-b".into(),
+            file_path: String::new(),
+            track_index: 1,
+            position_ms: 0.0,
+            file_offset_ms: 0.0,
+            volume_db: 0.0,
+            duration_ms: 100.0,
+        }];
+        let mut meters = vec![
+            ArrangementMeterState {
+                level: 0.1,
+                peak: 0.2,
+            },
+            ArrangementMeterState {
+                level: 0.3,
+                peak: 0.4,
+            },
+            ArrangementMeterState {
+                level: 0.5,
+                peak: 0.6,
+            },
+        ];
+        let mut active = 0;
+
+        assert!(move_track_and_remap_parts(
+            &mut tracks,
+            &mut parts,
+            &mut waves,
+            &mut meters,
+            &mut active,
+            0,
+            2,
+        ));
+        assert_eq!(
+            tracks
+                .iter()
+                .map(|track| track.name.as_str())
+                .collect::<Vec<_>>(),
+            ["B", "C", "A"]
+        );
+        assert_eq!(
+            parts
+                .iter()
+                .map(|part| part.track_index)
+                .collect::<Vec<_>>(),
+            [2, 1]
+        );
+        assert_eq!(waves[0].track_index, 0);
+        assert_eq!(
+            meters.iter().map(|meter| meter.level).collect::<Vec<_>>(),
+            [0.3, 0.5, 0.1]
+        );
+        assert_eq!(active, 2);
+    }
+
+    #[test]
+    fn remap_track_index_preserves_unrelated_tracks() {
+        assert_eq!(remap_track_index(4, 1, 3), 4);
+        assert_eq!(remap_track_index(2, 1, 3), 1);
+        assert_eq!(remap_track_index(2, 3, 1), 3);
     }
 }

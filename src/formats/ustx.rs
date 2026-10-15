@@ -661,17 +661,93 @@ impl UstxFormat {
             crate::phonemizer::PhonemizerMode::CVVC => {
                 "OpenUtau.Plugin.Builtin.JapaneseCVVCPhonemizer"
             }
+            crate::phonemizer::PhonemizerMode::JapanesePresamp => {
+                "OpenUtau.Plugin.Builtin.JapanesePresampPhonemizer"
+            }
             crate::phonemizer::PhonemizerMode::EnglishArpasing => {
-                "OpenUtau.Plugin.Builtin.EnArpasingPhonemizer"
+                "OpenUtau.Plugin.Builtin.ArpasingPhonemizer"
+            }
+            crate::phonemizer::PhonemizerMode::EnglishArpasingPlus => {
+                "OpenUtau.Plugin.Builtin.ArpasingPlusPhonemizer"
             }
             crate::phonemizer::PhonemizerMode::EnglishVCCV => {
-                "OpenUtau.Plugin.Builtin.EnVCCVPhonemizer"
+                "OpenUtau.Plugin.Builtin.EnglishVCCVPhonemizer"
             }
             crate::phonemizer::PhonemizerMode::EnglishG2P => {
                 "OpenUtau.Plugin.Builtin.EnG2pPhonemizer"
             }
+            crate::phonemizer::PhonemizerMode::EnglishXSampa => {
+                "OpenUtau.Plugin.Builtin.EnXSampaPhonemizer"
+            }
+            crate::phonemizer::PhonemizerMode::EnglishCpV => {
+                "OpenUtau.Plugin.Builtin.EnglishCpVPhonemizer"
+            }
+            crate::phonemizer::PhonemizerMode::FrenchCMUSphinx => {
+                "OpenUtau.Plugin.Builtin.FrenchCMUSphinxPhonemizer"
+            }
+            crate::phonemizer::PhonemizerMode::FrenchCVVC => {
+                "OpenUtau.Plugin.Builtin.FrenchCVVCPhonemizer"
+            }
+            crate::phonemizer::PhonemizerMode::FrenchVCCV => {
+                "OpenUtau.Plugin.Builtin.FrenchVCCVPhonemizer"
+            }
+            crate::phonemizer::PhonemizerMode::RussianCVC => {
+                "OpenUtau.Plugin.Builtin.RussianCVCPhonemizer"
+            }
+            crate::phonemizer::PhonemizerMode::RussianVCCV => {
+                "OpenUtau.Plugin.Builtin.RussianVCCVPhonemizer"
+            }
+            crate::phonemizer::PhonemizerMode::SpanishMakkusan => {
+                "OpenUtau.Plugin.Builtin.SpanishMakkusanPhonemizer"
+            }
+            crate::phonemizer::PhonemizerMode::SpanishSyllable => {
+                "OpenUtau.Plugin.Builtin.SpanishSyllableBasedPhonemizer"
+            }
+            crate::phonemizer::PhonemizerMode::SpanishVCCV => {
+                "OpenUtau.Plugin.Builtin.SpanishVCCVPhonemizer"
+            }
+            crate::phonemizer::PhonemizerMode::ChineseCVV => {
+                "OpenUtau.Plugin.Builtin.ChineseCVVMonophonePhonemizer"
+            }
+            crate::phonemizer::PhonemizerMode::ChineseCVVPlus => {
+                "OpenUtau.Plugin.Builtin.ChineseCVVPlusPhonemizer"
+            }
+            crate::phonemizer::PhonemizerMode::ChineseCVVC => {
+                "OpenUtau.Plugin.Builtin.ChineseCVVCPhonemizer"
+            }
+            crate::phonemizer::PhonemizerMode::ChineseVCV => {
+                "OpenUtau.Plugin.Builtin.ChineseVCVPhonemizer"
+            }
+            crate::phonemizer::PhonemizerMode::CantoneseSyo => {
+                "OpenUtau.Plugin.Builtin.CantoneseSyoPhonemizer"
+            }
+            crate::phonemizer::PhonemizerMode::CantoneseCVVC => {
+                "OpenUtau.Plugin.Builtin.CantoneseCVVCPhonemizer"
+            }
+            crate::phonemizer::PhonemizerMode::KoreanCV => {
+                "OpenUtau.Plugin.Builtin.KoreanCVPhonemizer"
+            }
+            crate::phonemizer::PhonemizerMode::KoreanCVC => {
+                "OpenUtau.Plugin.Builtin.KoreanCVCPhonemizer"
+            }
+            crate::phonemizer::PhonemizerMode::KoreanVCV => {
+                "OpenUtau.Plugin.Builtin.KoreanVCVPhonemizer"
+            }
+            crate::phonemizer::PhonemizerMode::KoreanCVVC
+            | crate::phonemizer::PhonemizerMode::KoreanCVVCStandard => {
+                "OpenUtau.Plugin.Builtin.KoreanCVVCPhonemizer"
+            }
+            crate::phonemizer::PhonemizerMode::KoreanCVCCV => {
+                "OpenUtau.Plugin.Builtin.KoreanCVCCVPhonemizer"
+            }
+            crate::phonemizer::PhonemizerMode::KoreanCBNN => {
+                "OpenUtau.Plugin.Builtin.KoreanCBNNPhonemizer"
+            }
             crate::phonemizer::PhonemizerMode::PortugueseBrapaVCCV => {
                 "OpenUtau.Plugin.Builtin.PortugueseBrapaVCCVPhonemizer"
+            }
+            crate::phonemizer::PhonemizerMode::PortugueseBrazilianCVC => {
+                "OpenUtau.Plugin.Builtin.BrazilianPortugueseCVCPhonemizer"
             }
             crate::phonemizer::PhonemizerMode::PortugueseBrapaCVC => {
                 "OpenUtau.Plugin.Builtin.PortugueseBrapaCVCPhonemizer"
@@ -694,11 +770,10 @@ impl UstxFormat {
     ) -> Option<crate::phonemizer::PhonemizerMode> {
         let n = name.to_lowercase();
         if n.contains("japanesepresamp") {
-            // JapanesePresampPhonemizer is OpenUtau's configurable Japanese
-            // VCV phonemizer. Presamp changes alias selection through the
-            // voicebank configuration, but it still needs the VCV pipeline;
-            // treating it as `None` loses aliases such as `o を` and `a わ`.
-            Some(crate::phonemizer::PhonemizerMode::VCV)
+            // Preserve the concrete OpenUtau family. Presamp changes alias
+            // selection through the voicebank configuration, so collapsing it
+            // to the generic VCV mode would lose the user's selected class.
+            Some(crate::phonemizer::PhonemizerMode::JapanesePresamp)
         } else if n.contains("japanesecvvc")
             || n.contains("ja cvvc")
             || (n.contains("cvvc") && n.contains("ja"))
@@ -714,6 +789,10 @@ impl UstxFormat {
             || (n.contains("basic") && n.contains("ja"))
         {
             Some(crate::phonemizer::PhonemizerMode::BasicCV)
+        } else if n.contains("japanesevccv") {
+            Some(crate::phonemizer::PhonemizerMode::JapanesePresamp)
+        } else if n.contains("brazilianportuguesecvc") || n.contains("pt-br cvc") {
+            Some(crate::phonemizer::PhonemizerMode::PortugueseBrazilianCVC)
         } else if n.contains("portuguesebrapavccv")
             || n.contains("brapa vccv")
             || (n.contains("brapa") && n.contains("vccv"))
@@ -728,12 +807,58 @@ impl UstxFormat {
             Some(crate::phonemizer::PhonemizerMode::PortugueseVCV)
         } else if n.contains("portugueseg2p") || n.contains("pt g2p") {
             Some(crate::phonemizer::PhonemizerMode::PortugueseG2P)
+        } else if n.contains("arpasingplus") || n.contains("en arpa+") {
+            Some(crate::phonemizer::PhonemizerMode::EnglishArpasingPlus)
+        } else if n.contains("enxsampa") || n.contains("x-sampa") || n.contains("en x-sampa") {
+            Some(crate::phonemizer::PhonemizerMode::EnglishXSampa)
+        } else if n.contains("englishcpv") || n.contains("en c+v") {
+            Some(crate::phonemizer::PhonemizerMode::EnglishCpV)
         } else if n.contains("enarpasing") || n.contains("arpasing") || n.contains("arpa") {
             Some(crate::phonemizer::PhonemizerMode::EnglishArpasing)
         } else if n.contains("envccv") || n.contains("en vccv") {
             Some(crate::phonemizer::PhonemizerMode::EnglishVCCV)
         } else if n.contains("eng2p") || n.contains("en g2p") {
             Some(crate::phonemizer::PhonemizerMode::EnglishG2P)
+        } else if n.contains("frenchcmusphinx") || n.contains("fr sphinx") {
+            Some(crate::phonemizer::PhonemizerMode::FrenchCMUSphinx)
+        } else if n.contains("frenchcvvc") || n.contains("fr cvvc") {
+            Some(crate::phonemizer::PhonemizerMode::FrenchCVVC)
+        } else if n.contains("frenchvccv") || n.contains("fr vccv") {
+            Some(crate::phonemizer::PhonemizerMode::FrenchVCCV)
+        } else if n.contains("russiancvc") || n.contains("ru cvc") {
+            Some(crate::phonemizer::PhonemizerMode::RussianCVC)
+        } else if n.contains("russianvccv") || n.contains("ru vccv") {
+            Some(crate::phonemizer::PhonemizerMode::RussianVCCV)
+        } else if n.contains("spanishmakkusan") || n.contains("es makku") {
+            Some(crate::phonemizer::PhonemizerMode::SpanishMakkusan)
+        } else if n.contains("spanishsyllable") || n.contains("es syl") {
+            Some(crate::phonemizer::PhonemizerMode::SpanishSyllable)
+        } else if n.contains("spanishvccv") || n.contains("es vccv") {
+            Some(crate::phonemizer::PhonemizerMode::SpanishVCCV)
+        } else if n.contains("chinesecvvplus") || n.contains("zh cvv+") {
+            Some(crate::phonemizer::PhonemizerMode::ChineseCVVPlus)
+        } else if n.contains("chinesecvvc") || n.contains("zh cvvc") {
+            Some(crate::phonemizer::PhonemizerMode::ChineseCVVC)
+        } else if n.contains("chinesecvv") || n.contains("zh cvv") {
+            Some(crate::phonemizer::PhonemizerMode::ChineseCVV)
+        } else if n.contains("chinesevcv") || n.contains("zh vcv") {
+            Some(crate::phonemizer::PhonemizerMode::ChineseVCV)
+        } else if n.contains("cantonesesyo") || n.contains("zh-yue syo") {
+            Some(crate::phonemizer::PhonemizerMode::CantoneseSyo)
+        } else if n.contains("cantonesecvvc") || n.contains("zh-yue cvvc") {
+            Some(crate::phonemizer::PhonemizerMode::CantoneseCVVC)
+        } else if n.contains("koreancvccv") || n.contains("ko cvccv") {
+            Some(crate::phonemizer::PhonemizerMode::KoreanCVCCV)
+        } else if n.contains("koreancbnn") || n.contains("ko cbnn") {
+            Some(crate::phonemizer::PhonemizerMode::KoreanCBNN)
+        } else if n.contains("koreancvvc") || n.contains("ko cvvc") {
+            Some(crate::phonemizer::PhonemizerMode::KoreanCVVC)
+        } else if n.contains("koreancvc") || n.contains("ko cvc") {
+            Some(crate::phonemizer::PhonemizerMode::KoreanCVC)
+        } else if n.contains("koreanvcv") || n.contains("ko vcv") {
+            Some(crate::phonemizer::PhonemizerMode::KoreanVCV)
+        } else if n.contains("koreancv") || n.contains("ko cv") {
+            Some(crate::phonemizer::PhonemizerMode::KoreanCV)
         } else if n.contains("default") || n.contains("none") || n.contains("raw") {
             Some(crate::phonemizer::PhonemizerMode::None)
         } else {
@@ -951,13 +1076,76 @@ mod tests {
     use super::*;
 
     #[test]
-    fn imports_japanese_presamp_as_vcv_instead_of_raw_mode() {
+    fn imports_japanese_presamp_as_its_native_mode() {
         assert_eq!(
             UstxFormat::openutau_name_to_phonemizer_mode(
                 "OpenUtau.Plugin.Builtin.JapanesePresampPhonemizer"
             ),
-            Some(crate::phonemizer::PhonemizerMode::VCV)
+            Some(crate::phonemizer::PhonemizerMode::JapanesePresamp)
         );
+    }
+
+    #[test]
+    fn preserves_openutau_builtin_phonemizer_contracts() {
+        use crate::phonemizer::PhonemizerMode;
+
+        let cases = [
+            (PhonemizerMode::JapanesePresamp, "JapanesePresampPhonemizer"),
+            (
+                PhonemizerMode::EnglishArpasingPlus,
+                "ArpasingPlusPhonemizer",
+            ),
+            (PhonemizerMode::EnglishXSampa, "EnXSampaPhonemizer"),
+            (PhonemizerMode::EnglishCpV, "EnglishCpVPhonemizer"),
+            (
+                PhonemizerMode::PortugueseBrazilianCVC,
+                "BrazilianPortugueseCVCPhonemizer",
+            ),
+            (PhonemizerMode::FrenchCMUSphinx, "FrenchCMUSphinxPhonemizer"),
+            (PhonemizerMode::FrenchCVVC, "FrenchCVVCPhonemizer"),
+            (PhonemizerMode::FrenchVCCV, "FrenchVCCVPhonemizer"),
+            (PhonemizerMode::RussianCVC, "RussianCVCPhonemizer"),
+            (PhonemizerMode::RussianVCCV, "RussianVCCVPhonemizer"),
+            (PhonemizerMode::SpanishMakkusan, "SpanishMakkusanPhonemizer"),
+            (
+                PhonemizerMode::SpanishSyllable,
+                "SpanishSyllableBasedPhonemizer",
+            ),
+            (PhonemizerMode::SpanishVCCV, "SpanishVCCVPhonemizer"),
+            (PhonemizerMode::ChineseCVV, "ChineseCVVMonophonePhonemizer"),
+            (PhonemizerMode::ChineseCVVPlus, "ChineseCVVPlusPhonemizer"),
+            (PhonemizerMode::ChineseCVVC, "ChineseCVVCPhonemizer"),
+            (PhonemizerMode::ChineseVCV, "ChineseVCVPhonemizer"),
+            (PhonemizerMode::CantoneseSyo, "CantoneseSyoPhonemizer"),
+            (PhonemizerMode::CantoneseCVVC, "CantoneseCVVCPhonemizer"),
+            (PhonemizerMode::KoreanCV, "KoreanCVPhonemizer"),
+            (PhonemizerMode::KoreanCVC, "KoreanCVCPhonemizer"),
+            (PhonemizerMode::KoreanVCV, "KoreanVCVPhonemizer"),
+            (PhonemizerMode::KoreanCVVC, "KoreanCVVCPhonemizer"),
+            (PhonemizerMode::KoreanCVCCV, "KoreanCVCCVPhonemizer"),
+            (PhonemizerMode::KoreanCBNN, "KoreanCBNNPhonemizer"),
+            (PhonemizerMode::KoreanCVVCStandard, "KoreanCVVCPhonemizer"),
+        ];
+
+        for (mode, class_name) in cases {
+            let openutau_name = UstxFormat::phonemizer_mode_to_openutau_name(mode);
+            assert!(
+                openutau_name.ends_with(class_name),
+                "{mode:?} emitted {openutau_name}, expected class {class_name}"
+            );
+            let parsed = UstxFormat::openutau_name_to_phonemizer_mode(openutau_name);
+            if mode != PhonemizerMode::KoreanCVVCStandard {
+                assert_eq!(
+                    parsed,
+                    Some(mode),
+                    "{mode:?} did not round-trip through {openutau_name}"
+                );
+            } else {
+                // OpenUtau uses the same class for the standard Korean CVVC
+                // family; its pronunciation profile is singer/config data.
+                assert_eq!(parsed, Some(PhonemizerMode::KoreanCVVC));
+            }
+        }
     }
 
     #[test]

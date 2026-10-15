@@ -187,11 +187,11 @@ impl TrackRenderer {
             // Keep the complete trace in the terminal even when the GUI also
             // receives progress updates. This is essential for diagnosing
             // missing aliases, timing gaps and external tool failures.
-            eprintln!(
-                "[RenderLog session={render_session_id} elapsed_ms={} progress={:>6.2}% thread={:?}] {msg}",
+            crate::terminal_log::render(
+                render_session_id,
                 render_started.elapsed().as_millis(),
-                (progress.clamp(0.0, 1.0) * 100.0),
-                std::thread::current().id(),
+                progress,
+                msg,
             );
             if let Some(ref cb) = on_progress {
                 cb(progress, msg);

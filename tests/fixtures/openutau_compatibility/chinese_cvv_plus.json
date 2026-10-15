@@ -1,0 +1,21 @@
+{
+  "format": "kamafeu.openutau-compatibility/v1",
+  "upstream": {
+    "project": "OpenUtau",
+    "commit": "13184085f2cee51c174de9ee99163a76ee970e8c",
+    "class": "ChineseCVVPlusPhonemizer"
+  },
+  "voicebank": {
+    "oto": "chinese_cvv_plus_oto.ini",
+    "config": "zhcvvplus.yaml",
+    "encoding_cases": ["UTF-8", "Shift-JIS"]
+  },
+  "cases": [
+    {
+      "id": "comma-hint-and-configured-tail",
+      "phonetic_hints": ["_custom, _custom", null],
+      "notes": ["ma", "duang"],
+      "expected_aliases": ["_custom", "_custom", "duang", "_ang"]
+    }
+  ]
+}

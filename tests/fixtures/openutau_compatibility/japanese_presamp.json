@@ -1,0 +1,21 @@
+{
+  "format": "kamafeu.openutau-compatibility/v1",
+  "upstream": {
+    "project": "OpenUtau",
+    "commit": "13184085f2cee51c174de9ee99163a76ee970e8c",
+    "class": "JapanesePresampPhonemizer"
+  },
+  "voicebank": {
+    "oto": "japanese_presamp_oto.ini",
+    "presamp": "presamp.ini",
+    "encoding_cases": ["UTF-8", "Shift-JIS"]
+  },
+  "cases": [
+    {
+      "id": "presamp_vcv_transition",
+      "mode": "JapanesePresamp",
+      "notes": ["あ", "か"],
+      "expected_aliases": ["- あ", "a か"]
+    }
+  ]
+}

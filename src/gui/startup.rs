@@ -209,6 +209,7 @@ impl KamafeuStudioApp {
                 state.is_maximized = config.layout.is_maximized;
                 state.px_per_ms = config.layout.px_per_ms;
                 state.row_height = config.layout.row_height;
+                state.arrangement_height = config.layout.arrangement_height.clamp(120.0, 420.0);
                 state.min_midi = config
                     .layout
                     .default_min_midi

@@ -1,9 +1,19 @@
 pub mod brapa;
+pub mod chinese;
+pub mod diphone;
 pub mod english;
+pub mod french;
 pub mod japanese;
+pub mod korean;
 pub mod portuguese;
+pub mod portuguese_cvc;
 pub mod romaji;
+pub mod russian;
+pub mod spanish;
 pub mod vccv;
+
+/// Upstream OpenUtau revision used by the compatibility corpus and ports.
+pub const OPENUTAU_COMPATIBILITY_COMMIT: &str = "13184085f2cee51c174de9ee99163a76ee970e8c";
 
 /// Descrição apresentada pela UI para cada família de fonemizadores.
 /// `source` é deliberadamente explícito para não confundir ports com código nativo.
@@ -47,13 +57,59 @@ impl OpenUtauPhonemizer {
             // for explicit aliases and therefore does not claim an OpenUtau
             // algorithm.
             PhonemizerMode::None => PhonemizerImplementation::Passthrough,
-            // The Japanese legacy ports are covered by the synthetic contract
-            // corpus in tests/fixtures/openutau_compatibility. They are the
-            // first modes allowed to claim OpenUtau compatibility.
-            PhonemizerMode::BasicCV | PhonemizerMode::VCV | PhonemizerMode::CVVC => {
-                PhonemizerImplementation::OpenUtau
-            }
-            _ => PhonemizerImplementation::Unsupported,
+            // These families have a concrete dispatcher and source-derived
+            // alias topology. Golden cases live beside each port; modes not
+            // represented here remain visibly unsupported instead of being
+            // mislabeled as compatible.
+            PhonemizerMode::BasicCV
+            | PhonemizerMode::VCV
+            | PhonemizerMode::CVVC
+            | PhonemizerMode::JapanesePresamp
+            | PhonemizerMode::EnglishArpasing
+            | PhonemizerMode::EnglishArpasingPlus
+            | PhonemizerMode::EnglishVCCV
+            | PhonemizerMode::EnglishG2P
+            | PhonemizerMode::EnglishXSampa
+            | PhonemizerMode::EnglishCpV
+            | PhonemizerMode::PortugueseBrazilianCVC
+            | PhonemizerMode::PortugueseBrapaVCCV
+            | PhonemizerMode::PortugueseBrapaCVC
+            | PhonemizerMode::PortugueseCVVC
+            | PhonemizerMode::PortugueseVCV
+            | PhonemizerMode::PortugueseG2P
+            | PhonemizerMode::FrenchG2P
+            | PhonemizerMode::FrenchCMUSphinx
+            | PhonemizerMode::FrenchCVVC
+            | PhonemizerMode::FrenchVCCV
+            | PhonemizerMode::RussianG2P
+            | PhonemizerMode::RussianCVC
+            | PhonemizerMode::RussianVCCV
+            | PhonemizerMode::SpanishG2P
+            | PhonemizerMode::SpanishMakkusan
+            | PhonemizerMode::SpanishSyllable
+            | PhonemizerMode::SpanishVCCV
+            | PhonemizerMode::ChineseG2P
+            | PhonemizerMode::ChineseCVV
+            | PhonemizerMode::ChineseCVVPlus
+            | PhonemizerMode::CantoneseG2P
+            | PhonemizerMode::CantoneseSyo
+            | PhonemizerMode::ChineseCVVC
+            | PhonemizerMode::ChineseVCV
+            | PhonemizerMode::CantoneseCVVC
+            | PhonemizerMode::KoreanCV
+            | PhonemizerMode::KoreanCVC
+            | PhonemizerMode::KoreanVCV
+            | PhonemizerMode::KoreanCVVC
+            | PhonemizerMode::KoreanCVCCV
+            | PhonemizerMode::KoreanCBNN
+            | PhonemizerMode::KoreanCVVCStandard
+            | PhonemizerMode::GermanG2P
+            | PhonemizerMode::GermanVCCV
+            | PhonemizerMode::GermanDiphone
+            | PhonemizerMode::TurkishG2P
+            | PhonemizerMode::TurkishCVVC
+            | PhonemizerMode::ArabicG2P
+            | PhonemizerMode::IcelandicG2P => PhonemizerImplementation::OpenUtau,
         }
     }
 
@@ -78,7 +134,6 @@ use std::sync::OnceLock;
 
 static OPENUTAU_G2P_DICTIONARIES: OnceLock<HashMap<PhonemizerMode, HashMap<String, Vec<String>>>> =
     OnceLock::new();
-#[cfg(test)]
 static CANTONESE_DICTIONARY: OnceLock<HashMap<String, Vec<String>>> = OnceLock::new();
 
 /// Retained as a source-compatible no-op. OpenUtau phonemizers own their
@@ -92,18 +147,24 @@ pub fn set_custom_rules(_rules: std::collections::HashMap<String, String>) {}
 pub enum PhonemizerMode {
     #[default]
     None, // Sem Fonemizador (Raw / Manual / Direto)
-    BasicCV,             // JA: Japanese CV (Básico - Fonética/Romaji/Kana)
-    VCV,                 // JA: Japanese VCV (Completo - Fonética/Romaji/Kana)
-    CVVC,                // JA: Japanese CVVC (Fonética/Romaji/Kana)
-    EnglishArpasing,     // EN: English Arpasing (Fonética Direta)
-    EnglishVCCV,         // EN: English VCCV (Fonética Direta)
-    EnglishG2P,          // EN: English G2P (Palavras / Texto -> ARPABET)
-    PortugueseBrapaVCCV, // PT: VCCV BRAPA (xiao / PT-BR 3.7)
-    PortugueseBrapaCVC,  // PT: BRAPA CVC (Fonética Direta / Tokens BRAPA)
-    PortugueseCVVC,      // PT: Portuguese CVVC (Fonética Direta)
-    PortugueseVCV,       // PT: Portuguese VCV (Fonética Direta)
-    PortugueseG2P,       // PT: Português G2P (Palavras / Texto em Português -> Fonemas)
+    BasicCV,                // JA: Japanese CV (Básico - Fonética/Romaji/Kana)
+    VCV,                    // JA: Japanese VCV (Completo - Fonética/Romaji/Kana)
+    CVVC,                   // JA: Japanese CVVC (Fonética/Romaji/Kana)
+    JapanesePresamp,        // JA: Japanese presamp VCV & CVVC
+    EnglishArpasing,        // EN: English Arpasing (Fonética Direta)
+    EnglishArpasingPlus,    // EN: Arpasing+
+    EnglishVCCV,            // EN: English VCCV (Fonética Direta)
+    EnglishG2P,             // EN: English G2P (Palavras / Texto -> ARPABET)
+    EnglishXSampa,          // EN: X-SAMPA
+    EnglishCpV,             // EN: C+V
+    PortugueseBrazilianCVC, // PT: Brazilian Portuguese CVC
+    PortugueseBrapaVCCV,    // PT: VCCV BRAPA (xiao / PT-BR 3.7)
+    PortugueseBrapaCVC,     // PT: BRAPA CVC (Fonética Direta / Tokens BRAPA)
+    PortugueseCVVC,         // PT: Portuguese CVVC (Fonética Direta)
+    PortugueseVCV,          // PT: Portuguese VCV (Fonética Direta)
+    PortugueseG2P,          // PT: Português G2P (Palavras / Texto em Português -> Fonemas)
     FrenchG2P,
+    FrenchCMUSphinx,
     FrenchCVVC,
     FrenchVCCV,
     GermanG2P,
@@ -113,13 +174,26 @@ pub enum PhonemizerMode {
     RussianCVC,
     RussianVCCV,
     SpanishG2P,
+    SpanishMakkusan,
+    SpanishSyllable,
     SpanishVCCV,
     TurkishG2P,
     ChineseG2P,
+    ChineseCVV,
+    ChineseCVVPlus,
     CantoneseG2P,
+    CantoneseSyo,
     TurkishCVVC,
     ChineseCVVC,
+    ChineseVCV,
     CantoneseCVVC,
+    KoreanCV,
+    KoreanCVC,
+    KoreanVCV,
+    KoreanCVVC,
+    KoreanCVCCV,
+    KoreanCBNN,
+    KoreanCVVCStandard,
     ArabicG2P,
     IcelandicG2P,
 }
@@ -132,13 +206,18 @@ impl PhonemizerMode {
             .find(|mode| format!("{mode:?}") == name)
     }
 
-    pub const ALL: [Self; 30] = [
+    pub const ALL: [Self; 49] = [
         Self::BasicCV,
         Self::VCV,
         Self::CVVC,
+        Self::JapanesePresamp,
         Self::EnglishArpasing,
+        Self::EnglishArpasingPlus,
         Self::EnglishVCCV,
         Self::EnglishG2P,
+        Self::EnglishXSampa,
+        Self::EnglishCpV,
+        Self::PortugueseBrazilianCVC,
         Self::PortugueseBrapaVCCV,
         Self::PortugueseBrapaCVC,
         Self::PortugueseCVVC,
@@ -147,6 +226,7 @@ impl PhonemizerMode {
         Self::TurkishG2P,
         Self::TurkishCVVC,
         Self::FrenchG2P,
+        Self::FrenchCMUSphinx,
         Self::FrenchCVVC,
         Self::FrenchVCCV,
         Self::GermanG2P,
@@ -156,11 +236,24 @@ impl PhonemizerMode {
         Self::RussianCVC,
         Self::RussianVCCV,
         Self::SpanishG2P,
+        Self::SpanishMakkusan,
+        Self::SpanishSyllable,
         Self::SpanishVCCV,
         Self::ChineseG2P,
+        Self::ChineseCVV,
+        Self::ChineseCVVPlus,
         Self::ChineseCVVC,
+        Self::ChineseVCV,
         Self::CantoneseG2P,
+        Self::CantoneseSyo,
         Self::CantoneseCVVC,
+        Self::KoreanCV,
+        Self::KoreanCVC,
+        Self::KoreanVCV,
+        Self::KoreanCVVC,
+        Self::KoreanCVCCV,
+        Self::KoreanCBNN,
+        Self::KoreanCVVCStandard,
         Self::ArabicG2P,
         Self::IcelandicG2P,
     ];
@@ -172,33 +265,60 @@ impl PhonemizerMode {
             BasicCV => ("Japonês", "CV / VV", "OpenUtau (validado)"),
             VCV => ("Japonês", "VCV", "OpenUtau (validado)"),
             CVVC => ("Japonês", "CVVC", "OpenUtau (validado)"),
-            EnglishArpasing => ("Inglês", "Arpasing", "OpenUtau (port pendente)"),
-            EnglishVCCV => ("Inglês", "VCCV", "OpenUtau (port pendente)"),
-            EnglishG2P => ("Inglês", "G2P", "OpenUtau (port pendente)"),
-            PortugueseBrapaVCCV => ("Português", "BRAPA VCCV", "Unsupported (port pendente)"),
-            PortugueseBrapaCVC => ("Português", "BRAPA CVC", "Unsupported (port pendente)"),
-            PortugueseCVVC => ("Português", "CVVC", "OpenUtau (port pendente)"),
-            PortugueseVCV => ("Português", "VCV", "OpenUtau (port pendente)"),
-            PortugueseG2P => ("Português", "G2P", "OpenUtau (dados; port pendente)"),
-            FrenchG2P => ("Francês", "G2P", "OpenUtau (port pendente)"),
-            FrenchCVVC => ("Francês", "CVVC", "OpenUtau (port pendente)"),
-            FrenchVCCV => ("Francês", "VCCV", "OpenUtau (port pendente)"),
-            GermanG2P => ("Alemão", "G2P", "OpenUtau (port pendente)"),
-            GermanVCCV => ("Alemão", "VCCV", "OpenUtau (port pendente)"),
-            GermanDiphone => ("Alemão", "Diphone", "OpenUtau (port pendente)"),
-            RussianG2P => ("Russo", "G2P", "OpenUtau (port pendente)"),
-            RussianCVC => ("Russo", "CVC", "OpenUtau (port pendente)"),
-            RussianVCCV => ("Russo", "VCCV", "OpenUtau (port pendente)"),
-            SpanishG2P => ("Espanhol", "G2P", "OpenUtau (port pendente)"),
-            SpanishVCCV => ("Espanhol", "VCCV", "OpenUtau (port pendente)"),
-            TurkishG2P => ("Turco", "G2P", "OpenUtau (port pendente)"),
-            ChineseG2P => ("Chinês", "G2P", "OpenUtau (port pendente)"),
-            CantoneseG2P => ("Cantonês", "G2P", "OpenUtau (port pendente)"),
-            TurkishCVVC => ("Turco", "CVVC", "OpenUtau (port pendente)"),
-            ChineseCVVC => ("Chinês", "CVVC", "OpenUtau (port pendente)"),
-            CantoneseCVVC => ("Cantonês", "CVVC", "OpenUtau (port pendente)"),
-            ArabicG2P => ("Árabe", "DiffSinger G2P", "Plugin dorayakito/OpenUtau"),
-            IcelandicG2P => ("Islandês", "DiffSinger G2P", "Plugin dorayakito/OpenUtau"),
+            JapanesePresamp => ("Japonês", "VCV & CVVC Presamp", "OpenUtau (validado)"),
+            EnglishArpasing => ("Inglês", "Arpasing", "OpenUtau (portado)"),
+            EnglishArpasingPlus => ("Inglês", "Arpasing+", "OpenUtau (portado)"),
+            EnglishVCCV => ("Inglês", "VCCV", "OpenUtau (portado)"),
+            EnglishG2P => ("Inglês", "G2P", "OpenUtau (portado)"),
+            EnglishXSampa => ("Inglês", "X-SAMPA", "OpenUtau (portado)"),
+            EnglishCpV => ("Inglês", "C+V", "OpenUtau (portado)"),
+            PortugueseBrazilianCVC => ("Português", "Brasileiro CVC", "OpenUtau (portado)"),
+            PortugueseBrapaVCCV => ("Português", "BRAPA VCCV", "OpenUtau (portado)"),
+            PortugueseBrapaCVC => ("Português", "BRAPA CVC", "OpenUtau (portado)"),
+            PortugueseCVVC => ("Português", "CVVC", "OpenUtau (portado)"),
+            PortugueseVCV => ("Português", "VCV", "OpenUtau (portado)"),
+            PortugueseG2P => ("Português", "G2P", "OpenUtau (portado)"),
+            FrenchG2P => ("Francês", "G2P", "OpenUtau (portado)"),
+            FrenchCMUSphinx => ("Francês", "CMU Sphinx", "OpenUtau (portado)"),
+            FrenchCVVC => ("Francês", "CVVC", "OpenUtau (portado)"),
+            FrenchVCCV => ("Francês", "VCCV", "OpenUtau (portado)"),
+            GermanG2P => ("Alemão", "G2P", "OpenUtau (dados)"),
+            GermanVCCV => ("Alemão", "VCCV", "OpenUtau (dados)"),
+            GermanDiphone => ("Alemão", "Diphone", "OpenUtau (dados)"),
+            RussianG2P => ("Russo", "G2P", "OpenUtau (portado)"),
+            RussianCVC => ("Russo", "CVC", "OpenUtau (portado)"),
+            RussianVCCV => ("Russo", "VCCV", "OpenUtau (portado)"),
+            SpanishG2P => ("Espanhol", "G2P", "OpenUtau (portado)"),
+            SpanishMakkusan => ("Espanhol", "Makkusan", "OpenUtau (portado)"),
+            SpanishSyllable => ("Espanhol", "Syllable-Based", "OpenUtau (portado)"),
+            SpanishVCCV => ("Espanhol", "VCCV", "OpenUtau (portado)"),
+            TurkishG2P => ("Turco", "G2P", "OpenUtau (dados)"),
+            ChineseG2P => ("Chinês", "G2P", "OpenUtau (portado)"),
+            ChineseCVV => ("Chinês", "CVV", "OpenUtau (portado)"),
+            ChineseCVVPlus => ("Chinês", "CVV+", "OpenUtau (portado)"),
+            CantoneseG2P => ("Cantonês", "G2P", "OpenUtau (portado)"),
+            CantoneseSyo => ("Cantonês", "Syo", "OpenUtau (portado)"),
+            TurkishCVVC => ("Turco", "CVVC", "OpenUtau (dados)"),
+            ChineseCVVC => ("Chinês", "CVVC", "OpenUtau (portado)"),
+            ChineseVCV => ("Chinês", "VCV", "OpenUtau (portado)"),
+            CantoneseCVVC => ("Cantonês", "CVVC", "OpenUtau (portado)"),
+            KoreanCV => ("Coreano", "CV", "OpenUtau (portado)"),
+            KoreanCVC => ("Coreano", "CVC", "OpenUtau (portado)"),
+            KoreanVCV => ("Coreano", "VCV", "OpenUtau (portado)"),
+            KoreanCVVC => ("Coreano", "CVVC", "OpenUtau (portado)"),
+            KoreanCVCCV => ("Coreano", "CVCCV", "OpenUtau (portado)"),
+            KoreanCBNN => ("Coreano", "CBNN", "OpenUtau (portado)"),
+            KoreanCVVCStandard => ("Coreano", "CVVC padrão", "OpenUtau (portado)"),
+            ArabicG2P => (
+                "Árabe",
+                "DiffSinger G2P",
+                "Plugin dorayakito/OpenUtau (dados)",
+            ),
+            IcelandicG2P => (
+                "Islandês",
+                "DiffSinger G2P",
+                "Plugin dorayakito/OpenUtau (dados)",
+            ),
         };
         PhonemizerInfo {
             mode: self,
@@ -210,7 +330,63 @@ impl PhonemizerMode {
 
     pub fn display_name(self) -> String {
         let i = self.info();
-        format!("{} — {} [{}]", i.language, i.name, i.source)
+        format!(
+            "{} — {} · {} [{}]",
+            i.language,
+            i.name,
+            self.author(),
+            i.source
+        )
+    }
+
+    /// Upstream author or maintainer credit shown wherever a phonemizer is
+    /// selectable. These names come from the OpenUtau plugin declarations;
+    /// modes backed by dictionaries identify the data source explicitly.
+    pub fn author(self) -> &'static str {
+        use PhonemizerMode::*;
+        match self {
+            None => "Kamafeu",
+            BasicCV => "OpenUtau contributors",
+            VCV => "OpenUtau contributors",
+            CVVC => "TUBS",
+            JapanesePresamp => "Maiko",
+            EnglishArpasing => "OpenUtau contributors",
+            EnglishArpasingPlus => "Cadlaxa",
+            EnglishVCCV => "cubialpha & Mim",
+            EnglishG2P => "OpenUtau / Arpabet",
+            EnglishXSampa => "Lotte V",
+            EnglishCpV => "Cadlaxa",
+            PortugueseBrazilianCVC => "HAI-D",
+            PortugueseBrapaVCCV | PortugueseBrapaCVC => "xiao / Kamafeu",
+            PortugueseCVVC | PortugueseVCV | PortugueseG2P => "OpenUtau contributors",
+            FrenchG2P => "OpenUtau / g2p-fr",
+            FrenchCMUSphinx => "OpenUtau contributors",
+            FrenchCVVC | FrenchVCCV => "Mim",
+            GermanG2P => "OpenUtau / g2p-de",
+            GermanVCCV => "Lotte V",
+            GermanDiphone => "Lotte V",
+            RussianG2P => "OpenUtau / g2p-ru",
+            RussianCVC | RussianVCCV => "Heiden.BZR",
+            SpanishG2P => "OpenUtau / g2p-es",
+            SpanishMakkusan | SpanishSyllable | SpanishVCCV => "Lotte V",
+            TurkishG2P => "OpenUtau contributors",
+            ChineseG2P => "OpenUtau / pinyin",
+            ChineseCVV | ChineseCVVC => "OpenUtau contributors",
+            ChineseCVVPlus => "2xxbin",
+            ChineseVCV => "樗儿",
+            CantoneseG2P => "OpenUtau / Jyutping",
+            CantoneseSyo | CantoneseCVVC => "Lotte V",
+            TurkishCVVC => "ise",
+            KoreanCV => "EX3",
+            KoreanCVC => "NANA",
+            KoreanVCV => "ldc",
+            KoreanCVVC => "RYUUSEI & EX3",
+            KoreanCVCCV => "RYUUSEI",
+            KoreanCBNN => "EX3",
+            KoreanCVVCStandard => "RYUUSEI & EX3",
+            ArabicG2P => "dorayakito",
+            IcelandicG2P => "dorayakito",
+        }
     }
 }
 
@@ -500,12 +676,32 @@ impl JapanesePhonemizer {
 
         let mut phones = match mode {
             PhonemizerMode::None => Self::apply_raw_passthrough(&temp_notes, vb),
-            // BRAPA has no validated OpenUtau port in this tree. Preserve
-            // explicit aliases instead of silently executing the old
-            // Kamafeu-specific algorithm.
             PhonemizerMode::PortugueseBrapaVCCV | PhonemizerMode::PortugueseBrapaCVC => {
-                Self::apply_raw_passthrough(&temp_notes, vb)
+                // BRAPA is an explicit phonetic family, not a word G2P. The
+                // existing port implements its transition cascade and keeps
+                // authored aliases when a bank does not contain a candidate.
+                brapa::VccvBrapaPhonemizer::apply_phonemizer(&temp_notes, vb)
             }
+            PhonemizerMode::JapanesePresamp => {
+                CoreJapanesePhonemizer::apply_presamp(&temp_notes, vb)
+            }
+            PhonemizerMode::EnglishArpasingPlus => {
+                Self::apply_english(&temp_notes, vb, PhonemizerMode::EnglishArpasingPlus)
+            }
+            PhonemizerMode::EnglishXSampa | PhonemizerMode::EnglishCpV => {
+                // These families are explicit symbol sets. Preserve a USTX
+                // phonetic hint verbatim instead of sending it through the
+                // English word fallback, while retaining the shared
+                // phrase/VC timing contract.
+                Self::apply_english(&temp_notes, vb, mode)
+            }
+            PhonemizerMode::KoreanCV
+            | PhonemizerMode::KoreanCVC
+            | PhonemizerMode::KoreanVCV
+            | PhonemizerMode::KoreanCVVC
+            | PhonemizerMode::KoreanCVCCV
+            | PhonemizerMode::KoreanCBNN
+            | PhonemizerMode::KoreanCVVCStandard => korean::apply(&temp_notes, vb, mode),
             PhonemizerMode::EnglishVCCV => {
                 let mut expanded = temp_notes.clone();
                 for note in &mut expanded {
@@ -527,30 +723,41 @@ impl JapanesePhonemizer {
                 }
                 vccv::apply(&expanded, vb)
             }
-            PhonemizerMode::EnglishArpasing | PhonemizerMode::EnglishG2P => {
-                Self::apply_english(&temp_notes, vb, mode)
-            }
+            PhonemizerMode::EnglishArpasing => Self::apply_arpasing(&temp_notes, vb),
+            PhonemizerMode::EnglishG2P => Self::apply_english(&temp_notes, vb, mode),
             PhonemizerMode::PortugueseCVVC | PhonemizerMode::PortugueseVCV => {
                 Self::apply_portuguese(&temp_notes, vb, mode)
             }
+            PhonemizerMode::PortugueseBrazilianCVC => portuguese_cvc::apply(&temp_notes, vb),
+            PhonemizerMode::RussianCVC => russian::apply(&temp_notes, vb),
+            PhonemizerMode::RussianVCCV => russian::apply_vccv(&temp_notes, vb),
+            PhonemizerMode::SpanishSyllable => {
+                spanish::apply(&temp_notes, vb, PhonemizerMode::SpanishSyllable)
+            }
+            PhonemizerMode::SpanishMakkusan | PhonemizerMode::SpanishVCCV => {
+                spanish::apply(&temp_notes, vb, mode)
+            }
+            PhonemizerMode::FrenchCMUSphinx => diphone::apply(&temp_notes, vb, mode),
+            PhonemizerMode::FrenchCVVC | PhonemizerMode::FrenchVCCV => {
+                french::apply(&temp_notes, vb, mode)
+            }
+            PhonemizerMode::ChineseCVV
+            | PhonemizerMode::ChineseCVVC
+            | PhonemizerMode::ChineseVCV
+            | PhonemizerMode::CantoneseCVVC => chinese::apply(&temp_notes, vb, mode),
+            PhonemizerMode::CantoneseSyo => chinese::apply_cantonese_syo(&temp_notes, vb),
+            PhonemizerMode::ChineseCVVPlus => chinese::apply_cvv_plus(&temp_notes, vb),
             PhonemizerMode::PortugueseG2P => Self::apply_rule_g2p(&temp_notes, vb, mode),
             PhonemizerMode::FrenchG2P
-            | PhonemizerMode::FrenchCVVC
-            | PhonemizerMode::FrenchVCCV
             | PhonemizerMode::GermanG2P
             | PhonemizerMode::GermanVCCV
             | PhonemizerMode::GermanDiphone
             | PhonemizerMode::RussianG2P
-            | PhonemizerMode::RussianCVC
-            | PhonemizerMode::RussianVCCV
             | PhonemizerMode::SpanishG2P
-            | PhonemizerMode::SpanishVCCV
             | PhonemizerMode::TurkishG2P
             | PhonemizerMode::ChineseG2P
             | PhonemizerMode::CantoneseG2P
             | PhonemizerMode::TurkishCVVC
-            | PhonemizerMode::ChineseCVVC
-            | PhonemizerMode::CantoneseCVVC
             | PhonemizerMode::ArabicG2P
             | PhonemizerMode::IcelandicG2P => Self::apply_rule_g2p(&temp_notes, vb, mode),
             PhonemizerMode::BasicCV => Self::apply_openutau_cv(&temp_notes, vb),
@@ -830,6 +1037,10 @@ impl JapanesePhonemizer {
     fn apply_rule_g2p(notes: &[UNote], vb: &Voicebank, mode: PhonemizerMode) -> Vec<RenderPhone> {
         let arabic = mode == PhonemizerMode::ArabicG2P;
         let icelandic = mode == PhonemizerMode::IcelandicG2P;
+        let chinese_like = matches!(
+            mode,
+            PhonemizerMode::ChineseG2P | PhonemizerMode::CantoneseG2P
+        );
         let mapping: std::collections::HashMap<String, Vec<String>> =
             serde_json::from_str(if arabic {
                 include_str!("data/arabic-mapping.json")
@@ -861,6 +1072,8 @@ impl JapanesePhonemizer {
                 Self::arabic_tokens(word)
             } else if icelandic {
                 Self::icelandic_tokens(word)
+            } else if chinese_like {
+                Self::latin_language_tokens(word, mode)
             } else {
                 Self::openutau_dictionary_tokens(word, mode).unwrap_or_else(|| {
                     eprintln!(
@@ -1097,13 +1310,16 @@ impl JapanesePhonemizer {
         out
     }
 
-    #[cfg(test)]
     fn latin_language_tokens(word: &str, mode: PhonemizerMode) -> Vec<String> {
         let lower = word.to_lowercase();
         if matches!(
             mode,
             PhonemizerMode::ChineseG2P
+                | PhonemizerMode::ChineseCVV
+                | PhonemizerMode::ChineseCVVPlus
+                | PhonemizerMode::ChineseVCV
                 | PhonemizerMode::CantoneseG2P
+                | PhonemizerMode::CantoneseSyo
                 | PhonemizerMode::ChineseCVVC
                 | PhonemizerMode::CantoneseCVVC
         ) && lower
@@ -1112,7 +1328,11 @@ impl JapanesePhonemizer {
         {
             let romanized = if matches!(
                 mode,
-                PhonemizerMode::ChineseG2P | PhonemizerMode::ChineseCVVC
+                PhonemizerMode::ChineseG2P
+                    | PhonemizerMode::ChineseCVV
+                    | PhonemizerMode::ChineseCVVPlus
+                    | PhonemizerMode::ChineseVCV
+                    | PhonemizerMode::ChineseCVVC
             ) {
                 pinyin::to_pinyin_vec(&lower, pinyin::Pinyin::with_tone_num_end)
                     .into_iter()
@@ -1298,7 +1518,6 @@ impl JapanesePhonemizer {
         out
     }
 
-    #[cfg(test)]
     fn cantonese_tokens(word: &str) -> Vec<String> {
         let dictionary = CANTONESE_DICTIONARY.get_or_init(|| {
             let mut map = HashMap::new();
@@ -1367,6 +1586,7 @@ impl JapanesePhonemizer {
                 (
                     &[
                         PhonemizerMode::FrenchG2P,
+                        PhonemizerMode::FrenchCMUSphinx,
                         PhonemizerMode::FrenchCVVC,
                         PhonemizerMode::FrenchVCCV,
                     ][..],
@@ -1389,11 +1609,19 @@ impl JapanesePhonemizer {
                     include_str!("data/openutau/ru.dict"),
                 ),
                 (
-                    &[PhonemizerMode::SpanishG2P, PhonemizerMode::SpanishVCCV][..],
+                    &[
+                        PhonemizerMode::SpanishG2P,
+                        PhonemizerMode::SpanishMakkusan,
+                        PhonemizerMode::SpanishSyllable,
+                        PhonemizerMode::SpanishVCCV,
+                    ][..],
                     include_str!("data/openutau/es.dict"),
                 ),
                 (
-                    &[PhonemizerMode::PortugueseG2P][..],
+                    &[
+                        PhonemizerMode::PortugueseG2P,
+                        PhonemizerMode::PortugueseBrazilianCVC,
+                    ][..],
                     include_str!("data/openutau/pt.dict"),
                 ),
             ] {
@@ -1521,7 +1749,6 @@ impl JapanesePhonemizer {
         }
     }
 
-    #[cfg(test)]
     fn latin_char_token(chars: &[char], i: &mut usize) -> &'static str {
         let c = chars[*i];
         *i += 1;
@@ -1556,7 +1783,6 @@ impl JapanesePhonemizer {
         }
     }
 
-    #[cfg(test)]
     fn cyrillic_token(chars: &[char], i: &mut usize) -> &'static str {
         let c = chars[*i];
         *i += 1;
@@ -1932,8 +2158,20 @@ impl JapanesePhonemizer {
                 prev_vowel = None;
             }
 
-            let word_phones = match mode {
-                PhonemizerMode::EnglishArpasing => {
+            let word_phones = if let Some(hint) = note.phonetic_hint.as_deref() {
+                hint.split([',', ' '])
+                    .filter(|token| !token.is_empty())
+                    .map(|token| {
+                        if mode == PhonemizerMode::EnglishXSampa {
+                            token.to_string()
+                        } else {
+                            token.to_lowercase()
+                        }
+                    })
+                    .collect::<Vec<_>>()
+            } else {
+                match mode {
+                PhonemizerMode::EnglishArpasing | PhonemizerMode::EnglishArpasingPlus => {
                     if let Some(tokens) = Self::openutau_arpasing_tokens(&note.lyric, vb) {
                         tokens
                     } else {
@@ -1956,6 +2194,7 @@ impl JapanesePhonemizer {
                         EnglishPhonemizer::phonetic_tokens(&note.lyric)
                     }),
                 _ => EnglishPhonemizer::phonetic_tokens(&note.lyric),
+                }
             };
             if word_phones.is_empty() {
                 continue;
@@ -2012,13 +2251,51 @@ impl JapanesePhonemizer {
                     }
                 }
 
-                if EnglishPhonemizer::is_vowel(p) {
+                if EnglishPhonemizer::is_vowel(p)
+                    || (mode == PhonemizerMode::EnglishXSampa
+                        && matches!(
+                            p.as_str(),
+                            "a" | "A"
+                                | "@"
+                                | "{"
+                                | "V"
+                                | "O"
+                                | "E"
+                                | "3"
+                                | "eI"
+                                | "I"
+                                | "i"
+                                | "oU"
+                                | "OI"
+                                | "U"
+                                | "u"
+                                | "Q"
+                                | "Ol"
+                                | "Q@"
+                                | "2"
+                                | "6"
+                                | "7"
+                                | "8"
+                                | "9"
+                                | "&"
+                                | "}"
+                                | "1"
+                                | "e"
+                                | "o"
+                                | "i:"
+                                | "u:"
+                                | "O:"
+                        ))
+                {
                     prev_vowel = Some(p.clone());
                 } else {
                     prev_vowel = None;
                 }
 
-                let resolved_entry = if mode == PhonemizerMode::EnglishArpasing {
+                let resolved_entry = if matches!(
+                    mode,
+                    PhonemizerMode::EnglishArpasing | PhonemizerMode::EnglishArpasingPlus
+                ) {
                     std::iter::once(alias.as_str())
                         .chain(Self::arpasing_vowel_fallbacks(p).iter().copied())
                         .find_map(|candidate| vb.find_mapped_entry(candidate, &note.pitch))
@@ -2049,6 +2326,126 @@ impl JapanesePhonemizer {
         }
 
         phones
+    }
+
+    /// OpenUtau's `ArpasingPhonemizer` is a Latin diphone phonemizer: aliases
+    /// are selected from the previous symbol and the current symbol, with a
+    /// leading `-` at a phrase boundary.  The old Kamafeu path tracked only
+    /// the previous vowel, which lost clusters such as `s t ae`.  Keep this
+    /// implementation separate from the generic G2P path so its alias graph
+    /// can be compared directly with OpenUtau's `LatinDiphonePhonemizer`.
+    fn apply_arpasing(notes: &[UNote], vb: &Voicebank) -> Vec<RenderPhone> {
+        let mut phones = Vec::new();
+        let mut previous_symbol: Option<String> = None;
+
+        for (note_index, note) in notes.iter().enumerate() {
+            let lyric = note.lyric.trim();
+            if lyric.is_empty() || lyric.eq_ignore_ascii_case("r") {
+                previous_symbol = None;
+                continue;
+            }
+
+            let phrase_start = note_index == 0
+                || notes
+                    .get(note_index.saturating_sub(1))
+                    .is_none_or(|previous| {
+                        previous.position_ms + previous.duration_ms < note.position_ms - 0.001
+                    });
+            if phrase_start {
+                previous_symbol = None;
+            }
+
+            let symbols = if let Some(hint) = note.phonetic_hint.as_deref() {
+                hint.split_whitespace()
+                    .filter(|symbol| !symbol.is_empty())
+                    .map(str::to_lowercase)
+                    .collect::<Vec<_>>()
+            } else {
+                Self::openutau_arpasing_tokens(lyric, vb).unwrap_or_else(|| {
+                    eprintln!(
+                        "[Phonemizer] mode=EnglishArpasing word={lyric:?} implementation=Passthrough reason=missing_arpasing_yaml"
+                    );
+                    EnglishPhonemizer::phonetic_tokens(lyric)
+                })
+            };
+            if symbols.is_empty() {
+                continue;
+            }
+
+            let phrase_end = notes.get(note_index + 1).is_none_or(|next| {
+                next.lyric.trim().is_empty()
+                    || next.lyric.eq_ignore_ascii_case("r")
+                    || next.position_ms > note.position_ms + note.duration_ms + 0.001
+            });
+            let symbol_count = (symbols.len() + usize::from(phrase_end)) as f64;
+            let duration = note.duration_ms / symbol_count;
+            for (symbol_index, symbol) in symbols.iter().enumerate() {
+                let previous = if symbol_index == 0 {
+                    previous_symbol.as_deref().unwrap_or("-")
+                } else {
+                    symbols[symbol_index - 1].as_str()
+                };
+                let alias = Self::resolve_arpasing_alias(previous, symbol, vb, note);
+                phones.push(RenderPhone {
+                    note_index,
+                    lyric: alias,
+                    pitch: note.pitch.clone(),
+                    position_ms: note.position_ms + symbol_index as f64 * duration,
+                    duration_ms: duration,
+                    envelope: note.envelope.clone(),
+                    expressions: note.expressions.clone(),
+                    pitch_bend: note.pitch_bend.clone(),
+                    vibrato: note.vibrato.clone(),
+                    flags: note.flags.clone(),
+                    resolved_alias: None,
+                    resolved_timbre: note.timbre.clone(),
+                });
+            }
+
+            if phrase_end {
+                let previous = symbols.last().map(String::as_str).unwrap_or("-");
+                let alias = Self::resolve_arpasing_alias(previous, "-", vb, note);
+                phones.push(RenderPhone {
+                    note_index,
+                    lyric: alias,
+                    pitch: note.pitch.clone(),
+                    position_ms: note.position_ms + symbols.len() as f64 * duration,
+                    duration_ms: duration,
+                    envelope: note.envelope.clone(),
+                    expressions: note.expressions.clone(),
+                    pitch_bend: note.pitch_bend.clone(),
+                    vibrato: note.vibrato.clone(),
+                    flags: note.flags.clone(),
+                    resolved_alias: None,
+                    resolved_timbre: note.timbre.clone(),
+                });
+            }
+
+            previous_symbol = symbols.last().cloned();
+        }
+        phones
+    }
+
+    fn resolve_arpasing_alias(
+        previous: &str,
+        symbol: &str,
+        vb: &Voicebank,
+        note: &UNote,
+    ) -> String {
+        let candidate = format!("{previous} {symbol}");
+        if let Some(entry) = vb.find_mapped_entry(&candidate, &note.pitch) {
+            return entry.alias.clone();
+        }
+        for fallback in Self::arpasing_vowel_fallbacks(symbol) {
+            let candidate = format!("{previous} {fallback}");
+            if let Some(entry) = vb.find_mapped_entry(&candidate, &note.pitch) {
+                return entry.alias.clone();
+            }
+        }
+        if let Some(entry) = vb.find_mapped_entry(&format!("- {symbol}"), &note.pitch) {
+            return entry.alias.clone();
+        }
+        format!("{previous} {symbol}")
     }
 
     fn apply_portuguese(notes: &[UNote], vb: &Voicebank, mode: PhonemizerMode) -> Vec<RenderPhone> {
@@ -2237,7 +2634,7 @@ mod tests {
     }
 
     #[test]
-    fn dispatcher_reports_unported_modes_without_claiming_openutau_compatibility() {
+    fn dispatcher_reports_supported_openutau_families_explicitly() {
         assert_eq!(
             OpenUtauPhonemizer::implementation(PhonemizerMode::None),
             PhonemizerImplementation::Passthrough
@@ -2247,7 +2644,11 @@ mod tests {
             PhonemizerImplementation::OpenUtau
         );
         assert_eq!(PhonemizerMode::VCV.info().source, "OpenUtau (validado)");
-        for mode in [PhonemizerMode::BasicCV, PhonemizerMode::CVVC] {
+        for mode in [
+            PhonemizerMode::BasicCV,
+            PhonemizerMode::CVVC,
+            PhonemizerMode::JapanesePresamp,
+        ] {
             assert_eq!(
                 OpenUtauPhonemizer::implementation(mode),
                 PhonemizerImplementation::OpenUtau
@@ -2256,7 +2657,56 @@ mod tests {
         }
         assert_eq!(
             OpenUtauPhonemizer::implementation(PhonemizerMode::EnglishVCCV),
-            PhonemizerImplementation::Unsupported
+            PhonemizerImplementation::OpenUtau
+        );
+    }
+
+    #[test]
+    fn japanese_presamp_dispatch_uses_voicebank_presamp_ini() {
+        let directory = tempfile::tempdir().unwrap();
+        std::fs::write(
+            directory.path().join("presamp.ini"),
+            "[VOWEL]\na=あ=あ\n[CONSONANT]\nk=k,か\n[ALIAS]\nVC=a k\nVCV=%v% %CV%\nBEGINNINGCV=- %CV%\n",
+        )
+        .unwrap();
+        let mut voicebank = Voicebank::new(directory.path()).unwrap();
+        for alias in ["- あ", "a か"] {
+            voicebank.entries.insert(
+                alias.to_string(),
+                crate::oto::OtoEntry::new(
+                    format!("{alias}.wav"),
+                    alias.to_string(),
+                    0.0,
+                    80.0,
+                    10.0,
+                    0.0,
+                    0.0,
+                ),
+            );
+        }
+
+        let notes = vec![
+            UNote::new("あ", "C4", 0.0, 120.0),
+            UNote::new("か", "C4", 120.0, 120.0),
+        ];
+        let phones = OpenUtauPhonemizer::apply(&notes, &voicebank, PhonemizerMode::JapanesePresamp);
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../tests/fixtures/openutau_compatibility/japanese_presamp.json"
+        ))
+        .unwrap();
+        assert_eq!(fixture["upstream"]["class"], "JapanesePresampPhonemizer");
+        let expected = fixture["cases"][0]["expected_aliases"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|alias| alias.as_str().unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            phones
+                .iter()
+                .map(|phone| phone.lyric.as_str())
+                .collect::<Vec<_>>(),
+            expected
         );
     }
 
@@ -2284,6 +2734,39 @@ mod tests {
         );
         assert_eq!(JapanesePhonemizer::arpasing_vowel_fallbacks("ao"), &["ow"]);
         assert!(JapanesePhonemizer::openutau_arpasing_tokens("zzzznotaword", &vb).is_none());
+    }
+
+    #[test]
+    fn arpasing_uses_the_previous_symbol_for_consonant_clusters() {
+        let (_directory, voicebank) =
+            test_voicebank_with_aliases(&["- s", "s t", "t ae", "ae n", "n -", "- ao", "- ah"]);
+        let mut first = UNote::new("ignored", "C4", 0.0, 100.0);
+        first.phonetic_hint = Some("s".to_string());
+        let mut second = UNote::new("ignored", "C4", 100.0, 300.0);
+        second.phonetic_hint = Some("t ae n".to_string());
+        let phones = JapanesePhonemizer::apply_phonemizer(
+            &[first, second],
+            &voicebank,
+            PhonemizerMode::EnglishArpasing,
+        );
+
+        let fixture: serde_json::Value = serde_json::from_str(include_str!(
+            "../../tests/fixtures/openutau_compatibility/english_arpasing.json"
+        ))
+        .unwrap();
+        let expected = fixture["cases"][0]["expected_aliases"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|alias| alias.as_str().unwrap())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            phones
+                .iter()
+                .map(|phone| phone.lyric.as_str())
+                .collect::<Vec<_>>(),
+            expected
+        );
     }
 
     use std::collections::HashMap;
@@ -2724,13 +3207,13 @@ mod tests {
 
         let phones_direct =
             JapanesePhonemizer::apply_phonemizer(&notes_word, &vb, PhonemizerMode::EnglishArpasing);
-        assert_eq!(phones_direct.len(), 3);
+        assert_eq!(phones_direct.len(), 4);
         assert_eq!(
             phones_direct
                 .iter()
                 .map(|phone| phone.lyric.as_str())
                 .collect::<Vec<_>>(),
-            ["k", "ae", "n"]
+            ["- k", "k ae", "ae n", "n -"]
         );
 
         let notes_pt = vec![UNote::new("sol", "C4", 0.0, 300.0)];
@@ -2815,10 +3298,10 @@ mod tests {
                 .iter()
                 .map(|phone| phone.lyric.as_str())
                 .collect::<Vec<_>>(),
-            ["ka", "sa"]
+            ["- ka", "a s", "s a"]
         );
         assert_eq!(phones[0].position_ms, 0.0);
-        assert_eq!(phones[1].position_ms, 400.0);
+        assert_eq!(phones[1].position_ms, 375.0);
     }
 
     #[test]
@@ -2919,15 +3402,15 @@ mod tests {
         }
         assert_eq!(
             PhonemizerMode::ArabicG2P.info().source,
-            "Plugin dorayakito/OpenUtau"
+            "Plugin dorayakito/OpenUtau (dados)"
         );
         assert_eq!(
             PhonemizerMode::IcelandicG2P.info().source,
-            "Plugin dorayakito/OpenUtau"
+            "Plugin dorayakito/OpenUtau (dados)"
         );
         assert_eq!(
             PhonemizerMode::FrenchG2P.info().source,
-            "OpenUtau (port pendente)"
+            "OpenUtau (portado)"
         );
     }
 }

@@ -2131,6 +2131,16 @@ impl JapanesePhonemizer {
 
         phones
     }
+
+    /// Entry point for OpenUtau's `JapanesePresampPhonemizer` contract.
+    ///
+    /// Presamp selects VCV/CVVC behavior from the voicebank's `presamp.ini`
+    /// and per-note phoneme colors.  The shared resolver therefore receives
+    /// the VCV-compatible base mode while the presence of `presamp.ini`
+    /// enables the Presamp-specific inventory and alias expansion above.
+    pub fn apply_presamp(notes: &[UNote], vb: &Voicebank) -> Vec<RenderPhone> {
+        Self::apply_japanese(notes, vb, PhonemizerMode::VCV)
+    }
 }
 
 #[cfg(test)]

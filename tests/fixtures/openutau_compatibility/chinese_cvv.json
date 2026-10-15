@@ -1,0 +1,24 @@
+{
+  "format": "kamafeu.openutau-compatibility/v1",
+  "upstream": {
+    "project": "OpenUtau",
+    "commit": "13184085f2cee51c174de9ee99163a76ee970e8c",
+    "class": "OpenUtau.Plugin.Builtin.ChineseCVVMonophonePhonemizer"
+  },
+  "voicebank": {
+    "oto": "chinese_cvv_oto.ini",
+    "encoding_cases": ["UTF-8", "Shift-JIS"]
+  },
+  "cases": [
+    {
+      "id": "pinyin-rime-tail",
+      "phonetic_hints": ["duang"],
+      "expected_aliases": ["duang", "_ang"]
+    },
+    {
+      "id": "special-rime-normalization",
+      "phonetic_hints": ["dian", "xuan", "ma"],
+      "expected_aliases": ["dian", "_en2", "xuan", "_en2", "ma"]
+    }
+  ]
+}

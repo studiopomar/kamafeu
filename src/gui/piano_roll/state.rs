@@ -6,6 +6,12 @@ use std::sync::{OnceLock, RwLock};
 
 pub const PHONEME_SEPARATORS: [char; 5] = ['.', ',', ';', '|', '/'];
 
+#[derive(Debug, Clone, Copy, Default)]
+pub struct ArrangementMeterState {
+    pub level: f32,
+    pub peak: f32,
+}
+
 /// Render-time `oto.ini` geometry cached for one phoneme in the ruler.  A note can
 /// expand into several aliases, so a note-level `oto.ini` cache is not enough to
 /// show (or edit around) its real crossfades.
@@ -245,6 +251,7 @@ pub enum ContextMenuCategory {
     Selection,
     QuantizeGrade,
     LyricsPhonemes,
+    Phonemizer,
     MusicalTransform,
     Expression,
     Transpose,
@@ -346,6 +353,8 @@ pub struct PianoRollState {
     /// must never seize its timeline while the user is editing tracks.
     pub arrangement_horizontal_scroll_offset: f32,
     pub arrangement_vertical_scroll_offset: f32,
+    pub arrangement_drag_track: Option<usize>,
+    pub arrangement_track_meters: Vec<ArrangementMeterState>,
     /// Horizontal offset captured when a minimap viewport drag begins.
     pub minimap_drag_scroll_origin: Option<f32>,
     pub minimap_navigation_active: bool,
@@ -515,6 +524,25 @@ pub fn insert_pitch_point(note: &mut UNote, time_offset_ms: f64, pitch_offset_ce
 }
 
 impl PianoRollState {
+    pub fn update_arrangement_meter(&mut self, track_count: usize, track_index: usize, level: f32) {
+        self.arrangement_track_meters
+            .resize(track_count, ArrangementMeterState::default());
+        if let Some(meter) = self.arrangement_track_meters.get_mut(track_index) {
+            let level = level.clamp(0.0, 1.0);
+            meter.level = meter.level * 0.64 + level * 0.36;
+            meter.peak = (meter.peak - 0.012).max(meter.level).clamp(0.0, 1.0);
+        }
+    }
+
+    pub fn decay_arrangement_meters(&mut self, track_count: usize) {
+        self.arrangement_track_meters
+            .resize(track_count, ArrangementMeterState::default());
+        for meter in &mut self.arrangement_track_meters {
+            meter.level = (meter.level - 0.06).max(0.0);
+            meter.peak = (meter.peak - 0.018).max(meter.level).max(0.0);
+        }
+    }
+
     pub fn update_rendered_waveform(
         &mut self,
         samples: &[f32],
@@ -759,6 +787,8 @@ impl Default for PianoRollState {
             vertical_scroll_offset: 0.0,
             arrangement_horizontal_scroll_offset: 0.0,
             arrangement_vertical_scroll_offset: 0.0,
+            arrangement_drag_track: None,
+            arrangement_track_meters: Vec::new(),
             minimap_drag_scroll_origin: None,
             minimap_navigation_active: false,
             horizontal_follow_user_override: false,

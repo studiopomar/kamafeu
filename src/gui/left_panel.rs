@@ -243,7 +243,7 @@ pub fn draw_left_panel(
                                     ui.selectable_value(
                                         &mut params.phonemizer_mode,
                                         mode,
-                                        format!("  {} [{}]", info.name, info.source),
+                                        format!("  {} · {} [{}]", info.name, mode.author(), info.source),
                                     );
                                 }
                             });

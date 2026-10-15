@@ -261,14 +261,14 @@ impl AudioPlayer {
     }
 
     pub fn new() -> Self {
-        eprintln!("[AudioPlayer] Initializing CoreAudio OutputStream on main thread...");
+        crate::terminal_log::info("Audio", "inicializando saída CoreAudio na thread principal");
         let (stream, stream_handle) = match OutputStream::try_default() {
             Ok((s, h)) => {
-                eprintln!("[AudioPlayer] CoreAudio device initialized successfully!");
+                crate::terminal_log::info("Audio", "dispositivo CoreAudio inicializado");
                 (Some(s), Some(h))
             }
             Err(e) => {
-                eprintln!("[AudioPlayer] ERROR initializing CoreAudio device: {}", e);
+                crate::terminal_log::error("Audio", format!("falha ao inicializar CoreAudio: {e}"));
                 (None, None)
             }
         };

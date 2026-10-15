@@ -1,0 +1,19 @@
+{
+  "format": "kamafeu.openutau-compatibility/v1",
+  "upstream": {
+    "project": "OpenUtau",
+    "commit": "13184085f2cee51c174de9ee99163a76ee970e8c",
+    "class": "OpenUtau.Plugin.Builtin.SpanishSyllableBasedPhonemizer"
+  },
+  "voicebank": {
+    "oto": "spanish_syllable_oto.ini",
+    "encoding_cases": ["UTF-8", "Shift-JIS"]
+  },
+  "cases": [
+    {
+      "id": "cv-and-vcv",
+      "phonetic_hints": ["b a", "m a"],
+      "expected_aliases": ["- ba", "a ma"]
+    }
+  ]
+}

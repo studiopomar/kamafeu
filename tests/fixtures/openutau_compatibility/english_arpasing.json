@@ -1,0 +1,24 @@
+{
+  "format": "kamafeu.openutau-compatibility/v1",
+  "upstream": {
+    "project": "OpenUtau",
+    "commit": "13184085f2cee51c174de9ee99163a76ee970e8c",
+    "class": "OpenUtau.Plugin.Builtin.ArpasingPhonemizer"
+  },
+  "voicebank": {
+    "oto": "arpasing_oto.ini",
+    "encoding_cases": ["UTF-8", "Shift-JIS"]
+  },
+  "cases": [
+    {
+      "id": "diphone_cluster_and_phrase_start",
+      "phonetic_hints": ["s", "t ae n"],
+      "expected_aliases": ["- s", "s t", "t ae", "ae n", "n -"]
+    },
+    {
+      "id": "vowel_fallback_is_alias_lookup_only",
+      "phonetic_hints": ["ao"],
+      "expected_aliases": ["- ao"]
+    }
+  ]
+}

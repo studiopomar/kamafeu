@@ -671,6 +671,7 @@ pub(crate) fn draw_piano_roll(
     if state.is_playing
         && state.auto_scroll_mode != AutoScrollMode::Off
         && !state.horizontal_follow_user_override
+        && state.minimap_drag_scroll_origin.is_none()
     {
         scroll_area = scroll_area.horizontal_scroll_offset(state.horizontal_scroll_offset);
     }
@@ -685,6 +686,7 @@ pub(crate) fn draw_piano_roll(
         || state.is_edge_autoscrolling
         || is_dragging
         || state.minimap_navigation_active
+        || state.minimap_drag_scroll_origin.is_some()
     {
         scroll_area = scroll_area
             .horizontal_scroll_offset(state.horizontal_scroll_offset)
@@ -956,11 +958,17 @@ pub(crate) fn draw_piano_roll(
 
             let lyric_trimmed = note.lyric.trim();
             if let Some(mode) = note.phonemizer_override.as_deref() {
+                let badge_label = crate::phonemizer::PhonemizerMode::from_name(mode)
+                    .map(|mode| mode.info().name.to_string())
+                    .unwrap_or_else(|| mode.to_string());
                 let badge_rect = Rect::from_min_size(
-                    Pos2::new(x_start + 4.0, y_top - 17.0),
-                    Vec2::new(18.0, 13.0),
+                    // Keep the phonemizer marker in the lane below the note.
+                    // The alias remains the only content inside the note body,
+                    // so choosing a per-note phonemizer cannot cover it.
+                    Pos2::new(x_start + 4.0, y_bottom + 2.0),
+                    Vec2::new(18.0, 11.0),
                 );
-                pending_mode_badges.push((badge_rect, mode.to_string()));
+                pending_mode_badges.push((badge_rect, badge_label));
             }
             if lyric_trimmed != "+" && !lyric_trimmed.starts_with("+ ") {
                 if let Some(phoneme) = state.phoneme_cache.get(idx) {
@@ -3303,6 +3311,7 @@ pub(crate) fn draw_piano_roll(
         && state.marquee_start.is_none()
         && state.dragging_note_idx.is_none()
         && !state.minimap_navigation_active
+        && state.minimap_drag_scroll_origin.is_none()
     {
         if !state.is_playing || state.horizontal_follow_user_override {
             state.horizontal_scroll_offset = scroll_output.state.offset.x;

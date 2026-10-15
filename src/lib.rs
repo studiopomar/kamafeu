@@ -29,6 +29,7 @@ pub mod oto;
 pub mod phonemizer;
 pub mod project;
 pub mod renderer;
+pub mod terminal_log;
 pub mod updater;
 
 pub use audio::*;

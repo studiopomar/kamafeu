@@ -16,6 +16,10 @@ fn default_row_height() -> f32 {
     22.0
 }
 
+fn default_arrangement_height() -> f32 {
+    180.0
+}
+
 fn default_min_midi() -> u8 {
     36
 }
@@ -64,6 +68,8 @@ pub struct EditorLayoutConfig {
     pub px_per_ms: f32,
     #[serde(default = "default_row_height")]
     pub row_height: f32,
+    #[serde(default = "default_arrangement_height")]
+    pub arrangement_height: f32,
     #[serde(default = "default_min_midi")]
     pub default_min_midi: u8,
     #[serde(default = "default_max_midi")]
@@ -87,6 +93,7 @@ impl Default for EditorLayoutConfig {
             is_maximized: false,
             px_per_ms: default_editor_zoom(),
             row_height: default_row_height(),
+            arrangement_height: default_arrangement_height(),
             default_min_midi: default_min_midi(),
             default_max_midi: default_max_midi(),
         }

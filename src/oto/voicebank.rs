@@ -378,11 +378,14 @@ impl Voicebank {
                 }
                 let (file_entries, parse_errors) = OtoParser::parse_file_lossy(&path)?;
                 if !parse_errors.is_empty() {
-                    eprintln!(
-                        "[Voicebank] ignorando {} linha(s) inválida(s) em {}: {}",
-                        parse_errors.len(),
-                        path.display(),
-                        parse_errors.join("; ")
+                    crate::terminal_log::warn(
+                        "Voicebank",
+                        format!(
+                            "{} linha(s) inválida(s) em {}:\n- {}",
+                            parse_errors.len(),
+                            path.display(),
+                            parse_errors.join("\n- ")
+                        ),
                     );
                 }
                 let rel_sub_dir = path

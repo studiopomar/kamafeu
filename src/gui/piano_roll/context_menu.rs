@@ -1,5 +1,29 @@
 use super::*;
 
+fn phonemizer_targets(
+    state: &PianoRollState,
+    menu_idx: Option<usize>,
+    note_count: usize,
+) -> Vec<usize> {
+    if !state.selected_note_indices.is_empty() {
+        state
+            .selected_note_indices
+            .iter()
+            .copied()
+            .filter(|index| *index < note_count)
+            .collect()
+    } else if let Some(index) = menu_idx.filter(|index| *index < note_count) {
+        vec![index]
+    } else {
+        Vec::new()
+    }
+}
+
+fn phonemizer_mode_label(mode: crate::phonemizer::PhonemizerMode) -> String {
+    let info = mode.info();
+    format!("{} · {} · {}", info.language, info.name, mode.author())
+}
+
 pub(super) fn draw(
     ui: &mut egui::Ui,
     notes: &mut Vec<UNote>,
@@ -11,6 +35,7 @@ pub(super) fn draw(
     if let Some(menu_pos) = state.context_menu_pos {
         let mut close_menu = false;
         let mut trigger_note_changed = false;
+        let mut menu_click_handled = false;
 
         let menu_idx_opt = state.context_menu_note_idx;
         let sel_count = if !state.selected_note_indices.is_empty() {
@@ -105,6 +130,109 @@ pub(super) fn draw(
                                     );
                                 }
                                 ui.separator();
+
+                                if let Some(note_idx) = menu_idx_opt.filter(|idx| *idx < notes.len()) {
+                                    let note = &notes[note_idx];
+                                    let mode_summary = note
+                                        .phonemizer_override
+                                        .as_deref()
+                                        .and_then(crate::phonemizer::PhonemizerMode::from_name)
+                                        .map(|mode| mode.info().name.to_string())
+                                        .unwrap_or_else(|| lang.tr("herdado", "inherited").to_string());
+                                    egui::Frame::none()
+                                        .fill(Color32::from_rgba_unmultiplied(24, 31, 48, 210))
+                                        .stroke(Stroke::new(1.0_f32, Color32::from_rgb(56, 83, 112)))
+                                        .rounding(Rounding::same(5.0))
+                                        .inner_margin(egui::Margin::symmetric(8.0, 6.0))
+                                        .show(ui, |ui| {
+                                            ui.horizontal(|ui| {
+                                                ui.label(
+                                                    egui::RichText::new(note.lyric.as_str())
+                                                        .size(14.0)
+                                                        .strong()
+                                                        .color(Color32::from_rgb(255, 226, 145)),
+                                                );
+                                                ui.label(
+                                                    egui::RichText::new(note.pitch.as_str())
+                                                        .size(10.0)
+                                                        .color(Color32::from_rgb(145, 220, 255)),
+                                                );
+                                                if sel_count > 1 {
+                                                    ui.label(
+                                                        egui::RichText::new(format!("+{}", sel_count - 1))
+                                                            .size(10.0)
+                                                            .color(Color32::from_rgb(177, 190, 210)),
+                                                    );
+                                                }
+                                            });
+                                            ui.label(
+                                                egui::RichText::new(format!(
+                                                    "{}: {}",
+                                                    lang.tr("Phonemizer", "Phonemizer"),
+                                                    mode_summary
+                                                ))
+                                                .size(9.5)
+                                                .color(Color32::from_rgb(165, 205, 220)),
+                                            );
+                                        });
+                                    ui.add_space(5.0);
+                                }
+
+                                ui.label(
+                                    egui::RichText::new(lang.tr("AÇÕES RÁPIDAS", "QUICK ACTIONS"))
+                                        .size(9.0)
+                                        .strong()
+                                        .color(Color32::from_rgb(116, 231, 204)),
+                                );
+                                let phonemizer_quick = ui
+                                    .add_sized(
+                                        [ui.available_width(), 24.0],
+                                        egui::Button::new(lang.tr(
+                                            "ƒ  Alterar phonemizer desta nota",
+                                            "ƒ  Change note phonemizer",
+                                        ))
+                                        .fill(Color32::from_rgba_unmultiplied(25, 66, 78, 185))
+                                        .stroke(Stroke::new(1.0_f32, Color32::from_rgb(62, 194, 202)))
+                                        .rounding(Rounding::same(4.0)),
+                                    )
+                                    .on_hover_text(lang.tr(
+                                        "Escolha um modo para uma ou mais notas selecionadas.",
+                                        "Choose a mode for one or more selected notes.",
+                                    ));
+                                if phonemizer_quick.clicked() {
+                                    state.context_menu_hovered_category = Some(ContextMenuCategory::Phonemizer);
+                                    state.context_menu_category_y_offset = 0.0;
+                                    menu_click_handled = true;
+                                }
+                                if let Some(note_idx) = menu_idx_opt.filter(|idx| *idx < notes.len()) {
+                                    let properties_quick = ui
+                                        .add_sized(
+                                            [ui.available_width(), 24.0],
+                                            egui::Button::new(lang.tr(
+                                                "▣  Propriedades detalhadas",
+                                                "▣  Detailed properties",
+                                            ))
+                                            .fill(Color32::from_rgba_unmultiplied(42, 42, 63, 160))
+                                            .stroke(Stroke::new(1.0_f32, Color32::from_rgb(103, 115, 147)))
+                                            .rounding(Rounding::same(4.0)),
+                                        )
+                                        .on_hover_text(lang.tr(
+                                            "Editar expressão, pitch, envelope e fonemas.",
+                                            "Edit expression, pitch, envelope and phonemes.",
+                                        ));
+                                    if properties_quick.clicked() {
+                                        state.properties_window_for_note = Some(note_idx);
+                                        close_menu = true;
+                                    }
+                                }
+                                ui.add_space(4.0);
+                                ui.separator();
+                                ui.label(
+                                    egui::RichText::new(lang.tr("FERRAMENTAS", "TOOLS"))
+                                        .size(9.0)
+                                        .strong()
+                                        .color(Color32::from_rgb(145, 177, 220)),
+                                );
 
                                 // 1. Edição Básica
                                 let r_undo = ui.button(lang.tr("Desfazer  (Ctrl+Z)", "Undo  (Ctrl+Z)"));
@@ -280,11 +408,17 @@ pub(super) fn draw(
                                         state.context_menu_hovered_category = Some(cat);
                                         state.context_menu_category_y_offset = (r.rect.min.y - safe_menu_pos.y).max(0.0);
                                     }
+                                    if r.clicked() {
+                                        state.context_menu_hovered_category = Some(cat);
+                                        state.context_menu_category_y_offset = (r.rect.min.y - safe_menu_pos.y).max(0.0);
+                                        menu_click_handled = true;
+                                    }
                                 };
 
                                 draw_category_item(lang.tr("Seleção", "Selection"), ContextMenuCategory::Selection);
                                 draw_category_item(lang.tr("Quantização & Grade", "Quantization & Grid"), ContextMenuCategory::QuantizeGrade);
                                 draw_category_item(lang.tr("Letras & Fonemas", "Lyrics & Phonemes"), ContextMenuCategory::LyricsPhonemes);
+                                draw_category_item(lang.tr("Phonemizer por nota", "Per-note phonemizer"), ContextMenuCategory::Phonemizer);
                                 draw_category_item(lang.tr("Transformações Musicais", "Musical Transforms"), ContextMenuCategory::MusicalTransform);
                                 draw_category_item(lang.tr("Expressão & Articulação", "Expression & Articulation"), ContextMenuCategory::Expression);
                                 draw_category_item(lang.tr("Transposição", "Transpose"), ContextMenuCategory::Transpose);
@@ -316,6 +450,7 @@ pub(super) fn draw(
                                 ContextMenuCategory::Selection => 230.0,
                                 ContextMenuCategory::QuantizeGrade => 160.0,
                                 ContextMenuCategory::LyricsPhonemes => 170.0,
+                                ContextMenuCategory::Phonemizer => 390.0,
                                 ContextMenuCategory::MusicalTransform => 130.0,
                                 ContextMenuCategory::Expression => 175.0,
                                 ContextMenuCategory::Transpose => 160.0,
@@ -616,6 +751,123 @@ pub(super) fn draw(
                                             }
                                         }
 
+                                        ContextMenuCategory::Phonemizer => {
+                                            ui.label(
+                                                egui::RichText::new(lang.tr(
+                                                    "Phonemizer por nota",
+                                                    "Per-note phonemizer",
+                                                ))
+                                                .size(11.0)
+                                                .color(MelodyneTheme::ACCENT_CYAN)
+                                                .strong(),
+                                            );
+                                            ui.label(
+                                                egui::RichText::new(lang.tr(
+                                                    "A nota pode sobrescrever o modo da faixa.",
+                                                    "A note can override the track mode.",
+                                                ))
+                                                .size(10.0)
+                                                .color(Color32::from_rgb(180, 180, 200)),
+                                            );
+                                            ui.separator();
+
+                                            let target_indices =
+                                                phonemizer_targets(state, menu_idx_opt, notes.len());
+                                            let inherited_count = target_indices
+                                                .iter()
+                                                .filter(|&&idx| notes[idx].phonemizer_override.is_none())
+                                                .count();
+                                            let selected_label = if target_indices.len() > 1 {
+                                                format!(
+                                                    "{} {}",
+                                                    target_indices.len(),
+                                                    lang.tr("notas selecionadas", "selected notes"),
+                                                )
+                                            } else {
+                                                lang.tr("1 nota selecionada", "1 selected note").to_string()
+                                            };
+                                            ui.label(
+                                                egui::RichText::new(selected_label)
+                                                    .size(10.0)
+                                                    .color(Color32::from_rgb(210, 220, 235)),
+                                            );
+
+                                            let mut set_override =
+                                                |value: Option<String>, close: &mut bool| {
+                                                    let changed = target_indices.iter().any(|&idx| {
+                                                        notes[idx].phonemizer_override != value
+                                                    });
+                                                    if changed {
+                                                        on_before_change();
+                                                        for &idx in &target_indices {
+                                                            notes[idx].phonemizer_override = value.clone();
+                                                        }
+                                                        state.phoneme_cache_hash = 0;
+                                                        trigger_note_changed = true;
+                                                    }
+                                                    *close = true;
+                                                };
+
+                                            let inherited = ui
+                                                .button(lang.tr(
+                                                    "Herdar da faixa / projeto",
+                                                    "Inherit from track / project",
+                                                ))
+                                                .on_hover_text(lang.tr(
+                                                    "Remove o override desta nota.",
+                                                    "Remove this note's override.",
+                                                ));
+                                            if inherited.clicked() {
+                                                set_override(None, &mut close_menu);
+                                            }
+
+                                            let manual = ui.button(lang.tr(
+                                                "Manual / Sem phonemizer",
+                                                "Manual / No phonemizer",
+                                            ));
+                                            if manual.clicked() {
+                                                set_override(
+                                                    Some(format!(
+                                                        "{:?}",
+                                                        crate::phonemizer::PhonemizerMode::None
+                                                    )),
+                                                    &mut close_menu,
+                                                );
+                                            }
+
+                                            if inherited_count == target_indices.len()
+                                                && !target_indices.is_empty()
+                                            {
+                                                ui.label(
+                                                    egui::RichText::new(lang.tr(
+                                                        "Atualmente herdando o modo da faixa.",
+                                                        "Currently inheriting the track mode.",
+                                                    ))
+                                                    .size(9.5)
+                                                    .italics()
+                                                    .color(Color32::from_rgb(160, 175, 195)),
+                                                );
+                                            }
+
+                                            ui.separator();
+                                            egui::ScrollArea::vertical()
+                                                .max_height(300.0)
+                                                .show(ui, |ui| {
+                                                    for mode in crate::phonemizer::PhonemizerMode::ALL {
+                                                        let mode_name = format!("{:?}", mode);
+                                                        let label = phonemizer_mode_label(mode);
+                                                        let source = mode.info().source;
+                                                        let button = ui.button(label).on_hover_text(source);
+                                                        if button.clicked() {
+                                                            set_override(
+                                                                Some(mode_name),
+                                                                &mut close_menu,
+                                                            );
+                                                        }
+                                                    }
+                                                });
+                                        }
+
                                         ContextMenuCategory::MusicalTransform => {
                                             ui.label(egui::RichText::new(lang.tr("Transformações Musicais", "Musical Transforms")).size(11.0).color(MelodyneTheme::ACCENT_CYAN).strong());
                                             ui.separator();
@@ -894,7 +1146,9 @@ pub(super) fn draw(
             });
         });
 
-        if ui.input(|i| i.pointer.primary_clicked() || i.pointer.secondary_clicked()) {
+        if !menu_click_handled
+            && ui.input(|i| i.pointer.primary_clicked() || i.pointer.secondary_clicked())
+        {
             if let Some(mpos) = ui.input(|i| i.pointer.interact_pos()) {
                 let total_w = if state.context_menu_hovered_category.is_some() {
                     570.0
