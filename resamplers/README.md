@@ -11,6 +11,12 @@ Os binários desta pasta são executados pelo Kamafeu por meio da interface de l
 
 O Organum também incorpora componentes WORLD sob licença BSD de 3 cláusulas; consulte `licenses/organum-WORLD-BSD-3-Clause.txt`. Os avisos de licença acompanham os binários em `licenses/`.
 
+O `macres` é identificado pelo upstream como GPL-3.0. O texto integral dessa
+licença deve acompanhar qualquer pacote que redistribua o binário; antes de
+publicar um artefato, confira a licença e o checksum diretamente no projeto
+[titinko/macres](https://github.com/titinko/macres). O repositório Kamafeu não
+usa a MIT do aplicativo para relicenciar esse executável.
+
 ## Instalação local do Hifisampler
 
 ## Catalina / NSF HiFi-GAN

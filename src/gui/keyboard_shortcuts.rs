@@ -111,25 +111,7 @@ impl KamafeuStudioApp {
                     }
                 }
                 if i.key_pressed(Key::P) || i.key_pressed(Key::Num3) {
-                    if self.piano_roll_state.active_tool == EditTool::PitchDraw {
-                        self.piano_roll_state.pitch_sub_tool =
-                            match self.piano_roll_state.pitch_sub_tool {
-                                crate::gui::types::PitchSubTool::Freehand => {
-                                    crate::gui::types::PitchSubTool::Line
-                                }
-                                crate::gui::types::PitchSubTool::Line => {
-                                    crate::gui::types::PitchSubTool::Vibrato
-                                }
-                                crate::gui::types::PitchSubTool::Vibrato => {
-                                    crate::gui::types::PitchSubTool::Smooth
-                                }
-                                crate::gui::types::PitchSubTool::Smooth => {
-                                    crate::gui::types::PitchSubTool::Freehand
-                                }
-                            };
-                    } else {
-                        self.piano_roll_state.active_tool = EditTool::PitchDraw;
-                    }
+                    self.piano_roll_state.active_tool = EditTool::PitchDraw;
                 }
                 if i.key_pressed(Key::C) && !has_cmd_or_ctrl || i.key_pressed(Key::Num4) {
                     self.piano_roll_state.active_tool = EditTool::Slice;

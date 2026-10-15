@@ -109,8 +109,8 @@ pub fn draw_unified_toolbar(
     is_playing: bool,
     log_open: &mut bool,
     current_tool: &mut EditTool,
-    pitch_sub_tool: &mut PitchSubTool,
-    pitch_smooth_intensity: &mut f32,
+    _pitch_sub_tool: &mut PitchSubTool,
+    _pitch_smooth_intensity: &mut f32,
     auto_scroll_mode: &mut AutoScrollMode,
     vertical_pitch_follow: &mut bool,
     active_scale: &mut MusicalScale,
@@ -486,33 +486,15 @@ pub fn draw_unified_toolbar(
                         ui.separator();
                         ui.add_space(1.0);
 
-                        for (subtool, label, tip) in [
-                            (
-                                PitchSubTool::Freehand,
-                                lang.tr("Livre", "Free"),
-                                lang.tr("Desenho livre", "Freehand drawing"),
-                            ),
-                            (
-                                PitchSubTool::Smooth,
-                                lang.tr("Suave", "Smooth"),
-                                lang.tr("Suavizador", "Smoother"),
-                            ),
-                            (
-                                PitchSubTool::Line,
-                                lang.tr("Reta", "Line"),
-                                lang.tr("Linha reta", "Straight line"),
-                            ),
-                            (PitchSubTool::Vibrato, "Vibrato", "Vibrato"),
-                        ] {
-                            ui.selectable_value(pitch_sub_tool, subtool, label)
-                                .on_hover_text(tip);
-                        }
-                        if *pitch_sub_tool == PitchSubTool::Smooth {
-                            ui.add(
-                                egui::Slider::new(pitch_smooth_intensity, 0.05..=1.0)
-                                    .text(lang.tr("Intensidade", "Intensity")),
-                            );
-                        }
+                        ui.label(
+                            RichText::new(lang.tr("Pontos / segmentos", "Points / segments"))
+                                .small()
+                                .color(theme.accent_c32()),
+                        )
+                        .on_hover_text(lang.tr(
+                            "Clique na curva para criar um ponto; arraste para editar; clique direito para excluir ou escolher a forma.",
+                            "Click the curve to create a point; drag to edit; right-click to delete or choose the shape.",
+                        ));
                     }
                 });
 

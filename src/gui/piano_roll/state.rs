@@ -475,6 +475,45 @@ pub fn smooth_pitch_points(raw_points: &[(f64, f64)]) -> Vec<UPitchBendPoint> {
     result
 }
 
+/// Canonical pitch point shapes used by the OpenUtau-style point editor.
+/// Keep the persisted representation as strings so existing Kamafeu projects
+/// and exporters remain compatible.
+pub fn canonical_pitch_shape(shape: &str) -> &'static str {
+    match shape.to_ascii_lowercase().as_str() {
+        "l" | "linear" => "l",
+        "i" | "j" | "easein" | "ease-in" => "i",
+        "o" | "r" | "easeout" | "ease-out" => "o",
+        "sp" | "spline" | "h" | "hermite" | "cubic" => "sp",
+        _ => "io",
+    }
+}
+
+/// Insert one explicit point and return its sorted index.
+///
+/// OpenUtau edits the curve as a sequence of explicit points instead of
+/// storing a sampled brush stroke. This helper deliberately does no smoothing
+/// or simplification: the point the user created is the point we persist.
+pub fn insert_pitch_point(note: &mut UNote, time_offset_ms: f64, pitch_offset_cents: f64) -> usize {
+    note.pitch_bend.points.push(UPitchBendPoint {
+        time_offset_ms,
+        pitch_offset_cents: pitch_offset_cents.clamp(-2400.0, 2400.0),
+        shape: "io".to_string(),
+    });
+    note.pitch_bend.points.sort_by(|left, right| {
+        left.time_offset_ms
+            .partial_cmp(&right.time_offset_ms)
+            .unwrap_or(std::cmp::Ordering::Equal)
+    });
+    note.pitch_bend
+        .points
+        .iter()
+        .position(|point| {
+            (point.time_offset_ms - time_offset_ms).abs() < 1e-6
+                && (point.pitch_offset_cents - pitch_offset_cents).abs() < 1e-6
+        })
+        .unwrap_or_else(|| note.pitch_bend.points.len().saturating_sub(1))
+}
+
 impl PianoRollState {
     pub fn update_rendered_waveform(
         &mut self,
@@ -1009,6 +1048,43 @@ mod tests {
         assert!(points
             .last()
             .is_none_or(|point| (point.time_offset_ms - 120.0).abs() < 0.001));
+    }
+
+    #[test]
+    fn openutau_pitch_point_insertion_keeps_the_authored_point_and_order() {
+        let mut note = UNote::new("a", "C4", 0.0, 480.0);
+        note.pitch_bend.points = vec![
+            UPitchBendPoint {
+                time_offset_ms: 0.0,
+                pitch_offset_cents: 0.0,
+                shape: "io".to_string(),
+            },
+            UPitchBendPoint {
+                time_offset_ms: 300.0,
+                pitch_offset_cents: 0.0,
+                shape: "io".to_string(),
+            },
+        ];
+
+        let index = insert_pitch_point(&mut note, 120.0, 275.0);
+
+        assert_eq!(index, 1);
+        assert_eq!(note.pitch_bend.points[index].time_offset_ms, 120.0);
+        assert_eq!(note.pitch_bend.points[index].pitch_offset_cents, 275.0);
+        assert!(note
+            .pitch_bend
+            .points
+            .windows(2)
+            .all(|pair| pair[0].time_offset_ms <= pair[1].time_offset_ms));
+    }
+
+    #[test]
+    fn openutau_pitch_shapes_are_normalized_without_changing_the_file_model() {
+        assert_eq!(canonical_pitch_shape("s"), "io");
+        assert_eq!(canonical_pitch_shape("linear"), "l");
+        assert_eq!(canonical_pitch_shape("ease-in"), "i");
+        assert_eq!(canonical_pitch_shape("r"), "o");
+        assert_eq!(canonical_pitch_shape("hermite"), "sp");
     }
 
     #[test]

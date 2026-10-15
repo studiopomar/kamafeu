@@ -1,6 +1,7 @@
 use crate::dsp::pitch::midi_to_note_name;
 use crate::project::model::{UNote, UProject, UTrack, UVoicePart};
 use serde::{Deserialize, Serialize};
+use std::collections::BTreeMap;
 use std::fs;
 use std::path::Path;
 
@@ -65,8 +66,15 @@ pub struct UFNote {
 #[serde(rename_all = "camelCase")]
 pub struct UFPitch {
     pub ticks: Vec<i64>,
-    pub values: Vec<f64>,
+    pub values: Vec<Option<f64>>,
     pub is_absolute: bool,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub struct UfdataConversionReport {
+    pub warnings: Vec<String>,
+    pub dropped_features: Vec<String>,
+    pub exported_pitch: bool,
 }
 
 pub struct UfdataFormat;
@@ -98,10 +106,17 @@ impl UfdataFormat {
         project: &UProject,
         path: P,
     ) -> Result<(), Box<dyn std::error::Error>> {
+        Self::save_file_with_report(project, path).map(|_| ())
+    }
+
+    pub fn save_file_with_report<P: AsRef<Path>>(
+        project: &UProject,
+        path: P,
+    ) -> Result<UfdataConversionReport, Box<dyn std::error::Error>> {
         let ufdata = Self::from_uproject(project);
         let json_str = serde_json::to_string_pretty(&ufdata)?;
         fs::write(path, json_str)?;
-        Ok(())
+        Ok(Self::conversion_report(project, &ufdata))
     }
 
     pub fn from_uproject(project: &UProject) -> UFData {
@@ -117,6 +132,7 @@ impl UfdataFormat {
 
         for (track_idx, track) in project.tracks.iter().enumerate() {
             let mut uf_notes = Vec::new();
+            let mut pitch_by_tick = BTreeMap::<i64, f64>::new();
 
             for part in project.parts.iter().filter(|p| p.track_index == track_idx) {
                 for note in &part.notes {
@@ -140,10 +156,35 @@ impl UfdataFormat {
                         },
                         phoneme: None,
                     });
+
+                    // UFData stores pitch at track level as absolute semitones.
+                    // Keep authored points only; automatic portamento remains a
+                    // native APS concern and is not silently invented in the
+                    // interchange file.
+                    for point in &note.pitch_bend.points {
+                        let absolute_ms =
+                            part.position_ms + note.position_ms + point.time_offset_ms;
+                        let tick = (absolute_ms / ms_per_tick).round() as i64;
+                        let value = note.midi_key() as f64
+                            + (point.pitch_offset_cents + note.expressions.pitch_delta) / 100.0;
+                        if value.is_finite() {
+                            pitch_by_tick.insert(tick, value);
+                        }
+                    }
                 }
             }
 
             uf_notes.sort_by_key(|n| n.tick_on);
+
+            let pitch = if pitch_by_tick.is_empty() {
+                None
+            } else {
+                Some(UFPitch {
+                    ticks: pitch_by_tick.keys().copied().collect(),
+                    values: pitch_by_tick.values().copied().map(Some).collect(),
+                    is_absolute: true,
+                })
+            };
 
             uf_tracks.push(UFTrack {
                 name: if track.name.is_empty() {
@@ -152,7 +193,7 @@ impl UfdataFormat {
                     track.name.clone()
                 },
                 notes: uf_notes,
-                pitch: None,
+                pitch,
             });
         }
 
@@ -185,6 +226,76 @@ impl UfdataFormat {
                 measure_prefix: 0,
             },
         }
+    }
+
+    pub fn conversion_report(project: &UProject, ufdata: &UFData) -> UfdataConversionReport {
+        let exported_pitch = ufdata.project.tracks.iter().any(|track| {
+            track
+                .pitch
+                .as_ref()
+                .is_some_and(|pitch| !pitch.ticks.is_empty())
+        });
+        let mut report = UfdataConversionReport {
+            exported_pitch,
+            ..Default::default()
+        };
+
+        if project.tracks.iter().any(|track| track.fx_rack.is_some()) {
+            report
+                .dropped_features
+                .push("FX rack por track".to_string());
+        }
+        if !project.wave_parts.is_empty() {
+            report.dropped_features.push("partes de áudio".to_string());
+        }
+        if !project.markers.is_empty() {
+            report.dropped_features.push("marcadores".to_string());
+        }
+        if !project.sections.is_empty() {
+            report.dropped_features.push("seções".to_string());
+        }
+        if !project.extensions.is_empty() {
+            report.dropped_features.push("extensões".to_string());
+        }
+        if project.render_state.is_some() {
+            report
+                .dropped_features
+                .push("estado de renderização".to_string());
+        }
+        if project
+            .tracks
+            .iter()
+            .any(|track| track.voicebank_path.is_some() || track.phonemizer.is_some())
+            || project.voicebank.is_some()
+            || project.phonemizer.is_some()
+        {
+            report
+                .dropped_features
+                .push("voicebank e phonemizer".to_string());
+        }
+        if project
+            .parts
+            .iter()
+            .flat_map(|part| &part.notes)
+            .any(|note| {
+                note.vibrato.length_pct > 0.0
+                    || !note.phoneme_overrides.is_empty()
+                    || note.envelope != Default::default()
+            })
+        {
+            report
+                .dropped_features
+                .push("vibrato, envelopes e overrides por fonema".to_string());
+        }
+
+        report.warnings = report
+            .dropped_features
+            .iter()
+            .map(|feature| {
+                format!("UFData não representa {feature}; o recurso permanece apenas no APS")
+            })
+            .collect();
+        report
     }
 
     pub fn to_uproject(ufdata: &UFData) -> UProject {
@@ -230,6 +341,47 @@ impl UfdataFormat {
 
                 let note = UNote::new(lyric, pitch_name, position_ms, duration_ms);
                 notes.push(note);
+            }
+
+            if let Some(pitch) = &uf_track.pitch {
+                let point_count = pitch.ticks.len().min(pitch.values.len());
+                for point_idx in 0..point_count {
+                    let Some(value) = pitch.values[point_idx] else {
+                        continue;
+                    };
+                    let tick = pitch.ticks[point_idx];
+                    let note_idx = uf_track
+                        .notes
+                        .iter()
+                        .position(|uf_note| tick >= uf_note.tick_on && tick <= uf_note.tick_off);
+                    let Some(note_idx) = note_idx else {
+                        continue;
+                    };
+                    let uf_note = &uf_track.notes[note_idx];
+                    let note = &mut notes[note_idx];
+                    let value_cents = if pitch.is_absolute {
+                        (value - note.midi_key() as f64) * 100.0
+                    } else {
+                        value * 100.0
+                    };
+                    let absolute_ms = tick as f64 * ms_per_tick;
+                    let note_start_ms = uf_note.tick_on as f64 * ms_per_tick;
+                    note.pitch_bend
+                        .points
+                        .push(crate::project::model::UPitchBendPoint {
+                            time_offset_ms: absolute_ms - note_start_ms,
+                            pitch_offset_cents: value_cents,
+                            shape: "io".to_string(),
+                        });
+                    note.pitch_bend.snap_first = false;
+                }
+                for note in &mut notes {
+                    note.pitch_bend.points.sort_by(|left, right| {
+                        left.time_offset_ms
+                            .partial_cmp(&right.time_offset_ms)
+                            .unwrap_or(std::cmp::Ordering::Equal)
+                    });
+                }
             }
 
             parts.push(UVoicePart {
@@ -288,5 +440,59 @@ mod tests {
         assert_eq!(converted_back.parts[0].notes.len(), 2);
         assert_eq!(converted_back.parts[0].notes[0].pitch, "C4");
         assert_eq!(converted_back.parts[0].notes[1].pitch, "D4");
+    }
+
+    #[test]
+    fn ufdata_roundtrip_exports_absolute_pitch_points() {
+        let mut project = UProject::default();
+        let mut note = UNote::new("la", "C4", 0.0, 500.0);
+        note.pitch_bend
+            .points
+            .push(crate::project::model::UPitchBendPoint {
+                time_offset_ms: 250.0,
+                pitch_offset_cents: 50.0,
+                shape: "io".to_string(),
+            });
+        project.parts[0].notes.push(note);
+
+        let ufdata = UfdataFormat::from_uproject(&project);
+        let pitch = ufdata.project.tracks[0]
+            .pitch
+            .as_ref()
+            .expect("pitch is exported");
+        assert!(pitch.is_absolute);
+        assert_eq!(pitch.ticks, vec![240]);
+        assert_eq!(pitch.values, vec![Some(60.5)]);
+
+        let restored = UfdataFormat::to_uproject(&ufdata);
+        let point = &restored.parts[0].notes[0].pitch_bend.points[0];
+        assert!((point.time_offset_ms - 250.0).abs() < 0.01);
+        assert!((point.pitch_offset_cents - 50.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn ufdata_report_identifies_native_features_that_cannot_be_interchanged() {
+        let mut project = UProject::default();
+        project.tracks[0].fx_rack = Some(crate::audio::FxRackConfig::default());
+        project
+            .wave_parts
+            .push(crate::project::model::UWavePart::new(
+                "Backing",
+                "backing.wav",
+                0,
+            ));
+
+        let ufdata = UfdataFormat::from_uproject(&project);
+        let report = UfdataFormat::conversion_report(&project, &ufdata);
+        assert!(!report.exported_pitch);
+        assert!(report
+            .dropped_features
+            .iter()
+            .any(|feature| feature == "FX rack por track"));
+        assert!(report
+            .dropped_features
+            .iter()
+            .any(|feature| feature == "partes de áudio"));
+        assert_eq!(report.warnings.len(), report.dropped_features.len());
     }
 }

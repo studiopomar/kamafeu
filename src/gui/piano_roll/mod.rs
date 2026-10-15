@@ -1723,6 +1723,41 @@ pub(crate) fn draw_piano_roll(
                     }
                 }
 
+                // A segment uses the same hit target as OpenUtau's curve
+                // itself. The nearest segment is selected only when no point
+                // is under the pointer, so point deletion remains unambiguous.
+                let hovered_segment = if hovered_handle_idx.is_none() {
+                    pending_pitch_handles
+                        .windows(2)
+                        .filter(|pair| pair[0].note_idx == pair[1].note_idx)
+                        .filter_map(|pair| {
+                            let start = pair[0].pos;
+                            let end = pair[1].pos;
+                            let delta = end - start;
+                            let length_sq = delta.dot(delta);
+                            if length_sq <= f32::EPSILON {
+                                return None;
+                            }
+                            let projection =
+                                ((mpos - start).dot(delta) / length_sq).clamp(0.0, 1.0);
+                            let closest = start + delta * projection;
+                            let distance = mpos.distance(closest);
+                            (distance <= 10.0).then_some((
+                                distance,
+                                pair[0].note_idx,
+                                pair[0].pt_idx,
+                            ))
+                        })
+                        .min_by(|left, right| {
+                            left.0
+                                .partial_cmp(&right.0)
+                                .unwrap_or(std::cmp::Ordering::Equal)
+                        })
+                        .map(|(_, note_idx, point_idx)| (note_idx, point_idx))
+                } else {
+                    None
+                };
+
                 // Handle right-click / Alt+Click on point (Delete) or canvas right-click drag (Erase)
                 if let Some(h_idx) = hovered_handle_idx {
                     let handle = &pending_pitch_handles[h_idx];
@@ -1782,75 +1817,29 @@ pub(crate) fn draw_piano_roll(
                             }
                         }
                     }
-                } else if state.active_tool == EditTool::PitchDraw
-                    && ui.input(|i| i.pointer.secondary_down())
-                {
-                    // Right-click drag in pitch mode acts as an eraser radius across all intersecting notes
-                    let erase_radius_ms = 40.0;
-                    for note in notes.iter_mut() {
-                        if !note.pitch_bend.points.is_empty() {
-                            let note_t = timeline_time_ms - note.position_ms;
-                            let before_len = note.pitch_bend.points.len();
-                            note.pitch_bend
-                                .points
-                                .retain(|pt| (pt.time_offset_ms - note_t).abs() > erase_radius_ms);
-                            if note.pitch_bend.points.len() != before_len {
-                                state.continuous_edit_dirty = true;
-                            }
+                } else if let Some((n_idx, pt_idx)) = hovered_segment {
+                    if ui.input(|i| i.pointer.secondary_clicked()) && n_idx < notes.len() {
+                        if notes[n_idx].pitch_bend.points.is_empty() {
+                            let (prev_m, is_adj) = if n_idx > 0 {
+                                let (pm, pp, pd, _) = note_info[n_idx - 1];
+                                (Some(pm), (pp + pd - notes[n_idx].position_ms).abs() <= 1.0)
+                            } else {
+                                (None, false)
+                            };
+                            notes[n_idx].pitch_bend.points = notes[n_idx]
+                                .pitch_bend
+                                .effective_points(prev_m, notes[n_idx].midi_key(), is_adj);
                         }
-                    }
-                }
-
-                // Insert new pitch point on Double-Click or Shift-Click in pitch mode on empty space
-                if state.active_tool == EditTool::PitchDraw
-                    && hovered_handle_idx.is_none()
-                    && (ui.input(|i| {
-                        i.pointer
-                            .button_double_clicked(egui::PointerButton::Primary)
-                    }) || (ui.input(|i| i.pointer.primary_clicked()) && is_shift))
-                {
-                    // Find note at timeline_time_ms
-                    let notes_len = notes.len();
-                    for (n_idx, note) in notes.iter_mut().enumerate() {
-                        let note_end = note.position_ms + note.duration_ms;
-                        let owns_time = timeline_time_ms >= note.position_ms
-                            && (timeline_time_ms < note_end || n_idx + 1 == notes_len);
-                        if owns_time {
-                            if note.pitch_bend.points.is_empty() {
-                                let (prev_m, is_adj) = if n_idx > 0 {
-                                    let (pm, pp, pd, _) = note_info[n_idx - 1];
-                                    (Some(pm), (pp + pd - note.position_ms).abs() <= 1.0)
-                                } else {
-                                    (None, false)
-                                };
-                                note.pitch_bend.points = note.pitch_bend.effective_points(
-                                    prev_m,
-                                    note.midi_key(),
-                                    is_adj,
-                                );
-                            }
-                            let rel_t = timeline_time_ms - note.position_ms;
-                            let cents = ((timeline_abs_midi - note.midi_key() as f64) * 100.0
-                                - note.expressions.pitch_delta)
-                                .clamp(-MAX_MANUAL_PITCH_CENTS, MAX_MANUAL_PITCH_CENTS);
-                            note.pitch_bend.snap_first = false;
-                            note.pitch_bend.points.push(UPitchBendPoint {
-                                time_offset_ms: rel_t,
-                                pitch_offset_cents: cents,
-                                shape: "s".to_string(),
-                            });
-                            note.pitch_bend.points.sort_by(|a, b| {
-                                a.time_offset_ms
-                                    .partial_cmp(&b.time_offset_ms)
-                                    .unwrap_or(std::cmp::Ordering::Equal)
-                            });
+                        if pt_idx < notes[n_idx].pitch_bend.points.len() {
+                            let current = notes[n_idx].pitch_bend.points[pt_idx].shape.clone();
+                            notes[n_idx].pitch_bend.points[pt_idx].shape =
+                                PitchBendSolver::next_pitch_point_shape(&current).to_string();
                             on_note_changed();
-                            break;
                         }
                     }
                 }
 
-                // Primary Pressed: initiate drag, line, pen, vibrato
+                // Primary Pressed: OpenUtau-style point creation or point drag.
                 if ui.input(|i| i.pointer.primary_pressed()) && !is_alt {
                     on_before_change();
                     if let Some(h_idx) = hovered_handle_idx {
@@ -1874,22 +1863,49 @@ pub(crate) fn draw_piano_roll(
                                 state.dragging_pitch_pt = Some((n_idx, pt_idx));
                             }
                         }
-                    } else if state.active_tool == EditTool::PitchDraw && !is_shift {
-                        match state.pitch_sub_tool {
-                            PitchSubTool::Line => {
-                                state.pitch_line_start =
-                                    Some((timeline_time_ms, timeline_abs_midi));
+                    } else if state.active_tool == EditTool::PitchDraw {
+                        // A click on the curve creates a point, and the same
+                        // gesture immediately enters point-drag mode. This is
+                        // the important behavioral difference from the old
+                        // sampled freehand brush.
+                        let notes_len = notes.len();
+                        for (n_idx, note) in notes.iter_mut().enumerate() {
+                            let note_end = note.position_ms + note.duration_ms;
+                            if timeline_time_ms < note.position_ms
+                                || timeline_time_ms > note_end
+                                || (n_idx + 1 < notes_len && timeline_time_ms >= note_end)
+                            {
+                                continue;
                             }
-                            PitchSubTool::Freehand => {
-                                state.pitch_brush_raw_stroke.clear();
-                                state
-                                    .pitch_brush_raw_stroke
-                                    .push((timeline_time_ms, timeline_abs_midi));
+
+                            if note.pitch_bend.points.is_empty() {
+                                let (prev_m, is_adj) = if n_idx > 0 {
+                                    let (pm, pp, pd, _) = note_info[n_idx - 1];
+                                    (Some(pm), (pp + pd - note.position_ms).abs() <= 1.0)
+                                } else {
+                                    (None, false)
+                                };
+                                note.pitch_bend.points = note.pitch_bend.effective_points(
+                                    prev_m,
+                                    note.midi_key(),
+                                    is_adj,
+                                );
                             }
-                            PitchSubTool::Vibrato => {
-                                state.vibrato_brush_center = Some(timeline_abs_midi);
-                            }
-                            PitchSubTool::Smooth => {}
+
+                            let rel_t =
+                                (timeline_time_ms - note.position_ms).clamp(0.0, note.duration_ms);
+                            let cents = ((timeline_abs_midi - note.midi_key() as f64) * 100.0
+                                - note.expressions.pitch_delta)
+                                .clamp(-MAX_MANUAL_PITCH_CENTS, MAX_MANUAL_PITCH_CENTS);
+                            note.pitch_bend.snap_first = false;
+                            let point_idx = crate::gui::piano_roll::state::insert_pitch_point(
+                                note, rel_t, cents,
+                            );
+                            state.dragging_pitch_pt = Some((n_idx, point_idx));
+                            state.selected_note_index = Some(n_idx);
+                            state.selected_note_indices.clear();
+                            state.selected_note_indices.insert(n_idx);
+                            break;
                         }
                     }
                 }
@@ -2229,10 +2245,10 @@ pub(crate) fn draw_piano_roll(
 
                 let shape_char = match handle.shape.to_lowercase().as_str() {
                     "l" => "L",
-                    "j" => "J",
-                    "r" => "R",
-                    "h" => "H",
-                    _ => "S",
+                    "i" => "I",
+                    "o" => "O",
+                    "sp" | "h" => "SP",
+                    _ => "IO",
                 };
 
                 let (bg_color, ring_color) = if is_dragged {

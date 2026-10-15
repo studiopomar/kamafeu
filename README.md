@@ -214,7 +214,7 @@ O editor trabalha sobre um `UProject`. Ele contém faixas, partes vocais, partes
 
 O tempo interno é convertido para milissegundos antes de chegar ao renderer. Isso permite que piano roll, arrangement, régua de fonemas, RADAR, loop e playhead compartilhem a mesma linha do tempo. Quando o BPM muda, o projeto ajusta as posições temporais preservando as posições musicais, em vez de simplesmente deslocar pixels na interface.
 
-O arquivo `.aps` é o formato nativo porque preserva esse modelo completo. Formatos de intercâmbio mais antigos ou externos passam por adaptadores que registram o que foi convertido e o que não possui equivalente direto.
+O arquivo `.aps` é o formato nativo porque preserva esse modelo completo. O `.ufdata` é mantido como formato universal de intercâmbio: exporta notas, tempo e pitch em ticks/semitons, mas não substitui o APS e informa as perdas de FX rack, áudio e metadados próprios. Formatos de intercâmbio mais antigos ou externos passam por adaptadores que registram o que foi convertido e o que não possui equivalente direto.
 
 ### 2. A fonemização acontece antes do áudio
 
@@ -340,7 +340,7 @@ O Kamafeu Studio lê e grava projetos em múltiplos formatos do ecossistema de s
 | **OpenUtau Project** | `.ustx` | Sim | Sim | **Formato moderno do OpenUtau (YAML).** Preserva estrutura multifaixa, cantores atribuídos, expressões dinâmicas, curvas de afinação e parâmetros de respiração/gênero. |
 | **UTAU Sequence Text** | `.ust` | Sim | Sim | **Formato clássico do UTAU.** Arquivo de texto estruturado por seções `[#0000]` contendo notas, letras, andamento (BPM), portamentos (`PBType`, `PBDst`) e envelopes de amplitude. |
 | **Standard MIDI File** | `.mid`, `.midi` | Sim | Sim | **Padrão internacional MIDI.** Importa e exporta notas, tempos métricos, andamento e mensagens de pitch wheel para intercâmbio com DAWs como Reaper, FL Studio, Ableton e Logic Pro. |
-| **UtaFormatix Data** | `.ufdata` | Sim | Sim | **Esquema universal de intercâmbio (JSON).** Padrão aberto criado para migração fiel de dados melódicos e temporais entre diversos sintetizadores de canto do mercado. |
+| **UtaFormatix Data** | `.ufdata` | Sim | Sim | **Esquema universal de intercâmbio (JSON).** Exporta notas, tempo e pitch; não armazena FX rack, áudio de arranjo ou metadados específicos do Kamafeu. A exportação informa essas perdas. |
 | **Synthesizer V Project** | `.svp` | Sim | Sim | **Formato de projeto do Synthesizer V (Dreamtonics).** Conversão direta de trilhas melódicas, notas, letras e divisões silábicas. |
 | **VOCALOID Sequence** | `.vsqx` | Sim | Sim | **Formato de sequência XML do VOCALOID (Yamaha).** Converte dados de trilhas de canto (`vocaloidStyleTrack`), notas musicais, letras e curvas de pitch bend. |
 | **Kamafeu Voicebank** | `.kfv` | Sim | Sim | **Pacote de cantor do Kamafeu Studio (ZIP compactado).** Agrupa gravações de áudio WAV, arquivos `oto.ini`, `character.txt`, `prefix.map` e metadados de identificação do banco de voz. |
@@ -359,7 +359,7 @@ O Kamafeu Studio permite alternar entre o pipeline nativo de processamento e fer
 ### Motores de afinação (Resamplers)
 - **VENUS (Nativo):** Motor nativo em Rust baseado em síntese formântica pura, análise de periodicidade com YIN e reconstrução espectral de fase mínima. Preserva a inteligibilidade de consoantes rápidas sem cortes de alias e mantém a ressonância natural da voz sem artefatos anasalados.
 - **straycat-rs (UtaUtaUtau):** Motor padrão recomendado para máxima compatibilidade e clareza acústica.
-- **Motores externos:** Suporte transparente a executáveis da comunidade como `Hifisampler`, `macres`, `moresampler`, `OpenMoresampler`, `world4utau`, `TIPS` e `Organum`. O `openmoresampler.exe` acompanha a distribuição e roda nativamente no Windows; no macOS e Linux, executáveis Windows dependem do Wine.
+- **Motores externos:** Suporte transparente a executáveis da comunidade como `Hifisampler`, `macres`, `moresampler`, `OpenMoresampler`, `world4utau`, `TIPS` e `Organum`. Os artefatos de release compilam `straycat-rs` e Organum quando a plataforma permite; o `openmoresampler.exe` versionado do repositório é um artefato separado e só deve ser considerado incluído quando estiver presente no pacote baixado. No macOS e Linux, executáveis Windows dependem do Wine. Consulte os [avisos de terceiros](NOTICE.md).
 
 ### Motores de junção e emenda de fonemas (Wavtools)
 - **Andromeda (Nativo):** Motor de emenda e costura de fonemas interno de alta performance escrito em Rust. Realiza cálculo de envelope de amplitude, interpolação de amostras e crossfade de potência constante (*equal-power*) diretamente na memória.
@@ -1003,7 +1003,26 @@ utilitários VENUS, consulte o [Guia do código-fonte](docs/GUIA_DO_CODIGO.md).
 
 ## Licença
 
-Distribuído sob os termos da [Licença MIT](LICENSE). Executáveis e ferramentas externas de terceiros mantêm suas respectivas licenças de distribuição (consulte [resamplers/README.md](resamplers/README.md)).
+O código original é distribuído sob os termos da [Licença MIT](LICENSE).
+Executáveis, modelos, dados linguísticos, voicebanks, assets e ferramentas
+externas mantêm suas próprias licenças. Consulte o inventário de
+[avisos, referências e créditos de terceiros](NOTICE.md), os [avisos dos
+resamplers](resamplers/README.md) e os arquivos de licença distribuídos nas
+pastas correspondentes.
+
+### Referências e créditos
+
+- [OpenUtau](https://github.com/openutau/OpenUtau), referência para o fluxo
+  UTAU/OpenUtau e parte dos dados de phonemizer.
+- [UtaFormatix Data](https://github.com/sdercolin/utaformatix-data), referência
+  do formato `.ufdata`.
+- [OpenVPI Community Vocoder](https://openvpi.github.io/vocoders/), referência
+  e origem dos avisos dos modelos Catalina/NSF HiFi-GAN.
+- [Studio Pomar](https://studiopomar.github.io/pomar-lts/), identidade e
+  direção do projeto Kamafeu.
+- Os créditos individuais de programação, arte, QA e portabilidade permanecem
+  registrados no cabeçalho deste README; contribuições de terceiros estão
+  detalhadas em [NOTICE.md](NOTICE.md).
 
 Desenvolvido pelo **Studio Pomar**.
 ### Compatibilidade com CPUs x86_64 antigas

@@ -27,46 +27,10 @@ impl KamafeuStudioApp {
             }
             if self.piano_roll_state.active_tool == EditTool::PitchDraw {
                 ui.separator();
-                if ui
-                    .radio_value(
-                        &mut self.piano_roll_state.pitch_sub_tool,
-                        crate::gui::types::PitchSubTool::Freehand,
-                        lang.tr("  Pitch Livre (Suave)", "  Freehand Pitch (Smooth)"),
-                    )
-                    .clicked()
-                {
-                    ui.close_menu();
-                }
-                if ui
-                    .radio_value(
-                        &mut self.piano_roll_state.pitch_sub_tool,
-                        crate::gui::types::PitchSubTool::Line,
-                        lang.tr("  Reta / Glissando", "  Line / Glissando"),
-                    )
-                    .clicked()
-                {
-                    ui.close_menu();
-                }
-                if ui
-                    .radio_value(
-                        &mut self.piano_roll_state.pitch_sub_tool,
-                        crate::gui::types::PitchSubTool::Vibrato,
-                        lang.tr("  Pincel de Vibrato", "  Vibrato Brush"),
-                    )
-                    .clicked()
-                {
-                    ui.close_menu();
-                }
-                if ui
-                    .radio_value(
-                        &mut self.piano_roll_state.pitch_sub_tool,
-                        crate::gui::types::PitchSubTool::Smooth,
-                        lang.tr("  Pincel Suavizador", "  Smooth Brush"),
-                    )
-                    .clicked()
-                {
-                    ui.close_menu();
-                }
+                ui.label(lang.tr(
+                    "  Pontos/segmentos: clique para criar, arraste para mover",
+                    "  Points/segments: click to create, drag to move",
+                ));
                 ui.separator();
             }
             if ui

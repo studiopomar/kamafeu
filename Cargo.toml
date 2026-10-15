@@ -62,6 +62,7 @@ assets = [
   ["target/release/copaiba", "usr/bin/copaiba", "755"],
   ["README.md", "usr/share/doc/kamafeu/README.md", "644"],
   ["LICENSE", "usr/share/doc/kamafeu/LICENSE", "644"],
+  ["NOTICE.md", "usr/share/doc/kamafeu/NOTICE.md", "644"],
 ]
 
 [package.metadata.generate-rpm]
@@ -71,6 +72,7 @@ assets = [
   { source = "target/release/copaiba", dest = "/usr/bin/copaiba", mode = "755" },
   { source = "README.md", dest = "/usr/share/doc/kamafeu/README.md", mode = "644" },
   { source = "LICENSE", dest = "/usr/share/licenses/kamafeu/LICENSE", mode = "644" },
+  { source = "NOTICE.md", dest = "/usr/share/licenses/kamafeu/NOTICE.md", mode = "644" },
 ]
 
 # Release signing is supplied through CARGO_APK_RELEASE_KEYSTORE and

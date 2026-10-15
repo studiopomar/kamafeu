@@ -94,20 +94,29 @@ impl KamafeuStudioApp {
             .add_filter("UtaFormatix Data (*.ufdata, *.json)", &["ufdata", "json"])
             .save_file()
         {
-            if let Err(e) = UfdataFormat::save_file(&self.project, &path) {
-                self.transport_state.status_message = format!("Erro ao exportar UFData: {}", e);
-            } else {
-                let fname = path
-                    .file_name()
-                    .unwrap_or_default()
-                    .to_string_lossy()
-                    .to_string();
-                self.transport_state.status_message = format!("UFData exportado: {fname}");
-                self.last_exported_notification = Some((
-                    path.clone(),
-                    format!("UFData exportado: {fname}"),
-                    Instant::now(),
-                ));
+            match UfdataFormat::save_file_with_report(&self.project, &path) {
+                Err(e) => {
+                    self.transport_state.status_message = format!("Erro ao exportar UFData: {}", e);
+                }
+                Ok(report) => {
+                    let fname = path
+                        .file_name()
+                        .unwrap_or_default()
+                        .to_string_lossy()
+                        .to_string();
+                    let suffix = if report.warnings.is_empty() {
+                        String::new()
+                    } else {
+                        format!(" Avisos: {}.", report.dropped_features.join(", "))
+                    };
+                    self.transport_state.status_message =
+                        format!("UFData exportado: {fname}{suffix}");
+                    self.last_exported_notification = Some((
+                        path.clone(),
+                        format!("UFData exportado: {fname}{suffix}"),
+                        Instant::now(),
+                    ));
+                }
             }
         }
     }

@@ -70,7 +70,16 @@ impl PitchBendSolver {
             let shape = p1.shape.as_str();
             if Self::shape_is(
                 shape,
-                &["h", "hermite", "c", "catmull", "catmull-rom", "cubic"],
+                &[
+                    "sp",
+                    "spline",
+                    "h",
+                    "hermite",
+                    "c",
+                    "catmull",
+                    "catmull-rom",
+                    "cubic",
+                ],
             ) {
                 return Self::hermite_interpolate(time_ms, p1, p2, p0_opt, p3_opt);
             }
@@ -228,12 +237,12 @@ impl PitchBendSolver {
 
     pub fn next_pitch_point_shape(current: &str) -> &'static str {
         match current.to_lowercase().as_str() {
-            "s" | "io" | "smooth" => "l",
-            "l" | "linear" => "j",
-            "j" | "i" | "easein" => "r",
-            "r" | "o" | "easeout" => "h",
-            "h" | "hermite" | "c" | "catmull" => "s",
-            _ => "s",
+            "io" | "s" | "smooth" => "l",
+            "l" | "linear" => "i",
+            "i" | "j" | "easein" => "o",
+            "o" | "r" | "easeout" => "sp",
+            "sp" | "spline" | "h" | "hermite" | "c" | "catmull" => "io",
+            _ => "io",
         }
     }
 }

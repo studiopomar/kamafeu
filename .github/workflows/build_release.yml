@@ -176,7 +176,7 @@ jobs:
           New-Item -ItemType Directory -Force -Path "package_root/resamplers"
           Copy-Item $bin_path -Destination "package_root/kamafeu.exe"
           Copy-Item $toolkit_path -Destination "package_root/copaiba.exe"
-          Copy-Item "README.md", "LICENSE" -Destination "package_root/"
+          Copy-Item "README.md", "LICENSE", "NOTICE.md" -Destination "package_root/"
 
           # Recent `ort` builds may statically link ONNX Runtime. If a build
           # selects the dynamic variant, keep its DLL beside the executable;
@@ -242,7 +242,7 @@ jobs:
             cp "$BIN_PATH" package_root/kamafeu
             cp "$TOOLKIT_PATH" package_root/copaiba
           fi
-          cp README.md LICENSE package_root/
+          cp README.md LICENSE NOTICE.md package_root/
 
           # Include compiled resamplers
           if [ -d "resamplers_dist/bin" ]; then

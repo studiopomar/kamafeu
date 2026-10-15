@@ -9,7 +9,7 @@ pub mod vsqx;
 pub use aps::ApsFormat;
 pub use midi::MidiFormat;
 pub use svp::SvpFormat;
-pub use ufdata::UfdataFormat;
+pub use ufdata::{UfdataConversionReport, UfdataFormat};
 pub use ust::UstFormat;
 pub use ustx::UstxFormat;
 pub use vsqx::VsqxFormat;
