@@ -80,7 +80,7 @@ pub(super) fn draw(
                         Pos2::new(timeline_rect.min.x, mid_y),
                         Pos2::new(timeline_rect.max.x, mid_y),
                     ],
-                    Stroke::new(0.7, Color32::from_rgba_unmultiplied(214, 133, 102, 70)),
+                    Stroke::new(0.7_f32, Color32::from_rgba_unmultiplied(214, 133, 102, 70)),
                 );
             }
 
@@ -116,7 +116,7 @@ pub(super) fn draw(
                             Pos2::new(bar_x, strip_rect.min.y),
                             Pos2::new(bar_x, strip_rect.max.y),
                         ],
-                        Stroke::new(0.8, theme.c32_alpha(theme.grid_line_bar, 0.55)),
+                        Stroke::new(0.8_f32, theme.c32_alpha(theme.grid_line_bar, 0.55)),
                     );
                 }
             }
@@ -213,7 +213,7 @@ pub(super) fn draw(
                         Pos2::new(playhead_x, strip_rect.min.y),
                         Pos2::new(playhead_x, strip_rect.max.y),
                     ],
-                    Stroke::new(1.5, Color32::from_rgb(255, 215, 0)),
+                    Stroke::new(1.5_f32, Color32::from_rgb(255, 215, 0)),
                 );
                 painter.circle_filled(
                     Pos2::new(playhead_x, strip_rect.min.y + 4.0),

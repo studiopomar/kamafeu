@@ -75,7 +75,7 @@ pub(super) fn draw(
                     Pos2::new(x, y),
                     4.5,
                     Stroke::new(
-                        if active { 2.0 } else { 1.0 },
+                        if active { 2.0_f32 } else { 1.0_f32 },
                         if active {
                             theme.accent_c32()
                         } else {

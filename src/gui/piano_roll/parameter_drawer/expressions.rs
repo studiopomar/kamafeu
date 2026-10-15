@@ -914,7 +914,7 @@ pub(super) fn draw(
                                 Pos2::new(x_start, graph_rect.bottom() - 5.0),
                                 Pos2::new(x_start, graph_rect.bottom()),
                             ],
-                            Stroke::new(1.0, Color32::from_rgba_unmultiplied(145, 145, 170, 110)),
+                            Stroke::new(1.0_f32, Color32::from_rgba_unmultiplied(145, 145, 170, 110)),
                         );
                         last_boundary = Some(x_start);
                     }

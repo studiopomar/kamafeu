@@ -13,7 +13,10 @@ fn toolbar_card<R>(
     let frame = Frame::none()
         .fill(theme.c32_alpha(theme.bg_header, 0.58))
         .rounding(Rounding::same(theme.ui_corner_radius.max(5.0)))
-        .stroke(Stroke::new(0.6, theme.c32_alpha(theme.grid_line_sub, 0.34)))
+        .stroke(Stroke::new(
+            0.6_f32,
+            theme.c32_alpha(theme.grid_line_sub, 0.34),
+        ))
         .inner_margin(Margin::symmetric(6.0, 3.0))
         .show(ui, add_contents);
     frame.inner
@@ -33,7 +36,7 @@ fn draw_vu_meter(
     painter.rect_stroke(
         vu_rect,
         theme.ui_rounding(),
-        Stroke::new(1.0, theme.grid_line_sub_c32()),
+        Stroke::new(1.0_f32, theme.grid_line_sub_c32()),
     );
 
     let bar_h = 5.0;
@@ -95,7 +98,7 @@ fn draw_vu_meter(
             };
             painter.line_segment(
                 [Pos2::new(peak_x, bar_y), Pos2::new(peak_x, bar_y + bar_h)],
-                Stroke::new(1.5, peak_color),
+                Stroke::new(1.5_f32, peak_color),
             );
         }
     }
@@ -280,13 +283,13 @@ pub fn draw_unified_toolbar(
                                     active_color.b(),
                                     64,
                                 ),
-                                Stroke::new(1.2, active_color),
+                                Stroke::new(1.2_f32, active_color),
                                 active_color,
                             )
                         } else {
                             (
                                 theme.bg_header_c32(),
-                                Stroke::new(1.0, theme.grid_line_sub_c32()),
+                                Stroke::new(1.0_f32, theme.grid_line_sub_c32()),
                                 theme.text_muted_c32(),
                             )
                         };
@@ -339,7 +342,7 @@ pub fn draw_unified_toolbar(
                             theme.bg_header_c32()
                         })
                         .stroke(Stroke::new(
-                            if selected { 1.2 } else { 1.0 },
+                            if selected { 1.2_f32 } else { 1.0_f32 },
                             if selected {
                                 theme.accent_c32()
                             } else {
@@ -367,7 +370,7 @@ pub fn draw_unified_toolbar(
                         theme.bg_header_c32()
                     })
                     .stroke(Stroke::new(
-                        if *vertical_pitch_follow { 1.2 } else { 1.0 },
+                        if *vertical_pitch_follow { 1.2_f32 } else { 1.0_f32 },
                         if *vertical_pitch_follow {
                             theme.note_fill_c32()
                         } else {

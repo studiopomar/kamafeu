@@ -46,7 +46,7 @@ impl KamafeuStudioApp {
                             ))
                             .rounding(egui::Rounding::same(8.0))
                             .stroke(egui::Stroke::new(
-                                1.2,
+                                1.2_f32,
                                 success.linear_multiply(220.0 * visibility / 255.0),
                             ))
                             .shadow(egui::epaint::Shadow {
@@ -210,13 +210,13 @@ impl KamafeuStudioApp {
                 painter.add(egui::epaint::Shape::convex_polygon(
                     vec![arrow_tip, arrow_left, arrow_right],
                     bg_color,
-                    egui::Stroke::new(1.0, arrow_color),
+                    egui::Stroke::new(1.0_f32, arrow_color),
                 ));
 
                 egui::Frame::none()
                     .fill(bg_color)
                     .rounding(egui::Rounding::same(8.0))
-                    .stroke(egui::Stroke::new(1.2, stroke_color))
+                    .stroke(egui::Stroke::new(1.2_f32, stroke_color))
                     .shadow(egui::epaint::Shadow {
                         offset: egui::Vec2::new(0.0, 5.0),
                         blur: 22.0,
@@ -284,7 +284,7 @@ impl KamafeuStudioApp {
                                     egui::Frame::none()
                                         .fill(egui::Color32::from_rgba_unmultiplied(35, 32, 50, (230.0 * alpha) as u8))
                                         .rounding(egui::Rounding::same(4.0))
-                                        .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgba_unmultiplied(65, 60, 85, (200.0 * alpha) as u8)))
+                                        .stroke(egui::Stroke::new(1.0_f32, egui::Color32::from_rgba_unmultiplied(65, 60, 85, (200.0 * alpha) as u8)))
                                         .inner_margin(egui::Margin::symmetric(6.0, 3.0))
                                         .show(ui, |ui| {
                                             ui.horizontal(|ui| {
@@ -367,7 +367,7 @@ impl KamafeuStudioApp {
                 egui::Frame::none()
                     .fill(bg_color)
                     .rounding(egui::Rounding::same(8.0))
-                    .stroke(egui::Stroke::new(1.4, border_color))
+                    .stroke(egui::Stroke::new(1.4_f32, border_color))
                     .shadow(egui::epaint::Shadow {
                         offset: egui::Vec2::new(0.0, 4.0),
                         blur: 16.0,

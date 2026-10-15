@@ -117,8 +117,12 @@ fn help_marker(ui: &mut egui::Ui, text: &str) {
         visuals.text_color()
     };
 
-    ui.painter()
-        .circle(rect.center(), 7.0, bg_color, Stroke::new(1.0, border_color));
+    ui.painter().circle(
+        rect.center(),
+        7.0,
+        bg_color,
+        Stroke::new(1.0_f32, border_color),
+    );
     ui.painter().text(
         rect.center(),
         egui::Align2::CENTER_CENTER,
@@ -305,7 +309,7 @@ impl KamafeuStudioApp {
             |ui| {
                 Frame::none()
                     .fill(Color32::from_rgb(72, 48, 22))
-                    .stroke(Stroke::new(1.0, Color32::from_rgb(235, 165, 70)))
+                    .stroke(Stroke::new(1.0_f32, Color32::from_rgb(235, 165, 70)))
                     .rounding(Rounding::same(4.0))
                     .inner_margin(Margin::same(7.0))
                     .show(ui, |ui| {

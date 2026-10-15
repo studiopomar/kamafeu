@@ -142,7 +142,10 @@ impl KamafeuStudioApp {
                             egui::Frame::none()
                                 .fill(egui::Color32::from_rgb(22, 19, 32))
                                 .rounding(egui::Rounding::same(6.0))
-                                .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(55, 48, 75)))
+                                .stroke(egui::Stroke::new(
+                                    1.0_f32,
+                                    egui::Color32::from_rgb(55, 48, 75),
+                                ))
                                 .inner_margin(egui::Margin::same(8.0))
                                 .show(ui, |ui| {
                                     ui.horizontal(|ui| {

@@ -1,4 +1,5 @@
 use super::*;
+use crate::gui::phoneme_palette::draw_phoneme_palette;
 
 pub(super) fn draw(
     ui: &mut egui::Ui,

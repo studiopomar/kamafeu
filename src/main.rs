@@ -506,7 +506,7 @@ fn main() {
                 .set_description(format!("O Kamafeu não pôde iniciar:\n\n{error}"))
                 .show();
         }
-        eprintln!("Kamafeu: {error}");
+        kamafeu::terminal_log::error("Startup", format!("{error}"));
         std::process::exit(1);
     }
 }
@@ -539,10 +539,7 @@ fn real_main() -> Result<(), Box<dyn std::error::Error>> {
             let fallback_viewport = viewport.clone();
             kamafeu::terminal_log::info(
                 "Graphics",
-                format!(
-                    "renderer={renderer:?} acceleration=preferred vsync=true platform={} window=1280x750",
-                    std::env::consts::OS
-                ),
+                format!("backend={renderer:?} platform={}", std::env::consts::OS),
             );
             let options = NativeOptions {
                 viewport,
@@ -612,35 +609,36 @@ fn real_main() -> Result<(), Box<dyn std::error::Error>> {
                     "resolution": resolution,
                 }))?;
             } else {
-                println!("Loading voicebank from: {:?}", path);
-                println!("=== Voicebank Info ===");
-                println!("Name:        {}", vb.name);
-                println!("Author:      {}", vb.author);
-                println!("Total entries: {}", vb.entries.len());
-                println!("\nSample Aliases (up to 10):");
-                for (alias, entry) in vb.entries.iter().take(10) {
-                    println!(
-                        "  - Alias: {:<10} -> WAV: {:<12} (offset: {}ms, preutter: {}ms)",
-                        alias, entry.wav_filename, entry.offset, entry.preutterance
-                    );
-                }
+                kamafeu::terminal_log::out_header("Voicebank", &vb.name);
+                kamafeu::terminal_log::out_kv("Author", &vb.author);
+                kamafeu::terminal_log::out_kv("Entries", vb.entries.len());
                 if let Some(alias) = alias {
                     let report = vb.alias_resolution_report(alias, &pitch);
                     match report.resolved_alias {
-                        Some(resolved) => println!(
-                            "\nResolution: '{}' @ {} -> '{}' / {} (preutter: {}ms, overlap: {}ms)",
-                            report.requested_alias,
-                            report.pitch,
-                            resolved,
-                            report.wav_filename.unwrap_or_default(),
-                            report.preutterance_ms.unwrap_or_default(),
-                            report.overlap_ms.unwrap_or_default()
-                        ),
-                        None => println!(
-                            "\nResolution: '{}' @ {} -> {}",
-                            report.requested_alias,
-                            report.pitch,
-                            report.reason.unwrap_or_else(|| "não resolvido".to_string())
+                        Some(resolved) => {
+                            kamafeu::terminal_log::out_status(
+                                "OK",
+                                "Resolution",
+                                format!(
+                                    "{} @ {} -> {} / {} (preutter {}ms, overlap {}ms)",
+                                    report.requested_alias,
+                                    report.pitch,
+                                    resolved,
+                                    report.wav_filename.unwrap_or_default(),
+                                    report.preutterance_ms.unwrap_or_default(),
+                                    report.overlap_ms.unwrap_or_default()
+                                ),
+                            );
+                        }
+                        None => kamafeu::terminal_log::out_status(
+                            "WARN",
+                            "Resolution",
+                            format!(
+                                "{} @ {} -> {}",
+                                report.requested_alias,
+                                report.pitch,
+                                report.reason.unwrap_or_else(|| "not resolved".to_string())
+                            ),
                         ),
                     }
                 }
@@ -657,24 +655,29 @@ fn real_main() -> Result<(), Box<dyn std::error::Error>> {
             } else {
                 let directories = catalog["directories"].as_array();
                 let singers = catalog["voicebanks"].as_array();
-                println!("=== Voicebank catalog ===");
-                println!("Directories scanned: {}", directories.map_or(0, Vec::len));
+                kamafeu::terminal_log::out_header(
+                    "Voicebank catalog",
+                    format!("{} directories scanned", directories.map_or(0, Vec::len)),
+                );
                 if let Some(directories) = directories {
                     for directory in directories {
                         if let Some(path) = directory.as_str() {
-                            println!("  - {path}");
+                            kamafeu::terminal_log::out_list(path);
                         }
                     }
                 }
-                println!("Voicebanks found: {}", singers.map_or(0, Vec::len));
+                kamafeu::terminal_log::out_kv("Voicebanks", singers.map_or(0, Vec::len));
                 if let Some(singers) = singers {
                     for singer in singers {
-                        println!(
-                            "  - {} ({}, {})\n    {}",
+                        kamafeu::terminal_log::out_status(
+                            "OK",
                             singer["name"].as_str().unwrap_or("Unknown"),
-                            singer["voice_type"].as_str().unwrap_or("Unknown"),
-                            singer["author"].as_str().unwrap_or("Unknown"),
-                            singer["path"].as_str().unwrap_or(""),
+                            format!(
+                                "{} | {} | {}",
+                                singer["voice_type"].as_str().unwrap_or("Unknown"),
+                                singer["author"].as_str().unwrap_or("Unknown"),
+                                singer["path"].as_str().unwrap_or(""),
+                            ),
                         );
                     }
                 }
@@ -713,17 +716,16 @@ fn real_main() -> Result<(), Box<dyn std::error::Error>> {
                     "issues": issues,
                 }))?;
             } else {
-                println!("=== Voicebank validation ===");
-                println!("Name:              {}", vb.name);
-                println!("Entries:           {}", report.entry_count);
-                println!("Unique WAV files:  {}", report.unique_wav_count);
-                println!("Readable WAV files:{}", report.readable_wav_count);
-                println!("Missing WAV files: {}", report.missing_wav_count);
-                println!("Invalid WAV files: {}", report.invalid_wav_count);
-                println!("Empty WAV files:   {}", report.empty_wav_count);
-                println!("Invalid oto timing:{}", report.invalid_oto_timing_count);
+                kamafeu::terminal_log::out_header("Voicebank validation", &vb.name);
+                kamafeu::terminal_log::out_kv("Entries", report.entry_count);
+                kamafeu::terminal_log::out_kv("Unique WAV", report.unique_wav_count);
+                kamafeu::terminal_log::out_kv("Readable WAV", report.readable_wav_count);
+                kamafeu::terminal_log::out_kv("Missing WAV", report.missing_wav_count);
+                kamafeu::terminal_log::out_kv("Invalid WAV", report.invalid_wav_count);
+                kamafeu::terminal_log::out_kv("Empty WAV", report.empty_wav_count);
+                kamafeu::terminal_log::out_kv("Invalid oto", report.invalid_oto_timing_count);
                 if report.sample_rates.is_empty() {
-                    println!("Sample rates:      none");
+                    kamafeu::terminal_log::out_kv("Sample rates", "none");
                 } else {
                     let sample_rates = report
                         .sample_rates
@@ -731,18 +733,24 @@ fn real_main() -> Result<(), Box<dyn std::error::Error>> {
                         .map(|(rate, count)| format!("{rate} Hz ({count})"))
                         .collect::<Vec<_>>()
                         .join(", ");
-                    println!("Sample rates:      {sample_rates}");
+                    kamafeu::terminal_log::out_kv("Sample rates", sample_rates);
                 }
                 if report.is_healthy() {
-                    println!("Result: healthy");
+                    kamafeu::terminal_log::out_status("OK", "Result", "healthy");
                 } else {
-                    println!("Result: {} issue(s)", report.issues.len());
+                    kamafeu::terminal_log::out_status(
+                        "WARN",
+                        "Result",
+                        format!("{} issue(s)", report.issues.len()),
+                    );
                     for issue in &report.issues {
-                        println!(
-                            "  - [{}] {}: {}",
-                            issue.alias, issue.wav_filename, issue.detail
-                        );
-                        println!("      sugestão: {}", issue.suggestion());
+                        kamafeu::terminal_log::out_list(format!(
+                            "{} -> {}: {} (hint: {})",
+                            issue.alias,
+                            issue.wav_filename,
+                            issue.detail,
+                            issue.suggestion()
+                        ));
                     }
                 }
             }
@@ -804,21 +812,28 @@ fn real_main() -> Result<(), Box<dyn std::error::Error>> {
                     })).collect::<Vec<_>>(),
                 }))?;
             } else {
-                println!("=== Project info ===");
-                println!("Name:        {}", project.name);
-                println!("Tempo:       {:.2} BPM", project.bpm);
-                println!(
-                    "Compasso:    {}/{}",
-                    project.time_signature_numerator, project.time_signature_denominator
+                kamafeu::terminal_log::out_header("Project", &project.name);
+                kamafeu::terminal_log::out_kv("Tempo", format!("{:.2} BPM", project.bpm));
+                kamafeu::terminal_log::out_kv(
+                    "Time signature",
+                    format!(
+                        "{}/{}",
+                        project.time_signature_numerator, project.time_signature_denominator
+                    ),
                 );
-                println!("Tracks:      {}", project.tracks.len());
-                println!("Voice parts: {}", project.parts.len());
-                println!("Wave parts:  {}", project.wave_parts.len());
-                println!("Sections:    {}", project.sections.len());
-                println!("Notes:       {note_count}");
-                println!("Duration:    {:.2}s", duration_ms / 1000.0);
+                kamafeu::terminal_log::out_kv("Tracks", project.tracks.len());
+                kamafeu::terminal_log::out_kv("Voice parts", project.parts.len());
+                kamafeu::terminal_log::out_kv("Wave parts", project.wave_parts.len());
+                kamafeu::terminal_log::out_kv("Sections", project.sections.len());
+                kamafeu::terminal_log::out_kv("Notes", note_count);
+                kamafeu::terminal_log::out_kv("Duration", format!("{:.2}s", duration_ms / 1000.0));
                 for (index, name, track_notes) in tracks {
-                    println!("  {}. {} ({} notes)", index + 1, name, track_notes);
+                    kamafeu::terminal_log::out_list(format!(
+                        "{}. {} ({} notes)",
+                        index + 1,
+                        name,
+                        track_notes
+                    ));
                 }
             }
         }
@@ -830,35 +845,28 @@ fn real_main() -> Result<(), Box<dyn std::error::Error>> {
             if json_output {
                 print_json(&serde_json::to_value(&diff)?)?;
             } else {
-                println!("=== Project diff ===");
-                println!("Before: {}", before.display());
-                println!("After:  {}", after.display());
-                println!(
-                    "Project metadata changed: {}",
-                    diff.changed_project_metadata
+                kamafeu::terminal_log::out_header(
+                    "Project diff",
+                    format!("{} -> {}", before.display(), after.display()),
                 );
-                println!("Arrangement changed:       {}", diff.changed_arrangement);
-                println!(
-                    "Render settings changed:   {}",
-                    diff.changed_render_settings
-                );
-                println!("Notes added:              {}", diff.added_notes);
-                println!("Notes removed:            {}", diff.removed_notes);
-                println!("Notes changed:            {}", diff.changed_notes);
-                println!(
-                    "Phoneme overrides changed:{}",
-                    diff.changed_phoneme_overrides
-                );
-                println!("Wave parts added:         {}", diff.added_wave_parts);
-                println!("Wave parts removed:       {}", diff.removed_wave_parts);
-                println!("Wave parts changed:       {}", diff.changed_wave_parts);
-                println!(
-                    "Result: {}",
+                kamafeu::terminal_log::out_kv("Metadata", diff.changed_project_metadata);
+                kamafeu::terminal_log::out_kv("Arrangement", diff.changed_arrangement);
+                kamafeu::terminal_log::out_kv("Render settings", diff.changed_render_settings);
+                kamafeu::terminal_log::out_kv("Notes added", diff.added_notes);
+                kamafeu::terminal_log::out_kv("Notes removed", diff.removed_notes);
+                kamafeu::terminal_log::out_kv("Notes changed", diff.changed_notes);
+                kamafeu::terminal_log::out_kv("Phoneme overrides", diff.changed_phoneme_overrides);
+                kamafeu::terminal_log::out_kv("Wave parts added", diff.added_wave_parts);
+                kamafeu::terminal_log::out_kv("Wave parts removed", diff.removed_wave_parts);
+                kamafeu::terminal_log::out_kv("Wave parts changed", diff.changed_wave_parts);
+                kamafeu::terminal_log::out_status(
+                    "OK",
+                    "Result",
                     if diff.is_empty() {
                         "identical"
                     } else {
                         "changed"
-                    }
+                    },
                 );
             }
         }
@@ -870,19 +878,22 @@ fn real_main() -> Result<(), Box<dyn std::error::Error>> {
             if json_output {
                 print_json(&serde_json::to_value(&provenance)?)?;
             } else {
-                println!("=== Render provenance ===");
-                println!("Pipeline:       {}", provenance.pipeline_version);
-                println!("Schema:         {}", provenance.schema);
-                println!("Resampler:      {}", provenance.resampler);
-                println!("Wavtool:        {}", provenance.wavtool);
-                println!("Cache hit:      {}", provenance.cache_hit);
-                println!("Artifacts:      {}", provenance.artifacts.len());
-                println!("Timing records: {}", provenance.timing_diagnostics.len());
-                println!(
-                    "Timing boundaries: {}",
-                    provenance.timing_boundary_diagnostics.len()
+                kamafeu::terminal_log::out_header("Render provenance", &path.display());
+                kamafeu::terminal_log::out_kv("Pipeline", provenance.pipeline_version);
+                kamafeu::terminal_log::out_kv("Schema", provenance.schema);
+                kamafeu::terminal_log::out_kv("Resampler", provenance.resampler);
+                kamafeu::terminal_log::out_kv("Wavtool", provenance.wavtool);
+                kamafeu::terminal_log::out_kv("Cache", provenance.cache_hit);
+                kamafeu::terminal_log::out_kv("Artifacts", provenance.artifacts.len());
+                kamafeu::terminal_log::out_kv(
+                    "Timing records",
+                    provenance.timing_diagnostics.len(),
                 );
-                println!("Warnings:       {}", provenance.warnings.len());
+                kamafeu::terminal_log::out_kv(
+                    "Timing boundaries",
+                    provenance.timing_boundary_diagnostics.len(),
+                );
+                kamafeu::terminal_log::out_kv("Warnings", provenance.warnings.len());
             }
         }
 
@@ -895,26 +906,26 @@ fn real_main() -> Result<(), Box<dyn std::error::Error>> {
             if json_output {
                 print_json(&report)?;
             } else {
-                println!("=== Project validation ===");
-                println!("Path: {}", path.display());
-                println!("Tracks:      {}", report["track_count"]);
-                println!("Voice parts: {}", report["voice_part_count"]);
-                println!("Wave parts:  {}", report["wave_part_count"]);
-                println!("Notes:       {}", report["note_count"]);
+                kamafeu::terminal_log::out_header("Project validation", path.display());
+                kamafeu::terminal_log::out_kv("Tracks", &report["track_count"]);
+                kamafeu::terminal_log::out_kv("Voice parts", &report["voice_part_count"]);
+                kamafeu::terminal_log::out_kv("Wave parts", &report["wave_part_count"]);
+                kamafeu::terminal_log::out_kv("Notes", &report["note_count"]);
                 if report["valid"].as_bool() == Some(true) {
-                    println!("Result: valid");
+                    kamafeu::terminal_log::out_status("OK", "Result", "valid");
                 } else {
-                    println!("Result: invalid");
+                    kamafeu::terminal_log::out_status("ERROR", "Result", "invalid");
                     for issue in report["issues"].as_array().into_iter().flatten() {
-                        println!(
-                            "  - [{}] {}: {}",
+                        kamafeu::terminal_log::out_list(format!(
+                            "[{}] {}: {}{}",
                             issue["severity"].as_str().unwrap_or("unknown"),
                             issue["location"].as_str().unwrap_or("project"),
-                            issue["detail"].as_str().unwrap_or("unknown issue")
-                        );
-                        if let Some(suggestion) = issue["suggestion"].as_str() {
-                            println!("      sugestão: {suggestion}");
-                        }
+                            issue["detail"].as_str().unwrap_or("unknown issue"),
+                            issue["suggestion"]
+                                .as_str()
+                                .map(|s| format!(" (hint: {s})"))
+                                .unwrap_or_default()
+                        ));
                     }
                 }
                 for diagnostic in report["extension_diagnostics"]
@@ -922,7 +933,7 @@ fn real_main() -> Result<(), Box<dyn std::error::Error>> {
                     .into_iter()
                     .flatten()
                 {
-                    println!("  - [warning] extension: {}", diagnostic);
+                    kamafeu::terminal_log::out_list(format!("[warning] extension: {diagnostic}"));
                 }
             }
             let has_warnings = report["issues"].as_array().is_some_and(|issues| {
@@ -946,15 +957,18 @@ fn real_main() -> Result<(), Box<dyn std::error::Error>> {
             if json_output {
                 print_json(&report)?;
             } else {
-                println!("Converted {} to {}", input.display(), output.display());
+                kamafeu::terminal_log::out_header(
+                    "Conversion",
+                    format!("{} -> {}", input.display(), output.display()),
+                );
                 let warnings = report["warnings"].as_array().cloned().unwrap_or_default();
                 if warnings.is_empty() {
-                    println!("Tracked musical data preserved after reopening the destination.");
+                    kamafeu::terminal_log::out_status("OK", "Audit", "musical data preserved");
                 } else {
-                    println!("Conversion warnings:");
+                    kamafeu::terminal_log::out_status("WARN", "Audit", "conversion warnings");
                     for warning in warnings {
                         if let Some(warning) = warning.as_str() {
-                            println!("  - {warning}");
+                            kamafeu::terminal_log::out_list(warning);
                         }
                     }
                 }
@@ -1081,58 +1095,64 @@ fn real_main() -> Result<(), Box<dyn std::error::Error>> {
                     "wasm_verification": wasm_verification,
                 }))?;
             } else {
-                println!("=== Kamafeu extensions ===");
-                println!("Directory: {}", path.display());
-                println!("Built-in capabilities:");
+                kamafeu::terminal_log::out_header("Kamafeu extensions", path.display());
+                kamafeu::terminal_log::out_status("INFO", "Built-in", "capabilities");
                 for capability in built_ins {
-                    println!(
-                        "- {} ({:?}) [{}]",
+                    kamafeu::terminal_log::out_list(format!(
+                        "{} ({:?}) [{}]",
                         capability.name, capability.kind, capability.id
-                    );
+                    ));
                 }
                 if discovery.extensions.is_empty() {
-                    println!("No compatible extensions found.");
+                    kamafeu::terminal_log::out_status("INFO", "Extensions", "none found");
                 }
                 for extension in discovery.extensions.iter().filter(matches_filter) {
-                    println!(
-                        "- {} {} ({:?}) [{}]",
-                        extension.manifest.name,
-                        extension.manifest.version,
-                        extension.manifest.kind,
-                        extension.manifest.id
+                    kamafeu::terminal_log::out_status(
+                        "OK",
+                        &extension.manifest.name,
+                        format!(
+                            "{} ({:?}) [{}]",
+                            extension.manifest.version,
+                            extension.manifest.kind,
+                            extension.manifest.id
+                        ),
                     );
-                    println!(
-                        "  entrypoint: {} ({})",
-                        extension
-                            .manifest
-                            .entrypoint
-                            .as_deref()
-                            .unwrap_or("não declarado"),
-                        extension_entrypoint_status(extension)
+                    kamafeu::terminal_log::out_kv(
+                        "Entrypoint",
+                        format!(
+                            "{} ({})",
+                            extension
+                                .manifest
+                                .entrypoint
+                                .as_deref()
+                                .unwrap_or("não declarado"),
+                            extension_entrypoint_status(extension)
+                        ),
                     );
                     if !extension.manifest.limitations.is_empty() {
-                        println!(
-                            "  limitations: {}",
-                            extension.manifest.limitations.join("; ")
+                        kamafeu::terminal_log::out_kv(
+                            "Limitations",
+                            extension.manifest.limitations.join("; "),
                         );
                     }
                 }
                 if !discovery.diagnostics.is_empty() {
-                    println!("Diagnostics:");
+                    kamafeu::terminal_log::out_status("WARN", "Diagnostics", "extension issues");
                     for diagnostic in discovery.diagnostics {
-                        println!("  - {diagnostic}");
+                        kamafeu::terminal_log::out_list(diagnostic);
                     }
                 }
                 if let Some(results) = wasm_verification {
-                    println!("WASM verification:");
+                    kamafeu::terminal_log::out_status("INFO", "WASM", "verification");
                     for result in results {
                         let id = result["id"].as_str().unwrap_or("unknown");
                         if result["ok"].as_bool() == Some(true) {
-                            println!("  - [OK] {id}");
+                            kamafeu::terminal_log::out_status("OK", id, "verified");
                         } else {
-                            println!(
-                                "  - [Error] {id}: {}",
-                                result["error"].as_str().unwrap_or("unknown error")
+                            kamafeu::terminal_log::out_status(
+                                "ERROR",
+                                id,
+                                result["error"].as_str().unwrap_or("unknown error"),
                             );
                         }
                     }
@@ -1148,18 +1168,36 @@ fn real_main() -> Result<(), Box<dyn std::error::Error>> {
                     "capabilities": matrix,
                 }))?;
             } else {
-                println!(
-                    "Current platform: {}",
-                    kamafeu::extensions::current_platform()
+                kamafeu::terminal_log::out_header(
+                    "Platform",
+                    kamafeu::extensions::current_platform(),
                 );
-                for capability in matrix {
-                    println!(
-                        "- {}: desktop={} android={} wasm={} — {}",
-                        capability.id,
-                        capability.desktop,
-                        capability.android,
-                        capability.wasm,
-                        capability.note
+                if kamafeu::terminal_log::is_verbose() {
+                    for capability in matrix {
+                        kamafeu::terminal_log::out_status(
+                            if capability.desktop { "OK" } else { "WARN" },
+                            &capability.id,
+                            format!(
+                                "desktop={} android={} wasm={} | {}",
+                                capability.desktop,
+                                capability.android,
+                                capability.wasm,
+                                capability.note
+                            ),
+                        );
+                    }
+                } else {
+                    let available = matrix
+                        .iter()
+                        .filter(|capability| capability.desktop)
+                        .count();
+                    kamafeu::terminal_log::out_status(
+                        "OK",
+                        "Capabilities",
+                        format!(
+                            "{available}/{} available; use KAMAFEU_LOG=verbose for details",
+                            matrix.len()
+                        ),
                     );
                 }
             }
@@ -1170,17 +1208,28 @@ fn real_main() -> Result<(), Box<dyn std::error::Error>> {
             if json_output {
                 print_json(&report)?;
             } else {
-                println!("=== Render cache ===");
-                println!("Directory: {}", report["directory"].as_str().unwrap_or(""));
-                println!("Disk files: {}", report["disk_file_count"]);
-                println!("Disk size:  {} bytes", report["disk_bytes"]);
-                println!(
-                    "Memory:     {} entries / {} samples",
-                    report["memory_entries"], report["memory_samples"]
+                kamafeu::terminal_log::out_header(
+                    "Render cache",
+                    report["directory"].as_str().unwrap_or(""),
                 );
-                println!(
-                    "Stats:      {} hit(s), {} miss(es), {} render(s)",
-                    report["hits"], report["misses"], report["renders"]
+                kamafeu::terminal_log::out_kv("Disk files", &report["disk_file_count"]);
+                kamafeu::terminal_log::out_kv(
+                    "Disk size",
+                    format!("{} bytes", report["disk_bytes"]),
+                );
+                kamafeu::terminal_log::out_kv(
+                    "Memory",
+                    format!(
+                        "{} entries / {} samples",
+                        report["memory_entries"], report["memory_samples"]
+                    ),
+                );
+                kamafeu::terminal_log::out_kv(
+                    "Stats",
+                    format!(
+                        "{} hit(s), {} miss(es), {} render(s)",
+                        report["hits"], report["misses"], report["renders"]
+                    ),
                 );
             }
         }
@@ -1190,7 +1239,11 @@ fn real_main() -> Result<(), Box<dyn std::error::Error>> {
             if json_output {
                 print_json(&json!({ "days": days, "removed": removed }))?;
             } else {
-                println!("Removed {removed} cache file(s) older than {days} day(s).");
+                kamafeu::terminal_log::out_status(
+                    "OK",
+                    "Cache",
+                    format!("removed {removed} file(s) older than {days} day(s)"),
+                );
             }
         }
 
@@ -1199,7 +1252,7 @@ fn real_main() -> Result<(), Box<dyn std::error::Error>> {
         Some(Commands::Mcp) => run_mcp()?,
 
         Some(Commands::GenSample { path }) => {
-            println!("Generating test UTAU voicebank at: {:?}", path);
+            kamafeu::terminal_log::out_header("Sample voicebank", path.display());
             fs::create_dir_all(&path)?;
 
             let char_txt = "name=Kamafeu Sample Synth\nauthor=Kamafeu Team\n";
@@ -1247,8 +1300,8 @@ fn real_main() -> Result<(), Box<dyn std::error::Error>> {
 
             fs::write(path.join("oto.ini"), oto_lines.join("\n"))?;
 
-            println!("Sample voicebank created successfully!");
-            println!("Contains: character.txt, oto.ini, and ka.wav..ko.wav samples.");
+            kamafeu::terminal_log::out_status("OK", "Result", "sample voicebank created");
+            kamafeu::terminal_log::out_kv("Files", "character.txt, oto.ini, ka.wav..ko.wav");
         }
 
         Some(Commands::Render {
@@ -1276,23 +1329,29 @@ fn real_main() -> Result<(), Box<dyn std::error::Error>> {
             if json_output {
                 print_json(&render_summary_json(&summary))?;
             } else {
-                println!(
-                    "Rendered {} notes at {}Hz.",
-                    summary.note_count, summary.sample_rate
+                kamafeu::terminal_log::out_header("Render", summary.output.display());
+                kamafeu::terminal_log::out_kv(
+                    "Notes",
+                    format!("{} at {}Hz", summary.note_count, summary.sample_rate),
                 );
-                println!(
-                    "{} written to {} ({} frames, {} channel(s)).",
-                    summary.format.display_name(),
-                    summary.output.display(),
-                    summary.frame_count,
-                    summary.channels
+                kamafeu::terminal_log::out_kv(
+                    "Output",
+                    format!(
+                        "{} ({} frames, {} channel(s))",
+                        summary.format.display_name(),
+                        summary.frame_count,
+                        summary.channels
+                    ),
                 );
-                println!(
-                    "Audio: peak {:.4}, RMS {:.4}, {} clipped sample(s), {}.",
-                    summary.diagnostics.peak,
-                    summary.diagnostics.rms,
-                    summary.diagnostics.clipped_samples,
-                    if summary.silent { "silent" } else { "audible" }
+                kamafeu::terminal_log::out_kv(
+                    "Audio",
+                    format!(
+                        "peak {:.4}, RMS {:.4}, {} clipped sample(s), {}",
+                        summary.diagnostics.peak,
+                        summary.diagnostics.rms,
+                        summary.diagnostics.clipped_samples,
+                        if summary.silent { "silent" } else { "audible" }
+                    ),
                 );
             }
         }
@@ -1309,21 +1368,15 @@ fn requested_renderer() -> Renderer {
         .as_str()
     {
         "glow" | "opengl" => {
-            kamafeu::terminal_log::info(
-                "Graphics",
-                "backend=Glow / OpenGL (KAMAFEU_RENDERER=glow)",
-            );
+            kamafeu::terminal_log::info("Graphics", "Glow / OpenGL selected");
             Renderer::Glow
         }
         "wgpu" => {
-            kamafeu::terminal_log::info("Graphics", "backend=WGPU (KAMAFEU_RENDERER=wgpu)");
+            kamafeu::terminal_log::info("Graphics", "WGPU selected");
             Renderer::Wgpu
         }
         "auto" => {
-            kamafeu::terminal_log::info(
-                "Graphics",
-                "backend=auto; WGPU selecionará Metal, DirectX, Vulkan ou OpenGL",
-            );
+            kamafeu::terminal_log::info("Graphics", "automatic backend selection");
             Renderer::Wgpu
         }
         other => {
@@ -2610,15 +2663,15 @@ fn render_project_to_file(
     if project.imported_phoneme_policy
         == kamafeu::project::model::ImportedPhonemePolicy::Recalculate
     {
-        eprintln!(
-            "[Import][Phonemes] source={} policy=recalculate",
-            input.display()
+        kamafeu::terminal_log::debug(
+            "Import",
+            format!("phonemes: source={} policy=recalculate", input.display()),
         );
         project.recalculate_imported_phonemes();
     } else {
-        eprintln!(
-            "[Import][Phonemes] source={} policy=preserve",
-            input.display()
+        kamafeu::terminal_log::debug(
+            "Import",
+            format!("phonemes: source={} policy=preserve", input.display()),
         );
     }
     if vocal_only {
@@ -2766,9 +2819,9 @@ fn render_project_to_file(
         })
         .collect::<Vec<_>>();
     for diagnostic in &phoneme_resolutions {
-        eprintln!(
-            "[PhonemeResolution] {}",
-            serde_json::to_string(diagnostic).unwrap_or_else(|_| "{}".to_string())
+        kamafeu::terminal_log::debug(
+            "PhonemeResolution",
+            serde_json::to_string(diagnostic).unwrap_or_else(|_| "{}".to_string()),
         );
     }
 

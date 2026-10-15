@@ -24,6 +24,39 @@ fn phonemizer_mode_label(mode: crate::phonemizer::PhonemizerMode) -> String {
     format!("{} · {} · {}", info.language, info.name, mode.author())
 }
 
+const NOTE_CONTEXT_MAIN_WIDTH: f32 = 275.0;
+const NOTE_CONTEXT_FLYOUT_WIDTH: f32 = 334.0;
+const NOTE_CONTEXT_GAP: f32 = 6.0;
+
+fn flyout_height(category: ContextMenuCategory) -> f32 {
+    match category {
+        ContextMenuCategory::Selection => 230.0,
+        ContextMenuCategory::QuantizeGrade => 160.0,
+        ContextMenuCategory::LyricsPhonemes => 170.0,
+        ContextMenuCategory::Phonemizer => 410.0,
+        ContextMenuCategory::MusicalTransform => 130.0,
+        ContextMenuCategory::Expression => 175.0,
+        ContextMenuCategory::Transpose => 160.0,
+        ContextMenuCategory::AutoPitch => 380.0,
+        ContextMenuCategory::Vibrato => 190.0,
+    }
+}
+
+fn flyout_rect(anchor: Rect, screen: Rect, category: ContextMenuCategory) -> Rect {
+    let size = Vec2::new(NOTE_CONTEXT_FLYOUT_WIDTH, flyout_height(category));
+    let opens_left = anchor.right() + NOTE_CONTEXT_GAP + size.x > screen.right() - 10.0;
+    let x = if opens_left {
+        (anchor.left() - NOTE_CONTEXT_GAP - size.x).max(screen.left() + 10.0)
+    } else {
+        anchor.right() + NOTE_CONTEXT_GAP
+    };
+    let y = anchor.top().clamp(
+        screen.top() + 10.0,
+        (screen.bottom() - size.y - 10.0).max(screen.top() + 10.0),
+    );
+    Rect::from_min_size(Pos2::new(x, y), size)
+}
+
 pub(super) fn draw(
     ui: &mut egui::Ui,
     notes: &mut Vec<UNote>,
@@ -36,6 +69,7 @@ pub(super) fn draw(
         let mut close_menu = false;
         let mut trigger_note_changed = false;
         let mut menu_click_handled = false;
+        state.context_menu_flyout_rect = None;
 
         let menu_idx_opt = state.context_menu_note_idx;
         let sel_count = if !state.selected_note_indices.is_empty() {
@@ -48,11 +82,7 @@ pub(super) fn draw(
 
         let screen_rect = ui.ctx().screen_rect();
         let mut safe_menu_pos = menu_pos;
-        let total_w = if state.context_menu_hovered_category.is_some() {
-            550.0
-        } else {
-            275.0
-        };
+        let total_w = NOTE_CONTEXT_MAIN_WIDTH;
         if safe_menu_pos.x + total_w > screen_rect.max.x - 10.0 {
             safe_menu_pos.x = (screen_rect.max.x - total_w - 10.0).max(10.0);
         }
@@ -69,11 +99,11 @@ pub(super) fn draw(
                     let theme_selection = visuals.selection.bg_fill;
                     let theme_accent = visuals.selection.stroke.color;
                     visuals.widgets.hovered.weak_bg_fill = theme_selection;
-                    visuals.widgets.hovered.fg_stroke = Stroke::new(1.0, theme_accent);
+                    visuals.widgets.hovered.fg_stroke = Stroke::new(1.0_f32, theme_accent);
                     visuals.widgets.hovered.rounding = visuals.window_rounding;
                     visuals.widgets.active.bg_fill = theme_selection;
                     visuals.widgets.active.weak_bg_fill = theme_selection;
-                    visuals.widgets.active.fg_stroke = Stroke::new(1.2, theme_accent);
+                    visuals.widgets.active.fg_stroke = Stroke::new(1.2_f32, theme_accent);
                     visuals.widgets.active.rounding = visuals.window_rounding;
                     visuals.widgets.inactive.bg_fill = Color32::TRANSPARENT;
                     visuals.widgets.inactive.weak_bg_fill = Color32::TRANSPARENT;
@@ -201,7 +231,7 @@ pub(super) fn draw(
                                     ));
                                 if phonemizer_quick.clicked() {
                                     state.context_menu_hovered_category = Some(ContextMenuCategory::Phonemizer);
-                                    state.context_menu_category_y_offset = 0.0;
+                                    state.context_menu_category_anchor = Some(phonemizer_quick.rect);
                                     menu_click_handled = true;
                                 }
                                 if let Some(note_idx) = menu_idx_opt.filter(|idx| *idx < notes.len()) {
@@ -398,7 +428,7 @@ pub(super) fn draw(
                                             Color32::TRANSPARENT
                                         })
                                         .stroke(if is_active {
-                                            Stroke::new(1.0, Color32::from_rgb(0, 200, 160))
+                                            Stroke::new(1.0_f32, Color32::from_rgb(0, 200, 160))
                                         } else {
                                             Stroke::NONE
                                         })
@@ -406,11 +436,11 @@ pub(super) fn draw(
                                     let r = ui.add_sized([ui.available_width(), 22.0], btn);
                                     if r.hovered() {
                                         state.context_menu_hovered_category = Some(cat);
-                                        state.context_menu_category_y_offset = (r.rect.min.y - safe_menu_pos.y).max(0.0);
+                                        state.context_menu_category_anchor = Some(r.rect);
                                     }
                                     if r.clicked() {
                                         state.context_menu_hovered_category = Some(cat);
-                                        state.context_menu_category_y_offset = (r.rect.min.y - safe_menu_pos.y).max(0.0);
+                                        state.context_menu_category_anchor = Some(r.rect);
                                         menu_click_handled = true;
                                     }
                                 };
@@ -444,24 +474,13 @@ pub(super) fn draw(
                     // SUB-PAINEL FLYOUT AO PASSAR O MOUSE (DIREITA)
                     // ==========================================
                     if let Some(cat) = state.context_menu_hovered_category {
-                        ui.add_space(2.0);
-                        ui.vertical(|ui| {
-                            let approx_h = match cat {
-                                ContextMenuCategory::Selection => 230.0,
-                                ContextMenuCategory::QuantizeGrade => 160.0,
-                                ContextMenuCategory::LyricsPhonemes => 170.0,
-                                ContextMenuCategory::Phonemizer => 390.0,
-                                ContextMenuCategory::MusicalTransform => 130.0,
-                                ContextMenuCategory::Expression => 175.0,
-                                ContextMenuCategory::Transpose => 160.0,
-                                ContextMenuCategory::AutoPitch => 360.0,
-                                ContextMenuCategory::Vibrato => 190.0,
-                            };
-                            let max_offset = (screen_rect.max.y - 15.0 - safe_menu_pos.y - approx_h).max(0.0);
-                            let aligned_y = state.context_menu_category_y_offset.min(max_offset).max(0.0);
-                            if aligned_y > 0.0 {
-                                ui.add_space(aligned_y);
-                            }
+                        if let Some(anchor) = state.context_menu_category_anchor {
+                            let rect = flyout_rect(anchor, screen_rect, cat);
+                            state.context_menu_flyout_rect = Some(rect);
+                            egui::Area::new(egui::Id::new(("piano_roll_note_context_flyout", cat)))
+                                .fixed_pos(rect.min)
+                                .order(egui::Order::Tooltip)
+                                .show(ui.ctx(), |ui| {
 
                             egui::Frame::menu(ui.style())
                                 .fill(ui.visuals().window_fill())
@@ -1140,7 +1159,8 @@ pub(super) fn draw(
                                     }
                                 });
                             });
-                        });
+                                });
+                        }
                     }
                 });
             });
@@ -1150,16 +1170,14 @@ pub(super) fn draw(
             && ui.input(|i| i.pointer.primary_clicked() || i.pointer.secondary_clicked())
         {
             if let Some(mpos) = ui.input(|i| i.pointer.interact_pos()) {
-                let total_w = if state.context_menu_hovered_category.is_some() {
-                    570.0
-                } else {
-                    280.0
-                };
                 let menu_rect = Rect::from_min_size(
                     safe_menu_pos - Vec2::new(10.0, 10.0),
-                    Vec2::new(total_w, 650.0),
+                    Vec2::new(NOTE_CONTEXT_MAIN_WIDTH + 20.0, 650.0),
                 );
-                if !menu_rect.contains(mpos) {
+                let flyout_rect = state.context_menu_flyout_rect.map(|rect| rect.expand(10.0));
+                let in_menu = menu_rect.contains(mpos);
+                let in_flyout = flyout_rect.is_some_and(|rect| rect.contains(mpos));
+                if !in_menu && !in_flyout {
                     close_menu = true;
                 }
             }
@@ -1169,11 +1187,70 @@ pub(super) fn draw(
             state.context_menu_note_idx = None;
             state.context_menu_pos = None;
             state.context_menu_hovered_category = None;
+            state.context_menu_category_anchor = None;
+            state.context_menu_flyout_rect = None;
         }
 
         if trigger_note_changed {
             state.continuous_edit_dirty = true;
             on_note_changed();
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn screen() -> Rect {
+        Rect::from_min_size(Pos2::ZERO, Vec2::new(1200.0, 800.0))
+    }
+
+    #[test]
+    fn flyout_opens_to_the_right_when_there_is_room() {
+        let rect = flyout_rect(
+            Rect::from_min_size(Pos2::new(120.0, 180.0), Vec2::new(250.0, 22.0)),
+            screen(),
+            ContextMenuCategory::Selection,
+        );
+        assert_eq!(rect.left(), 376.0);
+        assert_eq!(rect.top(), 180.0);
+    }
+
+    #[test]
+    fn flyout_switches_to_the_left_near_the_right_edge() {
+        let rect = flyout_rect(
+            Rect::from_min_size(Pos2::new(1050.0, 180.0), Vec2::new(120.0, 22.0)),
+            screen(),
+            ContextMenuCategory::Selection,
+        );
+        assert_eq!(rect.right(), 1044.0);
+    }
+
+    #[test]
+    fn flyout_is_clamped_to_top_and_bottom() {
+        let top = flyout_rect(
+            Rect::from_min_size(Pos2::new(120.0, -100.0), Vec2::new(250.0, 22.0)),
+            screen(),
+            ContextMenuCategory::Selection,
+        );
+        let bottom = flyout_rect(
+            Rect::from_min_size(Pos2::new(120.0, 780.0), Vec2::new(250.0, 22.0)),
+            screen(),
+            ContextMenuCategory::Selection,
+        );
+        assert_eq!(top.top(), 10.0);
+        assert_eq!(bottom.bottom(), 790.0);
+    }
+
+    #[test]
+    fn tall_phonemizer_flyout_still_fits_inside_viewport() {
+        let rect = flyout_rect(
+            Rect::from_min_size(Pos2::new(120.0, 400.0), Vec2::new(250.0, 22.0)),
+            screen(),
+            ContextMenuCategory::Phonemizer,
+        );
+        assert!(rect.top() >= 10.0);
+        assert!(rect.bottom() <= 790.0);
     }
 }

@@ -381,9 +381,12 @@ impl KamafeuStudioApp {
     fn resolve_imported_voicebank(&mut self, format: &str, source: &str) {
         if self.project.phonemizer.is_none() {
             self.project.phonemizer = Some(self.vocal_mode_params.phonemizer_mode);
-            eprintln!(
-                "[Import][PhonemizerFallback] format={} source={} using_active={:?}",
-                format, source, self.vocal_mode_params.phonemizer_mode
+            crate::terminal_log::debug(
+                "Import",
+                format!(
+                    "phonemizer fallback: format={format} source={source} using_active={:?}",
+                    self.vocal_mode_params.phonemizer_mode
+                ),
             );
         }
         for track in &mut self.project.tracks {
@@ -416,9 +419,9 @@ impl KamafeuStudioApp {
                 &self.config.singers_paths,
             ) {
                 if let Ok(vb) = Voicebank::new(&found_path) {
-                    eprintln!(
-                        "[Import][Voicebank] format={} source={} requested={:?} resolved={:?}",
-                        format, source, target, vb.root_path
+                    crate::terminal_log::info(
+                        "Import",
+                        format!("voicebank resolved: format={format} source={source} requested={target:?} path={:?}", vb.root_path),
                     );
                     self.transport_state.voicebank_name = vb.name.clone();
                     self.config.add_recent_voicebank(vb.root_path.clone());
@@ -429,12 +432,9 @@ impl KamafeuStudioApp {
             }
         }
 
-        eprintln!(
-            "[Import][VoicebankFallback] format={} source={} requested={:?} using_active={:?}",
-            format,
-            source,
-            requested,
-            self.voicebank.as_ref().map(|vb| &vb.root_path)
+        crate::terminal_log::warn(
+            "Import",
+            format!("voicebank fallback: format={format} source={source} requested={requested:?} using_active={:?}", self.voicebank.as_ref().map(|vb| &vb.root_path)),
         );
         self.persist_imported_voicebank_context();
     }
@@ -518,17 +518,21 @@ impl KamafeuStudioApp {
                 if proj.imported_phoneme_policy
                     == crate::project::model::ImportedPhonemePolicy::Recalculate
                 {
-                    eprintln!(
-                        "[Import][Phonemes] format={} source={} policy=recalculate",
-                        extension,
-                        path.display()
+                    crate::terminal_log::debug(
+                        "Import",
+                        format!(
+                            "phonemes: format={extension} source={} policy=recalculate",
+                            path.display()
+                        ),
                     );
                     proj.recalculate_imported_phonemes();
                 } else {
-                    eprintln!(
-                        "[Import][Phonemes] format={} source={} policy=preserve",
-                        extension,
-                        path.display()
+                    crate::terminal_log::debug(
+                        "Import",
+                        format!(
+                            "phonemes: format={extension} source={} policy=preserve",
+                            path.display()
+                        ),
                     );
                 }
                 self.audio_player.stop();
@@ -667,15 +671,17 @@ impl KamafeuStudioApp {
                 if proj.imported_phoneme_policy
                     == crate::project::model::ImportedPhonemePolicy::Recalculate
                 {
-                    eprintln!(
-                        "[Import][Phonemes] format={} source={} policy=recalculate",
-                        extension, file_name
+                    crate::terminal_log::debug(
+                        "Import",
+                        format!(
+                            "phonemes: format={extension} source={file_name} policy=recalculate"
+                        ),
                     );
                     proj.recalculate_imported_phonemes();
                 } else {
-                    eprintln!(
-                        "[Import][Phonemes] format={} source={} policy=preserve",
-                        extension, file_name
+                    crate::terminal_log::debug(
+                        "Import",
+                        format!("phonemes: format={extension} source={file_name} policy=preserve"),
                     );
                 }
                 self.audio_player.stop();

@@ -1047,12 +1047,12 @@ pub fn draw_phoneme_ruler(
                                     Pos2::new(block_left, y_bottom),
                                     Pos2::new(block_right, y_bottom),
                                 ],
-                                Stroke::new(1.2, lane_stroke),
+                                Stroke::new(1.2_f32, lane_stroke),
                             );
                             for pair in point_positions.windows(2) {
                                 painter.line_segment(
                                     [pair[0], pair[1]],
-                                    Stroke::new(1.25, lane_stroke),
+                                    Stroke::new(1.25_f32, lane_stroke),
                                 );
                             }
                             let block_response = ui.interact(
@@ -1284,11 +1284,11 @@ pub fn draw_phoneme_ruler(
                                 if x_right > x_left + 1.0 {
                                     painter.line_segment(
                                         [Pos2::new(x_left, y_top), Pos2::new(x_right, y_bottom)],
-                                        Stroke::new(1.0, Color32::from_rgb(30, 150, 215)),
+                                        Stroke::new(1.0_f32, Color32::from_rgb(30, 150, 215)),
                                     );
                                     painter.line_segment(
                                         [Pos2::new(x_left, y_bottom), Pos2::new(x_right, y_top)],
-                                        Stroke::new(1.0, Color32::from_rgb(30, 150, 215)),
+                                        Stroke::new(1.0_f32, Color32::from_rgb(30, 150, 215)),
                                     );
                                 }
                             }

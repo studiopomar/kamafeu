@@ -641,7 +641,7 @@ impl KamafeuStudioApp {
             .frame(
                 Frame::none()
                     .fill(theme.bg_panel_c32())
-                    .stroke(egui::Stroke::new(1.0, theme.grid_line_sub_c32())),
+                    .stroke(egui::Stroke::new(1.0_f32, theme.grid_line_sub_c32())),
             )
             .show(ctx, |ui| {
                 let tab_width = (ui.available_width() / 4.0).max(64.0);
@@ -679,7 +679,7 @@ impl KamafeuStudioApp {
                                 let (bg, stroke, text_color) = if is_selected {
                                     (
                                         theme.c32_alpha(theme.accent_color, 0.25),
-                                        egui::Stroke::new(1.2, theme.accent_c32()),
+                                        egui::Stroke::new(1.2_f32, theme.accent_c32()),
                                         theme.accent_c32(),
                                     )
                                 } else {

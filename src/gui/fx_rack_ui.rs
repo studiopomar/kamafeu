@@ -228,7 +228,7 @@ pub(crate) fn render_fx_rack_ui(
                         surface
                     })
                     .stroke(if is_selected {
-                        Stroke::new(1.2, theme.accent_c32())
+                        Stroke::new(1.2_f32, theme.accent_c32())
                     } else {
                         border
                     });
@@ -564,7 +564,11 @@ fn fx_knob(
     let angle = start + std::f32::consts::PI * 1.5 * t;
     let painter = ui.painter();
     painter.circle_filled(center, radius, theme.bg_header_c32());
-    painter.circle_stroke(center, radius, Stroke::new(2.0, theme.grid_line_bar_c32()));
+    painter.circle_stroke(
+        center,
+        radius,
+        Stroke::new(2.0_f32, theme.grid_line_bar_c32()),
+    );
     let arc_points: Vec<egui::Pos2> = (0..=24)
         .map(|step| {
             let progress = step as f32 / 24.0;
@@ -574,14 +578,14 @@ fn fx_knob(
         .collect();
     painter.add(egui::Shape::line(
         arc_points,
-        Stroke::new(3.0, theme.accent_c32()),
+        Stroke::new(3.0_f32, theme.accent_c32()),
     ));
     painter.line_segment(
         [
             center,
             center + Vec2::new(angle.cos(), angle.sin()) * (radius - 6.0),
         ],
-        Stroke::new(2.0, theme.text_primary_c32()),
+        Stroke::new(2.0_f32, theme.text_primary_c32()),
     );
     painter.text(
         rect.center_bottom() + Vec2::new(0.0, -4.0),

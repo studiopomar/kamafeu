@@ -246,7 +246,7 @@ pub enum ParameterTab {
     VibratoPeriod,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum ContextMenuCategory {
     Selection,
     QuantizeGrade,
@@ -365,7 +365,11 @@ pub struct PianoRollState {
     pub context_menu_note_idx: Option<usize>,
     pub context_menu_pos: Option<Pos2>,
     pub context_menu_hovered_category: Option<ContextMenuCategory>,
-    pub context_menu_category_y_offset: f32,
+    /// Screen-space rectangle of the category currently anchoring the flyout.
+    pub context_menu_category_anchor: Option<Rect>,
+    /// Screen-space hit area of the open flyout, used to keep it alive while
+    /// the pointer travels from the category to its submenu.
+    pub context_menu_flyout_rect: Option<Rect>,
     pub dragging_envelope_pt: Option<(usize, usize)>, // (note_idx, pt_idx)
     /// Per-phoneme P1-P5 drag: (note_idx, phoneme_idx, point_idx).
     pub dragging_phoneme_envelope_pt: Option<(usize, usize, usize)>,
@@ -798,7 +802,8 @@ impl Default for PianoRollState {
             context_menu_note_idx: None,
             context_menu_pos: None,
             context_menu_hovered_category: None,
-            context_menu_category_y_offset: 0.0,
+            context_menu_category_anchor: None,
+            context_menu_flyout_rect: None,
             dragging_envelope_pt: None,
             dragging_phoneme_envelope_pt: None,
             dragging_pitch_pt: None,

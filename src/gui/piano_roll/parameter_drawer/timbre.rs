@@ -104,7 +104,7 @@ pub(super) fn draw(
                 point,
                 4.5,
                 Stroke::new(
-                    if active { 2.0 } else { 1.0 },
+                    if active { 2.0_f32 } else { 1.0_f32 },
                     if active {
                         color
                     } else {

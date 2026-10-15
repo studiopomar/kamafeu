@@ -31,14 +31,14 @@ fn fx_knob(
     painter.circle_stroke(
         center,
         radius,
-        egui::Stroke::new(1.5, ui.visuals().widgets.active.fg_stroke.color),
+        egui::Stroke::new(1.5_f32, ui.visuals().widgets.active.fg_stroke.color),
     );
     painter.line_segment(
         [
             center,
             center + egui::vec2(angle.cos(), angle.sin()) * (radius - 5.0),
         ],
-        egui::Stroke::new(2.5, ui.visuals().selection.stroke.color),
+        egui::Stroke::new(2.5_f32, ui.visuals().selection.stroke.color),
     );
     painter.text(
         egui::pos2(center.x, rect.bottom() - 4.0),

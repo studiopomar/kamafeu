@@ -55,7 +55,7 @@ pub(super) fn draw(
                 Pos2::new(minimap_rect.min.x, minimap_rect.max.y),
                 Pos2::new(minimap_rect.max.x, minimap_rect.max.y),
             ],
-            Stroke::new(1.0, theme.grid_line_bar_c32().linear_multiply(0.72)),
+            Stroke::new(1.0_f32, theme.grid_line_bar_c32().linear_multiply(0.72)),
         );
 
         let animation_policy = crate::gui::animation::AnimationPolicy {
@@ -150,9 +150,9 @@ pub(super) fn draw(
             theme.focus_glow_c32()
         };
         let vp_stroke = if is_vp_hovered || minimap_resp.dragged() {
-            Stroke::new(1.8, theme.accent_c32())
+            Stroke::new(1.8_f32, theme.accent_c32())
         } else {
-            Stroke::new(1.0, theme.accent_c32())
+            Stroke::new(1.0_f32, theme.accent_c32())
         };
 
         m_painter.rect_filled(vp_rect, theme.ui_rounding(), vp_fill);
@@ -269,7 +269,7 @@ fn draw_playback_bar(
     painter.rect_stroke(
         bar_rect,
         Rounding::ZERO,
-        Stroke::new(2.0, if playback.has_error { red } else { amber }),
+        Stroke::new(2.0_f32, if playback.has_error { red } else { amber }),
     );
 
     let label = if playback.has_error {

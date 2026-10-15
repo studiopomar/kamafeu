@@ -102,7 +102,7 @@ impl ProgressivePlaybackHandle {
             })
             .is_err()
         {
-            eprintln!("[AudioScheduler] bridge não conseguiu informar o fechamento do produtor");
+            crate::terminal_log::error("Audio", "scheduler bridge could not close producer");
         }
     }
 
@@ -132,9 +132,7 @@ impl ProgressivePlaybackHandle {
             })
             .is_err()
         {
-            eprintln!(
-                "[AudioScheduler] bridge não conseguiu enviar o chunk inicial; scheduler encerrado"
-            );
+            crate::terminal_log::error("Audio", "scheduler bridge could not send initial chunk");
         }
     }
 
@@ -162,8 +160,9 @@ impl ProgressivePlaybackHandle {
             })
             .is_err()
         {
-            eprintln!(
-                "[AudioScheduler] bridge não conseguiu enviar chunk #{index}; scheduler encerrado"
+            crate::terminal_log::error(
+                "Audio",
+                format!("scheduler bridge could not send chunk #{index}"),
             );
         }
     }
@@ -332,15 +331,17 @@ impl AudioPlayer {
                                 volume,
                                 speed,
                             } => {
-                                eprintln!(
-                                    "[AudioScheduler] recebendo início generation={} chunk={} start={:.1}ms end={:.1}ms frames={} final={}",
+                                crate::terminal_log::debug(
+                                    "Audio",
+                                    format!(
+                                    "received generation={} chunk={} start={:.1}ms end={:.1}ms frames={} final={}",
                                     generation,
                                     index,
                                     start_ms,
                                     end_ms,
                                     samples.len() / usize::from(channels.max(1)),
                                     is_final
-                                );
+                                ));
                                 // A new generation always supersedes the
                                 // previous sink, even when its first chunk is
                                 // rejected. Otherwise an invalid restart can
@@ -370,7 +371,7 @@ impl AudioPlayer {
                                             reason: "formato ou timeline inválida".to_string(),
                                         },
                                     );
-                                    eprintln!("[AudioScheduler] rejeitando início com formato inválido: rate={sample_rate} channels={channels}");
+                                    crate::terminal_log::warn("Audio", format!("rejected initial chunk: rate={sample_rate} channels={channels}"));
                                     worker_state.store(
                                         PlaybackSchedulerState::Stopped as u8,
                                         Ordering::Release,
@@ -444,7 +445,7 @@ impl AudioPlayer {
                                         );
                                     }
                                     Err(error) => {
-                                        eprintln!("[AudioScheduler] erro ao criar sink: {error}");
+                                        crate::terminal_log::error("Audio", format!("could not create sink: {error}"));
                                         worker_state.store(
                                             PlaybackSchedulerState::Stopped as u8,
                                             Ordering::Release,
@@ -489,11 +490,13 @@ impl AudioPlayer {
                                                 .to_string(),
                                         },
                                     );
-                                    eprintln!(
-                                        "[AudioScheduler] chunk rejeitado por formato: rate={sample_rate} channels={channels} esperado_rate={:?} esperado_channels={:?}",
+                                    crate::terminal_log::warn(
+                                        "Audio",
+                                        format!(
+                                        "rejected chunk: rate={sample_rate} channels={channels} expected_rate={:?} expected_channels={:?}",
                                         expected_sample_rate,
                                         expected_channels
-                                    );
+                                    ));
                                     continue;
                                 }
                                 if let Some(active) = sink.as_ref() {
@@ -568,7 +571,7 @@ impl AudioPlayer {
                                         },
                                     );
                                 } else {
-                                    eprintln!("[AudioScheduler] chunk recebido sem geração ativa");
+                                    crate::terminal_log::debug("Audio", "chunk received without active generation");
                                 }
                             }
                             SchedulerCommand::SetSpeed(speed) => {

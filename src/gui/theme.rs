@@ -690,7 +690,7 @@ impl ThemeConfig {
     pub fn card_stroke(&self) -> Stroke {
         // Cards devem separar grupos de conteúdo sem criar uma caixa pesada
         // ao redor de cada controle.
-        Stroke::new(0.8, self.grid_line_sub_c32().linear_multiply(0.30))
+        Stroke::new(0.8_f32, self.grid_line_sub_c32().linear_multiply(0.30))
     }
 
     pub fn card_border_c32(&self) -> Color32 {
@@ -698,7 +698,7 @@ impl ThemeConfig {
     }
 
     pub fn active_border_stroke(&self) -> Stroke {
-        Stroke::new(1.2, self.accent_c32())
+        Stroke::new(1.2_f32, self.accent_c32())
     }
 
     pub fn create_egui_visuals(&self) -> egui::Visuals {
@@ -736,22 +736,23 @@ impl ThemeConfig {
             spread: 0.0,
             color: Color32::from_black_alpha(30),
         };
-        visuals.window_stroke = Stroke::new(0.8, grid_bar.linear_multiply(0.30));
+        visuals.window_stroke = Stroke::new(0.8_f32, grid_bar.linear_multiply(0.30));
         visuals.extreme_bg_color = canvas_bg;
         visuals.faint_bg_color = header_bg;
         visuals.code_bg_color = canvas_bg;
         visuals.hyperlink_color = accent;
 
         visuals.widgets.noninteractive.bg_fill = panel_bg;
-        visuals.widgets.noninteractive.bg_stroke = Stroke::new(0.8, grid_sub.linear_multiply(0.24));
-        visuals.widgets.noninteractive.fg_stroke = Stroke::new(1.0, text_m);
+        visuals.widgets.noninteractive.bg_stroke =
+            Stroke::new(0.8_f32, grid_sub.linear_multiply(0.24));
+        visuals.widgets.noninteractive.fg_stroke = Stroke::new(1.0_f32, text_m);
         visuals.widgets.noninteractive.rounding = round;
 
         // Controles inativos ficam próximos da superfície em vez de formar
         // uma grade de caixas fortes. O contraste aparece quando há ação.
         visuals.widgets.inactive.bg_fill = panel_bg;
         visuals.widgets.inactive.bg_stroke = Stroke::NONE;
-        visuals.widgets.inactive.fg_stroke = Stroke::new(1.0, text_p);
+        visuals.widgets.inactive.fg_stroke = Stroke::new(1.0_f32, text_p);
         visuals.widgets.inactive.rounding = Rounding::same(self.ui_corner_radius.max(5.0));
 
         let hovered_bg = if is_light {
@@ -769,9 +770,9 @@ impl ThemeConfig {
         };
         visuals.widgets.hovered.bg_fill = hovered_bg;
         visuals.widgets.hovered.bg_stroke =
-            Stroke::new(0.8, self.c32_alpha(self.accent_color, 0.38));
+            Stroke::new(0.8_f32, self.c32_alpha(self.accent_color, 0.38));
         visuals.widgets.hovered.fg_stroke = Stroke::new(
-            1.0,
+            1.0_f32,
             if is_light {
                 Color32::BLACK
             } else {
@@ -781,21 +782,23 @@ impl ThemeConfig {
         visuals.widgets.hovered.rounding = Rounding::same(self.ui_corner_radius.max(5.0));
 
         visuals.widgets.active.bg_fill = self.c32_alpha(self.accent_color, 0.16);
-        visuals.widgets.active.bg_stroke = Stroke::new(1.0, accent);
-        visuals.widgets.active.fg_stroke = Stroke::new(1.2, text_p);
+        visuals.widgets.active.bg_stroke = Stroke::new(1.0_f32, accent);
+        visuals.widgets.active.fg_stroke = Stroke::new(1.2_f32, text_p);
         visuals.widgets.active.rounding = Rounding::same(self.ui_corner_radius.max(5.0));
 
         visuals.widgets.open.bg_fill = header_bg;
-        visuals.widgets.open.bg_stroke = Stroke::new(1.0, accent);
-        visuals.widgets.open.fg_stroke = Stroke::new(1.0, text_p);
+        visuals.widgets.open.bg_stroke = Stroke::new(1.0_f32, accent);
+        visuals.widgets.open.fg_stroke = Stroke::new(1.0_f32, text_p);
         visuals.widgets.open.rounding = round;
 
         // Use the note selection palette for egui selections too. The accent
         // can be neon/near-white in older themes and makes selected labels
         // unreadable when egui paints its selection layer.
         visuals.selection.bg_fill = self.note_selected_fill_c32().linear_multiply(0.32);
-        visuals.selection.stroke =
-            Stroke::new(1.0, self.note_selected_stroke_c32().linear_multiply(0.72));
+        visuals.selection.stroke = Stroke::new(
+            1.0_f32,
+            self.note_selected_stroke_c32().linear_multiply(0.72),
+        );
 
         visuals.override_text_color = None;
         visuals.warn_fg_color = self.warning_c32();

@@ -236,6 +236,22 @@ pub enum RightSidebarTab {
     SingerTrack,
     Note,
     Phonemes,
+    Expressions,
+    Envelope,
+    Engine,
+}
+
+/// Seções do inspetor lateral unificado.
+///
+/// `RightSidebarTab` continua existindo para compatibilidade com atalhos e
+/// notificações antigas; esta enumeração descreve a hierarquia visual nova.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum InspectorSection {
+    Singer,
+    Note,
+    Phonemes,
+    Expressions,
+    Envelope,
     Engine,
 }
 

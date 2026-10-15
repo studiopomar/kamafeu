@@ -119,7 +119,7 @@ pub(super) fn draw(
         })
         .collect();
     ui.painter()
-        .add(egui::Shape::line(points, Stroke::new(1.3, color)));
+        .add(egui::Shape::line(points, Stroke::new(1.3_f32, color)));
 
     if response.clicked() {
         ui.memory_mut(|memory| memory.toggle_popup(popup_id));

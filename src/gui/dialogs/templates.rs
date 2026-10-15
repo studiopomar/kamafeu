@@ -86,7 +86,7 @@ impl KamafeuStudioApp {
                     for (id, title, meta, desc) in templates {
                         egui::Frame::none()
                             .fill(egui::Color32::from_rgb(26, 20, 38))
-                            .stroke(egui::Stroke::new(1.0, egui::Color32::from_rgb(52, 40, 72)))
+                            .stroke(egui::Stroke::new(1.0_f32, egui::Color32::from_rgb(52, 40, 72)))
                             .rounding(egui::Rounding::same(6.0))
                             .inner_margin(egui::Margin::symmetric(10.0, 8.0))
                             .show(ui, |ui| {

@@ -1449,12 +1449,15 @@ voice_parts:
             for f in paths_env.split(':') {
                 if std::path::Path::new(f).exists() {
                     if let Ok(proj) = UstxFormat::load_file(f) {
-                        println!(
-                            "Loaded {}: name={}, bpm={}, parts={}",
-                            f,
-                            proj.name,
-                            proj.bpm,
-                            proj.parts.len()
+                        crate::terminal_log::debug(
+                            "USTX",
+                            format!(
+                                "loaded {}: name={}, bpm={}, parts={}",
+                                f,
+                                proj.name,
+                                proj.bpm,
+                                proj.parts.len()
+                            ),
                         );
                         let total_pitch_points: usize = proj
                             .parts
@@ -1462,7 +1465,10 @@ voice_parts:
                             .flat_map(|p| &p.notes)
                             .map(|n| n.pitch_bend.points.len())
                             .sum();
-                        println!("  Total pitch bend points parsed: {}", total_pitch_points);
+                        crate::terminal_log::debug(
+                            "USTX",
+                            format!("pitch bend points parsed: {total_pitch_points}"),
+                        );
                     }
                 }
             }

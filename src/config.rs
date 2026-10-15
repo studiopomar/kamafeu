@@ -998,7 +998,7 @@ impl KamafeuConfig {
         self.recent_voicebanks.truncate(10);
         self.last_voicebank = Some(path);
         if let Err(error) = self.save() {
-            eprintln!("[Kamafeu] {error}");
+            crate::terminal_log::warn("Config", error);
         }
     }
 
@@ -1010,7 +1010,7 @@ impl KamafeuConfig {
         self.recent_projects.insert(0, path);
         self.recent_projects.truncate(10);
         if let Err(error) = self.save() {
-            eprintln!("[Kamafeu] {error}");
+            crate::terminal_log::warn("Config", error);
         }
     }
 }

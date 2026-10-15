@@ -15,7 +15,7 @@ impl KamafeuStudioApp {
         let lang = self.config.language;
         Frame::none()
             .fill(Color32::from_rgb(58, 38, 16))
-            .stroke(Stroke::new(1.2, Color32::from_rgb(255, 180, 70)))
+            .stroke(Stroke::new(1.2_f32, Color32::from_rgb(255, 180, 70)))
             .rounding(Rounding::same(6.0))
             .inner_margin(Margin::same(10.0))
             .show(ui, |ui| {

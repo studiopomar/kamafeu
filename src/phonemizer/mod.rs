@@ -116,12 +116,15 @@ impl OpenUtauPhonemizer {
     pub fn apply(notes: &[UNote], vb: &Voicebank, mode: PhonemizerMode) -> Vec<RenderPhone> {
         let implementation = Self::implementation(mode);
         if implementation == PhonemizerImplementation::Unsupported {
-            eprintln!(
-                "[Phonemizer] mode={mode:?} implementation=unsupported \
-                 compatibility=legacy-pending; no OpenUtau port is available yet"
+            crate::terminal_log::warn(
+                "Phonemizer",
+                format!("mode={mode:?} implementation=unsupported; using compatibility fallback"),
             );
         } else {
-            eprintln!("[Phonemizer] mode={mode:?} implementation={implementation:?}");
+            crate::terminal_log::debug(
+                "Phonemizer",
+                format!("mode={mode:?} implementation={implementation:?}"),
+            );
         }
         JapanesePhonemizer::apply_legacy_dispatch(notes, vb, mode)
     }
@@ -1076,8 +1079,9 @@ impl JapanesePhonemizer {
                 Self::latin_language_tokens(word, mode)
             } else {
                 Self::openutau_dictionary_tokens(word, mode).unwrap_or_else(|| {
-                    eprintln!(
-                        "[Phonemizer] mode={mode:?} word={word:?} implementation=Passthrough reason=missing_openutau_dictionary_entry"
+                    crate::terminal_log::debug(
+                        "Phonemizer",
+                        format!("mode={mode:?} word={word:?} fallback=passthrough reason=missing_dictionary_entry"),
                     );
                     // An unknown word is not converted by a Kamafeu-specific
                     // grapheme table. Keep the user's token intact until an
@@ -2178,18 +2182,18 @@ impl JapanesePhonemizer {
                         // Arpasing is an explicit-phone mode when the singer
                         // does not ship its dictionary. Do not silently turn
                         // an English word into Kamafeu-specific graphemes.
-                        eprintln!(
-                            "[Phonemizer] mode=EnglishArpasing word={:?} implementation=Passthrough reason=missing_arpasing_yaml",
-                            note.lyric
+                        crate::terminal_log::debug(
+                            "Phonemizer",
+                            format!("mode=EnglishArpasing word={:?} fallback=passthrough reason=missing_arpasing_yaml", note.lyric),
                         );
                         EnglishPhonemizer::phonetic_tokens(&note.lyric)
                     }
                 }
                 PhonemizerMode::EnglishG2P => Self::openutau_dictionary_tokens(&note.lyric, mode)
                     .unwrap_or_else(|| {
-                        eprintln!(
-                            "[Phonemizer] mode=EnglishG2P word={:?} implementation=Passthrough reason=missing_openutau_dictionary_entry",
-                            note.lyric
+                        crate::terminal_log::debug(
+                            "Phonemizer",
+                            format!("mode=EnglishG2P word={:?} fallback=passthrough reason=missing_dictionary_entry", note.lyric),
                         );
                         EnglishPhonemizer::phonetic_tokens(&note.lyric)
                     }),
@@ -2362,8 +2366,9 @@ impl JapanesePhonemizer {
                     .collect::<Vec<_>>()
             } else {
                 Self::openutau_arpasing_tokens(lyric, vb).unwrap_or_else(|| {
-                    eprintln!(
-                        "[Phonemizer] mode=EnglishArpasing word={lyric:?} implementation=Passthrough reason=missing_arpasing_yaml"
+                    crate::terminal_log::debug(
+                        "Phonemizer",
+                        format!("mode=EnglishArpasing word={lyric:?} fallback=passthrough reason=missing_arpasing_yaml"),
                     );
                     EnglishPhonemizer::phonetic_tokens(lyric)
                 })

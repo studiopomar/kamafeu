@@ -1,12 +1,12 @@
 use encoding_rs::SHIFT_JIS;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 use std::fs;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, OnceLock};
 
 use super::entry::OtoEntry;
-use super::parser::OtoParser;
+use super::parser::{OtoParseDiagnostic, OtoParser};
 use super::prefix_map::PrefixMap;
 
 #[derive(Debug, Clone, PartialEq, serde::Serialize)]
@@ -376,16 +376,18 @@ impl Voicebank {
                 if entry.file_type().is_ok_and(|kind| kind.is_symlink()) {
                     continue;
                 }
-                let (file_entries, parse_errors) = OtoParser::parse_file_lossy(&path)?;
+                let (file_entries, parse_errors) = OtoParser::parse_file_lossy_diagnostics(&path)?;
                 if !parse_errors.is_empty() {
-                    crate::terminal_log::warn(
+                    let relative_path = path
+                        .strip_prefix(root)
+                        .unwrap_or(path.as_path())
+                        .display()
+                        .to_string();
+                    let summary = format_parse_diagnostics(&parse_errors);
+                    crate::terminal_log::warn_once(
+                        format!("{}:{summary}", path.display()),
                         "Voicebank",
-                        format!(
-                            "{} linha(s) inválida(s) em {}:\n- {}",
-                            parse_errors.len(),
-                            path.display(),
-                            parse_errors.join("\n- ")
-                        ),
+                        format!("{}\n{}", relative_path, summary),
                     );
                 }
                 let rel_sub_dir = path
@@ -847,10 +849,84 @@ fn decode_text_autodetect(bytes: &[u8]) -> String {
     }
 }
 
+fn format_parse_diagnostics(diagnostics: &[OtoParseDiagnostic]) -> String {
+    if crate::terminal_log::is_verbose() {
+        return format!(
+            "{} entrada(s) inválida(s)\n{}",
+            diagnostics.len(),
+            diagnostics
+                .iter()
+                .map(OtoParseDiagnostic::display)
+                .collect::<Vec<_>>()
+                .join("\n")
+        );
+    }
+
+    let mut groups = BTreeMap::<String, Vec<usize>>::new();
+    for diagnostic in diagnostics {
+        groups
+            .entry(diagnostic.summary())
+            .or_default()
+            .push(diagnostic.line);
+    }
+
+    let details = groups
+        .into_iter()
+        .map(|(reason, mut lines)| {
+            lines.sort_unstable();
+            lines.dedup();
+            format!(
+                "{} ocorrência(s): {} | linhas {}",
+                lines.len(),
+                reason,
+                format_line_ranges(&lines)
+            )
+        })
+        .collect::<Vec<_>>()
+        .join("\n");
+    format!("{} entrada(s) inválida(s)\n{}", diagnostics.len(), details)
+}
+
+fn format_line_ranges(lines: &[usize]) -> String {
+    if lines.is_empty() {
+        return String::new();
+    }
+    let mut ranges = Vec::new();
+    let mut start = lines[0];
+    let mut end = start;
+    for &line in &lines[1..] {
+        if line == end + 1 {
+            end = line;
+        } else {
+            ranges.push(if start == end {
+                start.to_string()
+            } else {
+                format!("{start}-{end}")
+            });
+            start = line;
+            end = line;
+        }
+    }
+    ranges.push(if start == end {
+        start.to_string()
+    } else {
+        format!("{start}-{end}")
+    });
+    ranges.join(", ")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use tempfile::tempdir;
+
+    #[test]
+    fn formats_diagnostic_lines_as_compact_ranges() {
+        assert_eq!(
+            format_line_ranges(&[19, 20, 21, 23, 24, 31]),
+            "19-21, 23-24, 31"
+        );
+    }
 
     #[test]
     fn test_native_voicebank_loading() {

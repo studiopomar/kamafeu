@@ -90,7 +90,7 @@ impl KamafeuStudioApp {
 
                         egui::Frame::none()
                             .fill(badge_bg)
-                            .stroke(egui::Stroke::new(1.0, badge_stroke))
+                            .stroke(egui::Stroke::new(1.0_f32, badge_stroke))
                             .rounding(egui::Rounding::same(4.0))
                             .inner_margin(egui::Margin::symmetric(6.0, 2.0))
                             .show(ui, |ui| {

@@ -276,7 +276,7 @@ pub(crate) fn draw_piano_roll(
                 Pos2::new(x, ruler_rect.min.y + 1.0),
                 Pos2::new(x, ruler_rect.max.y),
             ],
-            Stroke::new(1.25, color),
+            Stroke::new(1.25_f32, color),
         );
         let flag = [
             Pos2::new(x + 1.0, ruler_rect.min.y + 2.0),
@@ -1682,11 +1682,14 @@ pub(crate) fn draw_piano_roll(
                     if preview_pts.len() >= 2 {
                         painter.add(egui::Shape::line(
                             preview_pts.clone(),
-                            Stroke::new(3.5, Color32::from_rgba_unmultiplied(255, 140, 0, 70)),
+                            Stroke::new(3.5_f32, Color32::from_rgba_unmultiplied(255, 140, 0, 70)),
                         ));
                         painter.add(egui::Shape::line(
                             preview_pts,
-                            Stroke::new(1.8, Color32::from_rgba_unmultiplied(255, 210, 80, 240)),
+                            Stroke::new(
+                                1.8_f32,
+                                Color32::from_rgba_unmultiplied(255, 210, 80, 240),
+                            ),
                         ));
                     }
                 } else if state.pitch_sub_tool == PitchSubTool::Line {
@@ -1700,11 +1703,14 @@ pub(crate) fn draw_piano_roll(
                         let p2 = mpos;
                         painter.line_segment(
                             [p1, p2],
-                            Stroke::new(3.0, Color32::from_rgba_unmultiplied(0, 255, 200, 70)),
+                            Stroke::new(3.0_f32, Color32::from_rgba_unmultiplied(0, 255, 200, 70)),
                         );
                         painter.line_segment(
                             [p1, p2],
-                            Stroke::new(1.6, Color32::from_rgba_unmultiplied(100, 255, 230, 240)),
+                            Stroke::new(
+                                1.6_f32,
+                                Color32::from_rgba_unmultiplied(100, 255, 230, 240),
+                            ),
                         );
                         painter.circle_filled(p1, 4.0, Color32::from_rgb(100, 255, 230));
                         painter.circle_filled(p2, 4.0, Color32::from_rgb(100, 255, 230));
@@ -2285,7 +2291,7 @@ pub(crate) fn draw_piano_roll(
                 }
 
                 painter.circle_filled(handle.pos, radius, bg_color);
-                painter.circle_stroke(handle.pos, radius, Stroke::new(1.2, ring_color));
+                painter.circle_stroke(handle.pos, radius, Stroke::new(1.2_f32, ring_color));
 
                 // Display shape badge text with exact cents if hovered or dragging
                 if is_hovered || is_dragged {
@@ -2315,7 +2321,7 @@ pub(crate) fn draw_piano_roll(
                     painter.rect_stroke(
                         badge_rect,
                         Rounding::same(3.0),
-                        Stroke::new(1.0, theme.note_stroke_c32().linear_multiply(0.62)),
+                        Stroke::new(1.0_f32, theme.note_stroke_c32().linear_multiply(0.62)),
                     );
                     painter.text(
                         badge_rect.center(),
@@ -2363,9 +2369,12 @@ pub(crate) fn draw_piano_roll(
             // Superfície translúcida baseada no tema, sem caixa preta rígida.
             let badge_bg = pill_bg;
             let badge_stroke = if is_selected {
-                Stroke::new(1.0, theme.note_stroke_c32().linear_multiply(0.72))
+                Stroke::new(1.0_f32, theme.note_stroke_c32().linear_multiply(0.72))
             } else {
-                Stroke::new(0.8, theme.note_stroke(false).color.linear_multiply(0.55))
+                Stroke::new(
+                    0.8_f32,
+                    theme.note_stroke(false).color.linear_multiply(0.55),
+                )
             };
 
             clipped.rect_filled(badge_rect, Rounding::same(3.5), badge_bg);
@@ -2398,7 +2407,7 @@ pub(crate) fn draw_piano_roll(
                 painter.rect_stroke(
                     badge_rect,
                     Rounding::same(3.0),
-                    Stroke::new(0.7, theme.note_stroke_c32().linear_multiply(0.55)),
+                    Stroke::new(0.7_f32, theme.note_stroke_c32().linear_multiply(0.55)),
                 );
                 painter.with_clip_rect(badge_rect).text(
                     Pos2::new(badge_rect.left() + 4.0, badge_rect.center().y),

@@ -63,7 +63,7 @@ impl KamafeuStudioApp {
                     visuals.widgets.hovered.weak_bg_fill =
                         theme.c32_alpha(theme.bg_header, 0.82);
                     visuals.widgets.hovered.bg_stroke = egui::Stroke::new(
-                        0.7,
+                        0.7_f32,
                         theme.c32_alpha(theme.accent_color, 0.30),
                     );
                     visuals.widgets.hovered.rounding = egui::Rounding::same(6.0);
@@ -71,7 +71,7 @@ impl KamafeuStudioApp {
                     visuals.widgets.open.weak_bg_fill =
                         theme.c32_alpha(theme.accent_color, 0.14);
                     visuals.widgets.open.bg_stroke = egui::Stroke::new(
-                        0.8,
+                        0.8_f32,
                         theme.c32_alpha(theme.accent_color, 0.46),
                     );
                     visuals.widgets.open.rounding = egui::Rounding::same(6.0);
@@ -225,7 +225,7 @@ impl KamafeuStudioApp {
                 let menu_rect = ui.max_rect();
                 ui.painter().line_segment(
                     [menu_rect.left_bottom(), menu_rect.right_bottom()],
-                    egui::Stroke::new(0.7, self.config.theme.c32_alpha(self.config.theme.grid_line_sub, 0.55)),
+                    egui::Stroke::new(0.7_f32, self.config.theme.c32_alpha(self.config.theme.grid_line_sub, 0.55)),
                 );
             });
     }
@@ -252,7 +252,7 @@ impl KamafeuStudioApp {
                     )
                     .min_size(egui::Vec2::new(92.0, 44.0))
                     .fill(card_bg)
-                    .stroke(egui::Stroke::new(1.0, accent))
+                    .stroke(egui::Stroke::new(1.0_f32, accent))
                     .rounding(egui::Rounding::same(5.0));
 
                     if ui.add(menu_btn).clicked() {

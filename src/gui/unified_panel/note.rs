@@ -1,10 +1,20 @@
 use super::*;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum NoteInspectorSection {
+    Note,
+    Phonemes,
+    Expressions,
+    Envelope,
+}
+
 pub(super) fn draw(
     ui: &mut egui::Ui,
+    page: NoteInspectorSection,
     theme: &ThemeConfig,
     lang: crate::config::AppLanguage,
     voicebank: Option<&Voicebank>,
+    global_phonemizer_mode: crate::phonemizer::PhonemizerMode,
     selected_note_idx: Option<usize>,
     notes: &mut [UNote],
     selected_indices: &std::collections::HashSet<usize>,
@@ -14,170 +24,192 @@ pub(super) fn draw(
     inherited_flags: &str,
     on_edit_selected_ruler_alias: &mut dyn FnMut(),
 ) {
-    egui::ScrollArea::vertical()
-        .id_salt("right_panel_note_scroll")
-        .show(ui, |ui| {
-            if let Some(target_idx) = selected_note_idx {
-                if target_idx < notes.len() {
-                    let is_group = selected_indices.len() > 1;
-                    if is_group {
-                        Frame::none()
-                            .fill(theme.c32_alpha(theme.accent_color, 0.2))
-                            .rounding(theme.ui_rounding())
-                            .stroke(Stroke::new(1.0_f32, theme.accent_c32()))
-                            .inner_margin(egui::Margin::symmetric(8.0, 6.0))
-                            .show(ui, |ui| {
-                                ui.label(
-                                    RichText::new(format!(
-                                        "{} ({} {})",
-                                        lang.tr("Multi-Seleção", "Multi-Selection"),
-                                        selected_indices.len(),
-                                        lang.tr("notas", "notes")
-                                    ))
-                                    .strong()
-                                    .size(11.0)
-                                    .color(theme.accent_c32()),
-                                );
-                                ui.label(
-                                    RichText::new(lang.tr(
-                                        "Alterações aplicam-se a todas as notas selecionadas.",
-                                        "Changes apply to all selected notes.",
-                                    ))
-                                    .size(9.5)
-                                    .color(theme.text_muted_c32()),
-                                );
-                            });
-                        ui.add_space(6.0);
-                    }
+    {
+        if let Some(target_idx) = selected_note_idx {
+            if target_idx < notes.len() {
+                let is_group = selected_indices.len() > 1;
+                if is_group {
+                    Frame::none()
+                        .fill(theme.c32_alpha(theme.accent_color, 0.2))
+                        .rounding(theme.ui_rounding())
+                        .stroke(Stroke::new(1.0_f32, theme.accent_c32()))
+                        .inner_margin(egui::Margin::symmetric(8.0, 6.0))
+                        .show(ui, |ui| {
+                            ui.label(
+                                RichText::new(format!(
+                                    "{} ({} {})",
+                                    lang.tr("Multi-Seleção", "Multi-Selection"),
+                                    selected_indices.len(),
+                                    lang.tr("notas", "notes")
+                                ))
+                                .strong()
+                                .size(11.0)
+                                .color(theme.accent_c32()),
+                            );
+                            ui.label(
+                                RichText::new(lang.tr(
+                                    "Alterações aplicam-se a todas as notas selecionadas.",
+                                    "Changes apply to all selected notes.",
+                                ))
+                                .size(9.5)
+                                .color(theme.text_muted_c32()),
+                            );
+                        });
+                    ui.add_space(6.0);
+                }
 
-                    let mut lyric = notes[target_idx].lyric.clone();
-                    let pitch_str = notes[target_idx].pitch.clone();
-                    let pos_ms = notes[target_idx].position_ms;
-                    let mut dur_ms = notes[target_idx].duration_ms;
-                    let mut flags = notes[target_idx].flags.clone();
-                    let selected_phoneme_index = selected_ruler_alias.and_then(|alias| {
-                        notes[target_idx]
-                            .lyric
-                            .split(['.', ';', ',', '|', '/'])
-                            .map(str::trim)
-                            .position(|part| part == alias)
-                    });
-                    let mut phoneme_flags = selected_phoneme_index
-                        .and_then(|index| {
-                            notes[target_idx]
-                                .phoneme_overrides
-                                .iter()
-                                .find(|item| item.index == index)
-                        })
-                        .and_then(|item| item.flags.clone())
-                        .unwrap_or_default();
-                    let mut advanced_phoneme_scope = selected_phoneme_index.is_some_and(|index| {
+                let mut lyric = notes[target_idx].lyric.clone();
+                let pitch_str = notes[target_idx].pitch.clone();
+                let pos_ms = notes[target_idx].position_ms;
+                let mut dur_ms = notes[target_idx].duration_ms;
+                let mut flags = notes[target_idx].flags.clone();
+                let mut phonemizer_override = notes[target_idx].phonemizer_override.clone();
+                let selected_phoneme_index = selected_ruler_alias.and_then(|alias| {
+                    notes[target_idx]
+                        .lyric
+                        .split(['.', ';', ',', '|', '/'])
+                        .map(str::trim)
+                        .position(|part| part == alias)
+                });
+                let mut phoneme_flags = selected_phoneme_index
+                    .and_then(|index| {
                         notes[target_idx]
                             .phoneme_overrides
                             .iter()
                             .find(|item| item.index == index)
-                            .is_some_and(|item| {
-                                item.envelope.is_some()
-                                    || item.vibrato.is_some()
-                                    || item.pitch_bend.is_some()
-                            })
-                    });
+                    })
+                    .and_then(|item| item.flags.clone())
+                    .unwrap_or_default();
+                let mut advanced_phoneme_scope = selected_phoneme_index.is_some_and(|index| {
+                    notes[target_idx]
+                        .phoneme_overrides
+                        .iter()
+                        .find(|item| item.index == index)
+                        .is_some_and(|item| {
+                            item.envelope.is_some()
+                                || item.vibrato.is_some()
+                                || item.pitch_bend.is_some()
+                        })
+                });
 
-                    let mut gender = notes[target_idx].expressions.gender;
-                    let mut dynamics = notes[target_idx].expressions.dynamics;
-                    let mut pitch_delta = notes[target_idx].expressions.pitch_delta;
-                    let mut breathiness = notes[target_idx].expressions.breathiness;
-                    let mut velocity = notes[target_idx].expressions.velocity;
-                    let mut consonant_velocity =
-                        notes[target_idx].expressions.consonant_velocity;
-                    let mut modulation = notes[target_idx].expressions.modulation;
-                    let mut volume = notes[target_idx].expressions.volume;
-                    let mut attack = notes[target_idx].expressions.attack;
-                    let mut decay = notes[target_idx].expressions.decay;
-                    let orig_fade_in = notes[target_idx].envelope.p2;
-                    let orig_fade_out = notes[target_idx].envelope.p5;
-                    let orig_crossfade = notes[target_idx].envelope.crossfade_ms;
+                let mut gender = notes[target_idx].expressions.gender;
+                let mut dynamics = notes[target_idx].expressions.dynamics;
+                let mut pitch_delta = notes[target_idx].expressions.pitch_delta;
+                let mut breathiness = notes[target_idx].expressions.breathiness;
+                let mut velocity = notes[target_idx].expressions.velocity;
+                let mut consonant_velocity = notes[target_idx].expressions.consonant_velocity;
+                let mut modulation = notes[target_idx].expressions.modulation;
+                let mut volume = notes[target_idx].expressions.volume;
+                let mut attack = notes[target_idx].expressions.attack;
+                let mut decay = notes[target_idx].expressions.decay;
+                let orig_fade_in = notes[target_idx].envelope.p2;
+                let orig_fade_out = notes[target_idx].envelope.p5;
+                let orig_crossfade = notes[target_idx].envelope.crossfade_ms;
 
-                    let mut fade_in_ms = orig_fade_in;
-                    let mut fade_out_ms = orig_fade_out;
-                    let mut note_crossfade_ms = orig_crossfade;
+                let mut fade_in_ms = orig_fade_in;
+                let mut fade_out_ms = orig_fade_out;
+                let mut note_crossfade_ms = orig_crossfade;
 
-                    let orig_volume = notes[target_idx].expressions.volume;
-                    let orig_attack = notes[target_idx].expressions.attack;
-                    let orig_decay = notes[target_idx].expressions.decay;
-                    let orig_gender = notes[target_idx].expressions.gender;
-                    let orig_dynamics = notes[target_idx].expressions.dynamics;
-                    let orig_pitch_delta = notes[target_idx].expressions.pitch_delta;
-                    let orig_breathiness = notes[target_idx].expressions.breathiness;
-                    let orig_velocity = notes[target_idx].expressions.velocity;
-                    let orig_consonant_velocity = notes[target_idx].expressions.consonant_velocity;
-                    let orig_modulation = notes[target_idx].expressions.modulation;
-                    let orig_consonant_timing = notes[target_idx].expressions.consonant_timing_offset_ms;
-                    let mut consonant_timing = orig_consonant_timing;
+                let orig_volume = notes[target_idx].expressions.volume;
+                let orig_attack = notes[target_idx].expressions.attack;
+                let orig_decay = notes[target_idx].expressions.decay;
+                let orig_gender = notes[target_idx].expressions.gender;
+                let orig_dynamics = notes[target_idx].expressions.dynamics;
+                let orig_pitch_delta = notes[target_idx].expressions.pitch_delta;
+                let orig_breathiness = notes[target_idx].expressions.breathiness;
+                let orig_velocity = notes[target_idx].expressions.velocity;
+                let orig_consonant_velocity = notes[target_idx].expressions.consonant_velocity;
+                let orig_modulation = notes[target_idx].expressions.modulation;
+                let orig_consonant_timing =
+                    notes[target_idx].expressions.consonant_timing_offset_ms;
+                let mut consonant_timing = orig_consonant_timing;
 
-                    let original_vibrato = notes[target_idx].vibrato.clone();
-                    let mut vibrato = original_vibrato.clone();
+                let original_vibrato = notes[target_idx].vibrato.clone();
+                let mut vibrato = original_vibrato.clone();
 
-                    let orig_portamento_start = notes[target_idx].pitch_bend.portamento_start_ms;
-                    let orig_portamento_length = notes[target_idx].pitch_bend.portamento_length_ms;
-                    let orig_portamento_shape = notes[target_idx].pitch_bend.portamento_shape.clone();
-                    let orig_snap_first = notes[target_idx].pitch_bend.snap_first;
+                let orig_portamento_start = notes[target_idx].pitch_bend.portamento_start_ms;
+                let orig_portamento_length = notes[target_idx].pitch_bend.portamento_length_ms;
+                let orig_portamento_shape = notes[target_idx].pitch_bend.portamento_shape.clone();
+                let orig_snap_first = notes[target_idx].pitch_bend.snap_first;
 
-                    let mut portamento_start = orig_portamento_start;
-                    let mut portamento_length = orig_portamento_length;
-                    let mut portamento_shape = orig_portamento_shape.clone();
-                    let mut snap_first = orig_snap_first;
-                    if let Some(phoneme_index) = selected_phoneme_index.filter(|_| advanced_phoneme_scope) {
-                        if let Some(item) = notes[target_idx]
-                            .phoneme_overrides
-                            .iter()
-                            .find(|item| item.index == phoneme_index)
-                        {
-                            if let Some(envelope) = &item.envelope {
-                                fade_in_ms = envelope.p2;
-                                fade_out_ms = envelope.p5;
-                                note_crossfade_ms = envelope.crossfade_ms;
-                            }
-                            if let Some(item_vibrato) = &item.vibrato {
-                                vibrato = item_vibrato.clone();
-                            }
-                            if let Some(item_pitch_bend) = &item.pitch_bend {
-                                portamento_start = item_pitch_bend.portamento_start_ms;
-                                portamento_length = item_pitch_bend.portamento_length_ms;
-                                portamento_shape = item_pitch_bend.portamento_shape.clone();
-                                snap_first = item_pitch_bend.snap_first;
-                            }
-                            if let Some(value) = item.gender { gender = value; }
-                            if let Some(value) = item.dynamics { dynamics = value; }
-                            if let Some(value) = item.pitch_delta { pitch_delta = value; }
-                            if let Some(value) = item.breathiness { breathiness = value; }
-                            if let Some(value) = item.velocity { velocity = value; consonant_velocity = value; }
-                            if let Some(value) = item.modulation { modulation = value; }
-                            if let Some(value) = item.volume { volume = value; }
-                            if let Some(value) = item.attack { attack = value; }
-                            if let Some(value) = item.decay { decay = value; }
+                let mut portamento_start = orig_portamento_start;
+                let mut portamento_length = orig_portamento_length;
+                let mut portamento_shape = orig_portamento_shape.clone();
+                let mut snap_first = orig_snap_first;
+                if let Some(phoneme_index) =
+                    selected_phoneme_index.filter(|_| advanced_phoneme_scope)
+                {
+                    if let Some(item) = notes[target_idx]
+                        .phoneme_overrides
+                        .iter()
+                        .find(|item| item.index == phoneme_index)
+                    {
+                        if let Some(envelope) = &item.envelope {
+                            fade_in_ms = envelope.p2;
+                            fade_out_ms = envelope.p5;
+                            note_crossfade_ms = envelope.crossfade_ms;
+                        }
+                        if let Some(item_vibrato) = &item.vibrato {
+                            vibrato = item_vibrato.clone();
+                        }
+                        if let Some(item_pitch_bend) = &item.pitch_bend {
+                            portamento_start = item_pitch_bend.portamento_start_ms;
+                            portamento_length = item_pitch_bend.portamento_length_ms;
+                            portamento_shape = item_pitch_bend.portamento_shape.clone();
+                            snap_first = item_pitch_bend.snap_first;
+                        }
+                        if let Some(value) = item.gender {
+                            gender = value;
+                        }
+                        if let Some(value) = item.dynamics {
+                            dynamics = value;
+                        }
+                        if let Some(value) = item.pitch_delta {
+                            pitch_delta = value;
+                        }
+                        if let Some(value) = item.breathiness {
+                            breathiness = value;
+                        }
+                        if let Some(value) = item.velocity {
+                            velocity = value;
+                            consonant_velocity = value;
+                        }
+                        if let Some(value) = item.modulation {
+                            modulation = value;
+                        }
+                        if let Some(value) = item.volume {
+                            volume = value;
+                        }
+                        if let Some(value) = item.attack {
+                            attack = value;
+                        }
+                        if let Some(value) = item.decay {
+                            decay = value;
                         }
                     }
+                }
 
-                    let mut changed_lyric = false;
-                    let mut changed_dur = false;
-                    let mut changed_flags = false;
-                    let mut changed_phoneme_flags = false;
-                    let mut changed_gender = false;
-                    let mut changed_dynamics = false;
-                    let mut changed_pitch = false;
-                    let mut changed_breath = false;
-                    let mut changed_vel = false;
-                    let mut changed_c_vel = false;
-                    let mut changed_mod = false;
-                    let mut changed_c_timing = false;
-                    let mut changed_amplitude = false;
-                    let mut changed_fades = false;
-                    let mut changed_vibrato = false;
-                    let mut changed_portamento = false;
-                    let mut clear_phoneme_advanced = false;
-                    let mut reset_all = false;
+                let mut changed_lyric = false;
+                let mut changed_dur = false;
+                let mut changed_phonemizer = false;
+                let mut changed_flags = false;
+                let mut changed_phoneme_flags = false;
+                let mut changed_gender = false;
+                let mut changed_dynamics = false;
+                let mut changed_pitch = false;
+                let mut changed_breath = false;
+                let mut changed_vel = false;
+                let mut changed_c_vel = false;
+                let mut changed_mod = false;
+                let mut changed_c_timing = false;
+                let mut changed_amplitude = false;
+                let mut changed_fades = false;
+                let mut changed_vibrato = false;
+                let mut changed_portamento = false;
+                let mut clear_phoneme_advanced = false;
+                let mut reset_all = false;
 
+                if page == NoteInspectorSection::Note {
                     // --- 1. PROPRIEDADES PRINCIPAIS ---
                     Frame::none()
                         .fill(theme.elevated_surface_c32())
@@ -307,63 +339,6 @@ pub(super) fn draw(
                                 },
                             );
 
-                            if let Some(phoneme_index) = selected_phoneme_index {
-                                ui.add_space(3.0);
-                                ui.label(
-                                    RichText::new(format!(
-                                        "{} #{}",
-                                        lang.tr("Flags do fonema selecionado", "Selected phoneme flags"),
-                                        phoneme_index + 1
-                                    ))
-                                    .size(9.5)
-                                    .color(theme.accent_c32()),
-                                );
-                                let response = ui.add_sized(
-                                    Vec2::new(ui.available_width(), 18.0),
-                                    egui::TextEdit::singleline(&mut phoneme_flags)
-                                        .hint_text("flags literais do fonema"),
-                                );
-                                if response.changed() {
-                                    changed_phoneme_flags = true;
-                                }
-                                let effective_phoneme_flags =
-                                    crate::drivers::resampler_driver::merge_utau_flags(&[
-                                        inherited_flags,
-                                        &flags,
-                                        &phoneme_flags,
-                                    ]);
-                                ui.label(
-                                    RichText::new(format!(
-                                        "{} {}",
-                                        lang.tr("Efetivas:", "Effective:"),
-                                        if effective_phoneme_flags.is_empty() {
-                                            "(padrão)"
-                                        } else {
-                                            effective_phoneme_flags.as_str()
-                                        }
-                                    ))
-                                    .monospace()
-                                    .size(9.0)
-                                    .color(theme.text_muted_c32()),
-                                );
-                                ui.checkbox(
-                                    &mut advanced_phoneme_scope,
-                                    lang.tr(
-                                        "Editar envelope, vibrato e portamento deste fonema",
-                                        "Edit this phoneme's envelope, vibrato and portamento",
-                                    ),
-                                );
-                                if ui
-                                    .small_button(lang.tr(
-                                        "Limpar controles avançados do fonema",
-                                        "Clear phoneme advanced controls",
-                                    ))
-                                    .clicked()
-                                {
-                                    clear_phoneme_advanced = true;
-                                }
-                            }
-
                             ui.add_space(2.0);
                             ui.columns(2, |cols| {
                                 cols[0].horizontal(|ui| {
@@ -429,7 +404,97 @@ pub(super) fn draw(
                                 reset_all = true;
                             }
                         });
+                }
 
+                if page == NoteInspectorSection::Phonemes {
+                    draw_phonemizer_override(
+                        ui,
+                        theme,
+                        lang,
+                        &mut phonemizer_override,
+                        global_phonemizer_mode,
+                        &mut changed_phonemizer,
+                    );
+                    if let Some(phoneme_index) = selected_phoneme_index {
+                        ui.add_space(3.0);
+                        Frame::none()
+                            .fill(theme.elevated_surface_c32())
+                            .rounding(theme.ui_rounding())
+                            .stroke(theme.card_stroke())
+                            .inner_margin(egui::Margin::same(8.0))
+                            .show(ui, |ui| {
+                                ui.label(
+                                    RichText::new(format!(
+                                        "{} #{}",
+                                        lang.tr("Fonema selecionado", "Selected phoneme"),
+                                        phoneme_index + 1
+                                    ))
+                                    .strong()
+                                    .size(10.5)
+                                    .color(theme.accent_c32()),
+                                );
+                                ui.add_space(4.0);
+                                ui.label(
+                                    RichText::new(lang.tr("Flags específicas", "Phoneme flags"))
+                                        .size(9.5)
+                                        .color(theme.text_muted_c32()),
+                                );
+                                let response = ui.add_sized(
+                                    Vec2::new(ui.available_width(), 20.0),
+                                    egui::TextEdit::singleline(&mut phoneme_flags)
+                                        .hint_text("flags literais do fonema"),
+                                );
+                                changed_phoneme_flags |= response.changed();
+                                let effective =
+                                    crate::drivers::resampler_driver::merge_utau_flags(&[
+                                        inherited_flags,
+                                        &flags,
+                                        &phoneme_flags,
+                                    ]);
+                                ui.label(
+                                    RichText::new(format!(
+                                        "{} {}",
+                                        lang.tr("Flags efetivas:", "Effective flags:"),
+                                        if effective.is_empty() {
+                                            "(padrão)"
+                                        } else {
+                                            &effective
+                                        }
+                                    ))
+                                    .monospace()
+                                    .size(9.0)
+                                    .color(theme.text_muted_c32()),
+                                );
+                                ui.checkbox(
+                                    &mut advanced_phoneme_scope,
+                                    lang.tr(
+                                        "Editar envelope, vibrato e portamento deste fonema",
+                                        "Edit this phoneme's envelope, vibrato and portamento",
+                                    ),
+                                );
+                                if ui
+                                    .small_button(lang.tr(
+                                        "Limpar controles avançados do fonema",
+                                        "Clear phoneme advanced controls",
+                                    ))
+                                    .clicked()
+                                {
+                                    clear_phoneme_advanced = true;
+                                }
+                            });
+                    } else {
+                        ui.label(
+                            RichText::new(lang.tr(
+                                "Selecione um fonema no ruler para editar flags e controles específicos.",
+                                "Select a phoneme in the ruler to edit its flags and overrides.",
+                            ))
+                            .size(9.5)
+                            .color(theme.text_muted_c32()),
+                        );
+                    }
+                }
+
+                if page == NoteInspectorSection::Expressions {
                     ui.add_space(6.0);
 
                     // --- 2. EXPRESSÕES & DINÂMICA (DYN, GEN, PITD, VEL, BRE) ---
@@ -440,15 +505,23 @@ pub(super) fn draw(
                         .inner_margin(egui::Margin::same(8.0))
                         .show(ui, |ui| {
                             ui.label(
-                                RichText::new(lang.tr("Expressões & Articulação", "Expressions & Articulation"))
-                                    .strong()
-                                    .size(11.0)
-                                    .color(theme.accent_c32()),
+                                RichText::new(
+                                    lang.tr(
+                                        "Expressões & Articulação",
+                                        "Expressions & Articulation",
+                                    ),
+                                )
+                                .strong()
+                                .size(11.0)
+                                .color(theme.accent_c32()),
                             );
                             ui.separator();
 
                             ui.horizontal(|ui| {
-                                ui.label(RichText::new(lang.tr("Dinâmica (DYN):", "Dynamics (DYN):")).size(10.0));
+                                ui.label(
+                                    RichText::new(lang.tr("Dinâmica (DYN):", "Dynamics (DYN):"))
+                                        .size(10.0),
+                                );
                                 let dyn_s = ui.add_sized(
                                     Vec2::new(ui.available_width(), 18.0),
                                     egui::Slider::new(&mut dynamics, -240.0..=120.0)
@@ -464,11 +537,13 @@ pub(super) fn draw(
                             });
 
                             ui.horizontal(|ui| {
-                                ui.label(RichText::new(lang.tr("Gênero (GEN):", "Gender (GEN):")).size(10.0));
+                                ui.label(
+                                    RichText::new(lang.tr("Gênero (GEN):", "Gender (GEN):"))
+                                        .size(10.0),
+                                );
                                 let gen_s = ui.add_sized(
                                     Vec2::new(ui.available_width(), 18.0),
-                                    egui::Slider::new(&mut gender, -100.0..=100.0)
-                                        .suffix(" %"),
+                                    egui::Slider::new(&mut gender, -100.0..=100.0).suffix(" %"),
                                 );
                                 if gen_s.changed() {
                                     changed_gender = true;
@@ -480,7 +555,10 @@ pub(super) fn draw(
                             });
 
                             ui.horizontal(|ui| {
-                                ui.label(RichText::new(lang.tr("Pitch (PITD):", "Pitch (PITD):")).size(10.0));
+                                ui.label(
+                                    RichText::new(lang.tr("Pitch (PITD):", "Pitch (PITD):"))
+                                        .size(10.0),
+                                );
                                 let pit_s = ui.add_sized(
                                     Vec2::new(ui.available_width(), 18.0),
                                     egui::Slider::new(&mut pitch_delta, -100.0..=100.0)
@@ -496,7 +574,10 @@ pub(super) fn draw(
                             });
 
                             ui.horizontal(|ui| {
-                                ui.label(RichText::new(lang.tr("Sopro (BRE):", "Breath (BRE):")).size(10.0));
+                                ui.label(
+                                    RichText::new(lang.tr("Sopro (BRE):", "Breath (BRE):"))
+                                        .size(10.0),
+                                );
                                 let bre_s = ui.add_sized(
                                     Vec2::new(ui.available_width(), 18.0),
                                     egui::Slider::new(&mut breathiness, -100.0..=100.0)
@@ -512,11 +593,13 @@ pub(super) fn draw(
                             });
 
                             ui.horizontal(|ui| {
-                                ui.label(RichText::new(lang.tr("Velocidade (VEL):", "Velocity (VEL):")).size(10.0));
+                                ui.label(
+                                    RichText::new(lang.tr("Velocidade (VEL):", "Velocity (VEL):"))
+                                        .size(10.0),
+                                );
                                 let vel_s = ui.add_sized(
                                     Vec2::new(ui.available_width(), 18.0),
-                                    egui::Slider::new(&mut velocity, 0.0..=200.0)
-                                        .suffix(" %"),
+                                    egui::Slider::new(&mut velocity, 0.0..=200.0).suffix(" %"),
                                 );
                                 if vel_s.changed() {
                                     changed_vel = true;
@@ -528,14 +611,14 @@ pub(super) fn draw(
                             });
 
                             ui.horizontal(|ui| {
-                                ui.label(RichText::new(lang.tr("Vel. Consoante:", "Consonant Vel.:")).size(10.0));
+                                ui.label(
+                                    RichText::new(lang.tr("Vel. Consoante:", "Consonant Vel.:"))
+                                        .size(10.0),
+                                );
                                 let cvel_s = ui.add_sized(
                                     Vec2::new(ui.available_width(), 18.0),
-                                    egui::Slider::new(
-                                        &mut consonant_velocity,
-                                        -100.0..=200.0,
-                                    )
-                                    .suffix(" %"),
+                                    egui::Slider::new(&mut consonant_velocity, -100.0..=200.0)
+                                        .suffix(" %"),
                                 );
                                 if cvel_s.changed() {
                                     changed_c_vel = true;
@@ -547,11 +630,13 @@ pub(super) fn draw(
                             });
 
                             ui.horizontal(|ui| {
-                                ui.label(RichText::new(lang.tr("Modulação (MOD):", "Modulation (MOD):")).size(10.0));
+                                ui.label(
+                                    RichText::new(lang.tr("Modulação (MOD):", "Modulation (MOD):"))
+                                        .size(10.0),
+                                );
                                 let mod_s = ui.add_sized(
                                     Vec2::new(ui.available_width(), 18.0),
-                                    egui::Slider::new(&mut modulation, 0.0..=200.0)
-                                        .suffix(" %"),
+                                    egui::Slider::new(&mut modulation, 0.0..=200.0).suffix(" %"),
                                 );
                                 if mod_s.changed() {
                                     changed_mod = true;
@@ -563,14 +648,14 @@ pub(super) fn draw(
                             });
 
                             ui.horizontal(|ui| {
-                                ui.label(RichText::new(lang.tr("Shift Consoante:", "Consonant Shift:")).size(10.0));
+                                ui.label(
+                                    RichText::new(lang.tr("Shift Consoante:", "Consonant Shift:"))
+                                        .size(10.0),
+                                );
                                 let ct_s = ui.add_sized(
                                     Vec2::new(ui.available_width(), 18.0),
-                                    egui::Slider::new(
-                                        &mut consonant_timing,
-                                        -200.0..=200.0,
-                                    )
-                                    .suffix(" ms"),
+                                    egui::Slider::new(&mut consonant_timing, -200.0..=200.0)
+                                        .suffix(" ms"),
                                 );
                                 if ct_s.changed() {
                                     changed_c_timing = true;
@@ -581,7 +666,9 @@ pub(super) fn draw(
                                 }
                             });
                         });
+                }
 
+                if page == NoteInspectorSection::Envelope {
                     ui.add_space(6.0);
 
                     // --- 3. ENVELOPE, VOL, ATK, DEC & CROSSFADE ---
@@ -777,33 +864,35 @@ pub(super) fn draw(
                             });
 
                             changed_portamento |= ui
-                                .checkbox(&mut snap_first, lang.tr("Ligar à nota anterior", "Snap to previous note"))
+                                .checkbox(
+                                    &mut snap_first,
+                                    lang.tr("Ligar à nota anterior", "Snap to previous note"),
+                                )
                                 .changed();
 
                             ui.horizontal(|ui| {
-                                ui.label(RichText::new(lang.tr("Comprimento:", "Length:")).size(10.0));
+                                ui.label(
+                                    RichText::new(lang.tr("Comprimento:", "Length:")).size(10.0),
+                                );
                                 changed_portamento |= ui
                                     .add_sized(
                                         Vec2::new(ui.available_width(), 18.0),
-                                        egui::Slider::new(
-                                            &mut portamento_length,
-                                            1.0..=500.0,
-                                        )
-                                        .suffix(" ms"),
+                                        egui::Slider::new(&mut portamento_length, 1.0..=500.0)
+                                            .suffix(" ms"),
                                     )
                                     .changed();
                             });
 
                             ui.horizontal(|ui| {
-                                ui.label(RichText::new(lang.tr("Início Offset:", "Start Offset:")).size(10.0));
+                                ui.label(
+                                    RichText::new(lang.tr("Início Offset:", "Start Offset:"))
+                                        .size(10.0),
+                                );
                                 changed_portamento |= ui
                                     .add_sized(
                                         Vec2::new(ui.available_width(), 18.0),
-                                        egui::Slider::new(
-                                            &mut portamento_start,
-                                            -400.0..=400.0,
-                                        )
-                                        .suffix(" ms"),
+                                        egui::Slider::new(&mut portamento_start, -400.0..=400.0)
+                                            .suffix(" ms"),
                                     )
                                     .changed();
                             });
@@ -812,8 +901,13 @@ pub(super) fn draw(
                                 ui.label(RichText::new(lang.tr("Formato:", "Shape:")).size(10.0));
                                 egui::ComboBox::from_id_salt("portamento_shape_cb")
                                     .selected_text(match portamento_shape.as_str() {
-                                        "h" | "hermite" => lang.tr("Spline Hermite (Ultra-Suave)", "Hermite Spline (Ultra-Smooth)"),
-                                        "io" | "s" => lang.tr("Curva S (Suave)", "S-Curve (Smooth)"),
+                                        "h" | "hermite" => lang.tr(
+                                            "Spline Hermite (Ultra-Suave)",
+                                            "Hermite Spline (Ultra-Smooth)",
+                                        ),
+                                        "io" | "s" => {
+                                            lang.tr("Curva S (Suave)", "S-Curve (Smooth)")
+                                        }
                                         "l" => lang.tr("Linear", "Linear"),
                                         "i" => lang.tr("Ease In (Entrada)", "Ease In"),
                                         "o" => lang.tr("Ease Out (Saída)", "Ease Out"),
@@ -823,7 +917,13 @@ pub(super) fn draw(
                                     })
                                     .show_ui(ui, |ui| {
                                         for (value, label) in [
-                                            ("h", lang.tr("Spline Hermite (Ultra-Suave)", "Hermite Spline (Ultra-Smooth)")),
+                                            (
+                                                "h",
+                                                lang.tr(
+                                                    "Spline Hermite (Ultra-Suave)",
+                                                    "Hermite Spline (Ultra-Smooth)",
+                                                ),
+                                            ),
                                             ("io", lang.tr("Curva S (Suave)", "S-Curve (Smooth)")),
                                             ("l", lang.tr("Linear", "Linear")),
                                             ("i", lang.tr("Ease In (Entrada)", "Ease In")),
@@ -882,43 +982,41 @@ pub(super) fn draw(
                             });
 
                             ui.horizontal(|ui| {
-                                ui.label(RichText::new(lang.tr("Comprimento:", "Length:")).size(10.0));
+                                ui.label(
+                                    RichText::new(lang.tr("Comprimento:", "Length:")).size(10.0),
+                                );
                                 changed_vibrato |= ui
                                     .add_sized(
                                         Vec2::new(ui.available_width(), 18.0),
-                                        egui::Slider::new(
-                                            &mut vibrato.length_pct,
-                                            0.0..=100.0,
-                                        )
-                                        .suffix(" %"),
+                                        egui::Slider::new(&mut vibrato.length_pct, 0.0..=100.0)
+                                            .suffix(" %"),
                                     )
                                     .changed();
                             });
 
                             ui.horizontal(|ui| {
-                                ui.label(RichText::new(lang.tr("Profundidade:", "Depth:")).size(10.0));
+                                ui.label(
+                                    RichText::new(lang.tr("Profundidade:", "Depth:")).size(10.0),
+                                );
                                 changed_vibrato |= ui
                                     .add_sized(
                                         Vec2::new(ui.available_width(), 18.0),
-                                        egui::Slider::new(
-                                            &mut vibrato.depth_cents,
-                                            0.0..=200.0,
-                                        )
-                                        .suffix(" c"),
+                                        egui::Slider::new(&mut vibrato.depth_cents, 0.0..=200.0)
+                                            .suffix(" c"),
                                     )
                                     .changed();
                             });
 
                             ui.horizontal(|ui| {
-                                ui.label(RichText::new(lang.tr("Período (Vel.):", "Period (Speed):")).size(10.0));
+                                ui.label(
+                                    RichText::new(lang.tr("Período (Vel.):", "Period (Speed):"))
+                                        .size(10.0),
+                                );
                                 changed_vibrato |= ui
                                     .add_sized(
                                         Vec2::new(ui.available_width(), 18.0),
-                                        egui::Slider::new(
-                                            &mut vibrato.period_ms,
-                                            5.0..=400.0,
-                                        )
-                                        .suffix(" ms"),
+                                        egui::Slider::new(&mut vibrato.period_ms, 5.0..=400.0)
+                                            .suffix(" ms"),
                                     )
                                     .changed();
                             });
@@ -976,7 +1074,9 @@ pub(super) fn draw(
                                     .changed();
                             });
                         });
+                }
 
+                if page == NoteInspectorSection::Phonemes {
                     ui.add_space(6.0);
 
                     // --- 6. VALIDAÇÃO DO VOICEBANK ---
@@ -1218,262 +1318,340 @@ pub(super) fn draw(
                                 },
                             );
                         });
+                }
 
-                    // --- APLICAÇÃO DOS DADOS ATUALIZADOS ---
-                    let update_targets: Vec<usize> = if selected_indices.is_empty() {
-                        vec![target_idx]
-                    } else {
-                        selected_indices.iter().copied().collect()
-                    };
+                // --- APLICAÇÃO DOS DADOS ATUALIZADOS ---
+                let update_targets: Vec<usize> = if selected_indices.is_empty() {
+                    vec![target_idx]
+                } else {
+                    selected_indices.iter().copied().collect()
+                };
 
-                    for idx in update_targets {
-                        if idx < notes.len() {
-                            if reset_all {
-                                notes[idx].reset_all_parameters();
-                            } else {
-                                if changed_lyric {
-                                    notes[idx].lyric = lyric.clone();
-                                }
-                                if changed_dur {
-                                    notes[idx].duration_ms = dur_ms;
-                                }
-                                if changed_flags {
-                                    notes[idx].flags = flags.clone();
-                                }
-                                if changed_phoneme_flags && idx == target_idx {
-                                    if let Some(phoneme_index) = selected_phoneme_index {
-                                        let override_item = notes[idx]
-                                            .phoneme_overrides
-                                            .iter_mut()
-                                            .find(|item| item.index == phoneme_index);
-                                        let item = match override_item {
-                                            Some(item) => item,
-                                            None => {
-                                                notes[idx].phoneme_overrides.push(
-                                                    crate::project::model::UPhonemeOverride {
-                                                        index: phoneme_index,
-                                                        ..Default::default()
-                                                    },
-                                                );
-                                                notes[idx]
-                                                    .phoneme_overrides
-                                                    .last_mut()
-                                                    .expect("phoneme override was just inserted")
-                                            }
-                                        };
-                                        item.flags = (!phoneme_flags.trim().is_empty())
-                                            .then(|| phoneme_flags.clone());
-                                    }
-                                }
-                                if changed_gender && (gender - orig_gender).abs() > f64::EPSILON {
-                                    notes[idx].expressions.gender = gender;
-                                }
-                                if changed_dynamics && (dynamics - orig_dynamics).abs() > f64::EPSILON {
-                                    notes[idx].expressions.dynamics = dynamics;
-                                }
-                                if changed_pitch && (pitch_delta - orig_pitch_delta).abs() > f64::EPSILON {
-                                    notes[idx].expressions.pitch_delta = pitch_delta;
-                                }
-                                if changed_breath && (breathiness - orig_breathiness).abs() > f64::EPSILON {
-                                    notes[idx].expressions.breathiness = breathiness;
-                                }
-                                if changed_vel && (velocity - orig_velocity).abs() > f64::EPSILON {
-                                    notes[idx].expressions.velocity = velocity;
-                                }
-                                if changed_c_vel && (consonant_velocity - orig_consonant_velocity).abs() > f64::EPSILON {
-                                    notes[idx].expressions.consonant_velocity =
-                                        consonant_velocity;
-                                }
-                                if changed_mod && (modulation - orig_modulation).abs() > f64::EPSILON {
-                                    notes[idx].expressions.modulation = modulation;
-                                }
-                                if changed_c_timing && (consonant_timing - orig_consonant_timing).abs() > f64::EPSILON {
-                                    if advanced_phoneme_scope && idx == target_idx {
-                                        let phoneme_index = selected_phoneme_index.unwrap();
-                                        let item = notes[idx]
-                                            .phoneme_overrides
-                                            .iter_mut()
-                                            .find(|item| item.index == phoneme_index);
-                                        let item = match item {
-                                            Some(item) => item,
-                                            None => {
-                                                notes[idx].phoneme_overrides.push(
-                                                    crate::project::model::UPhonemeOverride {
-                                                        index: phoneme_index,
-                                                        ..Default::default()
-                                                    },
-                                                );
-                                                notes[idx].phoneme_overrides.last_mut().unwrap()
-                                            }
-                                        };
-                                        item.consonant_timing_offset_ms = Some(consonant_timing);
-                                    } else {
-                                        notes[idx].expressions.consonant_timing_offset_ms = consonant_timing;
-                                    }
-                                }
-                                if changed_amplitude {
-                                    if (volume - orig_volume).abs() > f64::EPSILON {
-                                        notes[idx].expressions.volume = volume;
-                                    }
-                                    if (attack - orig_attack).abs() > f64::EPSILON {
-                                        notes[idx].expressions.attack = attack;
-                                    }
-                                    if (decay - orig_decay).abs() > f64::EPSILON {
-                                        notes[idx].expressions.decay = decay;
-                                    }
-                                }
-                                if changed_fades {
-                                    if advanced_phoneme_scope && idx == target_idx {
-                                        let phoneme_index = selected_phoneme_index.unwrap();
-                                        let item = notes[idx]
-                                            .phoneme_overrides
-                                            .iter_mut()
-                                            .find(|item| item.index == phoneme_index);
-                                        let item = match item {
-                                            Some(item) => item,
-                                            None => {
-                                                notes[idx].phoneme_overrides.push(
-                                                    crate::project::model::UPhonemeOverride {
-                                                        index: phoneme_index,
-                                                        envelope: Some(notes[idx].envelope.clone()),
-                                                        ..Default::default()
-                                                    },
-                                                );
-                                                notes[idx].phoneme_overrides.last_mut().unwrap()
-                                            }
-                                        };
-                                        let envelope = item.envelope.get_or_insert_with(Default::default);
-                                        envelope.p2 = fade_in_ms;
-                                        envelope.p5 = fade_out_ms;
-                                        envelope.crossfade_ms = note_crossfade_ms;
-                                    } else {
-                                        notes[idx].envelope.p2 = fade_in_ms;
-                                        notes[idx].envelope.p5 = fade_out_ms;
-                                        notes[idx].envelope.crossfade_ms = note_crossfade_ms;
-                                    }
-                                }
-                                if changed_vibrato {
-                                    let target = if advanced_phoneme_scope && idx == target_idx {
-                                        let phoneme_index = selected_phoneme_index.unwrap();
-                                        let item = notes[idx]
-                                            .phoneme_overrides
-                                            .iter_mut()
-                                            .find(|item| item.index == phoneme_index);
-                                        let item = match item {
-                                            Some(item) => item,
-                                            None => {
-                                                notes[idx].phoneme_overrides.push(
-                                                    crate::project::model::UPhonemeOverride {
-                                                        index: phoneme_index,
-                                                        vibrato: Some(notes[idx].vibrato.clone()),
-                                                        ..Default::default()
-                                                    },
-                                                );
-                                                notes[idx].phoneme_overrides.last_mut().unwrap()
-                                            }
-                                        };
-                                        item.vibrato.get_or_insert_with(Default::default)
-                                    } else {
-                                        &mut notes[idx].vibrato
-                                    };
-                                    if (vibrato.length_pct - original_vibrato.length_pct).abs() > f64::EPSILON { target.length_pct = vibrato.length_pct; }
-                                    if (vibrato.period_ms - original_vibrato.period_ms).abs() > f64::EPSILON { target.period_ms = vibrato.period_ms; }
-                                    if (vibrato.depth_cents - original_vibrato.depth_cents).abs() > f64::EPSILON { target.depth_cents = vibrato.depth_cents; }
-                                    if (vibrato.fade_in_pct - original_vibrato.fade_in_pct).abs() > f64::EPSILON { target.fade_in_pct = vibrato.fade_in_pct; }
-                                    if (vibrato.fade_out_pct - original_vibrato.fade_out_pct).abs() > f64::EPSILON { target.fade_out_pct = vibrato.fade_out_pct; }
-                                    if (vibrato.shift_pct - original_vibrato.shift_pct).abs() > f64::EPSILON { target.shift_pct = vibrato.shift_pct; }
-                                    if (vibrato.drift_pct - original_vibrato.drift_pct).abs() > f64::EPSILON { target.drift_pct = vibrato.drift_pct; }
-                                    if (vibrato.volume_link_pct - original_vibrato.volume_link_pct).abs() > f64::EPSILON { target.volume_link_pct = vibrato.volume_link_pct; }
-                                }
-                                if changed_portamento {
-                                    let target = if advanced_phoneme_scope && idx == target_idx {
-                                        let phoneme_index = selected_phoneme_index.unwrap();
-                                        let item = notes[idx]
-                                            .phoneme_overrides
-                                            .iter_mut()
-                                            .find(|item| item.index == phoneme_index);
-                                        let item = match item {
-                                            Some(item) => item,
-                                            None => {
-                                                notes[idx].phoneme_overrides.push(
-                                                    crate::project::model::UPhonemeOverride {
-                                                        index: phoneme_index,
-                                                        pitch_bend: Some(notes[idx].pitch_bend.clone()),
-                                                        ..Default::default()
-                                                    },
-                                                );
-                                                notes[idx].phoneme_overrides.last_mut().unwrap()
-                                            }
-                                        };
-                                        item.pitch_bend.get_or_insert_with(Default::default)
-                                    } else {
-                                        &mut notes[idx].pitch_bend
-                                    };
-                                    if snap_first != orig_snap_first { target.snap_first = snap_first; }
-                                    if (portamento_start - orig_portamento_start).abs() > f64::EPSILON {
-                                        target.portamento_start_ms = portamento_start;
-                                    }
-                                    if (portamento_length - orig_portamento_length).abs() > f64::EPSILON {
-                                        target.portamento_length_ms = portamento_length;
-                                    }
-                                    if portamento_shape != orig_portamento_shape {
-                                        target.portamento_shape = portamento_shape.clone();
-                                    }
-                                    if target.points.len() > 1 {
-                                        target.points[1].time_offset_ms =
-                                            target.portamento_start_ms + target.portamento_length_ms;
-                                        target.points.sort_by(
-                                            |left, right| {
-                                                left.time_offset_ms
-                                                    .partial_cmp(&right.time_offset_ms)
-                                                    .unwrap_or(std::cmp::Ordering::Equal)
-                                            },
-                                        );
-                                    }
-                                }
-                                if clear_phoneme_advanced && idx == target_idx {
-                                    if let Some(phoneme_index) = selected_phoneme_index {
-                                        if let Some(item) = notes[idx]
-                                            .phoneme_overrides
-                                            .iter_mut()
-                                            .find(|item| item.index == phoneme_index)
-                                        {
-                                            item.envelope = None;
-                                            item.vibrato = None;
-                                            item.pitch_bend = None;
-                                            item.consonant_timing_offset_ms = None;
+                for idx in update_targets {
+                    if idx < notes.len() {
+                        if reset_all {
+                            notes[idx].reset_all_parameters();
+                        } else {
+                            if changed_lyric {
+                                notes[idx].lyric = lyric.clone();
+                            }
+                            if changed_phonemizer {
+                                notes[idx].phonemizer_override = phonemizer_override.clone();
+                            }
+                            if changed_dur {
+                                notes[idx].duration_ms = dur_ms;
+                            }
+                            if changed_flags {
+                                notes[idx].flags = flags.clone();
+                            }
+                            if changed_phoneme_flags && idx == target_idx {
+                                if let Some(phoneme_index) = selected_phoneme_index {
+                                    let override_item = notes[idx]
+                                        .phoneme_overrides
+                                        .iter_mut()
+                                        .find(|item| item.index == phoneme_index);
+                                    let item = match override_item {
+                                        Some(item) => item,
+                                        None => {
+                                            notes[idx].phoneme_overrides.push(
+                                                crate::project::model::UPhonemeOverride {
+                                                    index: phoneme_index,
+                                                    ..Default::default()
+                                                },
+                                            );
+                                            notes[idx]
+                                                .phoneme_overrides
+                                                .last_mut()
+                                                .expect("phoneme override was just inserted")
                                         }
+                                    };
+                                    item.flags = (!phoneme_flags.trim().is_empty())
+                                        .then(|| phoneme_flags.clone());
+                                }
+                            }
+                            if changed_gender && (gender - orig_gender).abs() > f64::EPSILON {
+                                notes[idx].expressions.gender = gender;
+                            }
+                            if changed_dynamics && (dynamics - orig_dynamics).abs() > f64::EPSILON {
+                                notes[idx].expressions.dynamics = dynamics;
+                            }
+                            if changed_pitch
+                                && (pitch_delta - orig_pitch_delta).abs() > f64::EPSILON
+                            {
+                                notes[idx].expressions.pitch_delta = pitch_delta;
+                            }
+                            if changed_breath
+                                && (breathiness - orig_breathiness).abs() > f64::EPSILON
+                            {
+                                notes[idx].expressions.breathiness = breathiness;
+                            }
+                            if changed_vel && (velocity - orig_velocity).abs() > f64::EPSILON {
+                                notes[idx].expressions.velocity = velocity;
+                            }
+                            if changed_c_vel
+                                && (consonant_velocity - orig_consonant_velocity).abs()
+                                    > f64::EPSILON
+                            {
+                                notes[idx].expressions.consonant_velocity = consonant_velocity;
+                            }
+                            if changed_mod && (modulation - orig_modulation).abs() > f64::EPSILON {
+                                notes[idx].expressions.modulation = modulation;
+                            }
+                            if changed_c_timing
+                                && (consonant_timing - orig_consonant_timing).abs() > f64::EPSILON
+                            {
+                                if advanced_phoneme_scope && idx == target_idx {
+                                    let phoneme_index = selected_phoneme_index.unwrap();
+                                    let item = notes[idx]
+                                        .phoneme_overrides
+                                        .iter_mut()
+                                        .find(|item| item.index == phoneme_index);
+                                    let item = match item {
+                                        Some(item) => item,
+                                        None => {
+                                            notes[idx].phoneme_overrides.push(
+                                                crate::project::model::UPhonemeOverride {
+                                                    index: phoneme_index,
+                                                    ..Default::default()
+                                                },
+                                            );
+                                            notes[idx].phoneme_overrides.last_mut().unwrap()
+                                        }
+                                    };
+                                    item.consonant_timing_offset_ms = Some(consonant_timing);
+                                } else {
+                                    notes[idx].expressions.consonant_timing_offset_ms =
+                                        consonant_timing;
+                                }
+                            }
+                            if changed_amplitude {
+                                if (volume - orig_volume).abs() > f64::EPSILON {
+                                    notes[idx].expressions.volume = volume;
+                                }
+                                if (attack - orig_attack).abs() > f64::EPSILON {
+                                    notes[idx].expressions.attack = attack;
+                                }
+                                if (decay - orig_decay).abs() > f64::EPSILON {
+                                    notes[idx].expressions.decay = decay;
+                                }
+                            }
+                            if changed_fades {
+                                if advanced_phoneme_scope && idx == target_idx {
+                                    let phoneme_index = selected_phoneme_index.unwrap();
+                                    let item = notes[idx]
+                                        .phoneme_overrides
+                                        .iter_mut()
+                                        .find(|item| item.index == phoneme_index);
+                                    let item = match item {
+                                        Some(item) => item,
+                                        None => {
+                                            notes[idx].phoneme_overrides.push(
+                                                crate::project::model::UPhonemeOverride {
+                                                    index: phoneme_index,
+                                                    envelope: Some(notes[idx].envelope.clone()),
+                                                    ..Default::default()
+                                                },
+                                            );
+                                            notes[idx].phoneme_overrides.last_mut().unwrap()
+                                        }
+                                    };
+                                    let envelope =
+                                        item.envelope.get_or_insert_with(Default::default);
+                                    envelope.p2 = fade_in_ms;
+                                    envelope.p5 = fade_out_ms;
+                                    envelope.crossfade_ms = note_crossfade_ms;
+                                } else {
+                                    notes[idx].envelope.p2 = fade_in_ms;
+                                    notes[idx].envelope.p5 = fade_out_ms;
+                                    notes[idx].envelope.crossfade_ms = note_crossfade_ms;
+                                }
+                            }
+                            if changed_vibrato {
+                                let target = if advanced_phoneme_scope && idx == target_idx {
+                                    let phoneme_index = selected_phoneme_index.unwrap();
+                                    let item = notes[idx]
+                                        .phoneme_overrides
+                                        .iter_mut()
+                                        .find(|item| item.index == phoneme_index);
+                                    let item = match item {
+                                        Some(item) => item,
+                                        None => {
+                                            notes[idx].phoneme_overrides.push(
+                                                crate::project::model::UPhonemeOverride {
+                                                    index: phoneme_index,
+                                                    vibrato: Some(notes[idx].vibrato.clone()),
+                                                    ..Default::default()
+                                                },
+                                            );
+                                            notes[idx].phoneme_overrides.last_mut().unwrap()
+                                        }
+                                    };
+                                    item.vibrato.get_or_insert_with(Default::default)
+                                } else {
+                                    &mut notes[idx].vibrato
+                                };
+                                if (vibrato.length_pct - original_vibrato.length_pct).abs()
+                                    > f64::EPSILON
+                                {
+                                    target.length_pct = vibrato.length_pct;
+                                }
+                                if (vibrato.period_ms - original_vibrato.period_ms).abs()
+                                    > f64::EPSILON
+                                {
+                                    target.period_ms = vibrato.period_ms;
+                                }
+                                if (vibrato.depth_cents - original_vibrato.depth_cents).abs()
+                                    > f64::EPSILON
+                                {
+                                    target.depth_cents = vibrato.depth_cents;
+                                }
+                                if (vibrato.fade_in_pct - original_vibrato.fade_in_pct).abs()
+                                    > f64::EPSILON
+                                {
+                                    target.fade_in_pct = vibrato.fade_in_pct;
+                                }
+                                if (vibrato.fade_out_pct - original_vibrato.fade_out_pct).abs()
+                                    > f64::EPSILON
+                                {
+                                    target.fade_out_pct = vibrato.fade_out_pct;
+                                }
+                                if (vibrato.shift_pct - original_vibrato.shift_pct).abs()
+                                    > f64::EPSILON
+                                {
+                                    target.shift_pct = vibrato.shift_pct;
+                                }
+                                if (vibrato.drift_pct - original_vibrato.drift_pct).abs()
+                                    > f64::EPSILON
+                                {
+                                    target.drift_pct = vibrato.drift_pct;
+                                }
+                                if (vibrato.volume_link_pct - original_vibrato.volume_link_pct)
+                                    .abs()
+                                    > f64::EPSILON
+                                {
+                                    target.volume_link_pct = vibrato.volume_link_pct;
+                                }
+                            }
+                            if changed_portamento {
+                                let target = if advanced_phoneme_scope && idx == target_idx {
+                                    let phoneme_index = selected_phoneme_index.unwrap();
+                                    let item = notes[idx]
+                                        .phoneme_overrides
+                                        .iter_mut()
+                                        .find(|item| item.index == phoneme_index);
+                                    let item = match item {
+                                        Some(item) => item,
+                                        None => {
+                                            notes[idx].phoneme_overrides.push(
+                                                crate::project::model::UPhonemeOverride {
+                                                    index: phoneme_index,
+                                                    pitch_bend: Some(notes[idx].pitch_bend.clone()),
+                                                    ..Default::default()
+                                                },
+                                            );
+                                            notes[idx].phoneme_overrides.last_mut().unwrap()
+                                        }
+                                    };
+                                    item.pitch_bend.get_or_insert_with(Default::default)
+                                } else {
+                                    &mut notes[idx].pitch_bend
+                                };
+                                if snap_first != orig_snap_first {
+                                    target.snap_first = snap_first;
+                                }
+                                if (portamento_start - orig_portamento_start).abs() > f64::EPSILON {
+                                    target.portamento_start_ms = portamento_start;
+                                }
+                                if (portamento_length - orig_portamento_length).abs() > f64::EPSILON
+                                {
+                                    target.portamento_length_ms = portamento_length;
+                                }
+                                if portamento_shape != orig_portamento_shape {
+                                    target.portamento_shape = portamento_shape.clone();
+                                }
+                                if target.points.len() > 1 {
+                                    target.points[1].time_offset_ms =
+                                        target.portamento_start_ms + target.portamento_length_ms;
+                                    target.points.sort_by(|left, right| {
+                                        left.time_offset_ms
+                                            .partial_cmp(&right.time_offset_ms)
+                                            .unwrap_or(std::cmp::Ordering::Equal)
+                                    });
+                                }
+                            }
+                            if clear_phoneme_advanced && idx == target_idx {
+                                if let Some(phoneme_index) = selected_phoneme_index {
+                                    if let Some(item) = notes[idx]
+                                        .phoneme_overrides
+                                        .iter_mut()
+                                        .find(|item| item.index == phoneme_index)
+                                    {
+                                        item.envelope = None;
+                                        item.vibrato = None;
+                                        item.pitch_bend = None;
+                                        item.consonant_timing_offset_ms = None;
                                     }
                                 }
-                                if advanced_phoneme_scope && idx == target_idx {
-                                    if let Some(phoneme_index) = selected_phoneme_index {
-                                        let item = notes[idx]
-                                            .phoneme_overrides
-                                            .iter_mut()
-                                            .find(|item| item.index == phoneme_index);
-                                        let item = match item {
-                                            Some(item) => item,
-                                            None => {
-                                                notes[idx].phoneme_overrides.push(
-                                                    crate::project::model::UPhonemeOverride {
-                                                        index: phoneme_index,
-                                                        ..Default::default()
-                                                    },
-                                                );
-                                                notes[idx].phoneme_overrides.last_mut().unwrap()
-                                            }
-                                        };
-                                        if changed_gender { item.gender = Some(gender); notes[idx].expressions.gender = orig_gender; }
-                                        if changed_dynamics { item.dynamics = Some(dynamics); notes[idx].expressions.dynamics = orig_dynamics; }
-                                        if changed_pitch { item.pitch_delta = Some(pitch_delta); notes[idx].expressions.pitch_delta = orig_pitch_delta; }
-                                        if changed_breath { item.breathiness = Some(breathiness); notes[idx].expressions.breathiness = orig_breathiness; }
-                                        if changed_vel { item.velocity = Some(velocity); notes[idx].expressions.velocity = orig_velocity; }
-                                        if changed_c_vel { item.velocity = Some(consonant_velocity); notes[idx].expressions.consonant_velocity = orig_consonant_velocity; }
-                                        if changed_mod { item.modulation = Some(modulation); notes[idx].expressions.modulation = orig_modulation; }
-                                        if changed_amplitude {
-                                            if (volume - orig_volume).abs() > f64::EPSILON { item.volume = Some(volume); notes[idx].expressions.volume = orig_volume; }
-                                            if (attack - orig_attack).abs() > f64::EPSILON { item.attack = Some(attack); notes[idx].expressions.attack = orig_attack; }
-                                            if (decay - orig_decay).abs() > f64::EPSILON { item.decay = Some(decay); notes[idx].expressions.decay = orig_decay; }
+                            }
+                            if advanced_phoneme_scope && idx == target_idx {
+                                if let Some(phoneme_index) = selected_phoneme_index {
+                                    let item = notes[idx]
+                                        .phoneme_overrides
+                                        .iter_mut()
+                                        .find(|item| item.index == phoneme_index);
+                                    let item = match item {
+                                        Some(item) => item,
+                                        None => {
+                                            notes[idx].phoneme_overrides.push(
+                                                crate::project::model::UPhonemeOverride {
+                                                    index: phoneme_index,
+                                                    ..Default::default()
+                                                },
+                                            );
+                                            notes[idx].phoneme_overrides.last_mut().unwrap()
+                                        }
+                                    };
+                                    if changed_gender {
+                                        item.gender = Some(gender);
+                                        notes[idx].expressions.gender = orig_gender;
+                                    }
+                                    if changed_dynamics {
+                                        item.dynamics = Some(dynamics);
+                                        notes[idx].expressions.dynamics = orig_dynamics;
+                                    }
+                                    if changed_pitch {
+                                        item.pitch_delta = Some(pitch_delta);
+                                        notes[idx].expressions.pitch_delta = orig_pitch_delta;
+                                    }
+                                    if changed_breath {
+                                        item.breathiness = Some(breathiness);
+                                        notes[idx].expressions.breathiness = orig_breathiness;
+                                    }
+                                    if changed_vel {
+                                        item.velocity = Some(velocity);
+                                        notes[idx].expressions.velocity = orig_velocity;
+                                    }
+                                    if changed_c_vel {
+                                        item.velocity = Some(consonant_velocity);
+                                        notes[idx].expressions.consonant_velocity =
+                                            orig_consonant_velocity;
+                                    }
+                                    if changed_mod {
+                                        item.modulation = Some(modulation);
+                                        notes[idx].expressions.modulation = orig_modulation;
+                                    }
+                                    if changed_amplitude {
+                                        if (volume - orig_volume).abs() > f64::EPSILON {
+                                            item.volume = Some(volume);
+                                            notes[idx].expressions.volume = orig_volume;
+                                        }
+                                        if (attack - orig_attack).abs() > f64::EPSILON {
+                                            item.attack = Some(attack);
+                                            notes[idx].expressions.attack = orig_attack;
+                                        }
+                                        if (decay - orig_decay).abs() > f64::EPSILON {
+                                            item.decay = Some(decay);
+                                            notes[idx].expressions.decay = orig_decay;
                                         }
                                     }
                                 }
@@ -1481,8 +1659,9 @@ pub(super) fn draw(
                         }
                     }
                 }
-            } else {
-                ui.vertical_centered(|ui| {
+            }
+        } else if page == NoteInspectorSection::Note {
+            ui.vertical_centered(|ui| {
                     ui.add_space(40.0);
                     ui.label(
                         RichText::new(lang.tr("Nenhuma Nota Selecionada", "No Note Selected"))
@@ -1500,6 +1679,77 @@ pub(super) fn draw(
                         .color(theme.text_muted_c32()),
                     );
                 });
+        }
+    }
+}
+
+fn draw_phonemizer_override(
+    ui: &mut egui::Ui,
+    theme: &ThemeConfig,
+    lang: crate::config::AppLanguage,
+    phonemizer_override: &mut Option<String>,
+    global_mode: crate::phonemizer::PhonemizerMode,
+    changed: &mut bool,
+) {
+    ui.label(
+        RichText::new(lang.tr("Fonemizador desta nota", "Phonemizer for this note"))
+            .size(9.5)
+            .color(theme.text_muted_c32()),
+    );
+    let selected = phonemizer_override
+        .as_deref()
+        .and_then(crate::phonemizer::PhonemizerMode::from_name)
+        .map(crate::phonemizer::PhonemizerMode::display_name)
+        .unwrap_or_else(|| {
+            format!(
+                "{} · {}",
+                lang.tr("Herdado da faixa", "Inherited from track"),
+                global_mode.display_name()
+            )
+        });
+    egui::ComboBox::from_id_salt("inspector_note_phonemizer")
+        .selected_text(selected)
+        .width(ui.available_width())
+        .show_ui(ui, |ui| {
+            *changed |= ui
+                .selectable_value(
+                    phonemizer_override,
+                    None,
+                    lang.tr("Herdar da faixa", "Inherit from track"),
+                )
+                .changed();
+            let mut language = None;
+            for mode in crate::phonemizer::PhonemizerMode::ALL {
+                let info = mode.info();
+                if language != Some(info.language) {
+                    if language.is_some() {
+                        ui.separator();
+                    }
+                    ui.label(
+                        RichText::new(info.language)
+                            .strong()
+                            .color(theme.accent_c32()),
+                    );
+                    language = Some(info.language);
+                }
+                *changed |= ui
+                    .selectable_value(
+                        phonemizer_override,
+                        Some(format!("{mode:?}")),
+                        format!("{} · {}", info.name, mode.author()),
+                    )
+                    .changed();
             }
         });
+    if *changed {
+        ui.label(
+            RichText::new(lang.tr(
+                "A seleção vale apenas para esta nota.",
+                "This choice applies to this note only.",
+            ))
+            .size(8.5)
+            .color(theme.text_muted_c32()),
+        );
+    }
+    ui.add_space(5.0);
 }

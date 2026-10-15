@@ -674,7 +674,7 @@ impl KamafeuStudioApp {
                         painter.rect_stroke(
                             rect,
                             egui::Rounding::same(6.0),
-                            egui::Stroke::new(1.0, self.config.theme.grid_line_sub_c32()),
+                            egui::Stroke::new(1.0_f32, self.config.theme.grid_line_sub_c32()),
                         );
 
                         // Piano keys preview on left
@@ -693,7 +693,7 @@ impl KamafeuStudioApp {
                                 egui::pos2(rect.min.x + key_w, rect.min.y),
                                 egui::pos2(rect.min.x + key_w, rect.max.y),
                             ],
-                            egui::Stroke::new(1.5, self.config.theme.accent_c32()),
+                            egui::Stroke::new(1.5_f32, self.config.theme.accent_c32()),
                         );
 
                         // Grid lines
@@ -703,19 +703,19 @@ impl KamafeuStudioApp {
                         let g_x4 = rect.min.x + key_w + 300.0;
                         painter.line_segment(
                             [egui::pos2(g_x1, rect.min.y), egui::pos2(g_x1, rect.max.y)],
-                            egui::Stroke::new(1.5, self.config.theme.grid_line_bar_c32()),
+                            egui::Stroke::new(1.5_f32, self.config.theme.grid_line_bar_c32()),
                         );
                         painter.line_segment(
                             [egui::pos2(g_x2, rect.min.y), egui::pos2(g_x2, rect.max.y)],
-                            egui::Stroke::new(1.0, self.config.theme.grid_line_sub_c32()),
+                            egui::Stroke::new(1.0_f32, self.config.theme.grid_line_sub_c32()),
                         );
                         painter.line_segment(
                             [egui::pos2(g_x3, rect.min.y), egui::pos2(g_x3, rect.max.y)],
-                            egui::Stroke::new(1.5, self.config.theme.grid_line_bar_c32()),
+                            egui::Stroke::new(1.5_f32, self.config.theme.grid_line_bar_c32()),
                         );
                         painter.line_segment(
                             [egui::pos2(g_x4, rect.min.y), egui::pos2(g_x4, rect.max.y)],
-                            egui::Stroke::new(1.0, self.config.theme.grid_line_sub_c32()),
+                            egui::Stroke::new(1.0_f32, self.config.theme.grid_line_sub_c32()),
                         );
 
                         // Sample Note 1 (Normal)
@@ -746,28 +746,28 @@ impl KamafeuStudioApp {
                                     egui::pos2(n1_rect.min.x + 8.0, cy),
                                     egui::pos2(n1_rect.min.x + 25.0, cy - 8.0),
                                 ],
-                                egui::Stroke::new(1.5, wf_c),
+                                egui::Stroke::new(1.5_f32, wf_c),
                             );
                             painter.line_segment(
                                 [
                                     egui::pos2(n1_rect.min.x + 25.0, cy - 8.0),
                                     egui::pos2(n1_rect.min.x + 45.0, cy + 9.0),
                                 ],
-                                egui::Stroke::new(1.5, wf_c),
+                                egui::Stroke::new(1.5_f32, wf_c),
                             );
                             painter.line_segment(
                                 [
                                     egui::pos2(n1_rect.min.x + 45.0, cy + 9.0),
                                     egui::pos2(n1_rect.min.x + 70.0, cy - 6.0),
                                 ],
-                                egui::Stroke::new(1.5, wf_c),
+                                egui::Stroke::new(1.5_f32, wf_c),
                             );
                             painter.line_segment(
                                 [
                                     egui::pos2(n1_rect.min.x + 70.0, cy - 6.0),
                                     egui::pos2(n1_rect.max.x - 8.0, cy),
                                 ],
-                                egui::Stroke::new(1.5, wf_c),
+                                egui::Stroke::new(1.5_f32, wf_c),
                             );
                         }
                         painter.text(
@@ -806,28 +806,28 @@ impl KamafeuStudioApp {
                                     egui::pos2(n2_rect.min.x + 8.0, cy),
                                     egui::pos2(n2_rect.min.x + 35.0, cy - 10.0),
                                 ],
-                                egui::Stroke::new(1.8, wf_c),
+                                egui::Stroke::new(1.8_f32, wf_c),
                             );
                             painter.line_segment(
                                 [
                                     egui::pos2(n2_rect.min.x + 35.0, cy - 10.0),
                                     egui::pos2(n2_rect.min.x + 65.0, cy + 11.0),
                                 ],
-                                egui::Stroke::new(1.8, wf_c),
+                                egui::Stroke::new(1.8_f32, wf_c),
                             );
                             painter.line_segment(
                                 [
                                     egui::pos2(n2_rect.min.x + 65.0, cy + 11.0),
                                     egui::pos2(n2_rect.min.x + 95.0, cy - 8.0),
                                 ],
-                                egui::Stroke::new(1.8, wf_c),
+                                egui::Stroke::new(1.8_f32, wf_c),
                             );
                             painter.line_segment(
                                 [
                                     egui::pos2(n2_rect.min.x + 95.0, cy - 8.0),
                                     egui::pos2(n2_rect.max.x - 8.0, cy),
                                 ],
-                                egui::Stroke::new(1.8, wf_c),
+                                egui::Stroke::new(1.8_f32, wf_c),
                             );
                         }
                         painter.text(
@@ -843,7 +843,7 @@ impl KamafeuStudioApp {
                         let p2 = egui::pos2(n2_rect.min.x + 20.0, n2_rect.center().y);
                         painter.line_segment(
                             [p1, p2],
-                            egui::Stroke::new(2.0, self.config.theme.pitch_curve_c32()),
+                            egui::Stroke::new(2.0_f32, self.config.theme.pitch_curve_c32()),
                         );
                         painter.circle_filled(p1, 4.0, self.config.theme.pitch_curve_c32());
                         painter.circle_filled(p2, 4.0, self.config.theme.pitch_curve_c32());
@@ -853,7 +853,7 @@ impl KamafeuStudioApp {
                         painter.line_segment(
                             [egui::pos2(ph_x, rect.min.y), egui::pos2(ph_x, rect.max.y)],
                             egui::Stroke::new(
-                                3.0,
+                                3.0_f32,
                                 self.config
                                     .theme
                                     .c32_alpha(self.config.theme.playhead_color, 0.35),
@@ -861,7 +861,7 @@ impl KamafeuStudioApp {
                         );
                         painter.line_segment(
                             [egui::pos2(ph_x, rect.min.y), egui::pos2(ph_x, rect.max.y)],
-                            egui::Stroke::new(1.2, self.config.theme.playhead_c32()),
+                            egui::Stroke::new(1.2_f32, self.config.theme.playhead_c32()),
                         );
                     });
 

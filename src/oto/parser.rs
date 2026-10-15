@@ -7,6 +7,23 @@ use std::path::Path;
 
 pub struct OtoParser;
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OtoParseDiagnostic {
+    pub line: usize,
+    pub field: Option<String>,
+    pub reason: String,
+}
+
+impl OtoParseDiagnostic {
+    pub fn summary(&self) -> String {
+        self.reason.clone()
+    }
+
+    pub fn display(&self) -> String {
+        format!("linha {}: {}", self.line, self.reason)
+    }
+}
+
 impl OtoParser {
     /// Parse an oto.ini while retaining valid lines when another line is
     /// malformed. Real-world UTAU banks often contain a few legacy or empty
@@ -102,8 +119,21 @@ impl OtoParser {
     }
 
     pub fn parse_str_lossy(content: &str) -> (HashMap<String, OtoEntry>, Vec<String>) {
+        let (entries, diagnostics) = Self::parse_str_lossy_diagnostics(content);
+        (
+            entries,
+            diagnostics
+                .iter()
+                .map(OtoParseDiagnostic::display)
+                .collect(),
+        )
+    }
+
+    pub fn parse_str_lossy_diagnostics(
+        content: &str,
+    ) -> (HashMap<String, OtoEntry>, Vec<OtoParseDiagnostic>) {
         let mut entries = HashMap::new();
-        let mut errors = Vec::new();
+        let mut diagnostics = Vec::new();
         for (line_number, line) in content.lines().enumerate() {
             if line.trim().is_empty()
                 || line.trim_start().starts_with(';')
@@ -113,10 +143,10 @@ impl OtoParser {
             }
             match Self::parse_str(line) {
                 Ok(parsed) => entries.extend(parsed),
-                Err(error) => errors.push(format!("linha {}: {}", line_number + 1, error)),
+                Err(error) => diagnostics.push(parse_diagnostic(line_number + 1, &error)),
             }
         }
-        (entries, errors)
+        (entries, diagnostics)
     }
 
     pub fn parse_file<P: AsRef<Path>>(path: P) -> Result<HashMap<String, OtoEntry>, io::Error> {
@@ -128,6 +158,36 @@ impl OtoParser {
         path: P,
     ) -> Result<(HashMap<String, OtoEntry>, Vec<String>), io::Error> {
         Ok(Self::parse_bytes_lossy(&fs::read(path)?))
+    }
+
+    pub fn parse_file_lossy_diagnostics<P: AsRef<Path>>(
+        path: P,
+    ) -> Result<(HashMap<String, OtoEntry>, Vec<OtoParseDiagnostic>), io::Error> {
+        let bytes = fs::read(path)?;
+        let text = match std::str::from_utf8(&bytes) {
+            Ok(text) => text.to_owned(),
+            Err(_) => SHIFT_JIS.decode(&bytes).0.into_owned(),
+        };
+        Ok(Self::parse_str_lossy_diagnostics(
+            text.trim_start_matches('\u{feff}'),
+        ))
+    }
+}
+
+fn parse_diagnostic(line: usize, error: &str) -> OtoParseDiagnostic {
+    let reason = error.strip_prefix("linha 1: ").unwrap_or(error).to_string();
+    let field = reason.strip_prefix("campo ").and_then(|rest| {
+        rest.split_once(" inválido")
+            .map(|(field, _)| field.to_string())
+    });
+    let summary = field
+        .as_ref()
+        .map(|field| format!("campo {field} inválido"))
+        .unwrap_or_else(|| reason.clone());
+    OtoParseDiagnostic {
+        line,
+        field,
+        reason: summary,
     }
 }
 
@@ -162,5 +222,17 @@ mod tests {
         assert!(OtoParser::parse_str("ka.wav=ka,0,50,0,20").is_err());
         let map = OtoParser::parse_str("a.wav=ka,0,1,0,1,0\nb.wav=ka,5,1,0,1,0").unwrap();
         assert_eq!(map["ka"].wav_filename, "b.wav");
+    }
+
+    #[test]
+    fn lossy_diagnostics_keep_the_original_line_number() {
+        let (_, diagnostics) = OtoParser::parse_str_lossy_diagnostics(
+            "; header\n\nka.wav=ka,0,50,0,20,\nki.wav=ki,0,50,0,20,10\n",
+        );
+        assert_eq!(diagnostics.len(), 1);
+        assert_eq!(diagnostics[0].line, 3);
+        assert_eq!(diagnostics[0].field.as_deref(), Some("overlap"));
+        assert_eq!(diagnostics[0].summary(), "campo overlap inválido");
+        assert_eq!(diagnostics[0].display(), "linha 3: campo overlap inválido");
     }
 }

@@ -457,7 +457,10 @@ mod tests {
                 ver.is_some(),
                 "Wine version should be readable if wine is found"
             );
-            println!("Wine detected: {:?} ({})", wine, ver.unwrap());
+            crate::terminal_log::debug(
+                "Process",
+                format!("Wine detected: {wine:?} ({})", ver.unwrap()),
+            );
         }
     }
 

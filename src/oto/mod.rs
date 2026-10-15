@@ -7,7 +7,7 @@ pub mod voicebank;
 pub mod voicebank_diagnostics;
 
 pub use entry::OtoEntry;
-pub use parser::OtoParser;
+pub use parser::{OtoParseDiagnostic, OtoParser};
 pub use prefix_map::PrefixMap;
 pub use singers::{SingerInfo, SingerScanner};
 pub use voicebank::{AliasResolutionReport, Voicebank};

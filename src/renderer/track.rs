@@ -160,7 +160,7 @@ impl TrackRenderer {
                 if let Some(cb) = on_progress {
                     cb(1.0, &error);
                 }
-                eprintln!("{error}");
+                crate::terminal_log::error("Renderer", error);
                 Vec::new()
             }
         }
@@ -184,9 +184,8 @@ impl TrackRenderer {
         let render_session_id = NEXT_RENDER_SESSION_ID.fetch_add(1, Ordering::Relaxed);
         let render_started = Instant::now();
         let log = |progress: f32, msg: &str| {
-            // Keep the complete trace in the terminal even when the GUI also
-            // receives progress updates. This is essential for diagnosing
-            // missing aliases, timing gaps and external tool failures.
+            // The GUI receives progress continuously. The terminal trace is
+            // opt-in through KAMAFEU_LOG=verbose so normal renders stay quiet.
             crate::terminal_log::render(
                 render_session_id,
                 render_started.elapsed().as_millis(),
