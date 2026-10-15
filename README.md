@@ -22,6 +22,8 @@
 
 > **Estado atual:** `1.0.2-rc.22` (release candidate). O núcleo do editor e os formatos principais estão maduros; motores externos, voicebanks e drivers de áudio devem ser validados na máquina do usuário.
 
+> **Release pública:** [Kamafeu Pre-release v1.0.2-rc.22](https://github.com/studiopomar/kamafeu/releases/tag/v1.0.2-rc.22). Esta versão é pública, mas continua identificada como *pre-release* porque motores externos, drivers de áudio e combinações específicas de voicebank ainda dependem de validação no ambiente de cada usuário.
+
 ## Download
 
 <table>
@@ -194,6 +196,139 @@ A arquitetura do Kamafeu Studio foi projetada de ponta a ponta em Rust para gara
 4. **Resampling e transposição tonal:** O motor de afinação (como o **VENUS** nativo ou o **straycat-rs**) isola o trecho útil de áudio delimitado por *offset* e *cutoff*, preserva a consoante fixa sem deformação temporal e estica ou comprime a vogal periódica, transpondo a frequência fundamental para acompanhar a curva contínua de pitch bend e os parâmetros de expressão.
 5. **Emenda, envelopamento e splicing (*Wavtool & Mixing*):** O motor **Andromeda** aplica a curva de amplitude UTAU de 5 pontos a cada fatia e costura as amostras no buffer da faixa utilizando interpolação suave e *equal-power crossfade*.
 6. **Streaming em tempo real e visualização:** O renderizador despacha tarefas em paralelo por blocos temporais (*progressive chunks*) através de um pool de threads gerenciado pelo Rayon. À medida que os blocos ficam prontos, eles são enviados diretamente para o dispositivo de áudio através de canais sincronizados sem bloqueio da interface gráfica, gerando simultaneamente a forma de onda de alta resolução exibida no fundo do piano roll.
+
+## Por baixo dos panos
+
+Esta seção descreve o caminho que uma nota percorre dentro do Kamafeu. A interface é apenas a camada visível: o resultado audível depende da combinação entre o modelo persistido, a resolução fonética, a geometria do `oto.ini`, o motor de resampling, o wavtool e o scheduler de áudio.
+
+### 1. O projeto é um modelo temporal, não uma lista de eventos soltos
+
+O editor trabalha sobre um `UProject`. Ele contém faixas, partes vocais, partes de áudio, marcadores, seções, andamento, métrica e estado de renderização. Uma nota (`UNote`) guarda pelo menos:
+
+- posição e duração em milissegundos;
+- chave MIDI e letra original;
+- alias ou cadeia de subfonemas;
+- pontos de portamento, pitch bend e vibrato;
+- velocity, dinâmica, volume, ataque, decay, gênero, sopro e modulação;
+- envelope UTAU e overrides de fonemas.
+
+O tempo interno é convertido para milissegundos antes de chegar ao renderer. Isso permite que piano roll, arrangement, régua de fonemas, RADAR, loop e playhead compartilhem a mesma linha do tempo. Quando o BPM muda, o projeto ajusta as posições temporais preservando as posições musicais, em vez de simplesmente deslocar pixels na interface.
+
+O arquivo `.aps` é o formato nativo porque preserva esse modelo completo. Formatos de intercâmbio mais antigos ou externos passam por adaptadores que registram o que foi convertido e o que não possui equivalente direto.
+
+### 2. A fonemização acontece antes do áudio
+
+Ao importar ou editar uma letra, o Kamafeu não envia texto diretamente ao resampler. O dispatcher escolhe um modo fonético — japonês CV/VCV/CVVC, português BRAPA, português G2P, inglês VCCV, modo manual ou outro modo disponível — e transforma a nota em uma sequência de aliases.
+
+O resultado é resolvido contra o voicebank ativo nesta ordem conceitual:
+
+1. respeitar alias manual ou override persistido;
+2. procurar a variante de tom indicada por `prefix.map`;
+3. escolher a entrada correspondente no `oto.ini` correto, inclusive em subpastas;
+4. aplicar contexto de frase, transição e variantes CV/VC/VCV;
+5. registrar falha explícita quando um fonema necessário não existe.
+
+O `oto.ini` continua sendo a autoridade acústica. Seus valores de offset, consonant, cutoff, preutterance e overlap não são substituídos por uma sugestão visual da interface. O inspector e o Copaiba expõem a geometria resolvida para revisão, mas a renderização usa a entrada efetivamente encontrada no banco.
+
+### 3. O timing engine transforma aliases em segmentos acústicos
+
+Depois da resolução fonética, o timing engine calcula a posição de cada segmento no eixo absoluto do projeto. Ele combina:
+
+- duração musical da nota;
+- duração de cada fonema;
+- preutterance e overlap do `oto.ini`;
+- consonant fixa, offset e cutoff;
+- overrides importados de UST/USTX;
+- velocity e controles de timing por fonema;
+- transições entre notas adjacentes e frases VCV/CVVC.
+
+Esse estágio é importante porque o mesmo alias pode ocupar regiões diferentes da amostra dependendo do contexto. A consoante não deve ser esticada como uma vogal sustentada, e um overlap existente no `oto.ini` não deve receber um segundo fade arbitrário apenas porque duas notas são vizinhas.
+
+O renderer também calcula envelopes absolutos por fonema. Assim, a transição de uma consoante para uma vogal e a transição entre duas vogais continuam complementares mesmo quando há mudanças de velocidade, notas curtas, portamento ou duração negativa de cutoff.
+
+### 4. Drivers isolam o contrato entre Kamafeu e motores de áudio
+
+O renderer não precisa conhecer cada detalhe de um executável externo. Ele produz uma solicitação normalizada e entrega a execução a um driver:
+
+- **driver nativo:** chama os módulos Rust do próprio aplicativo;
+- **driver externo:** monta a linha de comando compatível com o protocolo UTAU;
+- **driver via Wine:** converte caminhos e prepara o ambiente para executáveis Windows em macOS/Linux;
+- **driver de wavtool:** une segmentos, aplica envelope e devolve o trecho pronto para a mixagem.
+
+Os drivers mantêm separados o nível do resampler e o nível do wavtool. O resampler altera altura e duração do material útil; o wavtool posiciona os segmentos no tempo, aplica o envelope de amplitude e realiza o crossfade. Misturar essas responsabilidades causaria duplicação de fades, perda da consoante fixa ou diferenças de duração entre o áudio e a playhead.
+
+Falhas de processo, alias ausente, saída vazia, amostras não finitas e geometria inválida são tratados como diagnóstico. O sistema não deve transformar um erro de resampler em áudio silencioso apresentado como sucesso.
+
+### 5. O renderer é paralelo, mas a timeline de áudio é ordenada
+
+Projetos longos são divididos em janelas temporais. O pool de tarefas pode renderizar várias janelas em paralelo, porém cada chunk carrega identidade de geração, índice, início e fim absolutos, taxa de amostragem e número de canais.
+
+O fluxo possui duas filas conceituais:
+
+```text
+renderer worker
+    ├── progresso e mensagens de diagnóstico ──> UI
+    └── chunks de áudio ──> playback buffer ──> scheduler ──> dispositivo
+```
+
+O playback buffer rejeita chunks duplicados, antigos, fora de ordem ou com mudança inesperada de canais. O scheduler só entrega ao dispositivo uma sequência temporal contígua. Isso permite que a interface receba um chunk atrasado sem reiniciar o áudio ou mover a playhead para trás.
+
+O áudio progressivo é diferente de um render completo bloqueante: a reprodução pode começar quando existe runway suficiente, enquanto os chunks seguintes continuam sendo produzidos. O scheduler controla o que já foi aceito pelo dispositivo; a UI usa a posição do player quando disponível e um fallback monotônico quando o backend não fornece posição direta.
+
+### 6. Mixagem, fase e efeitos acontecem depois da síntese dos segmentos
+
+Cada faixa recebe os segmentos resolvidos pelo renderer. Na mixagem, o Kamafeu:
+
+1. preserva a geometria temporal calculada para cada fonema;
+2. alinha bordas periódicas quando há informação suficiente de fase;
+3. usa equal-power crossfade nas junções necessárias;
+4. soma volume e pan por faixa;
+5. processa o FX rack quando habilitado;
+6. valida amplitude, finitude e layout de canais;
+7. envia o buffer para playback progressivo ou exportação.
+
+A análise de fase é uma correção de junção, não um novo motor de síntese. Ela evita cancelamento harmônico e estalos nas bordas sem alterar a afinação musical solicitada. O rack de efeitos também permanece depois da renderização das vozes, para que bypass, compressor, equalizador, chorus, delay e reverb possam ser comparados de maneira previsível.
+
+### 7. A interface recebe estado; ela não executa o renderer
+
+O `KamafeuStudioApp` coordena estado e eventos. A interface `egui` desenha piano roll, arrangement, inspector, RADAR, envelopes e notificações a partir desse estado. Workers de renderização comunicam progresso por canais; a UI coleta mensagens em cada frame e atualiza:
+
+- percentual e título do render;
+- status do transport;
+- waveform processada;
+- chunks aceitos ou rejeitados;
+- posição da playhead;
+- estado de erro, cancelamento ou conclusão.
+
+O RADAR e o arrangement não mantêm relógios separados. Ambos consomem `playhead_ms`. O scrub altera a posição compartilhada e, quando necessário, interrompe o áudio atual antes de permitir um novo playback a partir do ponto escolhido.
+
+Animações visuais passam pela política central de `src/gui/animation.rs`. Ela limita amplitude, velocidade e cadência; `reduce_motion` elimina movimento contínuo; frame time alto muda para qualidade reduzida; animações desativadas não mantêm repaint contínuo. Isso é deliberado: repaint da UI é um mecanismo visual e de polling, não o relógio de áudio.
+
+### 8. Cache, cancelamento e proveniência evitam trabalho invisível
+
+Solicitações de resampler podem ser reutilizadas quando a identidade dos inputs é a mesma. A chave considera conteúdo e parâmetros relevantes, e alterações no áudio de origem invalidam a análise associada. O cache reduz chamadas repetidas, mas não transforma um artefato antigo em resultado válido quando projeto, voicebank, timing ou engine mudaram.
+
+Cada render possui um token de cancelamento. Parar a reprodução, iniciar outra geração ou fechar a tarefa marca o trabalho anterior como obsoleto; chunks antigos não devem contaminar o waveform nem o scheduler atual.
+
+Renders e exports podem gerar proveniência em JSON ao lado do áudio. O sidecar registra hashes e decisões de timing, incluindo dados de `oto.ini`, overrides, extensões e diagnósticos de borda. Esses dados permitem investigar uma diferença de áudio sem depender apenas de mensagens visuais ou de memória do usuário.
+
+### 9. Extensões são descobertas por manifesto e executadas com limites
+
+O catálogo de extensões separa descoberta, consentimento e execução. Um manifesto declara tipo, versão, limitações, permissões e entrypoint. Caminhos absolutos ou que escapam da pasta da extensão são rejeitados.
+
+Extensões WASM passam por verificação de versão da API antes da ativação. O runtime valida assinatura de exports e limites do buffer invocado; a existência de um arquivo `.wasm` não significa que o módulo seja um fonemizador, resampler ou efeito funcional. A execução deve possuir contrato de entrada, saída, codificação fonética, pré-processamento e decodificação documentados.
+
+### 10. O que esta pre-release garante — e o que ainda depende do ambiente
+
+Os testes automatizados cobrem modelo, formatos, fonemização, timing, drivers nativos, mixagem, cache, playback progressivo, contratos de extensão e interações importantes da UI. A release também publica artefatos por plataforma através do workflow de build.
+
+Ainda assim, três camadas exigem validação no computador do usuário:
+
+- dispositivo de áudio, backend gráfico e permissões do sistema;
+- voicebank específico, codificação, aliases e qualidade do `oto.ini`;
+- executáveis externos, Wine, bibliotecas compartilhadas e comportamento do resampler escolhido.
+
+Por isso `v1.0.2-rc.22` é pública e utilizável, mas permanece uma *pre-release*: o núcleo é verificável no repositório, enquanto a última milha acústica depende dos recursos instalados em cada máquina.
 
 ## Formatos de arquivo suportados
 
