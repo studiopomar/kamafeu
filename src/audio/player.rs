@@ -1210,9 +1210,7 @@ impl AudioPlayer {
             return None;
         }
         self.ctx.as_ref().map(|ctx| {
-            (ctx.current_time() - self.playback_start_time).max(0.0)
-                * self.speed as f64
-                * 1000.0
+            (ctx.current_time() - self.playback_start_time).max(0.0) * self.speed as f64 * 1000.0
         })
     }
 
