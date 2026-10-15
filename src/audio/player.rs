@@ -1007,6 +1007,10 @@ impl AudioPlayer {
         false
     }
 
+    pub fn scheduler_is_active(&self) -> bool {
+        self.is_playing
+    }
+
     pub fn set_flush_denormals_to_zero(&mut self, enabled: bool) {
         set_flush_denormals_to_zero(enabled);
     }
@@ -1104,6 +1108,20 @@ impl AudioPlayer {
         }
     }
 
+    pub fn try_play_samples_with_channels(
+        &mut self,
+        samples: Vec<f32>,
+        sample_rate: u32,
+        channels: u16,
+    ) -> Result<(), String> {
+        self.play_samples_with_channels(samples, sample_rate, channels);
+        if self.is_playing {
+            Ok(())
+        } else {
+            Err("O navegador não conseguiu iniciar a reprodução Web Audio.".to_string())
+        }
+    }
+
     pub fn append_samples_with_channels(
         &mut self,
         mut samples: Vec<f32>,
@@ -1192,7 +1210,9 @@ impl AudioPlayer {
             return None;
         }
         self.ctx.as_ref().map(|ctx| {
-            ((ctx.current_time() - self.playback_start_time).max(0.0) * self.speed as f64 * 1000.0)
+            (ctx.current_time() - self.playback_start_time).max(0.0)
+                * self.speed as f64
+                * 1000.0
         })
     }
 
