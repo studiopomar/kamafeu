@@ -59,11 +59,11 @@ impl KamafeuStudioApp {
                                 lang.tr("[EXPORTANDO]", "[EXPORTING]")
                             };
                             let badge_color = if has_error {
-                                egui::Color32::from_rgb(255, 90, 90)
+                                ui.visuals().error_fg_color
                             } else if export_finished {
-                                egui::Color32::from_rgb(0, 255, 180)
+                                self.config.theme.success_c32()
                             } else {
-                                egui::Color32::from_rgb(0, 220, 255)
+                                ui.visuals().hyperlink_color
                             };
 
                             ui.label(
@@ -88,11 +88,11 @@ impl KamafeuStudioApp {
 
                         let pct = (self.export_progress * 100.0).clamp(0.0, 100.0);
                         let bar_color = if has_error {
-                            egui::Color32::from_rgb(255, 80, 80)
+                            ui.visuals().error_fg_color
                         } else if export_finished {
-                            egui::Color32::from_rgb(0, 230, 140)
+                            ui.visuals().hyperlink_color
                         } else {
-                            egui::Color32::from_rgb(0, 215, 255)
+                            ui.visuals().hyperlink_color
                         };
 
                         let progress_bar = egui::ProgressBar::new(self.export_progress)
@@ -106,11 +106,11 @@ impl KamafeuStudioApp {
                         ui.add_space(8.0);
 
                         let status_color = if has_error {
-                            egui::Color32::from_rgb(255, 120, 120)
+                            ui.visuals().error_fg_color
                         } else if export_finished {
-                            egui::Color32::from_rgb(180, 255, 200)
+                            ui.visuals().hyperlink_color
                         } else {
-                            egui::Color32::from_rgb(200, 200, 230)
+                            ui.visuals().text_color()
                         };
 
                         let display_msg = if let Some(Err(ref err)) = self.export_result {
@@ -140,11 +140,11 @@ impl KamafeuStudioApp {
                         if let Some(ref path) = self.export_save_path {
                             ui.add_space(8.0);
                             egui::Frame::none()
-                                .fill(egui::Color32::from_rgb(22, 19, 32))
+                                .fill(ui.visuals().panel_fill)
                                 .rounding(egui::Rounding::same(6.0))
                                 .stroke(egui::Stroke::new(
                                     1.0_f32,
-                                    egui::Color32::from_rgb(55, 48, 75),
+                                    ui.visuals().hyperlink_color,
                                 ))
                                 .inner_margin(egui::Margin::same(8.0))
                                 .show(ui, |ui| {
@@ -156,12 +156,12 @@ impl KamafeuStudioApp {
                                             ))
                                             .strong()
                                             .size(11.0)
-                                            .color(egui::Color32::from_rgb(180, 175, 200)),
+                                            .color(ui.visuals().text_color()),
                                         );
                                         ui.label(
                                             egui::RichText::new(path.to_string_lossy())
                                                 .size(11.0)
-                                                .color(egui::Color32::from_rgb(230, 225, 245)),
+                                                .color(ui.visuals().text_color()),
                                         );
                                     });
 
@@ -174,9 +174,9 @@ impl KamafeuStudioApp {
                                                 egui::RichText::new(reveal_label)
                                                     .size(11.5)
                                                     .strong()
-                                                    .color(egui::Color32::BLACK),
+                                                    .color(ui.visuals().text_color()),
                                             )
-                                            .fill(egui::Color32::from_rgb(0, 255, 180))
+                                            .fill(self.config.theme.success_c32())
                                             .min_size(egui::vec2(160.0, 24.0));
 
                                             if ui.add(reveal_btn).clicked() {
@@ -189,7 +189,7 @@ impl KamafeuStudioApp {
                                                 )
                                                 .size(11.5),
                                             )
-                                            .fill(egui::Color32::from_rgb(45, 40, 60))
+                                            .fill(ui.visuals().panel_fill)
                                             .min_size(egui::vec2(120.0, 24.0));
 
                                             if ui.add(copy_btn).clicked() {
@@ -240,16 +240,16 @@ impl KamafeuStudioApp {
                                     let close_btn = egui::Button::new(
                                         egui::RichText::new(btn_label).strong().size(12.0).color(
                                             if export_finished && !has_error {
-                                                egui::Color32::BLACK
+                                                ui.visuals().text_color()
                                             } else {
-                                                egui::Color32::WHITE
+                                                ui.visuals().text_color()
                                             },
                                         ),
                                     )
                                     .fill(if export_finished && !has_error {
-                                        egui::Color32::from_rgb(0, 255, 180)
+                                        self.config.theme.success_c32()
                                     } else {
-                                        egui::Color32::from_rgb(60, 50, 80)
+                                        ui.visuals().panel_fill
                                     })
                                     .min_size(egui::vec2(100.0, 28.0));
 

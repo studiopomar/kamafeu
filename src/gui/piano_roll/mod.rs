@@ -12,10 +12,9 @@ mod vibrato_button;
 use crate::dsp::pitch::{midi_to_freq, midi_to_note_name};
 use crate::dsp::pitch_bend::PitchBendSolver;
 use crate::gui::phoneme_palette::PhonemePaletteState;
-use crate::gui::theme::MelodyneTheme;
 use crate::gui::types::{AutoScrollMode, EditTool, GridSnapOption, PitchSubTool};
 use crate::oto::Voicebank;
-use crate::project::model::{UNote, UPitchBendPoint, UProjectMarker, UProjectSection};
+use crate::project::model::{UNote, UPitchBendPoint, UProjectMarker, UProjectSection, UVoicePart};
 use eframe::egui::{self, Color32, Key, Pos2, Rect, Rounding, Sense, Stroke, Vec2};
 
 /// One fifth is intentionally reserved for deliberate imported pitch bends,
@@ -40,6 +39,8 @@ fn format_timeline_time(ms: f64) -> String {
 pub(crate) fn draw_piano_roll(
     ui: &mut egui::Ui,
     notes: &mut Vec<UNote>,
+    secondary_parts: &[&UVoicePart],
+    active_part_position_ms: f64,
     markers: &[UProjectMarker],
     sections: &[UProjectSection],
     state: &mut PianoRollState,
@@ -68,10 +69,7 @@ pub(crate) fn draw_piano_roll(
         0.0f32
     };
     let is_narrow_screen = ui.available_width() < 720.0;
-    let viewport = ui.ctx().screen_rect();
-    let touch_first = cfg!(target_os = "android")
-        || viewport.width() < 1100.0
-        || (viewport.height() < 600.0 && viewport.width() < 1200.0);
+    let touch_first = crate::gui::touch_first_layout(ui.ctx());
     let animation_policy = crate::gui::animation::AnimationPolicy {
         enabled: state.ui_animations_enabled,
         reduce_motion: state.ui_reduce_motion,
@@ -229,7 +227,7 @@ pub(crate) fn draw_piano_roll(
             Pos2::new(end_x.min(ruler_rect.max.x), ruler_rect.max.y - 1.0),
         );
         if section_rect.is_positive() {
-            let color = marker_color(section.color.as_deref());
+            let color = marker_color(section.color.as_deref(), theme);
             ruler_painter.rect_filled(
                 section_rect,
                 Rounding::same(2.0),
@@ -270,7 +268,7 @@ pub(crate) fn draw_piano_roll(
         if x < ruler_rect.min.x + keyboard_width || x > ruler_rect.max.x {
             continue;
         }
-        let color = marker_color(marker.color.as_deref());
+        let color = marker_color(marker.color.as_deref(), theme);
         ruler_painter.line_segment(
             [
                 Pos2::new(x, ruler_rect.min.y + 1.0),
@@ -336,7 +334,7 @@ pub(crate) fn draw_piano_roll(
                 Pos2::new(visible_loop_right, ruler_rect.max.y - 1.0),
             );
             let banner_bg = if state.loop_enabled {
-                theme.c32_alpha(theme.accent_color, 0.18)
+                theme.c32_alpha(theme.semantic.loop_region, 0.18)
             } else {
                 theme.c32_alpha(theme.text_muted, 0.10)
             };
@@ -346,7 +344,7 @@ pub(crate) fn draw_piano_roll(
         // Loop Start Marker [A
         if loop_start_x >= left_bound && loop_start_x <= right_bound {
             let marker_color = if state.loop_enabled {
-                theme.accent_c32()
+                theme.loop_region_c32()
             } else {
                 theme.text_muted_c32()
             };
@@ -369,7 +367,7 @@ pub(crate) fn draw_piano_roll(
         // Loop End Marker B]
         if loop_end_x >= left_bound && loop_end_x <= right_bound {
             let marker_color = if state.loop_enabled {
-                theme.accent_c32()
+                theme.loop_region_c32()
             } else {
                 theme.text_muted_c32()
             };
@@ -589,27 +587,15 @@ pub(crate) fn draw_piano_roll(
         on_note_changed,
     );
 
-    processed_waveform::draw(
-        ui,
-        state,
-        keyboard_width,
-        timeline_scroll_x,
-        theme,
-        ruler_rect,
-        bpm,
-        lang,
-        on_playhead_scrubbed,
-    );
-
     navigation::update_pitch_follow(ui, state, notes, ui.available_height().max(100.0), bpm);
 
     let grid_width = (keyboard_width as f64 + total_canvas_ms * state.px_per_ms as f64) as f32;
     let grid_width = grid_width.max(3000.0);
     let grid_height = key_count as f32 * state.row_height;
 
-    // Em telas estreitas o gesto principal deve navegar pelo canvas. No
-    // desktop, o arrasto primário continua reservado à edição das notas.
-    let compact_view = ui.available_width() < 1100.0;
+    // Touch-first layouts use drag-to-scroll; native desktop keeps the primary
+    // drag gesture available for direct note editing, even in a small window.
+    let compact_view = crate::gui::touch_first_layout(ui.ctx());
     let mut scroll_area = egui::ScrollArea::both()
         .id_salt("piano_roll_scroll")
         .auto_shrink([false, false])
@@ -784,6 +770,49 @@ pub(crate) fn draw_piano_roll(
             time_signature_denominator,
             snap_option,
         );
+
+        // Secondary tracks are a non-interactive, translucent reference layer.
+        // Draw them after the grid and before the active notes so edits and
+        // selection remain unambiguous.
+        let ghost_fill = theme.c32_alpha(theme.semantic.info, 0.20);
+        let ghost_stroke = theme.c32_alpha(theme.semantic.info, 0.48);
+        let timeline_left = rect.min.x + keyboard_width;
+        let extended_clip = visible_clip.expand2(Vec2::new(24.0, 2.0));
+        for part in secondary_parts {
+            let part_offset_ms = part.position_ms - active_part_position_ms;
+            for note in &part.notes {
+                let midi = note.midi_key();
+                if midi < state.min_midi
+                    || midi > state.max_midi
+                    || !note.position_ms.is_finite()
+                    || !note.duration_ms.is_finite()
+                    || note.duration_ms <= 0.0
+                {
+                    continue;
+                }
+
+                let x_start = timeline_left
+                    + ((part_offset_ms + note.position_ms) * state.px_per_ms as f64) as f32;
+                let x_end = x_start + (note.duration_ms * state.px_per_ms as f64) as f32;
+                let key_idx = (state.max_midi - midi) as f32;
+                let y_top = grid_start_y + key_idx * state.row_height + 2.0;
+                let y_bottom = y_top + state.row_height - 4.0;
+                let note_rect = Rect::from_min_max(
+                    Pos2::new(x_start, y_top),
+                    Pos2::new(x_end, y_bottom),
+                );
+
+                if !note_rect.is_positive() || !note_rect.intersects(extended_clip) {
+                    continue;
+                }
+                painter.rect_filled(note_rect, Rounding::same(3.0), ghost_fill);
+                painter.rect_stroke(
+                    note_rect,
+                    Rounding::same(3.0),
+                    Stroke::new(0.8_f32, ghost_stroke),
+                );
+            }
+        }
 
         let mut note_to_delete: Option<usize> = None;
         let mut note_to_slice: Option<(usize, f64)> = None;
@@ -1181,7 +1210,7 @@ pub(crate) fn draw_piano_roll(
                             if is_pt_drag {
                                 theme.note_stroke_c32()
                             } else {
-                                Color32::from_rgb(15, 25, 40)
+                                theme.bg_header_c32()
                             },
                         ),
                     );
@@ -1204,7 +1233,7 @@ pub(crate) fn draw_piano_roll(
                         painter.rect_filled(
                             pill_rect,
                             Rounding::same(4.0),
-                            Color32::from_rgba_unmultiplied(12, 18, 30, 235),
+                        theme.c32_alpha(theme.bg_panel, 235.0 / 255.0),
                         );
                         painter.rect_stroke(
                             pill_rect,
@@ -1242,11 +1271,9 @@ pub(crate) fn draw_piano_roll(
                     painter.rect_filled(
                         vib_rect,
                         Rounding::same(4.0),
-                        Color32::from_rgba_unmultiplied(
-                            0,
-                            220,
-                            255,
-                            if is_selected { 35 } else { 18 },
+                        theme.c32_alpha(
+                            theme.pitch_curve_color,
+                            (if is_selected { 35.0 } else { 18.0 }) / 255.0,
                         ),
                     );
                 }
@@ -1682,13 +1709,13 @@ pub(crate) fn draw_piano_roll(
                     if preview_pts.len() >= 2 {
                         painter.add(egui::Shape::line(
                             preview_pts.clone(),
-                            Stroke::new(3.5_f32, Color32::from_rgba_unmultiplied(255, 140, 0, 70)),
+                            Stroke::new(3.5_f32, theme.c32_alpha(theme.pitch_curve_color, 70.0 / 255.0)),
                         ));
                         painter.add(egui::Shape::line(
                             preview_pts,
                             Stroke::new(
                                 1.8_f32,
-                                Color32::from_rgba_unmultiplied(255, 210, 80, 240),
+                                theme.pitch_curve_c32(),
                             ),
                         ));
                     }
@@ -1703,17 +1730,17 @@ pub(crate) fn draw_piano_roll(
                         let p2 = mpos;
                         painter.line_segment(
                             [p1, p2],
-                            Stroke::new(3.0_f32, Color32::from_rgba_unmultiplied(0, 255, 200, 70)),
+                            Stroke::new(3.0_f32, theme.c32_alpha(theme.pitch_curve_color, 70.0 / 255.0)),
                         );
                         painter.line_segment(
                             [p1, p2],
                             Stroke::new(
                                 1.6_f32,
-                                Color32::from_rgba_unmultiplied(100, 255, 230, 240),
+                                theme.pitch_anchor_c32(),
                             ),
                         );
-                        painter.circle_filled(p1, 4.0, Color32::from_rgb(100, 255, 230));
-                        painter.circle_filled(p2, 4.0, Color32::from_rgb(100, 255, 230));
+                        painter.circle_filled(p1, 4.0, ui.visuals().hyperlink_color);
+                        painter.circle_filled(p2, 4.0, ui.visuals().hyperlink_color);
                     }
                 }
             }
@@ -2316,7 +2343,7 @@ pub(crate) fn draw_piano_roll(
                     painter.rect_filled(
                         badge_rect,
                         Rounding::same(3.0),
-                        Color32::from_rgba_unmultiplied(10, 15, 22, 225),
+                        theme.c32_alpha(theme.bg_panel, 225.0 / 255.0),
                     );
                     painter.rect_stroke(
                         badge_rect,
@@ -2328,7 +2355,7 @@ pub(crate) fn draw_piano_roll(
                         egui::Align2::CENTER_CENTER,
                         badge_text,
                         badge_font,
-                        Color32::from_rgb(220, 245, 255),
+                        theme.text_note_tag_c32(),
                     );
                 }
             }
@@ -2439,14 +2466,14 @@ pub(crate) fn draw_piano_roll(
             painter.rect_filled(
                 badge_rect,
                 Rounding::same(6.0),
-                Color32::from_rgba_unmultiplied(80, 180, 220, 170),
+                theme.c32_alpha(theme.accent_color, 170.0 / 255.0),
             );
             painter.text(
                 badge_rect.center(),
                 egui::Align2::CENTER_CENTER,
                 "ƒ",
                 egui::FontId::proportional(10.0),
-                Color32::WHITE,
+                theme.text_primary_c32(),
             );
             ui.interact(
                 badge_rect,
@@ -2475,7 +2502,7 @@ pub(crate) fn draw_piano_roll(
             painter.rect_filled(
                 edit_rect.expand(2.0),
                 Rounding::same(5.0),
-                Color32::from_rgb(14, 12, 22),
+                theme.bg_panel_c32(),
             );
             painter.rect_stroke(
                 edit_rect.expand(2.0),
@@ -2503,7 +2530,7 @@ pub(crate) fn draw_piano_roll(
                 let text_resp = ui.add(
                     egui::TextEdit::singleline(&mut state.lyric_buffer)
                         .id(text_id)
-                        .text_color(Color32::WHITE)
+                        .text_color(theme.text_primary_c32())
                         .desired_width(edit_rect.width())
                         .font(egui::FontId::proportional(13.0)),
                 );
@@ -2575,7 +2602,7 @@ pub(crate) fn draw_piano_roll(
                     .order(egui::Order::Foreground)
                     .show(ui.ctx(), |ui| {
                         egui::Frame::popup(ui.style())
-                            .fill(MelodyneTheme::BG_PANEL)
+                            .fill(theme.bg_panel_c32())
                             .show(ui, |ui| {
                                 ui.set_max_width(180.0);
                                 ui.label(
@@ -2584,7 +2611,7 @@ pub(crate) fn draw_piano_roll(
                                         candidates.len()
                                     ))
                                     .size(10.0)
-                                    .color(MelodyneTheme::TEXT_GOLD_LABEL),
+                                    .color(theme.text_primary_c32()),
                                 );
                                 ui.separator();
 
@@ -2597,10 +2624,10 @@ pub(crate) fn draw_piano_roll(
                                             let text_widget = if is_cand_sel {
                                                 egui::RichText::new(cand)
                                                     .strong()
-                                                    .color(MelodyneTheme::NOTE_SELECTED_GOLD)
+                                                    .color(theme.note_selected_fill_c32())
                                             } else {
                                                 egui::RichText::new(cand)
-                                                    .color(Color32::from_rgb(240, 230, 210))
+                                                    .color(theme.text_primary_c32())
                                             };
 
                                             if ui
@@ -3040,12 +3067,12 @@ pub(crate) fn draw_piano_roll(
                 painter.rect_filled(
                     sel_rect,
                     Rounding::same(2.0),
-                    Color32::from_rgba_premultiplied(245, 176, 65, 35),
+                    theme.c32_alpha(theme.accent_color, 35.0 / 255.0),
                 );
                 painter.rect_stroke(
                     sel_rect,
                     Rounding::same(2.0),
-                    Stroke::new(1.2_f32, MelodyneTheme::NOTE_SELECTED_GOLD),
+                    Stroke::new(1.2_f32, theme.note_selected_fill_c32()),
                 );
 
                 state.selected_note_indices.clear();
@@ -3290,7 +3317,7 @@ pub(crate) fn draw_piano_roll(
             painter.add(egui::Shape::convex_polygon(
                 handle_points,
                 theme.playhead_c32(),
-                Stroke::new(0.8_f32, Color32::WHITE),
+                Stroke::new(0.8_f32, theme.text_primary_c32()),
             ));
 
             painter.line_segment(
@@ -3332,14 +3359,27 @@ pub(crate) fn draw_piano_roll(
     state.minimap_navigation_active = false;
     state.is_edge_autoscrolling = false;
 
-    context_menu::draw(ui, notes, state, lang, on_before_change, on_note_changed);
+    processed_waveform::draw(
+        ui,
+        state,
+        scroll_output.inner_rect,
+        keyboard_width,
+        timeline_scroll_x,
+        theme,
+        ruler_rect,
+        bpm,
+        lang,
+        on_playhead_scrubbed,
+    );
 
-    note_properties::draw(ui, notes, state, lang, on_note_changed);
+    context_menu::draw(ui, notes, state, theme, lang, on_before_change, on_note_changed);
+
+    note_properties::draw(ui, notes, state, theme, lang, on_note_changed);
 }
 
-fn marker_color(value: Option<&str>) -> Color32 {
+fn marker_color(value: Option<&str>, theme: &ThemeConfig) -> Color32 {
     let Some(value) = value else {
-        return Color32::from_rgb(0, 220, 205);
+        return theme.marker_c32();
     };
     let bytes = value.as_bytes();
     if bytes.len() == 7 && bytes.first() == Some(&b'#') {
@@ -3352,5 +3392,5 @@ fn marker_color(value: Option<&str>) -> Color32 {
             return Color32::from_rgb(red, green, blue);
         }
     }
-    Color32::from_rgb(0, 220, 205)
+    theme.marker_c32()
 }

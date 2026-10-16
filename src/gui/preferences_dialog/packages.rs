@@ -366,7 +366,7 @@ impl KamafeuStudioApp {
                     ui.label(
                         RichText::new(title)
                             .strong()
-                            .color(egui::Color32::from_rgb(0, 255, 157)),
+                            .color(ui.visuals().hyperlink_color),
                     );
                     egui::Grid::new(("packages_table", kind))
                         .num_columns(6)
@@ -449,7 +449,7 @@ impl KamafeuStudioApp {
             );
             ui.label(
                 RichText::new(lang.tr("Pronto", "Ready"))
-                    .color(egui::Color32::from_rgb(0, 255, 157)),
+                    .color(ui.visuals().hyperlink_color),
             );
         });
     }

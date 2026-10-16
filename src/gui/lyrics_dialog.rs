@@ -1,7 +1,7 @@
 use crate::config::AppLanguage;
 use crate::gui::theme::ThemeConfig;
 use crate::project::model::UNote;
-use eframe::egui::{self, Color32, Frame, RichText, Window};
+use eframe::egui::{self, Frame, RichText, Window};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SplitMode {
@@ -455,7 +455,7 @@ pub fn draw_lyrics_dialog(
                 ui.horizontal(|ui| {
                     let can_apply = !tokens.is_empty() && !target_indices.is_empty();
                     ui.add_enabled_ui(can_apply, |ui| {
-                        if ui.button(RichText::new(lang.tr("Aplicar Letras às Notas", "Apply Lyrics to Notes")).strong().size(12.0).color(if can_apply { Color32::WHITE } else { theme.text_muted_c32() })).clicked() {
+                        if ui.button(RichText::new(lang.tr("Aplicar Letras às Notas", "Apply Lyrics to Notes")).strong().size(12.0).color(if can_apply { ui.visuals().text_color() } else { theme.text_muted_c32() })).clicked() {
                             apply_clicked = true;
                         }
                     });

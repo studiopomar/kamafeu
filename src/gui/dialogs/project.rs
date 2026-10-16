@@ -22,7 +22,7 @@ impl KamafeuStudioApp {
                         ui.heading(
                             egui::RichText::new(lang.tr("Propriedades do Projeto", "Project Properties"))
                                 .strong()
-                                .color(egui::Color32::from_rgb(0, 255, 180)),
+                                .color(self.config.theme.success_c32()),
                         );
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                             if ui.button(lang.tr("Fechar", "Close")).clicked() {
@@ -106,7 +106,7 @@ impl KamafeuStudioApp {
 
                                 ui.label(egui::RichText::new(lang.tr("Voicebank Ativo:", "Active Voicebank:")).strong());
                                 let vb_name = self.voicebank.as_ref().map(|v| v.name.as_str()).unwrap_or(lang.tr("Nenhum", "None"));
-                                ui.label(egui::RichText::new(vb_name).color(egui::Color32::from_rgb(0, 255, 200)));
+                                ui.label(egui::RichText::new(vb_name).color(ui.visuals().hyperlink_color));
                                 ui.end_row();
                             });
 

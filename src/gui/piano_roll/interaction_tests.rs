@@ -22,6 +22,8 @@ fn frame(
                     ui,
                     notes,
                     &[],
+                    0.0,
+                    &[],
                     &[],
                     state,
                     &ThemeConfig::default(),

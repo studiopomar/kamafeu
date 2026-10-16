@@ -42,6 +42,10 @@ pub fn describe_wavtool_command(driver: &str, args: &WavtoolArgs) -> String {
 
 pub trait WavtoolDriver: Send + Sync {
     fn name(&self) -> &str;
+    /// Stable implementation identity, separate from the localized label.
+    fn engine_id(&self) -> &'static str {
+        "external.wavtool"
+    }
     /// Whether this concatenator intentionally performs convergence-style
     /// phase alignment. Simple and external wavtools own their placement and
     /// must never be shifted again by the track mixer.
@@ -382,6 +386,10 @@ impl WavtoolDriver for NativeWavtoolDriver {
         "Andromeda (Alternativo)"
     }
 
+    fn engine_id(&self) -> &'static str {
+        "kamafeu.andromeda"
+    }
+
     fn envelope_curve_name(&self) -> &'static str {
         "cosine"
     }
@@ -417,6 +425,10 @@ pub type OpenUtauWavtoolDriver = GalapagosWavtoolDriver;
 impl WavtoolDriver for GalapagosWavtoolDriver {
     fn name(&self) -> &str {
         "Galapagos Convergence (Nativo)"
+    }
+
+    fn engine_id(&self) -> &'static str {
+        "kamafeu.galapagos"
     }
 
     fn phase_alignment(&self) -> bool {
@@ -495,6 +507,14 @@ impl WavtoolYawuDriver {
 }
 
 impl WavtoolDriver for WavtoolYawuDriver {
+    fn engine_id(&self) -> &'static str {
+        if self.uses_integrated_backend() {
+            "kamafeu.simple-wavtool"
+        } else {
+            "org.wavtool.yawu"
+        }
+    }
+
     fn phrase_executable(&self) -> Option<PathBuf> {
         if self.uses_integrated_backend() {
             None
@@ -637,6 +657,10 @@ impl ExternalWavtoolDriver {
 }
 
 impl WavtoolDriver for ExternalWavtoolDriver {
+    fn engine_id(&self) -> &'static str {
+        "external.wavtool"
+    }
+
     fn phrase_executable(&self) -> Option<PathBuf> {
         Some(self.executable_path.clone())
     }
@@ -875,6 +899,7 @@ mod tests {
     #[test]
     fn native_wavtool_uses_a_soft_curve_at_phoneme_attacks() {
         let driver = NativeWavtoolDriver;
+        assert_eq!(driver.engine_id(), "kamafeu.andromeda");
         assert_eq!(driver.mix_strategy(), WavtoolMixStrategy::Plain);
         assert_eq!(driver.envelope_curve_name(), "cosine");
         let mut samples = vec![1.0f32; 1_000];
@@ -888,5 +913,15 @@ mod tests {
         // A cosine S-curve is intentionally below the linear 0.5 midpoint.
         assert!(samples[12] < 0.35);
         assert!(samples[50] > 0.9);
+    }
+
+    #[test]
+    fn phase_aligned_wavtool_has_a_distinct_stable_identity() {
+        let driver = GalapagosWavtoolDriver;
+        assert_eq!(driver.engine_id(), "kamafeu.galapagos");
+        assert_eq!(
+            driver.mix_strategy(),
+            WavtoolMixStrategy::OpenUtauConvergence
+        );
     }
 }

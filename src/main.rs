@@ -73,6 +73,27 @@ enum Commands {
         path: PathBuf,
     },
 
+    /// Convert an OTO voicebank into a separate, reviewable KFV 2 draft
+    MigrateVoicebank {
+        /// Path to the classic voicebank root folder
+        path: PathBuf,
+
+        /// Destination directory for the new KFV 2 bank; it must not exist
+        destination: PathBuf,
+
+        /// KFV 2 phonetic profile JSON
+        #[arg(long)]
+        profile: PathBuf,
+
+        /// Optional JSON object mapping exact OTO aliases to phone arrays
+        #[arg(long)]
+        mapping: Option<PathBuf>,
+
+        /// MIDI note number assigned to the single imported pitch layer
+        #[arg(long, default_value_t = 60)]
+        midi: u8,
+    },
+
     /// Print project metadata, tracks and note counts without opening the GUI
     ProjectInfo {
         /// Project or score file (.aps, .ustx, .ust, .mid, .midi, .vsqx, .svp, .ufdata, .json)
@@ -757,6 +778,72 @@ fn real_main() -> Result<(), Box<dyn std::error::Error>> {
             if !report.is_healthy() {
                 return Err(
                     Error::new(ErrorKind::InvalidData, "voicebank validation failed").into(),
+                );
+            }
+        }
+
+        Some(Commands::MigrateVoicebank {
+            path,
+            destination,
+            profile,
+            mapping,
+            midi,
+        }) => {
+            let source = Voicebank::new(&path)?;
+            let phonetic_profile: kamafeu::voicebank::native::PhoneticProfile =
+                serde_json::from_slice(&fs::read(&profile)?)?;
+            let phone_mappings = if let Some(mapping_path) = mapping {
+                serde_json::from_slice::<std::collections::BTreeMap<String, Vec<String>>>(
+                    &fs::read(mapping_path)?,
+                )?
+            } else {
+                std::collections::BTreeMap::new()
+            };
+            let slug: String = source
+                .name
+                .chars()
+                .map(|character| {
+                    if character.is_ascii_alphanumeric() {
+                        character.to_ascii_lowercase()
+                    } else {
+                        '-'
+                    }
+                })
+                .collect();
+            let slug = slug.trim_matches('-');
+            let slug = if slug.is_empty() { "voicebank" } else { slug };
+            let options = kamafeu::voicebank::migration::LegacyMigrationOptions {
+                voice_id: format!("org.kamafeu.voice.{slug}"),
+                bank_id: format!("org.kamafeu.voice.{slug}.native"),
+                bank_version: "0.1.0".into(),
+                display_name: format!("{} · Nativa (rascunho)", source.name),
+                publisher: if source.author.trim().is_empty() {
+                    "Autor não informado".into()
+                } else {
+                    source.author.clone()
+                },
+                profile: phonetic_profile,
+                style_id: "natural".into(),
+                style_display_name: "Natural".into(),
+                layer_id: format!("natural-midi-{midi}"),
+                recorded_midi: midi,
+                phone_mappings,
+            };
+            let report = kamafeu::voicebank::migration::migrate_legacy_voicebank_to_copy(
+                &source,
+                &destination,
+                &options,
+            )?;
+            if json_output {
+                print_json(&serde_json::to_value(report)?)?;
+            } else {
+                println!(
+                    "KFV 2 draft: {}\nUnits: {} | skipped entries: {} | copied assets: {}\nContent SHA-256: {}\nReview migration_report.json in the output directory before using or distributing this draft.",
+                    report.destination.display(),
+                    report.migrated_units,
+                    report.skipped_entries,
+                    report.copied_assets,
+                    report.content_sha256,
                 );
             }
         }
@@ -3530,6 +3617,31 @@ mod tests {
             cli.command,
             Some(Commands::Convert {
                 fail_on_loss: true,
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn migrate_voicebank_cli_accepts_profile_mapping_and_destination() {
+        let cli = Cli::try_parse_from([
+            "kamafeu",
+            "migrate-voicebank",
+            "/voices/legacy",
+            "/voices/native-copy",
+            "--profile",
+            "/profiles/pt-br.json",
+            "--mapping",
+            "/profiles/aliases.json",
+            "--midi",
+            "62",
+        ])
+        .expect("parse OTO migration command");
+        assert!(matches!(
+            cli.command,
+            Some(Commands::MigrateVoicebank {
+                midi: 62,
+                mapping: Some(_),
                 ..
             })
         ));

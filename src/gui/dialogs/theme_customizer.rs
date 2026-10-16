@@ -1,6 +1,35 @@
 use crate::gui::KamafeuStudioApp;
 use eframe::egui;
 
+fn color_row(ui: &mut egui::Ui, label: &str, color: &mut [u8; 3]) -> bool {
+    ui.label(label);
+    let changed = egui::color_picker::color_edit_button_srgb(ui, color).changed();
+    ui.end_row();
+    changed
+}
+
+fn unique_theme_name(base: &str, themes: &[crate::gui::theme::SavedTheme]) -> String {
+    let base = base.trim();
+    if !themes.iter().any(|entry| entry.name.eq_ignore_ascii_case(base)) {
+        return base.to_string();
+    }
+    for suffix in 2..=999 {
+        let ending = format!(" ({suffix})");
+        let prefix: String = base
+            .chars()
+            .take(64_usize.saturating_sub(ending.chars().count()))
+            .collect();
+        let candidate = format!("{prefix}{ending}");
+        if !themes
+            .iter()
+            .any(|entry| entry.name.eq_ignore_ascii_case(&candidate))
+        {
+            return candidate;
+        }
+    }
+    format!("{base} (cópia)")
+}
+
 impl KamafeuStudioApp {
     pub(crate) fn render_theme_customizer_dialog(&mut self, ctx: &egui::Context) {
         if !self.theme_customizer_open {
@@ -24,8 +53,8 @@ impl KamafeuStudioApp {
                 // coexist without the footer being clipped on first launch.
                 .with_inner_size([720.0, 720.0])
                 .with_min_inner_size([580.0, 600.0]),
-            |ctx, _class| {
-                egui::CentralPanel::default().show(ctx, |ui| {
+            |viewport_ctx, _class| {
+                egui::CentralPanel::default().show(viewport_ctx, |ui| {
                     ui.horizontal(|ui| {
                         ui.heading(
                             egui::RichText::new(lang.tr("Presets de Tema", "Theme Presets"))
@@ -70,7 +99,7 @@ impl KamafeuStudioApp {
                                             preset.display_name_for(lang)
                                         ))
                                         .strong()
-                                        .color(egui::Color32::WHITE)
+                                        .color(self.config.theme.text_primary_c32())
                                     } else {
                                         egui::RichText::new(preset.display_name_for(lang))
                                             .color(self.config.theme.text_primary_c32())
@@ -97,14 +126,35 @@ impl KamafeuStudioApp {
                     ui.separator();
                     ui.add_space(6.0);
 
+                    let theme = &self.config.theme;
+                    if !crate::gui::theme::meets_text_contrast(theme.text_primary, theme.bg_canvas)
+                        || !crate::gui::theme::meets_text_contrast(
+                            theme.text_primary,
+                            theme.bg_panel,
+                        )
+                    {
+                        ui.colored_label(
+                            theme.warning_c32(),
+                            lang.tr(
+                                "O contraste do texto primário está abaixo de WCAG AA em uma ou mais superfícies.",
+                                "Primary text contrast is below WCAG AA on one or more surfaces.",
+                            ),
+                        );
+                    }
+
                     // Tab Selector
-                    ui.horizontal(|ui| {
+                    egui::ScrollArea::horizontal()
+                        .id_salt("theme_customizer_tabs")
+                        .show(ui, |ui| {
+                        ui.horizontal(|ui| {
                         let tabs = [
                             lang.tr("Cores Gerais", "General Colors"),
                             lang.tr("Notas & Bordas", "Notes & Borders"),
                             lang.tr("Teclado, Linhas & Grid", "Keyboard, Rows & Grid"),
                             lang.tr("Pitch & Playhead", "Pitch & Playhead"),
                             lang.tr("Janelas & Painéis", "Windows & Panels"),
+                            lang.tr("Sinais & Waveform", "Status & Waveform"),
+                            lang.tr("Meus Temas", "My Themes"),
                         ];
                         for (i, tab_label) in tabs.iter().enumerate() {
                             let selected = self.theme_customizer_tab == i;
@@ -112,6 +162,7 @@ impl KamafeuStudioApp {
                                 self.theme_customizer_tab = i;
                             }
                         }
+                        });
                     });
 
                     ui.add_space(8.0);
@@ -267,6 +318,18 @@ impl KamafeuStudioApp {
                                             {
                                                 self.config.theme.preset =
                                                     crate::gui::theme::ThemePreset::Custom;
+                                                theme_modified = true;
+                                            }
+                                            ui.end_row();
+
+                                            ui.label(lang.tr("Nota sob o cursor:", "Hovered Note:"));
+                                            if egui::color_picker::color_edit_button_srgb(
+                                                ui,
+                                                &mut self.config.theme.note_hover,
+                                            )
+                                            .changed()
+                                            {
+                                                self.config.theme.preset = crate::gui::theme::ThemePreset::Custom;
                                                 theme_modified = true;
                                             }
                                             ui.end_row();
@@ -552,6 +615,18 @@ impl KamafeuStudioApp {
                                             }
                                             ui.end_row();
 
+                                            ui.label(lang.tr("Âncoras de Pitch:", "Pitch Anchors:"));
+                                            if egui::color_picker::color_edit_button_srgb(
+                                                ui,
+                                                &mut self.config.theme.pitch_anchor_color,
+                                            )
+                                            .changed()
+                                            {
+                                                self.config.theme.preset = crate::gui::theme::ThemePreset::Custom;
+                                                theme_modified = true;
+                                            }
+                                            ui.end_row();
+
                                             ui.label(lang.tr(
                                                 "Cursor de Reprodução (Playhead):",
                                                 "Playhead Cursor:",
@@ -569,7 +644,7 @@ impl KamafeuStudioApp {
                                             ui.end_row();
                                         });
                                 }
-                                _ => {
+                                4 => {
                                     // Janelas & Painéis
                                     egui::Grid::new("theme_panels_grid")
                                         .num_columns(2)
@@ -619,6 +694,94 @@ impl KamafeuStudioApp {
                                             }
                                             ui.end_row();
                                         });
+                                }
+                                5 => {
+                                    egui::Grid::new("theme_semantic_grid")
+                                        .num_columns(2)
+                                        .spacing([24.0, 10.0])
+                                        .show(ui, |ui| {
+                                            let semantic = &mut self.config.theme.semantic;
+                                            let mut changed = false;
+                                            changed |= color_row(ui, lang.tr("Sucesso", "Success"), &mut semantic.success);
+                                            changed |= color_row(ui, lang.tr("Aviso", "Warning"), &mut semantic.warning);
+                                            changed |= color_row(ui, lang.tr("Erro", "Error"), &mut semantic.danger);
+                                            changed |= color_row(ui, lang.tr("Informação", "Information"), &mut semantic.info);
+                                            changed |= color_row(ui, lang.tr("Waveform", "Waveform"), &mut semantic.waveform);
+                                            changed |= color_row(ui, lang.tr("Grade da waveform", "Waveform grid"), &mut semantic.waveform_grid);
+                                            changed |= color_row(ui, lang.tr("Marcadores", "Markers"), &mut semantic.marker);
+                                            changed |= color_row(ui, lang.tr("Região de loop", "Loop region"), &mut semantic.loop_region);
+                                            changed |= color_row(ui, lang.tr("Medidores de áudio", "Audio meters"), &mut semantic.meter);
+                                            if changed {
+                                                self.config.theme.preset = crate::gui::theme::ThemePreset::Custom;
+                                                theme_modified = true;
+                                            }
+                                        });
+                                }
+                                _ => {
+                                    ui.horizontal(|ui| {
+                                        ui.label(lang.tr("Nome do tema", "Theme name"));
+                                        ui.text_edit_singleline(&mut self.saved_theme_name_draft);
+                                        if ui.button(lang.tr("Salvar como novo", "Save as new")).clicked() {
+                                            match crate::gui::theme::validate_theme_name(&self.saved_theme_name_draft) {
+                                                Ok(name) if !self.config.saved_themes.iter().any(|entry| entry.name.eq_ignore_ascii_case(&name)) => {
+                                                    self.config.saved_themes.push(crate::gui::theme::SavedTheme { name: name.clone(), theme: self.config.theme.clone() });
+                                                    self.saved_theme_selected = Some(self.config.saved_themes.len() - 1);
+                                                    self.saved_theme_name_draft = name;
+                                                    theme_modified = true;
+                                                }
+                                                Ok(_) => self.transport_state.status_message = lang.tr("Já existe um tema com esse nome.", "A theme with that name already exists.").to_string(),
+                                                Err(error) => self.transport_state.status_message = error,
+                                            }
+                                        }
+                                    });
+
+                                    egui::ScrollArea::vertical()
+                                        .id_salt("saved_theme_list")
+                                        .max_height(115.0)
+                                        .show(ui, |ui| {
+                                            for (index, entry) in self.config.saved_themes.iter().enumerate() {
+                                                let selected = self.saved_theme_selected == Some(index);
+                                                if ui.selectable_label(selected, &entry.name).clicked() {
+                                                    self.saved_theme_selected = Some(index);
+                                                    self.saved_theme_name_draft = entry.name.clone();
+                                                }
+                                            }
+                                        });
+
+                                    if let Some(index) = self.saved_theme_selected.filter(|i| *i < self.config.saved_themes.len()) {
+                                        ui.horizontal(|ui| {
+                                            if ui.button(lang.tr("Aplicar", "Apply")).clicked() {
+                                                self.config.theme = self.config.saved_themes[index].theme.clone();
+                                                visuals_modified = true;
+                                                theme_modified = true;
+                                            }
+                                            if ui.button(lang.tr("Atualizar com o tema atual", "Update from current theme")).clicked() {
+                                                self.config.saved_themes[index].theme = self.config.theme.clone();
+                                                theme_modified = true;
+                                            }
+                                            if ui.button(lang.tr("Renomear", "Rename")).clicked() {
+                                                match crate::gui::theme::validate_theme_name(&self.saved_theme_name_draft) {
+                                                    Ok(name) if !self.config.saved_themes.iter().enumerate().any(|(i, entry)| i != index && entry.name.eq_ignore_ascii_case(&name)) => {
+                                                        self.config.saved_themes[index].name = name.clone();
+                                                        self.saved_theme_name_draft = name;
+                                                        theme_modified = true;
+                                                    }
+                                                    Ok(_) => self.transport_state.status_message = lang.tr("Já existe um tema com esse nome.", "A theme with that name already exists.").to_string(),
+                                                    Err(error) => self.transport_state.status_message = error,
+                                                }
+                                            }
+                                            if ui.button(lang.tr("Excluir…", "Delete…")).clicked() {
+                                                self.pending_theme_delete = Some(index);
+                                            }
+                                            if ui.button(lang.tr("Duplicar", "Duplicate")).clicked() {
+                                                let name = unique_theme_name(&format!("{} (cópia)", self.config.saved_themes[index].name), &self.config.saved_themes);
+                                                self.config.saved_themes.push(crate::gui::theme::SavedTheme { name: name.clone(), theme: self.config.saved_themes[index].theme.clone() });
+                                                self.saved_theme_selected = Some(self.config.saved_themes.len() - 1);
+                                                self.saved_theme_name_draft = name;
+                                                theme_modified = true;
+                                            }
+                                        });
+                                    }
                                 }
                             }
                         });
@@ -880,29 +1043,20 @@ impl KamafeuStudioApp {
                                 )
                                 .pick_file()
                             {
-                                if let Ok(content) = std::fs::read_to_string(&path) {
-                                    if let Ok(imported) =
-                                        serde_json::from_str::<crate::gui::theme::ThemeConfig>(
-                                            &content,
-                                        )
-                                    {
-                                        let mut imported = imported;
-                                        // Imported files represent the user's
-                                        // saved custom scheme, even if the
-                                        // serialized file came from a built-in preset.
-                                        imported.preset = crate::gui::theme::ThemePreset::Custom;
-                                        self.config.theme = imported;
-                                        theme_modified = true;
-                                        visuals_modified = true;
-                                        self.transport_state.status_message = format!(
-                                            "{}: {}",
-                                            lang.tr("Tema importado de", "Theme imported from"),
-                                            path.display()
-                                        );
-                                    } else {
-                                        self.transport_state.status_message = lang
-                                            .tr("Arquivo de tema inválido.", "Invalid theme file.")
+                                match std::fs::read_to_string(&path) {
+                                    Ok(content) => {
+                                        let name = path
+                                            .file_stem()
+                                            .and_then(|stem| stem.to_str())
+                                            .unwrap_or("Tema importado")
                                             .to_string();
+                                        self.pending_theme_import = Some((name, content));
+                                    }
+                                    Err(error) => {
+                                        self.transport_state.status_message = format!(
+                                            "{}: {error}",
+                                            lang.tr("Não foi possível ler o tema", "Could not read theme")
+                                        );
                                     }
                                 }
                             }
@@ -920,14 +1074,32 @@ impl KamafeuStudioApp {
                                 .set_file_name("kamafeu_custom_theme.json")
                                 .save_file()
                             {
-                                if let Ok(json) = serde_json::to_string_pretty(&self.config.theme) {
-                                    if std::fs::write(&path, json).is_ok() {
+                                let name = self
+                                    .saved_theme_selected
+                                    .and_then(|index| self.config.saved_themes.get(index))
+                                    .filter(|entry| entry.theme == self.config.theme)
+                                    .map(|entry| entry.name.as_str())
+                                    .unwrap_or("Tema personalizado");
+                                let result = crate::gui::theme::ThemeDocument::from_theme(
+                                    name,
+                                    &self.config.theme,
+                                )
+                                .and_then(|document| {
+                                    serde_json::to_string_pretty(&document)
+                                        .map_err(|error| format!("Falha ao serializar tema: {error}"))
+                                })
+                                .and_then(|json| {
+                                    std::fs::write(&path, json)
+                                        .map_err(|error| format!("Falha ao gravar tema: {error}"))
+                                });
+                                if result.is_ok() {
                                         self.transport_state.status_message = format!(
                                             "{}: {}",
                                             lang.tr("Tema exportado para", "Theme exported to"),
                                             path.display()
                                         );
-                                    }
+                                } else if let Err(error) = result {
+                                    self.transport_state.status_message = error;
                                 }
                             }
                         }
@@ -939,7 +1111,94 @@ impl KamafeuStudioApp {
                         });
                     });
                 });
-                if ctx.input(|i| i.viewport().close_requested()) {
+                let mut import_action: Option<Option<bool>> = None;
+                if let Some((name, content)) = self.pending_theme_import.clone() {
+                    egui::Window::new(lang.tr("Importar tema", "Import theme"))
+                        .collapsible(false)
+                        .resizable(false)
+                        .show(viewport_ctx, |ui| {
+                            ui.label(lang.tr(
+                                "Escolha como aplicar este tema. Ele será salvo na biblioteca.",
+                                "Choose how to apply this theme. It will be saved to your library.",
+                            ));
+                            ui.label(&name);
+                            ui.horizontal(|ui| {
+                                if ui.button(lang.tr("Substituir", "Replace")).clicked() {
+                                    import_action = Some(Some(false));
+                                }
+                                if ui.button(lang.tr("Mesclar", "Merge")).clicked() {
+                                    import_action = Some(Some(true));
+                                }
+                                if ui.button(lang.tr("Cancelar", "Cancel")).clicked() {
+                                    import_action = Some(None);
+                                }
+                            });
+                        });
+                    if let Some(action) = import_action {
+                        self.pending_theme_import = None;
+                        if let Some(merge) = action {
+                            match crate::gui::theme::ThemeDocument::import(
+                                &content,
+                                &self.config.theme,
+                                merge,
+                                &name,
+                            ) {
+                                Ok(mut imported) => {
+                                    imported.name = unique_theme_name(
+                                        &imported.name,
+                                        &self.config.saved_themes,
+                                    );
+                                    self.config.theme = imported.theme.clone();
+                                    self.config.saved_themes.push(imported.clone());
+                                    self.saved_theme_selected = Some(self.config.saved_themes.len() - 1);
+                                    self.saved_theme_name_draft = imported.name;
+                                    theme_modified = true;
+                                    visuals_modified = true;
+                                    self.transport_state.status_message = lang
+                                        .tr("Tema importado e aplicado.", "Theme imported and applied.")
+                                        .to_string();
+                                }
+                                Err(error) => self.transport_state.status_message = error,
+                            }
+                        }
+                    }
+                }
+
+                if let Some(index) = self
+                    .pending_theme_delete
+                    .filter(|index| *index < self.config.saved_themes.len())
+                {
+                    let mut delete_choice: Option<bool> = None;
+                    egui::Window::new(lang.tr("Excluir tema salvo?", "Delete saved theme?"))
+                        .collapsible(false)
+                        .resizable(false)
+                        .show(viewport_ctx, |ui| {
+                            ui.label(format!(
+                                "{} ‘{}’?",
+                                lang.tr("Excluir", "Delete"),
+                                self.config.saved_themes[index].name
+                            ));
+                            ui.horizontal(|ui| {
+                                if ui.button(lang.tr("Excluir", "Delete")).clicked() {
+                                    delete_choice = Some(true);
+                                }
+                                if ui.button(lang.tr("Cancelar", "Cancel")).clicked() {
+                                    delete_choice = Some(false);
+                                }
+                            });
+                        });
+                    if let Some(confirm) = delete_choice {
+                        self.pending_theme_delete = None;
+                        if confirm {
+                            self.config.saved_themes.remove(index);
+                            self.saved_theme_selected = None;
+                            self.saved_theme_name_draft.clear();
+                            theme_modified = true;
+                        }
+                    }
+                }
+
+                if viewport_ctx.input(|i| i.viewport().close_requested()) {
                     close_requested = true;
                 }
             },
@@ -949,7 +1208,7 @@ impl KamafeuStudioApp {
             is_open = false;
         }
 
-        if visuals_modified {
+        if visuals_modified || theme_modified {
             ctx.set_visuals(self.config.theme.create_egui_visuals());
         }
 

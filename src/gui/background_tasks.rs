@@ -173,20 +173,53 @@ impl KamafeuStudioApp {
             self.progressive_playback_started = false;
             self.playback_start_instant = None;
         }
+        let mut progress_events = Vec::new();
+        if let Some(ref rx) = self.render_progress_rx {
+            for _ in 0..64 {
+                match rx.try_recv() {
+                    Ok(event) => progress_events.push(event),
+                    Err(_) => break,
+                }
+            }
+        }
+        for event in progress_events {
+            self.render_progress = event.fraction.unwrap_or(0.0);
+            self.transport_state.render_progress = self.render_progress;
+            if self.export_in_progress {
+                self.export_progress = self.render_progress;
+            }
+            self.render_progress_event = Some(event);
+            self.render_status_title = format!("{:?}", event.stage);
+            if matches!(
+                event.stage,
+                crate::renderer::RenderStage::Complete
+                    | crate::renderer::RenderStage::Cancelled
+                    | crate::renderer::RenderStage::Failed
+            ) {
+                self.render_progress_finished_at = Some(Instant::now());
+            }
+        }
+        if self
+            .render_progress_finished_at
+            .is_some_and(|finished| finished.elapsed() >= std::time::Duration::from_secs(3))
+        {
+            self.render_progress_event = None;
+            self.render_task_kind = None;
+            self.render_progress_started_at = None;
+            self.render_progress_finished_at = None;
+            self.render_progress_rx = None;
+        }
+
         if let Some(ref rx) = self.render_log_channel_rx {
             // Keep UI frames responsive even if a renderer emits a burst of logs.
             for _ in 0..64 {
-                let Ok((prog, msg)) = rx.try_recv() else {
+                let Ok((_prog, msg)) = rx.try_recv() else {
                     break;
                 };
-                self.render_progress = prog;
-                self.transport_state.render_progress = prog;
                 if self.export_in_progress {
-                    self.export_progress = prog;
                     self.export_status_detail = msg.clone();
                 } else if self.render_rx.is_some() {
                     self.transport_state.status_message = msg.clone();
-                    self.render_status_title = format!("{:.0}% • {}", prog * 100.0, msg);
                 }
                 self.render_log_messages.push(msg);
                 if self.render_log_messages.len() > 1000 {
@@ -200,6 +233,20 @@ impl KamafeuStudioApp {
             if let Ok(result) = rx.try_recv() {
                 self.export_in_progress = false;
                 self.export_progress = 1.0;
+                let terminal_stage = if result.is_ok() {
+                    crate::renderer::RenderStage::Complete
+                } else if result
+                    .as_ref()
+                    .err()
+                    .is_some_and(|error| error.to_ascii_lowercase().contains("cancel"))
+                {
+                    crate::renderer::RenderStage::Cancelled
+                } else {
+                    crate::renderer::RenderStage::Failed
+                };
+                self.render_progress_event =
+                    Some(crate::renderer::RenderProgressEvent::stage(terminal_stage));
+                self.render_progress_finished_at = Some(Instant::now());
                 let fmt_name = self.export_audio_format.display_name();
                 self.transport_state.status_message = match &result {
                     Ok(()) => format!("Exportação ({fmt_name}) concluída com sucesso!"),
@@ -242,6 +289,11 @@ impl KamafeuStudioApp {
                         self.piano_roll_state.is_playing = false;
                         self.transport_state.status_message = format!("Erro de render: {error}");
                         self.render_status_title = "Erro de áudio".to_string();
+                        self.render_progress_event =
+                            Some(crate::renderer::RenderProgressEvent::stage(
+                                crate::renderer::RenderStage::Failed,
+                            ));
+                        self.render_progress_finished_at = Some(Instant::now());
                     } else if audio.samples.is_empty()
                         || audio.sample_rate == 0
                         || audio.channels == 0
@@ -252,6 +304,11 @@ impl KamafeuStudioApp {
                         self.transport_state.status_message =
                             "Erro de áudio: render vazio ou com formato inválido.".to_string();
                         self.render_status_title = "Erro de áudio".to_string();
+                        self.render_progress_event =
+                            Some(crate::renderer::RenderProgressEvent::stage(
+                                crate::renderer::RenderStage::Failed,
+                            ));
+                        self.render_progress_finished_at = Some(Instant::now());
                     } else {
                         let waveform_samples = audio.samples.clone();
                         if !self

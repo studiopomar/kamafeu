@@ -76,7 +76,7 @@ pub fn draw_right_panel(
 
                                     let draw_rect = Rect::from_center_size(avatar_rect.center(), Vec2::new(draw_w, draw_h));
                                     let uv = egui::Rect::from_min_max(Pos2::new(0.0, 0.0), Pos2::new(1.0, 1.0));
-                                    painter.image(texture.id(), draw_rect, uv, Color32::WHITE);
+                                    painter.image(texture.id(), draw_rect, uv, ui.visuals().text_color());
                                     loaded_image = true;
                                 }
                             }
@@ -91,7 +91,7 @@ pub fn draw_right_panel(
                             egui::Align2::CENTER_CENTER,
                             &initial_letter,
                             egui::FontId::proportional(18.0),
-                            if theme.is_light() { Color32::WHITE } else { Color32::from_rgb(20, 16, 28) },
+                            if theme.is_light() { ui.visuals().text_color() } else { ui.visuals().panel_fill },
                         );
 
                         painter.text(
@@ -228,12 +228,12 @@ pub fn draw_right_panel(
                             let mut changed_phonemizer = false;
 
                             Frame::none()
-                                .fill(Color32::from_rgb(36, 27, 53))
+                                .fill(ui.visuals().panel_fill)
                                 .rounding(Rounding::same(4.0))
                                     .stroke(theme.card_stroke())
                                 .inner_margin(egui::Margin::same(8.0))
                                 .show(ui, |ui| {
-                                    ui.label(RichText::new("Informações Básicas").strong().size(11.0).color(Color32::from_rgb(0, 255, 157)));
+                                    ui.label(RichText::new("Informações Básicas").strong().size(11.0).color(ui.visuals().hyperlink_color));
                                     ui.separator();
 
                                     ui.horizontal(|ui| {
@@ -262,7 +262,7 @@ pub fn draw_right_panel(
 
                                     ui.horizontal(|ui| {
                                         ui.label("Tom / Nota:");
-                                        ui.label(RichText::new(&pitch_str).strong().color(Color32::from_rgb(216, 180, 254)));
+                                        ui.label(RichText::new(&pitch_str).strong().color(ui.visuals().hyperlink_color));
                                     });
 
                                     ui.horizontal(|ui| {
@@ -281,12 +281,12 @@ pub fn draw_right_panel(
                             ui.add_space(8.0);
 
                             Frame::none()
-                                .fill(Color32::from_rgb(26, 20, 38))
+                                .fill(ui.visuals().panel_fill)
                                 .rounding(Rounding::same(4.0))
                                 .stroke(theme.card_stroke())
                                 .inner_margin(egui::Margin::same(8.0))
                                 .show(ui, |ui| {
-                                    ui.label(RichText::new("Parâmetros Vocais").strong().size(11.0).color(Color32::from_rgb(0, 255, 157)));
+                                    ui.label(RichText::new("Parâmetros Vocais").strong().size(11.0).color(ui.visuals().hyperlink_color));
                                     ui.separator();
 
                                     ui.horizontal(|ui| {
@@ -333,12 +333,12 @@ pub fn draw_right_panel(
 
                             ui.add_space(8.0);
                             Frame::none()
-                                .fill(Color32::from_rgb(26, 20, 38))
+                                .fill(ui.visuals().panel_fill)
                                 .rounding(Rounding::same(4.0))
                                 .stroke(theme.card_stroke())
                                 .inner_margin(egui::Margin::same(8.0))
                                 .show(ui, |ui| {
-                                    ui.label(RichText::new("Envelope / Fades").strong().size(11.0).color(Color32::from_rgb(0, 255, 157)));
+                                    ui.label(RichText::new("Envelope / Fades").strong().size(11.0).color(ui.visuals().hyperlink_color));
                                     ui.separator();
                                     changed_envelope |= ui.add(egui::Slider::new(&mut fade_in_ms, 0.0..=500.0).text("Fade In").suffix(" ms")).changed();
                                     changed_envelope |= ui.add(egui::Slider::new(&mut fade_out_ms, 0.0..=500.0).text("Fade Out").suffix(" ms")).changed();
@@ -348,26 +348,26 @@ pub fn draw_right_panel(
                                     ui.label(RichText::new("Envelope da Nota:").size(9.5).color(theme.text_muted_c32()));
                                     ui.horizontal_wrapped(|ui| {
                                         let overlap = voicebank.and_then(|vb| vb.find_mapped_entry(&lyric, &pitch_str).map(|e| e.overlap)).unwrap_or(fade_in_ms.max(20.0));
-                                        if ui.small_button(RichText::new("Crossfade automático").strong().color(Color32::from_rgb(0, 255, 157))).on_hover_text("Ajusta somente a junção com a nota vizinha usando o overlap do oto.ini").clicked() {
+                                        if ui.small_button(RichText::new("Crossfade automático").strong().color(ui.visuals().hyperlink_color)).on_hover_text("Ajusta somente a junção com a nota vizinha usando o overlap do oto.ini").clicked() {
                                             fade_in_ms = overlap.max(5.0);
                                             crossfade_ms = 0.0;
                                             changed_envelope = true;
                                         }
-                                        if ui.small_button(RichText::new("Ataque suave").strong().color(Color32::from_rgb(147, 197, 253))).on_hover_text("Suaviza somente a zona de ataque da nota").clicked() {
+                                        if ui.small_button(RichText::new("Ataque suave").strong().color(ui.visuals().hyperlink_color)).on_hover_text("Suaviza somente a zona de ataque da nota").clicked() {
                                             fade_in_ms = overlap.max(5.0);
                                             crossfade_ms = 0.0;
                                             changed_envelope = true;
                                         }
-                                        if ui.small_button(RichText::new("Sustain constante").strong().color(Color32::from_rgb(216, 180, 254))).on_hover_text("Mantém o nível do sustain constante").clicked() {
+                                        if ui.small_button(RichText::new("Sustain constante").strong().color(ui.visuals().hyperlink_color)).on_hover_text("Mantém o nível do sustain constante").clicked() {
                                             changed_envelope = true;
                                         }
-                                        if ui.small_button(RichText::new("Release suave").strong().color(Color32::from_rgb(253, 224, 71))).on_hover_text("Ajusta o release proporcionalmente à duração da nota").clicked() {
+                                        if ui.small_button(RichText::new("Release suave").strong().color(ui.visuals().warn_fg_color)).on_hover_text("Ajusta o release proporcionalmente à duração da nota").clicked() {
                                             fade_in_ms = (dur_ms * 0.25).min(overlap).max(5.0);
                                             fade_out_ms = (dur_ms * 0.2).clamp(5.0, 35.0);
                                             crossfade_ms = 0.0;
                                             changed_envelope = true;
                                         }
-                                        if ui.small_button(RichText::new("Restaurar padrão").strong().color(Color32::from_rgb(248, 113, 113))).on_hover_text("Restaura ataque, sustain, release e crossfade padrão").clicked() {
+                                        if ui.small_button(RichText::new("Restaurar padrão").strong().color(ui.visuals().error_fg_color)).on_hover_text("Restaura ataque, sustain, release e crossfade padrão").clicked() {
                                             fade_in_ms = 5.0;
                                             fade_out_ms = 35.0;
                                             crossfade_ms = 0.0;
@@ -380,12 +380,12 @@ pub fn draw_right_panel(
 
                             ui.add_space(8.0);
                             Frame::none()
-                                .fill(Color32::from_rgb(26, 20, 38))
+                                .fill(ui.visuals().panel_fill)
                                 .rounding(Rounding::same(4.0))
                                 .stroke(theme.card_stroke())
                                 .inner_margin(egui::Margin::same(8.0))
                                 .show(ui, |ui| {
-                                    ui.label(RichText::new("Portamento").strong().size(11.0).color(Color32::from_rgb(0, 255, 157)));
+                                    ui.label(RichText::new("Portamento").strong().size(11.0).color(ui.visuals().hyperlink_color));
                                     ui.separator();
                                     ui.horizontal(|ui| {
                                         ui.label("Presets:");
@@ -438,12 +438,12 @@ pub fn draw_right_panel(
 
                             ui.add_space(8.0);
                             Frame::none()
-                                .fill(Color32::from_rgb(26, 20, 38))
+                                .fill(ui.visuals().panel_fill)
                                 .rounding(Rounding::same(4.0))
                                 .stroke(theme.card_stroke())
                                 .inner_margin(egui::Margin::same(8.0))
                                 .show(ui, |ui| {
-                                    ui.label(RichText::new("Vibrato OpenUtau").strong().size(11.0).color(Color32::from_rgb(0, 255, 157)));
+                                    ui.label(RichText::new("Vibrato OpenUtau").strong().size(11.0).color(ui.visuals().hyperlink_color));
                                     ui.separator();
                                     changed_vibrato |= ui.add(egui::Slider::new(&mut vibrato.length_pct, 0.0..=100.0).text("Comprimento").suffix("%")) .changed();
                                     changed_vibrato |= ui.add(egui::Slider::new(&mut vibrato.period_ms, 5.0..=500.0).text("Período").suffix(" ms")).changed();
@@ -552,7 +552,7 @@ pub fn draw_right_panel(
                                     "[Aviso] Plataforma {platform}: executáveis externos e Wine não estão disponíveis."
                                 ))
                                 .size(10.0)
-                                .color(Color32::from_rgb(255, 200, 100)),
+                                .color(ui.visuals().warn_fg_color),
                             );
                             ui.label(
                                 RichText::new(
@@ -619,13 +619,13 @@ pub fn draw_right_panel(
                     }
                     ui.radio_value(
                         selected_resampler,
-                        "WORLD (Nativo)".to_string(),
-                        "WORLD (Nativo)",
+                        crate::drivers::TAINAH_RESAMPLER_LABEL.to_string(),
+                        crate::drivers::TAINAH_RESAMPLER_LABEL,
                     );
 
                     ui.add_space(4.0);
 
-                    if !selected_resampler.contains("Nativo") {
+                    if !crate::drivers::is_native_world_resampler_label(selected_resampler) {
                         let selected_profile =
                             crate::drivers::KnownResampler::from_label(selected_resampler);
                         let resolved_path = custom_resampler_path
@@ -638,8 +638,8 @@ pub fn draw_right_panel(
                             });
                         if let Some(ref path) = resolved_path {
                             ui.horizontal(|ui| {
-                                ui.label(RichText::new("Executável:").size(10.5).color(Color32::from_rgb(0, 255, 157)));
-                                ui.label(RichText::new(path.to_string_lossy().to_string()).size(10.0).monospace().color(Color32::from_rgb(200, 190, 220)));
+                                ui.label(RichText::new("Executável:").size(10.5).color(ui.visuals().hyperlink_color));
+                                ui.label(RichText::new(path.to_string_lossy().to_string()).size(10.0).monospace().color(ui.visuals().text_color()));
                             });
 
                             let is_exe = path
@@ -654,20 +654,20 @@ pub fn draw_right_panel(
                                     if let Some(wine_bin) = crate::drivers::process::find_wine_executable() {
                                         let ver = crate::drivers::process::wine_version().unwrap_or_else(|| "Wine".to_string());
                                         ui.horizontal(|ui| {
-                                            ui.label(RichText::new("[Wine]").size(10.0).strong().color(Color32::from_rgb(0, 255, 180)));
-                                            ui.label(RichText::new(format!("{ver} pronto ({})", wine_bin.display())).size(9.5).color(Color32::from_rgb(180, 230, 255)));
+                                            ui.label(RichText::new("[Wine]").size(10.0).strong().color(theme.success_c32()));
+                                            ui.label(RichText::new(format!("{ver} pronto ({})", wine_bin.display())).size(9.5).color(ui.visuals().hyperlink_color));
                                         });
                                     } else {
                                         ui.label(
                                             RichText::new("[Aviso] Executável .exe selecionado, mas o Wine não foi encontrado.\nInstale o Wine (ex: 'brew install --cask wine-stable' no Mac ou 'sudo apt install wine' no Linux) para usá-lo.")
                                                 .size(9.5)
-                                                .color(Color32::from_rgb(255, 140, 140))
+                                                .color(ui.visuals().error_fg_color)
                                         );
                                     }
                                 }
                             }
                         } else {
-                            ui.label(RichText::new("Executável não encontrado. O Kamafeu Studio usará o WORLD nativo em Rust.").size(10.0).italics().color(Color32::from_rgb(255, 200, 100)));
+                            ui.label(RichText::new("Executável não encontrado. O Kamafeu Studio usará o WORLD nativo em Rust.").size(10.0).italics().color(ui.visuals().warn_fg_color));
                         }
                     }
 
@@ -676,8 +676,8 @@ pub fn draw_right_panel(
                         if let Some(wine_bin) = crate::drivers::process::find_wine_executable() {
                             let ver = crate::drivers::process::wine_version().unwrap_or_else(|| "Wine".to_string());
                             ui.horizontal(|ui| {
-                                ui.label(RichText::new("[Wine]").size(9.5).color(Color32::from_rgb(0, 255, 180)));
-                                ui.label(RichText::new(format!("Suporte a resamplers .exe ativo ({ver})")).size(9.5).color(Color32::from_rgb(170, 220, 255)))
+                                ui.label(RichText::new("[Wine]").size(9.5).color(theme.success_c32()));
+                                ui.label(RichText::new(format!("Suporte a resamplers .exe ativo ({ver})")).size(9.5).color(ui.visuals().hyperlink_color))
                                     .on_hover_text(format!("Wine detectado automaticamente em: {}", wine_bin.display()));
                             });
                         }
@@ -714,20 +714,20 @@ pub fn draw_right_panel(
                     ui.separator();
                     ui.add_space(10.0);
 
-                    ui.label(RichText::new("Motor Wavtool").strong().color(Color32::from_rgb(0, 255, 157)));
+                    ui.label(RichText::new("Motor Wavtool").strong().color(ui.visuals().hyperlink_color));
 
                     ui.horizontal(|ui| {
                         if ui.radio_value(selected_wavtool, "Galapagos (Nativo)".to_string(), "Galapagos (Recomendado)").clicked() {
                             *custom_wavtool_path = None;
                         }
-                        ui.label(RichText::new("incluso").size(9.0).color(Color32::from_rgb(180, 180, 180)));
+                        ui.label(RichText::new("incluso").size(9.0).color(ui.visuals().text_color()));
                     });
 
                     ui.horizontal(|ui| {
                         if ui.radio_value(selected_wavtool, "Andromeda (Alternativo)".to_string(), "Andromeda (Alternativo)").clicked() {
                             *custom_wavtool_path = None;
                         }
-                        ui.label(RichText::new("incluso").size(9.0).color(Color32::from_rgb(180, 180, 180)));
+                        ui.label(RichText::new("incluso").size(9.0).color(ui.visuals().text_color()));
                     });
 
                     for profile in crate::drivers::KnownWavtool::ALL {
@@ -739,7 +739,7 @@ pub fn draw_right_panel(
                                 ui.label(
                                     RichText::new("detectado")
                                         .size(9.0)
-                                        .color(Color32::from_rgb(0, 255, 157)),
+                                        .color(ui.visuals().hyperlink_color),
                                 );
                             });
                         }
@@ -755,8 +755,8 @@ pub fn draw_right_panel(
                             });
                         if let Some(ref path) = resolved_path {
                             ui.horizontal(|ui| {
-                                ui.label(RichText::new("Executável:").size(10.5).color(Color32::from_rgb(0, 255, 157)));
-                                ui.label(RichText::new(path.to_string_lossy().to_string()).size(10.0).monospace().color(Color32::from_rgb(200, 190, 220)));
+                                ui.label(RichText::new("Executável:").size(10.5).color(ui.visuals().hyperlink_color));
+                                ui.label(RichText::new(path.to_string_lossy().to_string()).size(10.0).monospace().color(ui.visuals().text_color()));
                             });
 
                             let is_exe = path
@@ -771,20 +771,20 @@ pub fn draw_right_panel(
                                     if let Some(wine_bin) = crate::drivers::process::find_wine_executable() {
                                         let ver = crate::drivers::process::wine_version().unwrap_or_else(|| "Wine".to_string());
                                         ui.horizontal(|ui| {
-                                            ui.label(RichText::new("[Wine]").size(10.0).strong().color(Color32::from_rgb(0, 255, 180)));
-                                            ui.label(RichText::new(format!("{ver} pronto ({})", wine_bin.display())).size(9.5).color(Color32::from_rgb(180, 230, 255)));
+                                            ui.label(RichText::new("[Wine]").size(10.0).strong().color(theme.success_c32()));
+                                            ui.label(RichText::new(format!("{ver} pronto ({})", wine_bin.display())).size(9.5).color(ui.visuals().hyperlink_color));
                                         });
                                     } else {
                                         ui.label(
                                             RichText::new("[Aviso] Executável .exe selecionado, mas o Wine não foi encontrado.\nInstale o Wine (ex: 'brew install --cask wine-stable' no Mac ou 'sudo apt install wine' no Linux) para usá-lo.")
                                                 .size(9.5)
-                                                .color(Color32::from_rgb(255, 140, 140))
+                                                .color(ui.visuals().error_fg_color)
                                         );
                                     }
                                 }
                             }
                         } else {
-                            ui.label(RichText::new("Executável não encontrado.").size(10.0).italics().color(Color32::from_rgb(255, 200, 100)));
+                            ui.label(RichText::new("Executável não encontrado.").size(10.0).italics().color(ui.visuals().warn_fg_color));
                         }
 
                         ui.horizontal(|ui| {
@@ -804,15 +804,15 @@ pub fn draw_right_panel(
                     ui.separator();
                     ui.add_space(10.0);
 
-                    ui.label(RichText::new("Saída de Áudio").strong().color(Color32::from_rgb(0, 255, 157)));
+                    ui.label(RichText::new("Saída de Áudio").strong().color(ui.visuals().hyperlink_color));
                     ui.horizontal(|ui| {
                         ui.label("Taxa de Amostragem:");
                         for rate in [44100, 48000] {
                             let is_selected = *sample_rate == rate;
                             let (bg_color, text_color, stroke) = if is_selected {
-                                (Color32::from_rgb(60, 42, 90), Color32::from_rgb(0, 255, 157), Stroke::new(1.5, Color32::from_rgb(0, 255, 157)))
+                                (ui.visuals().panel_fill, ui.visuals().hyperlink_color, Stroke::new(1.5, ui.visuals().hyperlink_color))
                             } else {
-                                (Color32::from_rgb(32, 24, 46), Color32::from_rgb(200, 190, 220), Stroke::new(1.0, Color32::from_rgb(50, 40, 70)))
+                                (ui.visuals().panel_fill, ui.visuals().text_color(), Stroke::new(1.0, ui.visuals().panel_fill))
                             };
                             let btn = egui::Button::new(RichText::new(format!("{} Hz", rate)).size(11.0).color(text_color).strong())
                                 .fill(bg_color)

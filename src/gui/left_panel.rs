@@ -120,7 +120,7 @@ pub fn draw_left_panel(
                                         handle.id(),
                                         avatar_rect,
                                         Rect::from_min_max(Pos2::ZERO, Pos2::new(1.0, 1.0)),
-                                        Color32::WHITE,
+                                        ui.visuals().text_color(),
                                     );
                                     loaded_image = true;
                                 }

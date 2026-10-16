@@ -4,6 +4,7 @@ pub(super) fn draw(
     ui: &mut egui::Ui,
     notes: &mut [UNote],
     state: &mut PianoRollState,
+    theme: &ThemeConfig,
     lang: crate::config::AppLanguage,
     on_note_changed: &mut dyn FnMut(),
 ) {
@@ -32,7 +33,7 @@ pub(super) fn draw(
                                 note.pitch
                             ))
                             .size(14.0)
-                            .color(MelodyneTheme::TEXT_GOLD_LABEL),
+                            .color(theme.text_primary_c32()),
                         );
                         ui.separator();
 
@@ -98,7 +99,7 @@ pub(super) fn draw(
                                 lang.tr("Parâmetros de Vibrato", "Vibrato Parameters"),
                             )
                             .strong()
-                            .color(Color32::from_rgb(0, 240, 255)),
+                            .color(ui.visuals().hyperlink_color),
                         );
 
                         egui::Grid::new("vibrato_grid")

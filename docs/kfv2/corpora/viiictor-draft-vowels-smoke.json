@@ -1,0 +1,14 @@
+{
+  "format": "kamafeu.kfv2-engine-spike-corpus",
+  "schema_version": "1.0.0",
+  "cases": [
+    {
+      "id": "a-e-midi60",
+      "style_id": "natural",
+      "events": [
+        {"phones": ["a"], "kind": "V", "position_ms": 0.0, "duration_ms": 180.0, "midi": 60},
+        {"phones": ["e"], "kind": "V", "position_ms": 160.0, "duration_ms": 180.0, "midi": 60}
+      ]
+    }
+  ]
+}

@@ -16,6 +16,15 @@
 
 # Documentação local e artefatos de auditoria
 /docs/
+!/docs/
+/docs/*
+!/docs/kfv2/
+!/docs/kfv2/**
+
+# Checkpoints de retomada são notas locais, mesmo dentro de docs incluídos.
+**/CONTINUAR_DEPOIS.md
+**/*checkpoint*.md
+**/*CHECKPOINT*.md
 
 /resamplers/hifisampler
 /resamplers/hifisampler-rs

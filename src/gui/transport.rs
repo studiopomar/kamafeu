@@ -105,15 +105,15 @@ pub fn draw_transport_bar(
 
                 let (play_bg, play_text, play_color) = if is_playing {
                     (
-                        Color32::from_rgb(36, 27, 53),
+                        ui.visuals().panel_fill,
                         "Pausar",
-                        Color32::from_rgb(216, 180, 254),
+                        ui.visuals().hyperlink_color,
                     )
                 } else {
                     (
-                        Color32::from_rgb(10, 48, 30),
+                        ui.visuals().panel_fill,
                         "Tocar",
-                        Color32::from_rgb(0, 255, 157),
+                        ui.visuals().hyperlink_color,
                     )
                 };
 
@@ -124,7 +124,7 @@ pub fn draw_transport_bar(
                         .color(play_color),
                 )
                 .fill(play_bg)
-                .stroke(Stroke::new(1.2, Color32::from_rgb(0, 255, 157)))
+                .stroke(Stroke::new(1.2, ui.visuals().hyperlink_color))
                 .rounding(Rounding::same(4.0));
 
                 if ui.add(play_btn).clicked() {
@@ -134,10 +134,10 @@ pub fn draw_transport_bar(
                 let stop_btn = egui::Button::new(
                     RichText::new("Parar")
                         .size(12.0)
-                        .color(Color32::from_rgb(255, 110, 110)),
+                        .color(ui.visuals().error_fg_color),
                 )
-                .fill(Color32::from_rgb(45, 20, 26))
-                .stroke(Stroke::new(1.0, Color32::from_rgb(200, 80, 80)))
+                .fill(ui.visuals().panel_fill)
+                .stroke(Stroke::new(1.0, ui.visuals().error_fg_color))
                 .rounding(Rounding::same(4.0));
 
                 if ui.add(stop_btn).clicked() {
@@ -149,9 +149,9 @@ pub fn draw_transport_bar(
                 ui.add_space(8.0);
 
                 Frame::none()
-                    .fill(Color32::from_rgb(18, 14, 28))
+                    .fill(ui.visuals().panel_fill)
                     .rounding(Rounding::same(4.0))
-                    .stroke(Stroke::new(1.0, Color32::from_rgb(61, 46, 84)))
+                    .stroke(Stroke::new(1.0, ui.visuals().hyperlink_color))
                     .inner_margin(egui::Margin::symmetric(8.0, 3.0))
                     .show(ui, |ui| {
                         ui.add_sized(
@@ -161,7 +161,7 @@ pub fn draw_transport_bar(
                                     .strong()
                                     .monospace()
                                     .size(12.0)
-                                    .color(Color32::from_rgb(0, 255, 157)),
+                                    .color(ui.visuals().hyperlink_color),
                             ),
                         );
                     });
@@ -173,7 +173,7 @@ pub fn draw_transport_bar(
                 ui.label(
                     RichText::new("BPM:")
                         .size(11.0)
-                        .color(Color32::from_rgb(220, 210, 240)),
+                        .color(ui.visuals().text_color()),
                 );
                 ui.add(
                     egui::DragValue::new(&mut state.bpm)
@@ -184,7 +184,7 @@ pub fn draw_transport_bar(
                     RichText::new("4/4")
                         .strong()
                         .size(11.0)
-                        .color(Color32::from_rgb(0, 255, 157)),
+                        .color(ui.visuals().hyperlink_color),
                 );
 
                 ui.add_space(8.0);
@@ -194,7 +194,7 @@ pub fn draw_transport_bar(
                 ui.label(
                     RichText::new("Grade:")
                         .size(11.0)
-                        .color(Color32::from_rgb(220, 210, 240)),
+                        .color(ui.visuals().text_color()),
                 );
                 let snap_options = [
                     (GridSnapOption::Freeform, "Livre"),
@@ -230,14 +230,14 @@ pub fn draw_transport_bar(
                         RichText::new("Resampler:")
                             .size(10.5)
                             .strong()
-                            .color(Color32::from_rgb(0, 229, 255)),
+                            .color(ui.visuals().hyperlink_color),
                     );
                     ui.add(
                         egui::ProgressBar::new(state.render_progress)
                             .desired_width(110.0)
                             .text(format!("{:.0}%", state.render_progress * 100.0))
                             .animate(true)
-                            .fill(Color32::from_rgb(0, 230, 138)),
+                            .fill(ui.visuals().hyperlink_color),
                     )
                     .on_hover_text(&state.status_message);
                     ui.add_space(6.0);
@@ -263,7 +263,7 @@ pub fn draw_transport_bar(
                 ui.label(
                     RichText::new(&state.voicebank_name)
                         .size(11.0)
-                        .color(Color32::from_rgb(216, 180, 254)),
+                        .color(ui.visuals().hyperlink_color),
                 );
 
                 ui.add_space(8.0);
@@ -280,19 +280,19 @@ pub fn draw_transport_bar(
                 ui.separator();
 
                 let log_bg = if *log_open {
-                    Color32::from_rgb(10, 48, 30)
+                    ui.visuals().panel_fill
                 } else {
-                    Color32::from_rgb(28, 25, 34)
+                    ui.visuals().panel_fill
                 };
                 let log_stroke = if *log_open {
-                    Stroke::new(1.2, Color32::from_rgb(0, 255, 157))
+                    Stroke::new(1.2, ui.visuals().hyperlink_color)
                 } else {
-                    Stroke::new(1.0, Color32::from_rgb(60, 50, 80))
+                    Stroke::new(1.0, ui.visuals().panel_fill)
                 };
                 let log_text_color = if *log_open {
-                    Color32::from_rgb(0, 255, 157)
+                    ui.visuals().hyperlink_color
                 } else {
-                    Color32::from_rgb(180, 170, 200)
+                    ui.visuals().text_color().linear_multiply(0.72)
                 };
 
                 let log_btn = egui::Button::new(
@@ -313,7 +313,7 @@ pub fn draw_transport_bar(
                     RichText::new(&state.status_message)
                         .size(11.0)
                         .italics()
-                        .color(Color32::from_rgb(165, 148, 201)),
+                        .color(ui.visuals().hyperlink_color),
                 );
             });
         });

@@ -75,8 +75,8 @@ pub(super) fn draw(
                         if ui
                             .radio_value(
                                 selected_resampler,
-                                "WORLD (Nativo)".to_string(),
-                                lang.tr("WORLD (Nativo)", "WORLD (Native)"),
+                                crate::drivers::TAINAH_RESAMPLER_LABEL.to_string(),
+                                crate::drivers::TAINAH_RESAMPLER_LABEL,
                             )
                             .clicked()
                         {
@@ -187,7 +187,7 @@ pub(super) fn draw(
                                 ui.label(
                                     RichText::new(lang.tr("🍷 Wine não detectado", "🍷 Wine not detected"))
                                         .size(9.0)
-                                        .color(Color32::from_rgb(255, 170, 60)),
+                                        .color(ui.visuals().warn_fg_color),
                                 )
                                 .on_hover_text(lang.tr(
                                     "Necessário para executar resamplers .exe do Windows no macOS/Linux.",

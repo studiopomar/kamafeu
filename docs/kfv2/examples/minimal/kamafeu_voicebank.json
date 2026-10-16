@@ -1,0 +1,24 @@
+{
+  "format": "kamafeu.voicebank",
+  "schema_version": "2.0.0",
+  "voice_id": "org.example.iris",
+  "bank_id": "org.example.iris.natural",
+  "bank_version": "1.0.0",
+  "package_revision": 1,
+  "display_name": "Iris Natural (fixture)",
+  "publisher": "Example only",
+  "description": "Synthetic structural example. It contains no distributed voice recording.",
+  "languages": ["pt-BR"],
+  "phonetic_profiles": [
+    { "id": "pt-br-v1", "language": "pt-BR", "path": "phonetics/pt-BR.json" }
+  ],
+  "engine": { "id": "kamafeu.concat", "api_major": 1, "required_features": ["explicit-anchor", "finite-units"] },
+  "styles": [{ "id": "natural", "display_name": "Natural" }],
+  "layers": [{ "id": "natural-c4", "style_id": "natural", "recorded_midi": 60, "units_path": "units/natural-c4.json" }],
+  "defaults": {
+    "phonetic_profile_id": "pt-br-v1",
+    "style_id": "natural",
+    "layer_policy": "nearest-recorded",
+    "missing_unit_policy": "error"
+  }
+}

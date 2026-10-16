@@ -72,7 +72,21 @@ pub struct PhonemeResolutionDiagnostic {
 pub struct PhonemeRenderDiagnostic {
     pub phone_index: usize,
     pub lyric: String,
+    /// Stable driver identity; it identifies the selected wrapper, not any
+    /// internal fallback that the wrapper may use.
+    #[serde(default)]
+    pub resampler_driver_id: String,
+    #[serde(default)]
+    pub effective_resampler_engine_id: String,
+    #[serde(default)]
+    pub resampler_stages: Vec<String>,
+    #[serde(default)]
+    pub resampler_fallback_reasons: Vec<String>,
+    #[serde(default)]
+    pub resampler_adjustments: Vec<String>,
     pub resampler: String,
+    #[serde(default)]
+    pub wavtool_engine_id: String,
     pub wavtool: String,
     pub input_wav: String,
     pub output_wav: String,

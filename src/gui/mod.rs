@@ -63,6 +63,27 @@ use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use web_time::Instant;
 
+/// Whether the current target should use touch-sized controls. A narrow native
+/// desktop window remains a compact desktop layout; only Android and narrow
+/// browser viewports opt into touch-first spacing/navigation.
+pub(crate) fn touch_first_layout(ctx: &eframe::egui::Context) -> bool {
+    #[cfg(target_os = "android")]
+    {
+        let _ = ctx;
+        true
+    }
+    #[cfg(all(not(target_os = "android"), target_arch = "wasm32"))]
+    {
+        let viewport = ctx.screen_rect();
+        viewport.width() < 760.0 || (viewport.height() < 520.0 && viewport.width() < 900.0)
+    }
+    #[cfg(all(not(target_os = "android"), not(target_arch = "wasm32")))]
+    {
+        let _ = ctx;
+        false
+    }
+}
+
 pub fn open_external_url(url: &str) {
     #[cfg(target_os = "macos")]
     let _ = std::process::Command::new("open").arg(url).spawn();
@@ -91,6 +112,12 @@ pub enum RenderLogFilter {
     Info,
     Timing,
     Chunks,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RenderTaskKind {
+    Preview,
+    Export,
 }
 
 #[derive(Debug, Clone)]
@@ -148,6 +175,11 @@ pub struct KamafeuStudioApp {
     render_progress: f32,
     render_status_title: String,
     render_log_channel_rx: Option<std::sync::mpsc::Receiver<(f32, String)>>,
+    render_progress_event: Option<crate::renderer::RenderProgressEvent>,
+    render_progress_rx: Option<std::sync::mpsc::Receiver<crate::renderer::RenderProgressEvent>>,
+    render_task_kind: Option<RenderTaskKind>,
+    render_progress_started_at: Option<Instant>,
+    render_progress_finished_at: Option<Instant>,
     export_rx: Option<std::sync::mpsc::Receiver<Result<(), String>>>,
     export_cancel: Option<Arc<AtomicBool>>,
     active_track_index: usize,
@@ -166,6 +198,10 @@ pub struct KamafeuStudioApp {
     pub preferences_state: crate::gui::preferences_dialog::PreferencesDialogState,
     pub theme_customizer_open: bool,
     pub theme_customizer_tab: usize,
+    pub saved_theme_selected: Option<usize>,
+    pub saved_theme_name_draft: String,
+    pub pending_theme_import: Option<(String, String)>,
+    pub pending_theme_delete: Option<usize>,
     shortcuts_guide_open: bool,
     command_palette_open: bool,
     command_palette_query: String,
@@ -206,7 +242,6 @@ pub struct KamafeuStudioApp {
     pub lyrics_dialog_state: lyrics_dialog::LyricsDialogState,
     pub humanize_dialog_state: humanize_dialog::HumanizeDialogState,
     pub fx_rack_dialog_state: fx_rack_dialog::FxRackDialogState,
-    pub theme_editor_dialog_state: theme_editor_dialog::ThemeEditorDialogState,
     pub fx_rack_config: crate::audio::FxRackConfig,
     /// A slider/knob may emit many changes during one drag; preview refresh is
     /// deferred until that gesture ends so rendering never starves the UI.

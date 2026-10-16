@@ -117,7 +117,8 @@ fn migrate_project_schema(project: &mut UProject) {
 mod tests {
     use super::*;
     use crate::project::model::{
-        UNote, UProjectExtension, UProjectRenderChunk, UProjectRenderState,
+        NativeVoicebankReference, UNote, UProjectExtension, UProjectRenderChunk,
+        UProjectRenderState,
     };
 
     #[test]
@@ -127,6 +128,18 @@ mod tests {
         proj.bpm = 140.0;
         proj.voicebank = Some("Standard Voicebank".to_string());
         proj.voicebank_path = Some("/path/to/voicebank".to_string());
+        proj.tracks[0].native_voicebank = Some(NativeVoicebankReference {
+            bank_id: "com.example.iris.natural".into(),
+            bank_version: "1.2.3".into(),
+            package_revision: 4,
+            content_sha256: format!("sha256:{}", "a".repeat(64)),
+            engine_id: "kamafeu.concat".into(),
+            engine_api_major: 1,
+            planner_version: "kamafeu.planner.v1".into(),
+            phonetic_profile_id: "pt-br-v1".into(),
+            style_id: "natural".into(),
+            source_path_hint: Some("/voicebanks/iris.kfv".into()),
+        });
         proj.phonemizer = Some(crate::phonemizer::PhonemizerMode::PortugueseBrapaVCCV);
         proj.resampler = Some("straycat-rs (UtaUtaUtau)".to_string());
         proj.wavtool = Some("wavtool-yawu".to_string());
@@ -163,6 +176,8 @@ mod tests {
             .push(crate::project::model::UPhonemeOverride {
                 index: 0,
                 phoneme: Some("k a".to_string()),
+                native_unit_id: Some("ka-natural-take2".into()),
+                native_layer_id: Some("natural-c4".into()),
                 flags: Some("P86Qcustom".to_string()),
                 envelope: Some(crate::dsp::envelope::UtauEnvelope {
                     p2: 12.0,
@@ -190,6 +205,10 @@ mod tests {
         assert_eq!(loaded.bpm, 140.0);
         assert_eq!(loaded.voicebank.as_deref(), Some("Standard Voicebank"));
         assert_eq!(loaded.voicebank_path.as_deref(), Some("/path/to/voicebank"));
+        assert_eq!(
+            loaded.tracks[0].native_voicebank,
+            proj.tracks[0].native_voicebank
+        );
         assert_eq!(
             loaded.phonemizer,
             Some(crate::phonemizer::PhonemizerMode::PortugueseBrapaVCCV)
@@ -223,6 +242,14 @@ mod tests {
         assert_eq!(loaded.parts[0].notes[0].envelope.crossfade_ms, 60.0);
         let phoneme_override = &loaded.parts[0].notes[0].phoneme_overrides[0];
         assert_eq!(phoneme_override.phoneme.as_deref(), Some("k a"));
+        assert_eq!(
+            phoneme_override.native_unit_id.as_deref(),
+            Some("ka-natural-take2")
+        );
+        assert_eq!(
+            phoneme_override.native_layer_id.as_deref(),
+            Some("natural-c4")
+        );
         assert_eq!(phoneme_override.flags.as_deref(), Some("P86Qcustom"));
         assert_eq!(phoneme_override.envelope.as_ref().unwrap().p2, 12.0);
         assert_eq!(phoneme_override.vibrato.as_ref().unwrap().length_pct, 40.0);

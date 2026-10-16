@@ -18,7 +18,7 @@ impl KamafeuStudioApp {
                             ui.heading(
                                 egui::RichText::new(lang.tr("Teclas de Atalho do Kamafeu Studio", "Kamafeu Studio Keyboard Shortcuts"))
                                     .strong()
-                                    .color(egui::Color32::from_rgb(0, 255, 157)),
+                                    .color(ui.visuals().hyperlink_color),
                             );
                             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                                 if ui.button(lang.tr("Fechar", "Close")).clicked() {
@@ -40,12 +40,12 @@ impl KamafeuStudioApp {
                                         ui.label(
                                             egui::RichText::new(lang.tr("Atalho", "Shortcut"))
                                                 .strong()
-                                                .color(egui::Color32::from_rgb(255, 215, 0)),
+                                                .color(ui.visuals().warn_fg_color),
                                         );
                                         ui.label(
                                             egui::RichText::new(lang.tr("Ação / Funcionalidade", "Action / Functionality"))
                                                 .strong()
-                                                .color(egui::Color32::from_rgb(255, 215, 0)),
+                                                .color(ui.visuals().warn_fg_color),
                                         );
                                         ui.end_row();
 

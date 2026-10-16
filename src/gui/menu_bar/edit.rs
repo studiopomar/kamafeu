@@ -412,7 +412,7 @@ impl KamafeuStudioApp {
                         "Limpar Todos os Parâmetros das Notas Selecionadas",
                         "Clear All Parameters of Selected Notes",
                     ))
-                    .color(egui::Color32::from_rgb(255, 180, 90)),
+                    .color(ui.visuals().warn_fg_color),
                 )
                 .clicked()
             {

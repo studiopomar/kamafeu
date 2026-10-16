@@ -78,7 +78,7 @@ impl KamafeuStudioApp {
                 ))
                 .strong()
                 .size(11.5)
-                .color(egui::Color32::from_rgb(255, 191, 0)),
+                .color(ui.visuals().text_color().linear_multiply(0.72)),
             );
             ui.label(
                 egui::RichText::new(lang.tr(

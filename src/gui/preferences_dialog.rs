@@ -9,11 +9,10 @@ mod presets_and_help;
 mod ui_workflow;
 mod voicebank_tuning;
 
-use super::theme::MelodyneTheme;
 use super::KamafeuStudioApp;
 use crate::audio::player::AudioPlayer;
 use crate::config::KamafeuConfig;
-use eframe::egui::{self, Color32, Frame, Margin, RichText, Rounding, Stroke};
+use eframe::egui::{self, Frame, Margin, RichText, Rounding, Stroke};
 
 pub struct PreferencesDialogState {
     pub active_tab: usize,
@@ -245,7 +244,7 @@ impl KamafeuStudioApp {
                         {
                             ui.separator();
                             ui.colored_label(
-                                Color32::from_rgb(100, 220, 150),
+                                ui.visuals().hyperlink_color,
                                 format!(
                                     "{} {}",
                                     lang.tr("Atualização disponível:", "Update available:"),
@@ -269,7 +268,7 @@ impl KamafeuStudioApp {
                             ));
                         }
                         Err(error) => {
-                            ui.colored_label(Color32::from_rgb(240, 150, 120), error);
+                            ui.colored_label(ui.visuals().warn_fg_color, error);
                         }
                     }
                 }
@@ -308,8 +307,8 @@ impl KamafeuStudioApp {
             ),
             |ui| {
                 Frame::none()
-                    .fill(Color32::from_rgb(72, 48, 22))
-                    .stroke(Stroke::new(1.0_f32, Color32::from_rgb(235, 165, 70)))
+                    .fill(ui.visuals().error_fg_color)
+                    .stroke(Stroke::new(1.0_f32, ui.visuals().warn_fg_color))
                     .rounding(Rounding::same(4.0))
                     .inner_margin(Margin::same(7.0))
                     .show(ui, |ui| {
@@ -319,7 +318,7 @@ impl KamafeuStudioApp {
                                 "WARNING — Experimental feature: rules may not work with every voicebank. Invalid rules are ignored or may produce aliases with no oto.ini match.",
                             ))
                             .strong()
-                            .color(Color32::from_rgb(255, 220, 150)),
+                            .color(ui.visuals().warn_fg_color),
                         );
                     });
                 ui.add_space(6.0);
@@ -421,7 +420,7 @@ impl KamafeuStudioApp {
                                 "Start with presets or adjust audio, voicebanks and export. Technical controls are grouped at the end. Hover over [?] to understand each parameter.",
                             ))
                             .size(11.0)
-                            .color(MelodyneTheme::TEXT_MUTED),
+                            .color(self.config.theme.text_muted_c32()),
                         );
                         ui.add_space(6.0);
                         ui.separator();
@@ -503,7 +502,7 @@ impl KamafeuStudioApp {
                         ui.add_space(8.0);
 
                         ui.horizontal(|ui| {
-                            if ui.button(RichText::new(lang.tr("Restaurar Padrões de Fábrica", "Restore Factory Defaults")).size(11.0).color(Color32::from_rgb(255, 180, 100))).clicked() {
+                            if ui.button(RichText::new(lang.tr("Restaurar Padrões de Fábrica", "Restore Factory Defaults")).size(11.0).color(ui.visuals().warn_fg_color)).clicked() {
                                 let default_conf = KamafeuConfig::default();
                                 self.config.audio = default_conf.audio;
                                 self.config.dsp = default_conf.dsp;
@@ -585,7 +584,7 @@ impl KamafeuStudioApp {
                             }
 
                             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                if ui.button(RichText::new(lang.tr("Aplicar & Fechar", "Apply & Close")).strong().size(11.5).color(Color32::from_rgb(0, 255, 180))).clicked() {
+                                if ui.button(RichText::new(lang.tr("Aplicar & Fechar", "Apply & Close")).strong().size(11.5).color(self.config.theme.success_c32())).clicked() {
                                     self.persist_config();
                                     is_open = false;
                                 }

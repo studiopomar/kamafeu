@@ -16,6 +16,23 @@ pub struct CopaibaToolkitApp {
     pub selected_source_alias: Option<String>,
     pub preserve_oto_entry: bool,
     pub config: CopaibaConfig,
+    pub native_project: Option<crate::copaiba::native_project::CopaibaNativeProject>,
+    pub native_selected_layer: Option<String>,
+    pub native_selected_unit: Option<String>,
+    pub native_selected_asset: Option<String>,
+    pub native_compare_asset: Option<String>,
+    pub native_comparison_a: Option<(Vec<f32>, u32)>,
+    pub native_comparison_b: Option<(Vec<f32>, u32)>,
+    pub native_new_unit_id: String,
+    pub native_new_kind: String,
+    pub native_new_phones: String,
+    pub native_test_phones: String,
+    pub native_phrase_report: Option<String>,
+    pub native_create_wizard_open: bool,
+    pub native_draft_display_name: String,
+    pub native_draft_voice_id: String,
+    pub native_draft_bank_id: String,
+    pub native_draft_publisher: String,
     pub selected_entry_index: Option<usize>,
     pub search_query: String,
     pub filter_mode: ListFilterMode,
@@ -42,6 +59,23 @@ impl Default for CopaibaToolkitApp {
             selected_source_alias: None,
             preserve_oto_entry: false,
             config: CopaibaConfig::default(),
+            native_project: None,
+            native_selected_layer: None,
+            native_selected_unit: None,
+            native_selected_asset: None,
+            native_compare_asset: None,
+            native_comparison_a: None,
+            native_comparison_b: None,
+            native_new_unit_id: "unit-001".into(),
+            native_new_kind: "V".into(),
+            native_new_phones: String::new(),
+            native_test_phones: "k a".into(),
+            native_phrase_report: None,
+            native_create_wizard_open: false,
+            native_draft_display_name: "Nova voz Kamafeu".into(),
+            native_draft_voice_id: "org.kamafeu.voice.nova".into(),
+            native_draft_bank_id: "org.kamafeu.voice.nova.natural".into(),
+            native_draft_publisher: "Autor não definido".into(),
             selected_entry_index: None,
             search_query: String::new(),
             filter_mode: ListFilterMode::ByAlias,
@@ -97,8 +131,55 @@ impl CopaibaToolkitApp {
     }
 
     pub fn open_dir(&mut self, path: PathBuf) {
+        if path.is_file()
+            && path
+                .extension()
+                .is_some_and(|extension| extension.eq_ignore_ascii_case("kfv"))
+        {
+            match crate::copaiba::native_project::CopaibaNativeProject::load_path(&path) {
+                Ok(project) => self.activate_native_project(project),
+                Err(error) => {
+                    self.status_message = format!("Erro ao abrir pacote KFV 2 no Copaíba: {error}")
+                }
+            }
+            return;
+        }
+        let manifest_path = path.join("kamafeu_voicebank.json");
+        if manifest_path.is_file() {
+            match std::fs::read_to_string(&manifest_path)
+                .map_err(|e| format!("cannot read KFV manifest: {e}"))
+                .and_then(|text| {
+                    serde_json::from_str::<serde_json::Value>(&text)
+                        .map_err(|e| format!("invalid KFV manifest JSON: {e}"))
+                }) {
+                Ok(value)
+                    if value.get("format").and_then(|v| v.as_str())
+                        == Some("kamafeu.voicebank") =>
+                {
+                    match crate::copaiba::native_project::CopaibaNativeProject::load_dir(&path) {
+                        Ok(project) => self.activate_native_project(project),
+                        Err(error) => {
+                            self.status_message = format!("Erro ao abrir KFV 2 no Copaíba: {error}")
+                        }
+                    }
+                    return;
+                }
+                Err(error) => {
+                    self.status_message = error;
+                    return;
+                }
+                _ => {}
+            }
+        }
         match CopaibaConfig::load_from_dir(&path) {
             Ok(cfg) => {
+                self.native_project = None;
+                self.native_selected_layer = None;
+                self.native_selected_unit = None;
+                self.native_selected_asset = None;
+                self.native_compare_asset = None;
+                self.native_comparison_a = None;
+                self.native_comparison_b = None;
                 self.current_dir = Some(path);
                 self.active_oto_path = None;
                 self.selected_source_alias = None;
@@ -115,6 +196,69 @@ impl CopaibaToolkitApp {
             }
             Err(err) => {
                 self.status_message = format!("Erro ao abrir voicebank: {err}");
+            }
+        }
+    }
+
+    pub fn create_native_draft(&mut self, parent: &std::path::Path) -> Result<(), String> {
+        let project = crate::copaiba::native_project::CopaibaNativeProject::create_new_draft(
+            parent,
+            &self.native_draft_voice_id,
+            &self.native_draft_bank_id,
+            &self.native_draft_display_name,
+            &self.native_draft_publisher,
+            crate::copaiba::native_project::CopaibaNativeProject::starter_pt_br_profile(),
+        )?;
+        let folder = project.root.clone();
+        self.activate_native_project(project);
+        self.native_create_wizard_open = false;
+        self.status_message = format!(
+            "Rascunho KFV 2 criado em {} · inventário fonético sem G2P; licenciamento e gravações ainda precisam ser definidos",
+            folder.display()
+        );
+        Ok(())
+    }
+
+    fn activate_native_project(
+        &mut self,
+        project: crate::copaiba::native_project::CopaibaNativeProject,
+    ) {
+        self.current_dir = Some(project.root.clone());
+        self.active_oto_path = None;
+        self.selected_source_alias = None;
+        self.preserve_oto_entry = false;
+        self.config = CopaibaConfig::default();
+        self.native_selected_layer = project.layers.first().map(|(layer, _)| layer.id.clone());
+        self.native_selected_unit = project
+            .layers
+            .first()
+            .and_then(|(_, file)| file.units.first())
+            .map(|unit| unit.id.clone());
+        self.native_selected_asset = project
+            .layers
+            .first()
+            .and_then(|(_, file)| file.assets.first())
+            .map(|asset| asset.id.clone());
+        let first_asset = self.native_selected_asset.as_deref();
+        self.native_compare_asset = project
+            .layers
+            .first()
+            .and_then(|(_, file)| {
+                file.assets
+                    .iter()
+                    .find(|asset| Some(asset.id.as_str()) != first_asset)
+            })
+            .map(|asset| asset.id.clone());
+        self.native_comparison_a = None;
+        self.native_comparison_b = None;
+        self.native_project = Some(project);
+        self.selected_entry_index = None;
+        self.avatar_texture = None;
+        self.status_message.clear();
+        self.load_selected_wav_samples();
+        if self.native_selected_asset.is_some() {
+            if let Err(error) = self.load_native_comparison_waveforms() {
+                self.status_message = format!("Falha ao carregar comparação A/B: {error}");
             }
         }
     }
@@ -258,6 +402,10 @@ impl CopaibaToolkitApp {
     }
 
     pub fn load_selected_wav_samples(&mut self) {
+        if self.native_project.is_some() {
+            self.load_native_selected_wav_samples();
+            return;
+        }
         let target_wav = self.selected_entry().map(|e| e.wav_filename.clone());
         if let (Some(ref dir), Some(ref wav_name)) = (&self.current_dir, &target_wav) {
             if let Ok(waveform) =
@@ -303,6 +451,77 @@ impl CopaibaToolkitApp {
             });
     }
 
+    fn load_native_selected_wav_samples(&mut self) {
+        let sample = self.native_project.as_ref().and_then(|project| {
+            let layer_id = self.native_selected_layer.as_deref()?;
+            let unit_id = self.native_selected_unit.as_deref()?;
+            let unit = project.unit(layer_id, unit_id)?;
+            let (_, file) = project
+                .layers
+                .iter()
+                .find(|(layer, _)| layer.id == layer_id)?;
+            let asset = file.assets.iter().find(|asset| asset.id == unit.asset_id)?;
+            Some(project.root.join(&asset.path))
+        });
+        if let Some(path) = sample {
+            match crate::renderer::TrackRenderer::load_wav_samples(&path) {
+                Ok(waveform) => {
+                    self.loaded_wav_filename = Some(path.to_string_lossy().into_owned());
+                    self.loaded_waveform = Some(waveform);
+                }
+                Err(error) => {
+                    self.loaded_wav_filename = None;
+                    self.loaded_waveform = None;
+                    self.status_message = format!("Falha ao carregar gravação nativa: {error}");
+                }
+            }
+        } else {
+            self.loaded_wav_filename = None;
+            self.loaded_waveform = None;
+        }
+    }
+
+    pub fn load_native_comparison_waveforms(&mut self) -> Result<(), String> {
+        let project = self
+            .native_project
+            .as_ref()
+            .ok_or("Nenhum banco KFV 2 aberto")?;
+        let layer_id = self
+            .native_selected_layer
+            .as_deref()
+            .ok_or("Nenhuma camada selecionada")?;
+        let asset_a = self
+            .native_selected_asset
+            .as_deref()
+            .ok_or("Selecione a gravação A")?;
+        let asset_b = self.native_compare_asset.as_deref();
+        if asset_b == Some(asset_a) {
+            return Err("A e B precisam ser gravações diferentes".into());
+        }
+        let waveform_a = project.load_asset_audio(layer_id, asset_a)?;
+        let waveform_b = asset_b
+            .map(|asset_id| project.load_asset_audio(layer_id, asset_id))
+            .transpose()?;
+        self.native_comparison_a = Some(waveform_a);
+        self.native_comparison_b = waveform_b;
+        Ok(())
+    }
+
+    pub fn preview_native_comparison_take(
+        &self,
+        audio_player: &mut AudioPlayer,
+        take: char,
+    ) -> Result<(), String> {
+        let waveform = match take.to_ascii_uppercase() {
+            'A' => self.native_comparison_a.as_ref(),
+            'B' => self.native_comparison_b.as_ref(),
+            _ => return Err("Selecione a tomada A ou B".into()),
+        }
+        .ok_or("Waveform da tomada ainda não carregada")?;
+        audio_player.play_samples(waveform.0.clone(), waveform.1);
+        Ok(())
+    }
+
     pub fn duplicate_selected_entry(&mut self) {
         if let Some(idx) = self.selected_entry_index {
             if let Some(entry) = self.config.entries.get(idx).cloned() {
@@ -331,6 +550,10 @@ impl CopaibaToolkitApp {
     }
 
     pub fn save_config(&mut self) -> Result<(), String> {
+        if let Some(project) = self.native_project.as_mut() {
+            let directory = self.current_dir.clone().ok_or("Nenhum diretório aberto")?;
+            return project.save_to_dir(&directory);
+        }
         if self.preserve_oto_entry {
             let oto_path = self
                 .active_oto_path
@@ -446,6 +669,389 @@ impl CopaibaToolkitApp {
             .map_err(|e| format!("Falha ao finalizar zip: {}", e))?;
         Ok(())
     }
+
+    pub fn import_native_recording(
+        &mut self,
+        source: PathBuf,
+        asset_id: &str,
+    ) -> Result<(), String> {
+        let layer_id = self
+            .native_selected_layer
+            .clone()
+            .ok_or("Nenhuma camada selecionada")?;
+        let project = self
+            .native_project
+            .as_mut()
+            .ok_or("Nenhum banco KFV 2 aberto")?;
+        let path = project.import_recording(&layer_id, &source, asset_id)?;
+        self.native_selected_asset = Some(asset_id.to_string());
+        self.status_message = format!("Gravação copiada sem modificar o original: {path}");
+        Ok(())
+    }
+
+    pub fn add_native_unit_from_selected_asset(&mut self) -> Result<(), String> {
+        let layer_id = self
+            .native_selected_layer
+            .clone()
+            .ok_or("Nenhuma camada selecionada")?;
+        let asset_id = self
+            .native_selected_asset
+            .clone()
+            .ok_or("Nenhuma gravação selecionada")?;
+        let phones: Vec<String> = self
+            .native_new_phones
+            .split_whitespace()
+            .map(str::to_string)
+            .collect();
+        let project = self
+            .native_project
+            .as_mut()
+            .ok_or("Nenhum banco KFV 2 aberto")?;
+        project.add_unit_from_asset(
+            &layer_id,
+            &asset_id,
+            &self.native_new_unit_id,
+            &self.native_new_kind,
+            phones,
+        )?;
+        self.native_selected_unit = Some(self.native_new_unit_id.clone());
+        self.load_native_selected_wav_samples();
+        Ok(())
+    }
+
+    pub fn package_native_draft(&mut self, destination: &std::path::Path) -> Result<(), String> {
+        self.save_config()?;
+        self.native_project
+            .as_mut()
+            .ok_or("Nenhum banco KFV 2 aberto")?
+            .package_kfv2_draft(destination)
+    }
+
+    pub fn migrate_classic_voicebank(
+        &mut self,
+        profile_path: &std::path::Path,
+        mapping_path: Option<&std::path::Path>,
+        destination_parent: &std::path::Path,
+    ) -> Result<(), String> {
+        let source_root = self
+            .current_dir
+            .as_deref()
+            .ok_or("Nenhum voicebank clássico aberto")?;
+        if self.native_project.is_some() {
+            return Err("A migração OTO só se aplica a um banco clássico".into());
+        }
+        let source = crate::oto::Voicebank::new(source_root)
+            .map_err(|error| format!("Não foi possível abrir o OTO de origem: {error}"))?;
+        let profile: crate::voicebank::native::PhoneticProfile = serde_json::from_slice(
+            &std::fs::read(profile_path)
+                .map_err(|error| format!("Não foi possível ler o perfil fonético: {error}"))?,
+        )
+        .map_err(|error| format!("Perfil fonético inválido: {error}"))?;
+        profile.validate()?;
+        let phone_mappings = if let Some(path) = mapping_path {
+            serde_json::from_slice::<std::collections::BTreeMap<String, Vec<String>>>(
+                &std::fs::read(path)
+                    .map_err(|error| format!("Não foi possível ler o mapa de aliases: {error}"))?,
+            )
+            .map_err(|error| {
+                format!("Mapa de aliases inválido; esperado objeto alias → lista de IDs: {error}")
+            })?
+        } else {
+            std::collections::BTreeMap::new()
+        };
+
+        let slug = migration_slug(&source.name);
+        let options = crate::voicebank::migration::LegacyMigrationOptions {
+            voice_id: format!("org.kamafeu.voice.{slug}"),
+            bank_id: format!("org.kamafeu.voice.{slug}.native"),
+            bank_version: "0.1.0".into(),
+            display_name: format!("{} · Nativa (rascunho)", source.name),
+            publisher: if source.author.trim().is_empty() {
+                "Autor não informado".into()
+            } else {
+                source.author.clone()
+            },
+            profile,
+            style_id: "natural".into(),
+            style_display_name: "Natural".into(),
+            layer_id: "natural-midi-60".into(),
+            recorded_midi: 60,
+            phone_mappings,
+        };
+        let destination = destination_parent.join(format!("{slug}-kfv2-draft"));
+        let report = crate::voicebank::migration::migrate_legacy_voicebank_to_copy(
+            &source,
+            &destination,
+            &options,
+        )?;
+        drop(source);
+        let project =
+            crate::copaiba::native_project::CopaibaNativeProject::load_dir(&report.destination)
+                .map_err(|error| format!("Rascunho criado, mas não reabriu no Copaíba: {error}"))?;
+        self.activate_native_project(project);
+        let inferred = report
+            .entries
+            .iter()
+            .filter(|entry| {
+                entry.mapping_origin == crate::voicebank::migration::MappingOrigin::ExactAliasTokens
+            })
+            .count();
+        let explicit = report
+            .entries
+            .iter()
+            .filter(|entry| {
+                entry.mapping_origin == crate::voicebank::migration::MappingOrigin::Explicit
+            })
+            .count();
+        let skipped = report
+            .entries
+            .iter()
+            .filter(|entry| {
+                entry.status == crate::voicebank::migration::MigrationEntryStatus::Skipped
+            })
+            .map(|entry| format!("{}: {}", entry.alias, entry.warnings.join("; ")))
+            .collect::<Vec<_>>();
+        let mut status = format!(
+            "Rascunho KFV 2 criado em {} · {} unidades · {} mapas explícitos · {} aliases inferidos · {} ignorados · SHA-256 {}",
+            report.destination.display(),
+            report.migrated_units,
+            explicit,
+            inferred,
+            report.skipped_entries,
+            report.content_sha256
+        );
+        if !skipped.is_empty() {
+            status.push_str("\nIgnorados:\n");
+            status.push_str(&skipped.join("\n"));
+        }
+        status.push_str(
+            "\nRevise todas as marcações e licenças no Copaíba antes de usar ou distribuir.",
+        );
+        self.status_message = status;
+        Ok(())
+    }
+
+    pub fn preview_native_unit(&mut self, audio_player: &mut AudioPlayer) -> Result<(), String> {
+        self.preview_native_unit_backend(
+            audio_player,
+            crate::voicebank::render::PreviewBackend::Sola,
+        )
+    }
+
+    pub fn preview_native_unit_backend(
+        &mut self,
+        audio_player: &mut AudioPlayer,
+        backend: crate::voicebank::render::PreviewBackend,
+    ) -> Result<(), String> {
+        let project = self
+            .native_project
+            .as_ref()
+            .ok_or("Nenhum banco KFV 2 aberto")?;
+        let layer_id = self
+            .native_selected_layer
+            .as_deref()
+            .ok_or("Nenhuma camada selecionada")?;
+        let unit_id = self
+            .native_selected_unit
+            .as_deref()
+            .ok_or("Nenhuma unidade selecionada")?;
+        let (layer, _) = project
+            .layers
+            .iter()
+            .find(|(layer, _)| layer.id == layer_id)
+            .ok_or("Camada selecionada não existe")?;
+        let unit = project
+            .unit(layer_id, unit_id)
+            .ok_or("Unidade selecionada não existe")?;
+        let event = crate::voicebank::planner::PhoneEvent {
+            phones: unit.phones.clone(),
+            kind: unit.kind.clone(),
+            position_ms: 0.0,
+            duration_ms: unit.timing.min_target_ms,
+            midi: layer.recorded_midi,
+            pitch_points: Vec::new(),
+            unit_override_id: Some(unit.id.clone()),
+            layer_override_id: Some(layer.id.clone()),
+        };
+        let bank = project.native_bank_snapshot();
+        let phrase = crate::voicebank::planner::PhraseRequest {
+            style_id: layer.style_id.clone(),
+            events: vec![event],
+        };
+        let plan = crate::voicebank::planner::plan_phrase(&bank, &phrase)?;
+        let rendered = match backend {
+            crate::voicebank::render::PreviewBackend::Sola => {
+                crate::voicebank::render::render_phrase_sola(&bank, &plan, 48_000)?
+            }
+            crate::voicebank::render::PreviewBackend::World => {
+                crate::voicebank::render::render_phrase_world(&bank, &plan, 48_000)?
+            }
+        };
+        if rendered.samples.is_empty() {
+            return Err(format!(
+                "{} não produziu áudio para a unidade selecionada",
+                rendered.engine_id
+            ));
+        }
+        audio_player.play_samples(rendered.samples, rendered.sample_rate_hz);
+        let fallback = rendered
+            .units
+            .iter()
+            .flat_map(|unit| unit.fallback_reasons.iter())
+            .next()
+            .cloned();
+        self.status_message = format!(
+            "Preview {} · {}{}",
+            rendered.engine_id,
+            unit.id,
+            fallback
+                .map(|reason| format!(" · fallback: {reason}"))
+                .unwrap_or_default()
+        );
+        Ok(())
+    }
+
+    pub fn preview_native_phrase(&mut self, audio_player: &mut AudioPlayer) -> Result<(), String> {
+        self.preview_native_phrase_backend(
+            audio_player,
+            crate::voicebank::render::PreviewBackend::Sola,
+        )
+    }
+
+    pub fn preview_native_phrase_backend(
+        &mut self,
+        audio_player: &mut AudioPlayer,
+        backend: crate::voicebank::render::PreviewBackend,
+    ) -> Result<(), String> {
+        let project = self
+            .native_project
+            .as_ref()
+            .ok_or("Nenhum banco KFV 2 aberto")?;
+        let layer_id = self
+            .native_selected_layer
+            .as_deref()
+            .ok_or("Nenhuma camada selecionada")?;
+        let plan = project.plan_direct_phone_phrase(layer_id, &self.native_test_phones)?;
+        let bank = project.native_bank_snapshot();
+        let rendered = match backend {
+            crate::voicebank::render::PreviewBackend::Sola => {
+                crate::voicebank::render::render_phrase_sola(&bank, &plan, 48_000)?
+            }
+            crate::voicebank::render::PreviewBackend::World => {
+                crate::voicebank::render::render_phrase_world(&bank, &plan, 48_000)?
+            }
+        };
+        if rendered.samples.is_empty() {
+            return Err(format!(
+                "{} não produziu áudio para a frase de teste",
+                rendered.engine_id
+            ));
+        }
+        audio_player.play_samples(rendered.samples, rendered.sample_rate_hz);
+        let fallback = rendered
+            .units
+            .iter()
+            .flat_map(|unit| unit.fallback_reasons.iter())
+            .next()
+            .cloned();
+        self.status_message = format!(
+            "Preview {} · {} eventos{}",
+            rendered.engine_id,
+            plan.units.len(),
+            fallback
+                .map(|reason| format!(" · fallback: {reason}"))
+                .unwrap_or_default()
+        );
+        Ok(())
+    }
+}
+
+fn migration_slug(value: &str) -> String {
+    let slug: String = value
+        .chars()
+        .map(|character| {
+            if character.is_ascii_alphanumeric() {
+                character.to_ascii_lowercase()
+            } else {
+                '-'
+            }
+        })
+        .collect();
+    let slug = slug.trim_matches('-');
+    if slug.is_empty() {
+        "voicebank".into()
+    } else {
+        slug.chars().take(64).collect()
+    }
+}
+
+#[cfg(test)]
+mod migration_ui_tests {
+    use super::*;
+
+    #[test]
+    fn classic_migration_action_builds_and_reports_a_separate_kfv2_draft() {
+        let temp = tempfile::tempdir().unwrap();
+        let source = temp.path().join("classic-bank");
+        let destination_parent = temp.path().join("exports");
+        std::fs::create_dir_all(&source).unwrap();
+        std::fs::create_dir_all(&destination_parent).unwrap();
+        std::fs::write(
+            source.join("character.txt"),
+            "name=Voz de Teste\nauthor=Autora\n",
+        )
+        .unwrap();
+        std::fs::write(source.join("oto.ini"), "take.wav=syllable,0,20,0,10,5\n").unwrap();
+        let wav = source.join("take.wav");
+        let mut writer = hound::WavWriter::create(
+            &wav,
+            hound::WavSpec {
+                channels: 1,
+                sample_rate: 48_000,
+                bits_per_sample: 16,
+                sample_format: hound::SampleFormat::Int,
+            },
+        )
+        .unwrap();
+        for _ in 0..48_000 {
+            writer.write_sample(0_i16).unwrap();
+        }
+        writer.finalize().unwrap();
+        let original_wav = std::fs::read(&wav).unwrap();
+
+        let profile_path = temp.path().join("pt-br-profile.json");
+        std::fs::write(
+            &profile_path,
+            include_bytes!("../../docs/kfv2/examples/minimal/phonetics/pt-BR.json"),
+        )
+        .unwrap();
+        let mapping_path = temp.path().join("aliases.json");
+        std::fs::write(&mapping_path, r#"{"syllable":["k","a"]}"#).unwrap();
+        let mut app = CopaibaToolkitApp {
+            current_dir: Some(source.clone()),
+            ..CopaibaToolkitApp::default()
+        };
+
+        app.migrate_classic_voicebank(&profile_path, Some(&mapping_path), &destination_parent)
+            .unwrap();
+        let output = destination_parent.join("voz-de-teste-kfv2-draft");
+        let native = crate::voicebank::native::NativeBank::load_dir(&output).unwrap();
+        assert_eq!(native.layers[0].1.units.len(), 1);
+        assert!(app.native_project.is_some());
+        assert_eq!(
+            app.current_dir.as_deref(),
+            Some(std::fs::canonicalize(&output).unwrap().as_path())
+        );
+        assert!(native.layers[0].1.units[0]
+            .legacy_aliases
+            .contains(&"syllable".into()));
+        assert!(app.status_message.contains("1 mapas explícitos"));
+        assert!(app.status_message.contains("0 aliases inferidos"));
+        assert!(app.status_message.contains("SHA-256"));
+        assert!(app.status_message.contains("Revise todas"));
+        assert_eq!(std::fs::read(wav).unwrap(), original_wav);
+        assert!(source.join("oto.ini").is_file());
+    }
 }
 
 fn draw_waveform_peak_envelope(
@@ -488,6 +1094,681 @@ fn draw_waveform_peak_envelope(
             );
         }
     }
+}
+
+fn draw_copaiba_native_ui(
+    app: &mut CopaibaToolkitApp,
+    audio_player: &mut AudioPlayer,
+    ui: &mut egui::Ui,
+) {
+    let layers = app
+        .native_project
+        .as_ref()
+        .map(|project| {
+            project
+                .layers
+                .iter()
+                .map(|(layer, _)| {
+                    (
+                        layer.id.clone(),
+                        layer.style_id.clone(),
+                        layer.recorded_midi,
+                    )
+                })
+                .collect::<Vec<_>>()
+        })
+        .unwrap_or_default();
+    if layers.is_empty() {
+        ui.colored_label(Color32::LIGHT_RED, "KFV 2 não possui camadas para editar.");
+        return;
+    }
+    let mut selected_layer = app
+        .native_selected_layer
+        .clone()
+        .unwrap_or_else(|| layers[0].0.clone());
+    if let Some(project) = app.native_project.as_ref() {
+        match project.layer_coverage(&selected_layer) {
+            Ok(coverage) => {
+                let color = if coverage.missing_symbols.is_empty() {
+                    Color32::from_rgb(0, 230, 150)
+                } else {
+                    Color32::from_rgb(255, 190, 80)
+                };
+                ui.horizontal_wrapped(|ui| {
+                    ui.colored_label(
+                        color,
+                        format!(
+                            "Cobertura de símbolos · {}/{} · {} unidades · {}/{} revisadas · {} gravações",
+                            coverage.covered_symbol_count,
+                            coverage.symbol_count,
+                            coverage.unit_count,
+                            coverage.reviewed_unit_count,
+                            coverage.unit_count,
+                            coverage.asset_count
+                        ),
+                    );
+                    if !coverage.missing_symbols.is_empty() {
+                        ui.label(format!(
+                            "Sem unidade: {}",
+                            coverage.missing_symbols.join(", ")
+                        ));
+                    }
+                });
+                ui.small("A cobertura de símbolos é apenas inventário. O teste de frase abaixo verifica seleção estrutural, não adequação acústica.");
+            }
+            Err(error) => {
+                ui.colored_label(
+                    Color32::LIGHT_RED,
+                    format!("Falha ao calcular cobertura: {error}"),
+                );
+            }
+        }
+    }
+    ui.horizontal(|ui| {
+        ui.label("Teste de frase (fonemas):");
+        let changed = ui
+            .add(
+                egui::TextEdit::singleline(&mut app.native_test_phones)
+                    .desired_width(180.0)
+                    .hint_text("ex.: k a s a"),
+            )
+            .changed();
+        if changed {
+            app.native_phrase_report = None;
+        }
+        if ui.button("Verificar cobertura").clicked() {
+            app.native_selected_layer = Some(selected_layer.clone());
+            let result = app
+                .native_project
+                .as_ref()
+                .ok_or_else(|| "Nenhum banco KFV 2 aberto".to_string())
+                .and_then(|project| {
+                    project.plan_direct_phone_phrase(&selected_layer, &app.native_test_phones)
+                });
+            app.native_phrase_report = Some(match result {
+                Ok(plan) => {
+                    let choices = plan
+                        .units
+                        .iter()
+                        .map(|unit| {
+                            format!(
+                                "{} {}→{}",
+                                unit.unit_id,
+                                unit.phones.first().map(String::as_str).unwrap_or("?"),
+                                unit.phones.last().map(String::as_str).unwrap_or("?")
+                            )
+                        })
+                        .collect::<Vec<_>>()
+                        .join(" · ");
+                    format!(
+                        "Coberta: {}/{} eventos · {choices}",
+                        plan.units.len(),
+                        plan.units.len()
+                    )
+                }
+                Err(error) => format!("Sem cobertura completa: {error}"),
+            });
+        }
+        if ui.button("▶ Frase · SOLA").clicked() {
+            app.native_selected_layer = Some(selected_layer.clone());
+            if let Err(error) = app.preview_native_phrase_backend(
+                audio_player,
+                crate::voicebank::render::PreviewBackend::Sola,
+            ) {
+                app.native_phrase_report = Some(format!("Preview indisponível: {error}"));
+            }
+        }
+        if ui.button("▶ Frase · WORLD (experimental)").clicked() {
+            app.native_selected_layer = Some(selected_layer.clone());
+            if let Err(error) = app.preview_native_phrase_backend(
+                audio_player,
+                crate::voicebank::render::PreviewBackend::World,
+            ) {
+                app.native_phrase_report = Some(format!("Preview indisponível: {error}"));
+            }
+        }
+    });
+    if let Some(report) = &app.native_phrase_report {
+        ui.small(report);
+        ui.small("Cobertura significa que o planner encontrou uma sequência de unidades. Não estima qualidade acústica ou naturalidade.");
+    }
+    let layer_changed = egui::ComboBox::from_id_salt("copaiba_kfv2_layer")
+        .selected_text(format!(
+            "{} · {} · MIDI {}",
+            selected_layer,
+            layers
+                .iter()
+                .find(|layer| layer.0 == selected_layer)
+                .map(|layer| layer.1.as_str())
+                .unwrap_or("style"),
+            layers
+                .iter()
+                .find(|layer| layer.0 == selected_layer)
+                .map(|layer| layer.2)
+                .unwrap_or(0)
+        ))
+        .show_ui(ui, |ui| {
+            for (id, style, midi) in &layers {
+                ui.selectable_value(
+                    &mut selected_layer,
+                    id.clone(),
+                    format!("{id} · {style} · MIDI {midi}"),
+                );
+            }
+        })
+        .response
+        .changed();
+    if layer_changed {
+        app.native_selected_layer = Some(selected_layer.clone());
+        app.native_phrase_report = None;
+        let (_, units, assets) = native_layer_lists(app, &selected_layer);
+        app.native_selected_unit = units.first().map(|unit| unit.0.clone());
+        app.native_selected_asset = assets.first().map(|asset| asset.0.clone());
+        app.native_compare_asset = assets
+            .iter()
+            .find(|asset| Some(asset.0.as_str()) != app.native_selected_asset.as_deref())
+            .map(|asset| asset.0.clone());
+        app.native_comparison_a = None;
+        app.native_comparison_b = None;
+        app.load_selected_wav_samples();
+    }
+
+    let (_, units, assets) = native_layer_lists(app, &selected_layer);
+    if app.native_selected_asset.is_none() {
+        app.native_selected_asset = assets.first().map(|asset| asset.0.clone());
+    }
+    let asset_a_id = app.native_selected_asset.clone();
+    if app.native_compare_asset.as_ref().is_none_or(|asset_b| {
+        Some(asset_b.as_str()) == asset_a_id.as_deref()
+            || !assets.iter().any(|asset| asset.0 == *asset_b)
+    }) {
+        app.native_compare_asset = assets
+            .iter()
+            .find(|asset| Some(asset.0.as_str()) != asset_a_id.as_deref())
+            .map(|asset| asset.0.clone());
+        app.native_comparison_a = None;
+        app.native_comparison_b = None;
+    }
+    if app.native_selected_asset.is_some()
+        && (app.native_comparison_a.is_none()
+            || (app.native_compare_asset.is_some() && app.native_comparison_b.is_none()))
+    {
+        if let Err(error) = app.load_native_comparison_waveforms() {
+            app.status_message = format!("Falha ao carregar comparação A/B: {error}");
+        }
+    }
+    ui.horizontal(|ui| {
+        ui.label("Unidade:");
+        let mut unit_id = app.native_selected_unit.clone().unwrap_or_default();
+        let unit_changed = egui::ComboBox::from_id_salt("copaiba_kfv2_unit")
+            .selected_text(if unit_id.is_empty() {
+                "Selecionar unidade".into()
+            } else {
+                unit_id.clone()
+            })
+            .show_ui(ui, |ui| {
+                for (id, label) in &units {
+                    ui.selectable_value(&mut unit_id, id.clone(), label);
+                }
+            })
+            .response
+            .changed();
+        if unit_changed {
+            app.native_selected_unit = Some(unit_id);
+            app.load_selected_wav_samples();
+        }
+        ui.label("Gravação:");
+        let mut asset_id = app.native_selected_asset.clone().unwrap_or_default();
+        let asset_changed = egui::ComboBox::from_id_salt("copaiba_kfv2_asset")
+            .selected_text(if asset_id.is_empty() {
+                "Selecionar asset".into()
+            } else {
+                asset_id.clone()
+            })
+            .show_ui(ui, |ui| {
+                for (id, path) in &assets {
+                    ui.selectable_value(&mut asset_id, id.clone(), path);
+                }
+            })
+            .response
+            .changed();
+        if asset_changed {
+            app.native_selected_asset = Some(asset_id);
+            let selected_asset = app.native_selected_asset.as_deref();
+            if app.native_compare_asset.as_deref() == selected_asset {
+                app.native_compare_asset = assets
+                    .iter()
+                    .find(|asset| Some(asset.0.as_str()) != selected_asset)
+                    .map(|asset| asset.0.clone());
+            }
+            app.native_comparison_a = None;
+            app.native_comparison_b = None;
+            if let Err(error) = app.load_native_comparison_waveforms() {
+                app.status_message = format!("Falha ao carregar comparação A/B: {error}");
+            }
+        }
+        if ui.button("▶ Preview · SOLA").clicked() {
+            if let Err(error) = app.preview_native_unit_backend(
+                audio_player,
+                crate::voicebank::render::PreviewBackend::Sola,
+            ) {
+                app.status_message = error;
+            }
+        }
+        if ui.button("▶ Preview · WORLD (experimental)").clicked() {
+            if let Err(error) = app.preview_native_unit_backend(
+                audio_player,
+                crate::voicebank::render::PreviewBackend::World,
+            ) {
+                app.status_message = error;
+            }
+        }
+    });
+
+    let mut compare_asset = app.native_compare_asset.clone().unwrap_or_default();
+    let mut play_a = false;
+    let mut play_b = false;
+    ui.separator();
+    ui.horizontal(|ui| {
+        ui.label("Comparar tomadas:");
+        egui::ComboBox::from_id_salt("copaiba_kfv2_compare_asset")
+            .selected_text(if compare_asset.is_empty() {
+                "Importe outra gravação".into()
+            } else {
+                compare_asset.clone()
+            })
+            .show_ui(ui, |ui| {
+                for (id, path) in &assets {
+                    if Some(id.as_str()) != app.native_selected_asset.as_deref() {
+                        ui.selectable_value(&mut compare_asset, id.clone(), path);
+                    }
+                }
+            });
+        if compare_asset != app.native_compare_asset.clone().unwrap_or_default() {
+            app.native_compare_asset = (!compare_asset.is_empty()).then_some(compare_asset);
+            app.native_comparison_a = None;
+            app.native_comparison_b = None;
+            if let Err(error) = app.load_native_comparison_waveforms() {
+                app.status_message = format!("Falha ao carregar comparação A/B: {error}");
+            }
+        }
+        play_a = ui.button("▶ A").clicked();
+        play_b = ui.button("▶ B").clicked();
+    });
+    if assets.len() < 2 {
+        ui.small("Importe pelo menos duas gravações nesta camada para comparar tomadas.");
+    } else {
+        ui.small("Áudio de origem; cada forma de onda usa sua própria escala temporal. A comparação não altera os arquivos.");
+        let asset_a_label = app.native_selected_asset.as_deref().unwrap_or("A");
+        let asset_b_label = app.native_compare_asset.as_deref().unwrap_or("B");
+        ui.columns(2, |columns| {
+            let draw_take = |column: &mut egui::Ui,
+                             label: &str,
+                             waveform: Option<&(Vec<f32>, u32)>,
+                             color: Color32| {
+                column.label(label);
+                if let Some((samples, sample_rate)) = waveform {
+                    column.small(format!(
+                        "{} ms · {} Hz",
+                        samples.len() as f64 * 1_000.0 / f64::from(*sample_rate),
+                        sample_rate
+                    ));
+                    let (rect, _) = column.allocate_exact_size(
+                        Vec2::new(column.available_width(), 64.0),
+                        Sense::hover(),
+                    );
+                    let painter = column.painter_at(rect);
+                    painter.rect_filled(rect, Rounding::ZERO, Color32::from_rgb(16, 16, 16));
+                    draw_waveform_peak_envelope(&painter, rect, samples, color, 0.8, 1.0);
+                } else {
+                    column.small("Gravação B indisponível");
+                }
+            };
+            draw_take(
+                &mut columns[0],
+                asset_a_label,
+                app.native_comparison_a.as_ref(),
+                Color32::from_rgb(0, 255, 160),
+            );
+            draw_take(
+                &mut columns[1],
+                asset_b_label,
+                app.native_comparison_b.as_ref(),
+                Color32::from_rgb(80, 190, 255),
+            );
+        });
+    }
+    if play_a {
+        if let Err(error) = app.preview_native_comparison_take(audio_player, 'A') {
+            app.status_message = error;
+        }
+    }
+    if play_b {
+        if let Err(error) = app.preview_native_comparison_take(audio_player, 'B') {
+            app.status_message = error;
+        }
+    }
+
+    ui.horizontal(|ui| {
+        ui.label("Novo ID:");
+        ui.add(egui::TextEdit::singleline(&mut app.native_new_unit_id).desired_width(120.0));
+        ui.label("Tipo:");
+        egui::ComboBox::from_id_salt("copaiba_kfv2_unit_kind")
+            .selected_text(&app.native_new_kind)
+            .show_ui(ui, |ui| {
+                for kind in ["CV", "VC", "V", "VV", "CC", "breath", "release"] {
+                    ui.selectable_value(&mut app.native_new_kind, kind.to_string(), kind);
+                }
+            });
+        ui.label("Fonemas:");
+        ui.add(
+            egui::TextEdit::singleline(&mut app.native_new_phones)
+                .desired_width(130.0)
+                .hint_text("ex.: k a"),
+        );
+        if ui.button("Criar unidade da gravação selecionada").clicked() {
+            app.native_selected_layer = Some(selected_layer.clone());
+            match app.add_native_unit_from_selected_asset() {
+                Ok(()) => {
+                    app.status_message = format!("Unidade criada: {}", app.native_new_unit_id)
+                }
+                Err(error) => app.status_message = format!("Falha ao criar unidade: {error}"),
+            }
+        }
+    });
+
+    let selected = app.native_project.as_ref().and_then(|project| {
+        let unit_id = app.native_selected_unit.as_deref()?;
+        let unit = project.unit(&selected_layer, unit_id)?.clone();
+        let (_, file) = project
+            .layers
+            .iter()
+            .find(|(layer, _)| layer.id == selected_layer)?;
+        let asset = file
+            .assets
+            .iter()
+            .find(|asset| asset.id == unit.asset_id)?
+            .clone();
+        Some((unit, asset))
+    });
+    let Some((unit, asset)) = selected else {
+        ui.separator();
+        ui.label("Importe um WAV mono e selecione ou crie uma unidade KFV 2.");
+        return;
+    };
+    ui.separator();
+    ui.label(
+        RichText::new(format!(
+            "{} · {} · {} · {} Hz · {} frames",
+            unit.id,
+            unit.kind,
+            unit.phones.join(" "),
+            asset.sample_rate_hz,
+            asset.frame_count
+        ))
+        .strong()
+        .color(Color32::from_rgb(0, 255, 157)),
+    );
+    let mut reviewed = unit.quality.reviewed;
+    if ui
+        .checkbox(&mut reviewed, "Revisada pelo autor")
+        .on_hover_text("Marca uma revisão humana explícita; essa informação é salva com a unidade e pode desempatar a seleção do planner.")
+        .changed()
+    {
+        match app
+            .native_project
+            .as_mut()
+            .ok_or_else(|| "Nenhum banco KFV 2 aberto".to_string())
+            .and_then(|project| {
+                project.set_unit_reviewed(&selected_layer, &unit.id, reviewed)
+            })
+        {
+            Ok(()) => {
+                app.status_message = if reviewed {
+                    format!("Unidade marcada como revisada · {}", unit.id)
+                } else {
+                    format!("Revisão removida · {}", unit.id)
+                }
+            }
+            Err(error) => app.status_message = format!("Falha ao atualizar revisão: {error}"),
+        }
+    }
+    let sample_rate = f64::from(asset.sample_rate_hz);
+    let duration_ms = asset.frame_count as f64 * 1_000.0 / sample_rate;
+    let (rect, _) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 170.0), Sense::hover());
+    let painter = ui.painter_at(rect);
+    painter.rect_filled(rect, Rounding::ZERO, Color32::from_rgb(16, 16, 16));
+    if let Some((samples, _)) = &app.loaded_waveform {
+        draw_waveform_peak_envelope(
+            &painter,
+            rect,
+            samples,
+            Color32::from_rgb(0, 255, 160),
+            0.8,
+            1.0,
+        );
+    }
+    if duration_ms > 0.0 {
+        let x_at = |frame: u64| {
+            rect.left() + (frame as f64 * rect.width() as f64 / asset.frame_count as f64) as f32
+        };
+        let mark = |frame: u64, color: Color32, label: &str| {
+            let x = x_at(frame);
+            painter.line_segment(
+                [Pos2::new(x, rect.top()), Pos2::new(x, rect.bottom())],
+                Stroke::new(1.5_f32, color),
+            );
+            painter.text(
+                Pos2::new(x + 3.0, rect.top() + 2.0),
+                egui::Align2::LEFT_TOP,
+                label,
+                egui::FontId::proportional(9.0),
+                color,
+            );
+        };
+        mark(unit.source.start_frame, Color32::GREEN, "início");
+        mark(unit.source.anchor_frame, Color32::YELLOW, "âncora");
+        mark(
+            unit.source.fixed_end_frame,
+            Color32::from_rgb(255, 160, 40),
+            "fixo",
+        );
+        mark(unit.source.end_frame, Color32::RED, "fim");
+        if let Some(sustain) = &unit.source.sustain {
+            mark(
+                sustain.start_frame,
+                Color32::from_rgb(0, 255, 255),
+                "sustain início",
+            );
+            mark(
+                sustain.end_frame,
+                Color32::from_rgb(80, 170, 255),
+                "sustain fim",
+            );
+        }
+        if let Some(release) = unit.source.release_start_frame {
+            mark(release, Color32::from_rgb(210, 100, 255), "release");
+        }
+    }
+
+    let frame_ms = 1_000.0 / sample_rate;
+    let mut source = unit.source.clone();
+    let mut changed = false;
+    ui.horizontal(|ui| {
+        ui.label("Início");
+        changed |= ui
+            .add(
+                egui::Slider::new(&mut source.start_frame, 0..=source.anchor_frame)
+                    .custom_formatter(|v, _| format!("{:.2} ms", v * frame_ms)),
+            )
+            .changed();
+        ui.label("Âncora");
+        let anchor_max = source
+            .fixed_end_frame
+            .min(source.end_frame.saturating_sub(1))
+            .min(
+                source
+                    .sustain
+                    .as_ref()
+                    .map(|region| region.start_frame)
+                    .unwrap_or(source.fixed_end_frame),
+            );
+        changed |= ui
+            .add(
+                egui::Slider::new(&mut source.anchor_frame, source.start_frame..=anchor_max)
+                    .custom_formatter(|v, _| format!("{:.2} ms", v * frame_ms)),
+            )
+            .changed();
+        ui.label("Fim fixo");
+        let fixed_max = source
+            .sustain
+            .as_ref()
+            .map(|region| region.start_frame)
+            .unwrap_or(source.end_frame);
+        changed |= ui
+            .add(
+                egui::Slider::new(&mut source.fixed_end_frame, source.anchor_frame..=fixed_max)
+                    .custom_formatter(|v, _| format!("{:.2} ms", v * frame_ms)),
+            )
+            .changed();
+        ui.label("Fim");
+        let end_min = source
+            .fixed_end_frame
+            .max(source.anchor_frame.saturating_add(1));
+        changed |= ui
+            .add(
+                egui::Slider::new(&mut source.end_frame, end_min..=asset.frame_count)
+                    .custom_formatter(|v, _| format!("{:.2} ms", v * frame_ms)),
+            )
+            .changed();
+    });
+    let can_enable_sustain = source.end_frame > source.fixed_end_frame.saturating_add(1);
+    let mut has_sustain = source.sustain.is_some();
+    if ui
+        .add_enabled(
+            can_enable_sustain || has_sustain,
+            egui::Checkbox::new(&mut has_sustain, "Região de sustain"),
+        )
+        .changed()
+    {
+        if has_sustain {
+            let start = (source.fixed_end_frame + 1).min(source.end_frame - 1);
+            let end = (start + ((source.end_frame - start) / 2).max(1)).min(source.end_frame);
+            source.sustain = Some(crate::voicebank::native::FrameRange {
+                start_frame: start,
+                end_frame: end,
+            });
+        } else {
+            source.sustain = None;
+        }
+        changed = true;
+    }
+    if let Some(sustain) = source.sustain.as_mut() {
+        ui.horizontal(|ui| {
+            ui.label("Sustain início");
+            let start_max = sustain
+                .end_frame
+                .saturating_sub(1)
+                .min(
+                    source
+                        .release_start_frame
+                        .unwrap_or(source.end_frame.saturating_sub(1)),
+                )
+                .max(source.fixed_end_frame);
+            changed |= ui
+                .add(
+                    egui::Slider::new(&mut sustain.start_frame, source.fixed_end_frame..=start_max)
+                        .custom_formatter(|v, _| format!("{:.2} ms", v * frame_ms)),
+                )
+                .changed();
+            ui.label("Sustain fim");
+            let end_max = source.release_start_frame.unwrap_or(source.end_frame);
+            changed |= ui
+                .add(
+                    egui::Slider::new(&mut sustain.end_frame, (sustain.start_frame + 1)..=end_max)
+                        .custom_formatter(|v, _| format!("{:.2} ms", v * frame_ms)),
+                )
+                .changed();
+        });
+    }
+    let mut has_release = source.release_start_frame.is_some();
+    if ui
+        .add_enabled(
+            source.end_frame > source.fixed_end_frame + 1 || has_release,
+            egui::Checkbox::new(&mut has_release, "Início de release"),
+        )
+        .changed()
+    {
+        source.release_start_frame = if has_release {
+            Some(
+                source
+                    .sustain
+                    .as_ref()
+                    .map(|region| region.end_frame)
+                    .unwrap_or(source.fixed_end_frame)
+                    .min(source.end_frame - 1),
+            )
+        } else {
+            None
+        };
+        changed = true;
+    }
+    if let Some(release) = source.release_start_frame.as_mut() {
+        let release_min = source
+            .sustain
+            .as_ref()
+            .map(|region| region.end_frame)
+            .unwrap_or(source.fixed_end_frame);
+        changed |= ui
+            .add(
+                egui::Slider::new(release, release_min..=source.end_frame.saturating_sub(1))
+                    .custom_formatter(|v, _| format!("{:.2} ms", v * frame_ms)),
+            )
+            .changed();
+    }
+    if changed {
+        match app.native_project.as_mut().unwrap().set_source_region(
+            &selected_layer,
+            &unit.id,
+            source,
+        ) {
+            Ok(()) => app.status_message = format!("Marcas atualizadas · {}", unit.id),
+            Err(error) => app.status_message = format!("Marcas inválidas: {error}"),
+        }
+    }
+    ui.label("As gravações originais ficam intactas; os imports são copiados para audio/imports.");
+}
+
+fn native_layer_lists(
+    app: &CopaibaToolkitApp,
+    layer_id: &str,
+) -> ((), Vec<(String, String)>, Vec<(String, String)>) {
+    let Some(project) = app.native_project.as_ref() else {
+        return ((), Vec::new(), Vec::new());
+    };
+    let Some((_, file)) = project
+        .layers
+        .iter()
+        .find(|(layer, _)| layer.id == layer_id)
+    else {
+        return ((), Vec::new(), Vec::new());
+    };
+    (
+        (),
+        file.units
+            .iter()
+            .map(|unit| {
+                (
+                    unit.id.clone(),
+                    format!("{} · {}", unit.kind, unit.phones.join(" ")),
+                )
+            })
+            .collect(),
+        file.assets
+            .iter()
+            .map(|asset| (asset.id.clone(), asset.path.clone()))
+            .collect(),
+    )
 }
 
 pub fn draw_copaiba_toolkit_ui(
@@ -534,7 +1815,81 @@ pub fn draw_copaiba_toolkit_ui(
                 }
             }
 
-            if app.current_dir.is_some() {
+            if ui.button("Abrir pacote KFV 2...").clicked() {
+                if let Some(package) = crate::dialogs::FileDialog::new()
+                    .add_filter("Kamafeu Voicebank (*.kfv)", &["kfv"])
+                    .pick_file()
+                {
+                    app.open_dir(package);
+                }
+            }
+
+            if app.native_project.is_none() && ui.button("Novo banco nativo...").clicked() {
+                app.native_create_wizard_open = !app.native_create_wizard_open;
+            }
+
+            if app.native_project.is_some() {
+                if ui.button("Salvar KFV 2").clicked() {
+                    app.status_message = match app.save_config() {
+                        Ok(()) => "Marcas KFV 2 salvas".into(),
+                        Err(error) => format!("Falha ao salvar KFV 2: {error}"),
+                    };
+                }
+                if ui.button("Recarregar").clicked() {
+                    app.reload_current();
+                }
+                if ui.button("Desfazer").clicked() {
+                    let result = app.native_project.as_mut().unwrap().undo();
+                    app.status_message = match result {
+                        Ok(true) => { app.load_selected_wav_samples(); "Edição desfeita".into() }
+                        Ok(false) => "Não há edição para desfazer".into(),
+                        Err(error) => format!("Falha ao desfazer: {error}"),
+                    };
+                }
+                if ui.button("Refazer").clicked() {
+                    let result = app.native_project.as_mut().unwrap().redo();
+                    app.status_message = match result {
+                        Ok(true) => { app.load_selected_wav_samples(); "Edição refeita".into() }
+                        Ok(false) => "Não há edição para refazer".into(),
+                        Err(error) => format!("Falha ao refazer: {error}"),
+                    };
+                }
+                if ui.button("Importar gravação WAV...").clicked() {
+                    if let Some(source) = crate::dialogs::FileDialog::new()
+                        .add_filter("Áudio WAV (*.wav)", &["wav"])
+                        .pick_file()
+                    {
+                        let stem = source.file_stem().and_then(|name| name.to_str()).unwrap_or("take");
+                        let asset_id: String = stem.chars().map(|ch| {
+                            if ch.is_ascii_alphanumeric() || ch == '-' || ch == '_' { ch } else { '-' }
+                        }).collect();
+                        if let Err(error) = app.import_native_recording(source, &asset_id) {
+                            app.status_message = error;
+                        }
+                    }
+                }
+                if ui.button("Testar unidade · SOLA").clicked() {
+                    app.status_message = match app.preview_native_unit(audio_player) {
+                        Ok(()) => app.status_message.clone(),
+                        Err(error) => format!("Preview experimental: {error}"),
+                    };
+                }
+                if ui.button("Empacotar rascunho KFV 2...").clicked() {
+                    let default_name = app.native_project.as_ref()
+                        .map(|project| format!("{}.kfv", project.manifest.bank_id.replace('.', "_")))
+                        .unwrap_or_else(|| "voicebank.kfv".into());
+                    if let Some(destination) = crate::dialogs::FileDialog::new()
+                        .set_file_name(&default_name)
+                        .add_filter("Kamafeu Voicebank (*.kfv)", &["kfv"])
+                        .save_file()
+                    {
+                        app.status_message = match app.package_native_draft(&destination) {
+                            Ok(()) => format!("Rascunho KFV 2 verificado: {}", destination.display()),
+                            Err(error) => format!("Falha ao empacotar rascunho: {error}"),
+                        };
+                    }
+                }
+            } else if app.current_dir.is_some() {
                 if ui.button(RichText::new("Salvar").strong().color(Color32::WHITE)).clicked() {
                     app.status_message = match app.save_config() {
                         Ok(()) => "Configurações salvas!".to_string(),
@@ -564,6 +1919,28 @@ pub fn draw_copaiba_toolkit_ui(
                         }
                     }
                 }
+
+                if ui.button("Migrar OTO para KFV 2 (rascunho)...").clicked() {
+                    if let Some(profile_path) = crate::dialogs::FileDialog::new()
+                        .add_filter("Perfil fonético KFV 2 (*.json)", &["json"])
+                        .pick_file()
+                    {
+                        let mapping_path = crate::dialogs::FileDialog::new()
+                            .add_filter("Mapa JSON alias → fonemas (*.json)", &["json"])
+                            .pick_file();
+                        if let Some(destination_parent) = crate::dialogs::FileDialog::new().pick_folder() {
+                            app.status_message = match app.migrate_classic_voicebank(
+                                &profile_path,
+                                mapping_path.as_deref(),
+                                &destination_parent,
+                            ) {
+                                Ok(()) => app.status_message.clone(),
+                                Err(error) => format!("Falha na migração assistida: {error}"),
+                            };
+                        }
+                    }
+                }
+                ui.small("Escolha um perfil fonético, um mapa JSON opcional no formato {\"alias\":[\"fone1\",\"fone2\"]} e uma pasta de destino fora do banco. Aliases sem mapa só são inferidos quando os tokens coincidirem com o perfil. Todas as unidades exigem revisão.");
 
                 ui.add_space(10.0);
                 if ui.button(RichText::new("Duplicar Alias").strong().color(Color32::WHITE)).clicked() {
@@ -602,15 +1979,31 @@ pub fn draw_copaiba_toolkit_ui(
                 ui.vertical_centered(|ui| {
                     ui.label(RichText::new("Bem-vindo ao Copaiba Voicebank Toolkit").size(18.0).strong().color(Color32::from_rgb(180, 255, 0)));
                     ui.add_space(8.0);
-                    ui.label("Abra uma pasta de Voicebank contendo arquivos .wav para configurar seus fonemas e criar seu copaiba.config.");
+                    ui.label("Abra um banco clássico ou KFV 2, ou crie um novo rascunho nativo.");
                     ui.add_space(12.0);
                     if ui.button(RichText::new("Selecionar Pasta do Voicebank").size(14.0)).clicked() {
                         if let Some(folder) = crate::dialogs::FileDialog::new().pick_folder() {
                             app.open_dir(folder);
                         }
                     }
+                    if ui.button("Criar novo rascunho KFV 2...").clicked() {
+                        app.native_create_wizard_open = !app.native_create_wizard_open;
+                    }
+                    if app.native_create_wizard_open {
+                        draw_native_create_wizard(app, ui);
+                    }
                 });
             });
+            return;
+        }
+
+        if app.native_project.is_some() {
+            draw_copaiba_native_ui(app, audio_player, ui);
+            return;
+        }
+
+        if app.native_create_wizard_open {
+            draw_native_create_wizard(app, ui);
             return;
         }
 
@@ -1359,4 +2752,45 @@ pub fn draw_copaiba_toolkit_ui(
         }
     });
 });
+}
+
+fn draw_native_create_wizard(app: &mut CopaibaToolkitApp, ui: &mut egui::Ui) {
+    ui.add_space(12.0);
+    egui::Frame::group(ui.style()).show(ui, |ui| {
+        ui.set_max_width(540.0);
+        ui.heading("Criar banco nativo · rascunho");
+        ui.label("Começa com estilo Natural, camada MIDI 60 e um inventário PT-BR básico. Não inclui G2P nem gravações.");
+        ui.horizontal(|ui| {
+            ui.label("Nome");
+            ui.text_edit_singleline(&mut app.native_draft_display_name);
+        });
+        ui.horizontal(|ui| {
+            ui.label("Voice ID");
+            ui.text_edit_singleline(&mut app.native_draft_voice_id);
+        });
+        ui.horizontal(|ui| {
+            ui.label("Bank ID");
+            ui.text_edit_singleline(&mut app.native_draft_bank_id);
+        });
+        ui.horizontal(|ui| {
+            ui.label("Autor");
+            ui.text_edit_singleline(&mut app.native_draft_publisher);
+        });
+        ui.small("O inventário é só uma lista de símbolos fonéticos. As pronúncias devem ser informadas diretamente; defina autorização e licença antes de distribuir.");
+        ui.horizontal(|ui| {
+            if ui.button("Escolher pasta e criar").clicked() {
+                if let Some(parent) = crate::dialogs::FileDialog::new()
+                    .set_title("Escolha onde criar o rascunho KFV 2")
+                    .pick_folder()
+                {
+                    if let Err(error) = app.create_native_draft(&parent) {
+                        app.status_message = format!("Não foi possível criar o banco: {error}");
+                    }
+                }
+            }
+            if ui.button("Cancelar").clicked() {
+                app.native_create_wizard_open = false;
+            }
+        });
+    });
 }

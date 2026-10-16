@@ -64,6 +64,117 @@ pub fn cache_identity() -> String {
 
 pub struct WorldResampler;
 
+#[derive(Debug, Clone, Copy, Default)]
+struct TainahFlags {
+    gender: f64,
+    tone_cents: f64,
+    breathiness: f64,
+    high_cut: f64,
+}
+
+impl TainahFlags {
+    fn parse(flags: &str, trace: &mut WorldRenderTrace) -> Self {
+        let mut parsed = Self::default();
+        for token in crate::drivers::resampler_driver::parse_utau_flags(flags) {
+            let value = token.num_val.unwrap_or(0.0);
+            match token.key.as_str() {
+                "g" => parsed.gender = value.clamp(-100.0, 100.0),
+                "t" => parsed.tone_cents = value.clamp(-100.0, 100.0) * 10.0,
+                "B" => parsed.breathiness = value.clamp(0.0, 100.0),
+                "H" => parsed.high_cut = value.clamp(0.0, 99.0),
+                _ => trace.adjustment(
+                    &format!("Tainah ignored unsupported flag {}", token.key),
+                    "kamafeu.world-rs.flags",
+                ),
+            }
+        }
+        parsed
+    }
+}
+
+fn apply_spectral_flags(matrix: &mut [Vec<f64>], sample_rate: u32, flags: &TainahFlags) {
+    if matrix.is_empty() || matrix[0].is_empty() {
+        return;
+    }
+    let bins = matrix[0].len();
+    let nyquist = sample_rate as f64 * 0.5;
+    let ratio = 2.0f64.powf(flags.gender / 200.0);
+    let high_cut_hz = if flags.high_cut <= 0.0 || nyquist <= 1_000.0 {
+        nyquist
+    } else {
+        nyquist * (1_000.0 / nyquist).powf(flags.high_cut / 99.0)
+    };
+    for row in matrix {
+        let original = row.clone();
+        for (bin, value) in row.iter_mut().enumerate() {
+            let frequency = bin as f64 * nyquist / (bins - 1).max(1) as f64;
+            if frequency > high_cut_hz {
+                *value = 0.0;
+                continue;
+            }
+            if flags.gender.abs() > f64::EPSILON {
+                let source_bin = (bin as f64 / ratio).clamp(0.0, (bins - 1) as f64);
+                let lower = source_bin.floor() as usize;
+                let upper = (lower + 1).min(bins - 1);
+                let fraction = source_bin - lower as f64;
+                *value = original[lower] * (1.0 - fraction) + original[upper] * fraction;
+            }
+        }
+    }
+}
+
+fn apply_breathiness(matrix: &mut [Vec<f64>], amount: f64) {
+    if amount <= 0.0 {
+        return;
+    }
+    let amount = amount.clamp(0.0, 100.0) / 100.0;
+    for row in matrix {
+        for value in row {
+            *value = (*value + (0.95 - *value) * amount).clamp(0.0, 1.0);
+        }
+    }
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct WorldRenderTrace {
+    /// Distinct DSP paths that contributed to the returned samples.
+    pub stages: Vec<String>,
+    pub fallback_reasons: Vec<String>,
+    pub adjustments: Vec<String>,
+}
+
+impl WorldRenderTrace {
+    fn stage(&mut self, stage: &str) {
+        if !self.stages.iter().any(|existing| existing == stage) {
+            self.stages.push(stage.to_string());
+        }
+    }
+
+    fn fallback(&mut self, reason: &str, stage: &str) {
+        self.stage(stage);
+        self.fallback_reasons.push(reason.to_string());
+    }
+
+    fn adjustment(&mut self, reason: &str, stage: &str) {
+        self.stage(stage);
+        self.adjustments.push(reason.to_string());
+    }
+
+    pub fn effective_backend_id(&self) -> String {
+        if self.stages.is_empty() {
+            "kamafeu.world-rs".into()
+        } else {
+            self.stages.join("+")
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct WorldRenderResult {
+    pub samples: Vec<f32>,
+    pub trace: WorldRenderTrace,
+}
+
 impl WorldResampler {
     #[allow(clippy::too_many_arguments)]
     pub fn render_sample(
@@ -108,16 +219,129 @@ impl WorldResampler {
         loop_end_ms: Option<f64>,
         tail_start_ms: Option<f64>,
     ) -> Vec<f32> {
+        Self::render_sample_with_oto_traced(
+            input_samples,
+            sample_rate,
+            offset_ms,
+            source_consonant_ms,
+            target_consonant_ms,
+            target_duration_ms,
+            target_pitch_freq,
+            pitch_points,
+            cutoff_ms,
+            loop_start_ms,
+            loop_end_ms,
+            tail_start_ms,
+        )
+        .samples
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn render_sample_with_oto_traced(
+        input_samples: &[f32],
+        sample_rate: u32,
+        offset_ms: f64,
+        source_consonant_ms: f64,
+        target_consonant_ms: f64,
+        target_duration_ms: f64,
+        target_pitch_freq: f64,
+        pitch_points: &[UPitchBendPoint],
+        cutoff_ms: f64,
+        loop_start_ms: Option<f64>,
+        loop_end_ms: Option<f64>,
+        tail_start_ms: Option<f64>,
+    ) -> WorldRenderResult {
+        Self::render_sample_with_oto_traced_flags(
+            input_samples,
+            sample_rate,
+            offset_ms,
+            source_consonant_ms,
+            target_consonant_ms,
+            target_duration_ms,
+            target_pitch_freq,
+            pitch_points,
+            cutoff_ms,
+            loop_start_ms,
+            loop_end_ms,
+            tail_start_ms,
+            "",
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn render_sample_with_oto_traced_flags(
+        input_samples: &[f32],
+        sample_rate: u32,
+        offset_ms: f64,
+        source_consonant_ms: f64,
+        target_consonant_ms: f64,
+        target_duration_ms: f64,
+        target_pitch_freq: f64,
+        pitch_points: &[UPitchBendPoint],
+        cutoff_ms: f64,
+        loop_start_ms: Option<f64>,
+        loop_end_ms: Option<f64>,
+        tail_start_ms: Option<f64>,
+        flags: &str,
+    ) -> WorldRenderResult {
+        let mut trace = WorldRenderTrace::default();
+        let samples = Self::render_sample_with_oto_inner(
+            input_samples,
+            sample_rate,
+            offset_ms,
+            source_consonant_ms,
+            target_consonant_ms,
+            target_duration_ms,
+            target_pitch_freq,
+            pitch_points,
+            cutoff_ms,
+            loop_start_ms,
+            loop_end_ms,
+            tail_start_ms,
+            flags,
+            &mut trace,
+        );
+        WorldRenderResult { samples, trace }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn render_sample_with_oto_inner(
+        input_samples: &[f32],
+        sample_rate: u32,
+        offset_ms: f64,
+        source_consonant_ms: f64,
+        target_consonant_ms: f64,
+        target_duration_ms: f64,
+        target_pitch_freq: f64,
+        pitch_points: &[UPitchBendPoint],
+        cutoff_ms: f64,
+        loop_start_ms: Option<f64>,
+        loop_end_ms: Option<f64>,
+        tail_start_ms: Option<f64>,
+        flags: &str,
+        trace: &mut WorldRenderTrace,
+    ) -> Vec<f32> {
         let target_len =
             ((target_duration_ms.max(0.0) / 1000.0) * sample_rate as f64).round() as usize;
         if target_len == 0 || input_samples.is_empty() || sample_rate == 0 {
+            trace.fallback("invalid or empty WORLD input", "kamafeu.silence");
             return vec![0.0; target_len];
         }
 
         let (start, end) =
             crate::dsp::oto_source_bounds(input_samples.len(), sample_rate, offset_ms, cutoff_ms);
         if start >= end || end - start < 64 {
+            trace.fallback("empty or too short WORLD source region", "kamafeu.silence");
             return vec![0.0; target_len];
+        }
+        if input_samples[start..end]
+            .iter()
+            .any(|sample| !sample.is_finite())
+        {
+            trace.adjustment(
+                "non-finite source samples were replaced with zero before WORLD analysis",
+                "kamafeu.input-sanitize",
+            );
         }
 
         let input: Vec<f64> = input_samples[start..end]
@@ -151,7 +375,7 @@ impl WorldResampler {
         {
             let vowel_duration_ms =
                 target_duration_ms - target_consonant_samples as f64 * 1000.0 / sample_rate as f64;
-            let vowel = Self::render_sample_with_oto(
+            let vowel = Self::render_sample_with_oto_inner(
                 &input_f32[source_consonant_samples..],
                 sample_rate,
                 0.0,
@@ -162,15 +386,18 @@ impl WorldResampler {
                 pitch_points,
                 0.0,
                 loop_start_ms
-                    .map(|value| value - source_consonant_ms)
+                    .map(|value| value - offset_ms - source_consonant_ms)
                     .filter(|value| *value >= 0.0),
                 loop_end_ms
-                    .map(|value| value - source_consonant_ms)
+                    .map(|value| value - offset_ms - source_consonant_ms)
                     .filter(|value| *value >= 0.0),
                 tail_start_ms
-                    .map(|value| value - source_consonant_ms)
+                    .map(|value| value - offset_ms - source_consonant_ms)
                     .filter(|value| *value >= 0.0),
+                flags,
+                trace,
             );
+            trace.stage("kamafeu.resize-preserving-pitch");
             let consonant = crate::dsp::resize_preserving_pitch(
                 &input_f32[..source_consonant_samples],
                 target_consonant_samples,
@@ -205,6 +432,9 @@ impl WorldResampler {
             .read()
             .map(|value| value.clone())
             .unwrap_or_default();
+        let parsed_flags = TainahFlags::parse(flags, trace);
+        let effective_pitch_freq =
+            target_pitch_freq.max(1.0) * 2.0f64.powf(parsed_flags.tone_cents / 1_200.0);
         let dio_options = world_rs::dio::initialize_dio_option();
         let mut dio_options = dio_options;
         dio_options.frame_period = settings.frame_period_ms.clamp(1.0, 20.0);
@@ -276,7 +506,7 @@ impl WorldResampler {
                 .map(|result| (result.temporal_positions, result.f0))
         };
         let Some((temporal_positions, raw_f0)) = analysis else {
-            return fallback_render(
+            return fallback_render_traced(
                 input_samples,
                 sample_rate,
                 offset_ms,
@@ -284,16 +514,18 @@ impl WorldResampler {
                 target_consonant_ms,
                 cutoff_ms,
                 target_duration_ms,
-                target_pitch_freq,
+                effective_pitch_freq,
                 pitch_points,
                 target_len,
                 loop_start_ms,
                 loop_end_ms,
                 tail_start_ms,
+                "F0 analysis unavailable",
+                trace,
             );
         };
         if raw_f0.is_empty() {
-            return fallback_render(
+            return fallback_render_traced(
                 input_samples,
                 sample_rate,
                 offset_ms,
@@ -301,14 +533,26 @@ impl WorldResampler {
                 target_consonant_ms,
                 cutoff_ms,
                 target_duration_ms,
-                target_pitch_freq,
+                effective_pitch_freq,
                 pitch_points,
                 target_len,
                 loop_start_ms,
                 loop_end_ms,
                 tail_start_ms,
+                "F0 analysis returned no frames",
+                trace,
             );
         }
+        // world-rs follows WORLD and returns seconds for DIO/Harvest. The
+        // local pYIN/YIN extractors above construct their positions in ms.
+        let temporal_positions_ms = if use_pyin || use_custom_f0 {
+            temporal_positions.clone()
+        } else {
+            temporal_positions
+                .iter()
+                .map(|time_seconds| time_seconds * 1_000.0)
+                .collect::<Vec<_>>()
+        };
 
         let mut f0 = if use_custom_f0 {
             raw_f0.clone()
@@ -321,7 +565,7 @@ impl WorldResampler {
                 &raw_f0,
                 raw_f0.len(),
             ) else {
-                return fallback_render(
+                return fallback_render_traced(
                     input_samples,
                     sample_rate,
                     offset_ms,
@@ -329,12 +573,14 @@ impl WorldResampler {
                     target_consonant_ms,
                     cutoff_ms,
                     target_duration_ms,
-                    target_pitch_freq,
+                    effective_pitch_freq,
                     pitch_points,
                     target_len,
                     loop_start_ms,
                     loop_end_ms,
                     tail_start_ms,
+                    "StoneMask refinement failed",
+                    trace,
                 );
             };
             refined
@@ -354,7 +600,7 @@ impl WorldResampler {
         let Ok(spectrogram) =
             world_rs::cheaptrick::cheaptrick(&input, fs, &temporal_positions, &f0, &option)
         else {
-            return fallback_render(
+            return fallback_render_traced(
                 input_samples,
                 sample_rate,
                 offset_ms,
@@ -362,12 +608,14 @@ impl WorldResampler {
                 target_consonant_ms,
                 cutoff_ms,
                 target_duration_ms,
-                target_pitch_freq,
+                effective_pitch_freq,
                 pitch_points,
                 target_len,
                 loop_start_ms,
                 loop_end_ms,
                 tail_start_ms,
+                "CheapTrick spectral analysis failed",
+                trace,
             );
         };
         let fft_size = option.fft_size as usize;
@@ -451,11 +699,67 @@ impl WorldResampler {
         // period makes the feature timeline end early and the remaining note
         // becomes silent. Resample the analysed features to the target frame
         // count instead, matching straycat-rs' render-time interpolation.
+        let source_duration_ms = input_f32.len() as f64 * 1_000.0 / sample_rate as f64;
         let target_frames =
             ((target_duration_ms.max(1.0) / dio_options.frame_period).ceil() as usize + 1).max(2);
-        let render_spectrogram = resample_feature_matrix(&spectrogram, target_frames, bins);
-        let render_aperiodicity = resample_feature_matrix(&aperiodicity, target_frames, bins);
-        let source_duration_ms = input_f32.len() as f64 * 1_000.0 / sample_rate as f64;
+        let source_positions = stretch_source_positions(
+            target_frames,
+            target_duration_ms,
+            source_duration_ms,
+            loop_start_ms.map(|value| value - offset_ms),
+            loop_end_ms.map(|value| value - offset_ms),
+            tail_start_ms.map(|value| value - offset_ms),
+        );
+        if has_valid_oto_stretch_markers(
+            source_duration_ms,
+            loop_start_ms.map(|value| value - offset_ms),
+            loop_end_ms.map(|value| value - offset_ms),
+            tail_start_ms.map(|value| value - offset_ms),
+        ) {
+            trace.adjustment(
+                "Tainah stretch preserved the OTO attack and tail while stretching the voiced sustain",
+                "kamafeu.world-rs",
+            );
+        }
+        let mut render_spectrogram = resample_feature_matrix_at_positions(
+            &spectrogram,
+            &temporal_positions_ms,
+            &source_positions,
+            bins,
+        );
+        apply_spectral_flags(&mut render_spectrogram, sample_rate, &parsed_flags);
+        if parsed_flags.gender.abs() > f64::EPSILON || parsed_flags.high_cut > 0.0 {
+            trace.adjustment(
+                &format!(
+                    "Tainah spectral flags g{} H{}",
+                    parsed_flags.gender as i32, parsed_flags.high_cut as i32
+                ),
+                "kamafeu.world-rs.flags",
+            );
+        }
+        let render_aperiodicity = resample_feature_matrix_at_positions(
+            &aperiodicity,
+            &temporal_positions_ms,
+            &source_positions,
+            bins,
+        );
+        let mut render_aperiodicity = render_aperiodicity;
+        if parsed_flags.breathiness > 0.0 {
+            apply_breathiness(&mut render_aperiodicity, parsed_flags.breathiness);
+            trace.adjustment(
+                format!("Tainah B{} breathiness", parsed_flags.breathiness as i32).as_str(),
+                "kamafeu.world-rs.flags",
+            );
+        }
+        if parsed_flags.tone_cents != 0.0 {
+            trace.adjustment(
+                &format!(
+                    "Tainah t{} pitch offset in cents",
+                    (parsed_flags.tone_cents / 10.0) as i32
+                ),
+                "kamafeu.world-rs.flags",
+            );
+        }
         let voiced_frames = f0
             .iter()
             .filter(|value| **value > dio_options.f0_floor)
@@ -463,15 +767,21 @@ impl WorldResampler {
         let force_voiced_sustain = target_duration_ms > source_duration_ms * 1.25
             && voiced_frames >= 3
             && voiced_frames * 5 >= f0.len();
+        let sustain_start_ms = loop_start_ms
+            .map(|value| (value - offset_ms).max(0.0))
+            .unwrap_or(source_consonant_ms.max(0.0));
+        let sustain_end_ms = loop_end_ms
+            .map(|value| (value - offset_ms).max(0.0))
+            .or_else(|| tail_start_ms.map(|value| (value - offset_ms).max(0.0)))
+            .unwrap_or(source_duration_ms);
         let target_f0 = (0..target_frames)
             .map(|frame| {
-                let source_position = if target_frames > 1 && f0.len() > 1 {
-                    frame as f64 * (f0.len() - 1) as f64 / (target_frames - 1) as f64
-                } else {
-                    0.0
-                };
-                let source_frame = source_position.round() as usize;
-                if !force_voiced_sustain && f0[source_frame.min(f0.len() - 1)] <= 0.0 {
+                let source_time_ms = source_positions[frame.min(source_positions.len() - 1)];
+                let source_f0 = sample_scalar_at_time(&f0, &temporal_positions_ms, source_time_ms);
+                let voiced_sustain = force_voiced_sustain
+                    && source_time_ms >= sustain_start_ms
+                    && source_time_ms <= sustain_end_ms;
+                if source_f0 <= 0.0 && !voiced_sustain {
                     return 0.0;
                 }
                 let time_ms = frame as f64 * dio_options.frame_period;
@@ -479,7 +789,7 @@ impl WorldResampler {
                     time_ms,
                     pitch_points,
                 );
-                (target_pitch_freq.max(1.0) * 2.0f64.powf(cents / 1_200.0))
+                (effective_pitch_freq * 2.0f64.powf(cents / 1_200.0))
                     .clamp(dio_options.f0_floor, dio_options.f0_ceil)
             })
             .collect::<Vec<_>>();
@@ -494,6 +804,10 @@ impl WorldResampler {
             fs,
             output_len,
         ) else {
+            trace.fallback(
+                "WORLD synthesis failed; used pitch-preserving resize",
+                "kamafeu.resize-preserving-pitch",
+            );
             return crate::dsp::resize_preserving_pitch(&input_f32, target_len, sample_rate);
         };
         let rendered: Vec<f32> = rendered.into_iter().map(|sample| sample as f32).collect();
@@ -501,7 +815,7 @@ impl WorldResampler {
             .iter()
             .any(|sample| sample.is_finite() && sample.abs() > 1e-5)
         {
-            return fallback_render(
+            return fallback_render_traced(
                 input_samples,
                 sample_rate,
                 offset_ms,
@@ -509,17 +823,19 @@ impl WorldResampler {
                 target_consonant_ms,
                 cutoff_ms,
                 target_duration_ms,
-                target_pitch_freq,
+                effective_pitch_freq,
                 pitch_points,
                 target_len,
                 loop_start_ms,
                 loop_end_ms,
                 tail_start_ms,
+                "WORLD synthesis returned no audible samples",
+                trace,
             );
         }
-        let has_explicit_oto_sustain =
-            loop_start_ms.is_some() || loop_end_ms.is_some() || tail_start_ms.is_some();
-        let needs_pitch_correction = if target_pitch_freq.is_finite() && target_pitch_freq > 0.0 {
+        let needs_pitch_correction = if effective_pitch_freq.is_finite()
+            && effective_pitch_freq > 0.0
+        {
             let begin = rendered.len() / 8;
             let end = rendered.len().saturating_mul(7) / 8;
             if end.saturating_sub(begin) >= (sample_rate as usize / 10).max(64) {
@@ -528,7 +844,7 @@ impl WorldResampler {
                     sample_rate,
                 );
                 measured > 0
-                    && ((measured as f64 * target_pitch_freq / sample_rate as f64) - 1.0).abs()
+                    && ((measured as f64 * effective_pitch_freq / sample_rate as f64) - 1.0).abs()
                         > 0.10
             } else {
                 false
@@ -536,12 +852,13 @@ impl WorldResampler {
         } else {
             false
         };
-        let output = if needs_pitch_correction || has_explicit_oto_sustain {
-            // This is a guarded compatibility path for voices whose WORLD
-            // analysis loses the fundamental, and the authoritative OTO
-            // sustain path for entries that explicitly define loop/tail
-            // coordinates. Notes without either condition remain pure WORLD
-            // synthesis and avoid a second time-stretcher.
+        let output = if needs_pitch_correction {
+            // OTO attack, sustain, and tail coordinates have already shaped
+            // WORLD's spectral-frame time map. A second time-stretcher here
+            // would stretch an already stretched render and misapply the OTO
+            // coordinates to output time instead of source time.
+            trace.stage("kamafeu.world-rs");
+            trace.adjustment("SOLA applied for pitch correction", "kamafeu.sola");
             crate::dsp::SolaResampler::render_sample(
                 &rendered,
                 sample_rate,
@@ -550,11 +867,11 @@ impl WorldResampler {
                 0.0,
                 0.0,
                 target_duration_ms,
-                target_pitch_freq,
+                effective_pitch_freq,
                 pitch_points,
-                loop_start_ms,
-                loop_end_ms,
-                tail_start_ms,
+                None,
+                None,
+                None,
             )
         } else {
             rendered
@@ -563,9 +880,12 @@ impl WorldResampler {
             .iter()
             .any(|sample| sample.is_finite() && sample.abs() > 1e-5)
         {
+            if !needs_pitch_correction {
+                trace.stage("kamafeu.world-rs");
+            }
             output
         } else {
-            fallback_render(
+            fallback_render_traced(
                 input_samples,
                 sample_rate,
                 offset_ms,
@@ -573,39 +893,169 @@ impl WorldResampler {
                 target_consonant_ms,
                 cutoff_ms,
                 target_duration_ms,
-                target_pitch_freq,
+                effective_pitch_freq,
                 pitch_points,
                 target_len,
                 loop_start_ms,
                 loop_end_ms,
                 tail_start_ms,
+                "WORLD and its guarded SOLA stage returned no audible samples",
+                trace,
             )
         }
     }
 }
 
-fn resample_feature_matrix(
-    source: &[Vec<f64>],
+/// Maps the source forward in time, preserving the recorded attack and tail
+/// while stretching the sustain interval between OTO loop markers.
+fn stretch_source_positions(
     target_frames: usize,
+    target_duration_ms: f64,
+    source_duration_ms: f64,
+    loop_start_ms: Option<f64>,
+    loop_end_ms: Option<f64>,
+    tail_start_ms: Option<f64>,
+) -> Vec<f64> {
+    if target_frames == 0 || source_duration_ms <= 0.0 {
+        return vec![0.0; target_frames];
+    }
+    let source_duration_ms = source_duration_ms.max(0.0);
+    let target_duration_ms = target_duration_ms.max(0.0);
+    let valid_markers = match (loop_start_ms, loop_end_ms) {
+        (Some(start), Some(end)) => {
+            start.is_finite()
+                && end.is_finite()
+                && start >= 0.0
+                && end > start
+                && end <= source_duration_ms
+        }
+        _ => false,
+    };
+    let tail_mark = tail_start_ms.filter(|tail| {
+        tail.is_finite()
+            && valid_markers
+            && *tail >= loop_end_ms.unwrap_or(f64::INFINITY)
+            && *tail <= source_duration_ms
+    });
+
+    (0..target_frames)
+        .map(|frame| {
+            let target_time_ms = if target_frames > 1 {
+                frame as f64 * target_duration_ms / (target_frames - 1) as f64
+            } else {
+                0.0
+            };
+            if !valid_markers {
+                return target_time_ms * source_duration_ms / target_duration_ms.max(f64::EPSILON);
+            }
+
+            let loop_start = loop_start_ms.unwrap().clamp(0.0, source_duration_ms);
+            let loop_end = loop_end_ms.unwrap().clamp(loop_start, source_duration_ms);
+            let tail_start = tail_mark.unwrap_or(source_duration_ms);
+            let attack_len = loop_start;
+            let tail_len = source_duration_ms - tail_start;
+            let preserved_len = attack_len + tail_len;
+            let preserve_scale = if target_duration_ms < preserved_len && preserved_len > 0.0 {
+                target_duration_ms / preserved_len
+            } else {
+                1.0
+            };
+            let target_attack_len = attack_len * preserve_scale;
+            let target_tail_len = tail_len * preserve_scale;
+            let target_tail_start = target_duration_ms - target_tail_len;
+
+            if target_time_ms < target_attack_len {
+                target_time_ms / preserve_scale.max(f64::EPSILON)
+            } else if target_time_ms >= target_tail_start {
+                tail_start + (target_time_ms - target_tail_start) / preserve_scale.max(f64::EPSILON)
+            } else {
+                let target_sustain_len = (target_tail_start - target_attack_len).max(0.0);
+                if target_sustain_len <= f64::EPSILON {
+                    loop_start
+                } else {
+                    loop_start
+                        + (target_time_ms - target_attack_len).max(0.0) / target_sustain_len
+                            * (loop_end - loop_start)
+                }
+            }
+            .clamp(0.0, source_duration_ms)
+        })
+        .collect()
+}
+
+fn has_valid_oto_stretch_markers(
+    source_duration_ms: f64,
+    loop_start_ms: Option<f64>,
+    loop_end_ms: Option<f64>,
+    tail_start_ms: Option<f64>,
+) -> bool {
+    let (Some(start), Some(end)) = (loop_start_ms, loop_end_ms) else {
+        return false;
+    };
+    start.is_finite()
+        && end.is_finite()
+        && start >= 0.0
+        && end > start
+        && end <= source_duration_ms
+        && tail_start_ms
+            .is_none_or(|tail| tail.is_finite() && tail >= end && tail <= source_duration_ms)
+}
+
+fn sample_scalar_at_time(values: &[f64], positions_ms: &[f64], time_ms: f64) -> f64 {
+    let count = values.len().min(positions_ms.len());
+    if values.is_empty() {
+        return 0.0;
+    }
+    if count < 2 {
+        return values[0];
+    }
+    let upper = positions_ms[..count].partition_point(|position| *position < time_ms);
+    if upper == 0 {
+        return values[0];
+    }
+    if upper >= count {
+        return values[count - 1];
+    }
+    let left = upper - 1;
+    let right = upper.min(values.len() - 1);
+    let span = positions_ms[upper] - positions_ms[left];
+    let t = if span.is_finite() && span > f64::EPSILON {
+        ((time_ms - positions_ms[left]) / span).clamp(0.0, 1.0)
+    } else {
+        0.0
+    };
+    values[left] * (1.0 - t) + values[right] * t
+}
+
+fn resample_feature_matrix_at_positions(
+    source: &[Vec<f64>],
+    source_positions_ms: &[f64],
+    target_positions_ms: &[f64],
     bins: usize,
 ) -> Vec<Vec<f64>> {
-    if source.is_empty() || target_frames == 0 {
+    if source.is_empty() || target_positions_ms.is_empty() {
         return Vec::new();
     }
     if source.len() == 1 {
         let row = source[0].clone();
-        return vec![row; target_frames];
+        return vec![row; target_positions_ms.len()];
     }
-    (0..target_frames)
-        .map(|frame| {
-            let position = if target_frames > 1 {
-                frame as f64 * (source.len() - 1) as f64 / (target_frames - 1) as f64
+    target_positions_ms
+        .iter()
+        .map(|&time_ms| {
+            let upper = source_positions_ms.partition_point(|position| *position < time_ms);
+            let left = upper.saturating_sub(1).min(source.len() - 1);
+            let right = upper.min(source.len() - 1);
+            let span = source_positions_ms
+                .get(right)
+                .zip(source_positions_ms.get(left))
+                .map(|(right, left)| right - left)
+                .unwrap_or(0.0);
+            let fraction = if span.is_finite() && span > f64::EPSILON {
+                ((time_ms - source_positions_ms[left]) / span).clamp(0.0, 1.0)
             } else {
                 0.0
             };
-            let left = position.floor() as usize;
-            let right = (left + 1).min(source.len() - 1);
-            let fraction = position - left as f64;
             (0..bins)
                 .map(|bin| {
                     let a = source[left].get(bin).copied().unwrap_or(0.0);
@@ -659,6 +1109,7 @@ fn fallback_render(
     loop_start_ms: Option<f64>,
     loop_end_ms: Option<f64>,
     tail_start_ms: Option<f64>,
+    trace: &mut WorldRenderTrace,
 ) -> Vec<f32> {
     let sanitized;
     let input = if input.iter().all(|sample| sample.is_finite()) {
@@ -691,9 +1142,17 @@ fn fallback_render(
         if output.len() == target_len {
             output
         } else {
+            trace.adjustment(
+                "SOLA output resized to the requested duration",
+                "kamafeu.resize-preserving-pitch",
+            );
             crate::dsp::resize_preserving_pitch(&output, target_len, sample_rate)
         }
     } else {
+        trace.fallback(
+            "SOLA returned no audible samples; source region was resized",
+            "kamafeu.resize-preserving-pitch",
+        );
         let (start, end) =
             crate::dsp::oto_source_bounds(input.len(), sample_rate, offset_ms, cutoff_ms);
         crate::dsp::resize_preserving_pitch(
@@ -704,9 +1163,119 @@ fn fallback_render(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
+fn fallback_render_traced(
+    input: &[f32],
+    sample_rate: u32,
+    offset_ms: f64,
+    source_consonant_ms: f64,
+    target_consonant_ms: f64,
+    cutoff_ms: f64,
+    duration_ms: f64,
+    pitch_hz: f64,
+    points: &[UPitchBendPoint],
+    target_len: usize,
+    loop_start_ms: Option<f64>,
+    loop_end_ms: Option<f64>,
+    tail_start_ms: Option<f64>,
+    reason: &str,
+    trace: &mut WorldRenderTrace,
+) -> Vec<f32> {
+    trace.fallback(reason, "kamafeu.sola");
+    fallback_render(
+        input,
+        sample_rate,
+        offset_ms,
+        source_consonant_ms,
+        target_consonant_ms,
+        cutoff_ms,
+        duration_ms,
+        pitch_hz,
+        points,
+        target_len,
+        loop_start_ms,
+        loop_end_ms,
+        tail_start_ms,
+        trace,
+    )
+}
+
 #[cfg(test)]
 mod tests {
-    use super::{stabilize_world_f0, WorldResampler};
+    use super::{
+        apply_breathiness, apply_spectral_flags, has_valid_oto_stretch_markers, stabilize_world_f0,
+        stretch_source_positions, TainahFlags, WorldRenderTrace, WorldResampler,
+    };
+
+    #[test]
+    fn tainah_flags_are_case_sensitive_and_clamped_to_documented_ranges() {
+        let mut trace = WorldRenderTrace::default();
+        let flags = TainahFlags::parse("g140t-120B130H120h20", &mut trace);
+        assert_eq!(flags.gender, 100.0);
+        assert_eq!(flags.tone_cents, -1_000.0);
+        assert_eq!(flags.breathiness, 100.0);
+        assert_eq!(flags.high_cut, 99.0);
+        assert!(trace.adjustments.iter().any(|item| item.contains("h")));
+    }
+
+    #[test]
+    fn spectral_gender_shift_and_high_cut_change_only_the_spectral_envelope() {
+        let source = vec![vec![0.0, 0.2, 0.4, 0.6, 0.8]];
+        let mut shifted = source.clone();
+        apply_spectral_flags(
+            &mut shifted,
+            8_000,
+            &TainahFlags {
+                gender: 100.0,
+                ..Default::default()
+            },
+        );
+        assert_ne!(shifted, source);
+
+        let mut filtered = source.clone();
+        apply_spectral_flags(
+            &mut filtered,
+            8_000,
+            &TainahFlags {
+                high_cut: 99.0,
+                ..Default::default()
+            },
+        );
+        assert_eq!(filtered[0][0], source[0][0]);
+        assert_eq!(filtered[0][4], 0.0);
+    }
+
+    #[test]
+    fn breathiness_interpolates_aperiodicity_to_the_documented_target() {
+        let mut ap = vec![vec![0.2, 0.6]];
+        apply_breathiness(&mut ap, 50.0);
+        assert!((ap[0][0] - 0.575).abs() < 1e-12);
+        assert!((ap[0][1] - 0.775).abs() < 1e-12);
+        apply_breathiness(&mut ap, 100.0);
+        assert_eq!(ap[0], vec![0.95, 0.95]);
+    }
+
+    #[test]
+    fn tainah_stretch_keeps_attack_and_release_anchors() {
+        let positions =
+            stretch_source_positions(21, 200.0, 100.0, Some(20.0), Some(80.0), Some(90.0));
+        assert!((positions[2] - 20.0).abs() < 1e-9);
+        assert!((positions[19] - 90.0).abs() < 1e-9);
+        assert!((positions[20] - 100.0).abs() < 1e-9);
+        assert!(positions.windows(2).all(|pair| pair[1] >= pair[0]));
+        assert!(has_valid_oto_stretch_markers(
+            100.0,
+            Some(20.0),
+            Some(80.0),
+            Some(90.0)
+        ));
+        assert!(!has_valid_oto_stretch_markers(
+            100.0,
+            Some(20.0),
+            Some(80.0),
+            Some(70.0)
+        ));
+    }
 
     #[test]
     fn world_f0_stabilizer_repairs_an_isolated_octave_without_flattening_bend() {
@@ -733,6 +1302,85 @@ mod tests {
         assert_eq!(output.len(), 11_200);
         assert!(output.iter().all(|sample| sample.is_finite()));
         assert!(output.iter().any(|sample| sample.abs() > 0.01));
+    }
+
+    #[test]
+    fn neutral_flags_are_pcm_identical_and_t_flag_shifts_the_rendered_pitch() {
+        let rate = 16_000;
+        let input = (0..rate)
+            .map(|index| {
+                (std::f64::consts::TAU * 220.0 * index as f64 / rate as f64).sin() as f32 * 0.25
+            })
+            .collect::<Vec<_>>();
+        let common = (
+            &input,
+            rate,
+            0.0,
+            0.0,
+            0.0,
+            260.0,
+            220.0,
+            &[][..],
+            0.0,
+            None,
+            None,
+            None,
+        );
+        let baseline = WorldResampler::render_sample_with_oto_traced(
+            common.0, common.1, common.2, common.3, common.4, common.5, common.6, common.7,
+            common.8, common.9, common.10, common.11,
+        );
+        let neutral = WorldResampler::render_sample_with_oto_traced_flags(
+            common.0, common.1, common.2, common.3, common.4, common.5, common.6, common.7,
+            common.8, common.9, common.10, common.11, "g0t0B0H0",
+        );
+        assert_eq!(baseline.samples, neutral.samples);
+
+        let shifted = WorldResampler::render_sample_with_oto_traced_flags(
+            common.0, common.1, common.2, common.3, common.4, common.5, common.6, common.7,
+            common.8, common.9, common.10, common.11, "t12",
+        );
+        assert_ne!(baseline.samples, shifted.samples);
+        assert!(shifted
+            .trace
+            .adjustments
+            .iter()
+            .any(|item| item.contains("t12")));
+    }
+
+    #[test]
+    fn traced_world_render_identifies_recovery_stages() {
+        let rate = 16_000;
+        let input = vec![0.0f32; rate as usize];
+        let output = WorldResampler::render_sample_with_oto_traced(
+            &input,
+            rate,
+            0.0,
+            0.0,
+            0.0,
+            300.0,
+            220.0,
+            &[],
+            0.0,
+            None,
+            None,
+            None,
+        );
+        assert_eq!(output.samples.len(), 4_800);
+        assert!(output
+            .trace
+            .fallback_reasons
+            .iter()
+            .any(|reason| !reason.is_empty()));
+        assert!(output
+            .trace
+            .stages
+            .iter()
+            .any(|stage| stage == "kamafeu.sola"));
+        assert_eq!(
+            output.trace.effective_backend_id(),
+            output.trace.stages.join("+")
+        );
     }
 
     #[test]

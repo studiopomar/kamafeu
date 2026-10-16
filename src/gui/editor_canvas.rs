@@ -32,10 +32,7 @@ impl KamafeuStudioApp {
             self.config.layout.modular_workspace && !self.piano_roll_state.is_maximized;
         let window_title = self.config.language.tr("Piano Roll", "Piano Roll");
         let bg_canvas = self.config.theme.bg_canvas_c32();
-        let viewport = ctx.screen_rect();
-        let is_mobile = cfg!(target_os = "android")
-            || viewport.width() < 1100.0
-            || (viewport.height() < 600.0 && viewport.width() < 1200.0);
+        let is_mobile = super::touch_first_layout(ctx);
 
         if is_mobile {
             match self.active_mobile_tab {
@@ -195,9 +192,18 @@ impl KamafeuStudioApp {
             )
             .fold(0.0_f64, f64::max);
         let playback_status = crate::gui::piano_roll::TimelinePlaybackStatus {
-            is_rendering: self.render_rx.is_some() || self.direct_playback_rx.is_some(),
+            is_rendering: self.render_rx.is_some()
+                || self.direct_playback_rx.is_some()
+                || self.export_in_progress,
             is_playing: self.piano_roll_state.is_playing,
             render_progress: self.render_progress,
+            render_event: self.render_progress_event,
+            elapsed_seconds: self
+                .render_progress_started_at
+                .map(|started| started.elapsed().as_secs_f64())
+                .unwrap_or(0.0),
+            is_exporting: self.render_task_kind == Some(super::RenderTaskKind::Export),
+            language: self.config.language,
             title: &self.render_status_title,
             message: &self.transport_state.status_message,
             engine: &self.selected_resampler,
@@ -205,7 +211,17 @@ impl KamafeuStudioApp {
             has_error: self.transport_state.status_message.starts_with("Erro")
                 || self.transport_state.status_message.starts_with("Error"),
         };
-        let active_notes = &mut self.project.parts[part_idx].notes;
+        let (parts_before, active_and_after) = self.project.parts.split_at_mut(part_idx);
+        let (active_part, parts_after) = active_and_after
+            .split_first_mut()
+            .expect("active piano roll part exists");
+        let active_part_position_ms = active_part.position_ms;
+        let secondary_parts: Vec<_> = parts_before
+            .iter()
+            .chain(parts_after.iter())
+            .filter(|part| part.track_index != active_track)
+            .collect();
+        let active_notes = &mut active_part.notes;
 
         // Sync loop state to piano_roll_state
         self.piano_roll_state.loop_enabled = self.transport_state.loop_enabled;
@@ -215,6 +231,8 @@ impl KamafeuStudioApp {
         draw_piano_roll(
             ui,
             active_notes,
+            &secondary_parts,
+            active_part_position_ms,
             &markers,
             &sections,
             &mut self.piano_roll_state,

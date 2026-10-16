@@ -1,10 +1,8 @@
 use super::help_marker;
 use super::section_card;
 use super::KamafeuStudioApp;
-use crate::gui::theme::MelodyneTheme;
 use crate::renderer::resampler_cache;
 use eframe::egui;
-use eframe::egui::Color32;
 use eframe::egui::RichText;
 
 impl KamafeuStudioApp {
@@ -25,7 +23,7 @@ impl KamafeuStudioApp {
 
                 ui.horizontal(|ui| {
                 ui.label(lang.tr("Armazenamento em Disco:", "Disk Storage:"));
-                ui.label(RichText::new(format!("{file_count} {} ({:.2} MB)", lang.tr("arquivos", "files"), disk_mb)).strong().color(Color32::from_rgb(0, 255, 157)));
+                ui.label(RichText::new(format!("{file_count} {} ({:.2} MB)", lang.tr("arquivos", "files"), disk_mb)).strong().color(ui.visuals().hyperlink_color));
                 help_marker(
                     ui,
                     lang.tr(
@@ -49,7 +47,7 @@ impl KamafeuStudioApp {
                             stats.hits, stats.misses, stats.renders
                         ))
                         .strong()
-                        .color(Color32::from_rgb(255, 220, 130)),
+                        .color(ui.visuals().warn_fg_color),
                     );
                     help_marker(
                         ui,
@@ -62,7 +60,7 @@ impl KamafeuStudioApp {
 
                 ui.horizontal(|ui| {
                 ui.label(lang.tr("Memória RAM (DSP Pool):", "RAM Memory (DSP Pool):"));
-                ui.label(RichText::new(format!("{mem_entries} {} ({:.2} MB)", lang.tr("trechos", "slices"), mem_mb)).strong().color(Color32::from_rgb(180, 230, 255)));
+                ui.label(RichText::new(format!("{mem_entries} {} ({:.2} MB)", lang.tr("trechos", "slices"), mem_mb)).strong().color(ui.visuals().hyperlink_color));
                 help_marker(
                     ui,
                     lang.tr(
@@ -80,7 +78,7 @@ impl KamafeuStudioApp {
                         RichText::new(cache_path.to_string_lossy().to_string())
                             .size(9.5)
                             .monospace()
-                            .color(MelodyneTheme::TEXT_MUTED),
+                            .color(self.config.theme.text_muted_c32()),
                     );
                 });
 
@@ -90,7 +88,7 @@ impl KamafeuStudioApp {
                     .button(
                         RichText::new(lang.tr("Limpar Todo o Cache em Disco Agora", "Clear All Disk Cache Now"))
                             .size(11.0)
-                            .color(Color32::from_rgb(255, 140, 140)),
+                            .color(ui.visuals().error_fg_color),
                     )
                     .clicked()
                 {
@@ -101,7 +99,7 @@ impl KamafeuStudioApp {
                     .button(
                         RichText::new(lang.tr("Esvaziar Pool de Memória RAM", "Empty RAM Memory Pool"))
                             .size(11.0)
-                            .color(Color32::from_rgb(255, 180, 120)),
+                            .color(ui.visuals().warn_fg_color),
                     )
                     .clicked()
                 {

@@ -15,7 +15,7 @@ impl KamafeuStudioApp {
                 })
                 .strong()
                 .size(11.5)
-                .color(egui::Color32::from_rgb(130, 200, 255)),
+                .color(ui.visuals().hyperlink_color),
             );
             ui.separator();
 

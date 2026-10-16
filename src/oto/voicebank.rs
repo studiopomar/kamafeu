@@ -61,6 +61,28 @@ impl Voicebank {
             };
 
         let native_config_path = real_root_path.join("kamafeu_voicebank.json");
+        // KFV 2 has an explicit format discriminator. Never reinterpret a
+        // malformed or newer native manifest as a classic OTO voicebank.
+        if native_config_path.is_file() {
+            let content = fs::read_to_string(&native_config_path)?;
+            let header: serde_json::Value = serde_json::from_str(&content).map_err(|e| {
+                std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    format!("manifest inválido: {e}"),
+                )
+            })?;
+            if header.get("format").and_then(|v| v.as_str()) == Some("kamafeu.voicebank") {
+                let manifest = crate::voicebank::native::Manifest::parse_json(&content)
+                    .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::Unsupported,
+                    format!(
+                        "{} usa KFV 2; abra pela galeria nativa para vinculá-lo à faixa do projeto",
+                        manifest.display_name
+                    ),
+                ));
+            }
+        }
         // oto.ini is the authoritative UTAU source. A generated native
         // index may be stale after a voicebank update, so never let it hide
         // aliases that are present in the user's oto.ini.
@@ -763,7 +785,7 @@ fn is_safe_relative_path(path: &Path) -> bool {
         })
 }
 
-fn extract_kfv(zip_path: &Path, dest_dir: &Path) -> Result<(), std::io::Error> {
+pub(crate) fn extract_kfv(zip_path: &Path, dest_dir: &Path) -> Result<(), std::io::Error> {
     const MAX_FILES: usize = 10_000;
     const MAX_FILE_SIZE: u64 = 512 * 1024 * 1024;
     const MAX_TOTAL_SIZE: u64 = 4 * 1024 * 1024 * 1024;
@@ -780,11 +802,22 @@ fn extract_kfv(zip_path: &Path, dest_dir: &Path) -> Result<(), std::io::Error> {
     }
 
     let mut total_size = 0u64;
+    let mut actual_total_size = 0u64;
+    let mut seen_paths = HashSet::new();
 
     for i in 0..archive.len() {
         let mut file = archive
             .by_index(i)
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+        if file
+            .unix_mode()
+            .is_some_and(|mode| mode & 0o170000 == 0o120000)
+        {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!("links are not allowed in KFV packages: {}", file.name()),
+            ));
+        }
         if file.size() > MAX_FILE_SIZE {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
@@ -809,10 +842,37 @@ fn extract_kfv(zip_path: &Path, dest_dir: &Path) -> Result<(), std::io::Error> {
                 "conteúdo descompactado do KFV excede o limite permitido",
             ));
         }
-        let outpath = match file.enclosed_name() {
-            Some(path) => dest_dir.join(path),
-            None => continue,
-        };
+        let entry_name = file.name().to_string();
+        if entry_name.contains('\\') || entry_name.contains('\0') {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                "unsafe path in KFV package",
+            ));
+        }
+        let enclosed = file.enclosed_name().ok_or_else(|| {
+            std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!("unsafe path in KFV package: {entry_name}"),
+            )
+        })?;
+        if enclosed.as_os_str().is_empty()
+            || enclosed
+                .components()
+                .any(|c| !matches!(c, std::path::Component::Normal(_)))
+        {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!("unsafe path in KFV package: {entry_name}"),
+            ));
+        }
+        let normalized_name = enclosed.to_string_lossy().into_owned();
+        if !seen_paths.insert(normalized_name) {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::InvalidData,
+                format!("duplicate path in KFV package: {entry_name}"),
+            ));
+        }
+        let outpath = dest_dir.join(enclosed);
 
         if (*file.name()).ends_with('/') {
             fs::create_dir_all(&outpath)?;
@@ -824,10 +884,22 @@ fn extract_kfv(zip_path: &Path, dest_dir: &Path) -> Result<(), std::io::Error> {
             }
             let mut outfile = fs::File::create(&outpath)?;
             let copied = std::io::copy(&mut file.by_ref().take(MAX_FILE_SIZE + 1), &mut outfile)?;
-            if copied > MAX_FILE_SIZE {
+            if copied > MAX_FILE_SIZE || copied != file.size() {
                 return Err(std::io::Error::new(
                     std::io::ErrorKind::InvalidData,
-                    "entrada KFV excedeu o tamanho declarado",
+                    "tamanho extraído de entrada KFV diverge do declarado",
+                ));
+            }
+            actual_total_size = actual_total_size.checked_add(copied).ok_or_else(|| {
+                std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "tamanho extraído KFV inválido",
+                )
+            })?;
+            if actual_total_size > MAX_TOTAL_SIZE {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::InvalidData,
+                    "conteúdo extraído do KFV excede o limite permitido",
                 ));
             }
         }
@@ -918,7 +990,77 @@ fn format_line_ranges(lines: &[usize]) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::io::Write;
     use tempfile::tempdir;
+
+    #[test]
+    fn kfv_extractor_rejects_traversal_duplicate_and_symlink_entries() {
+        for entries in [
+            vec![("../outside.txt", 0o100644), ("ok.txt", 0o100644)],
+            vec![("same.txt", 0o100644), ("same.txt", 0o100644)],
+        ] {
+            let case = entries
+                .iter()
+                .map(|(name, _)| *name)
+                .collect::<Vec<_>>()
+                .join(",");
+            let workspace = tempdir().unwrap();
+            let package = workspace.path().join("bad.kfv");
+            let mut zip = zip::ZipWriter::new(fs::File::create(&package).unwrap());
+            for (name, mode) in entries {
+                let options = zip::write::FileOptions::default().unix_permissions(mode);
+                zip.start_file(name, options).unwrap();
+                zip.write_all(b"payload").unwrap();
+            }
+            zip.finish().unwrap();
+            let destination = workspace.path().join("extracted");
+            fs::create_dir(&destination).unwrap();
+            let error = match extract_kfv(&package, &destination) {
+                Err(error) => error,
+                Ok(()) => panic!("unexpectedly accepted malicious archive case: {case}"),
+            };
+            assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
+            assert!(!workspace.path().join("outside.txt").exists());
+        }
+
+        // zip 0.6's writer masks Unix file-type bits, so mark one generated
+        // central-directory entry as a symlink to exercise the real archive
+        // metadata the reader consumes.
+        let workspace = tempdir().unwrap();
+        let package = workspace.path().join("symlink.kfv");
+        let mut zip = zip::ZipWriter::new(fs::File::create(&package).unwrap());
+        zip.start_file("link", zip::write::FileOptions::default())
+            .unwrap();
+        zip.write_all(b"target").unwrap();
+        zip.finish().unwrap();
+        let mut bytes = fs::read(&package).unwrap();
+        let central = bytes.windows(4).position(|v| v == b"PK\x01\x02").unwrap();
+        bytes[central + 5] = 3; // Unix creator OS.
+        bytes[central + 38..central + 42].copy_from_slice(&(0o120777u32 << 16).to_le_bytes());
+        fs::write(&package, bytes).unwrap();
+        let destination = workspace.path().join("extracted");
+        fs::create_dir(&destination).unwrap();
+        let error = extract_kfv(&package, &destination).unwrap_err();
+        assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
+    }
+
+    #[test]
+    fn kfv2_discriminator_never_falls_back_to_root_oto() {
+        let dir = tempdir().unwrap();
+        fs::write(
+            dir.path().join("kamafeu_voicebank.json"),
+            r#"{"format":"kamafeu.voicebank","schema_version":"2.0.0"}"#,
+        )
+        .unwrap();
+        fs::write(
+            dir.path().join("oto.ini"),
+            "sample.wav=ka,0,100,-400,80,30\n",
+        )
+        .unwrap();
+        let error = Voicebank::new(dir.path()).unwrap_err();
+        assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
+        assert!(error.to_string().contains("manifest fields"));
+    }
 
     #[test]
     fn formats_diagnostic_lines_as_compact_ranges() {

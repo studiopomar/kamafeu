@@ -552,16 +552,22 @@ pub struct BuiltInCapability {
 pub fn built_in_capabilities() -> Vec<BuiltInCapability> {
     let capabilities = vec![
         BuiltInCapability {
-            id: "org.kamafeu.venus",
-            name: "VENUS",
+            id: "org.kamafeu.world-rs",
+            name: "Tainah",
             kind: ExtensionKind::SynthesisEngine,
-            description: "Resampler nativo para bancos UTAU.",
+            description: "Resampler nativo baseado em WORLD, com assinatura stretch nas sustentações e ataques/caudas preservados por marcas de voicebank. Os diagnósticos registram os estágios efetivos e fallbacks.",
+        },
+        BuiltInCapability {
+            id: "org.kamafeu.sola",
+            name: "SOLA (Nativo · experimental)",
+            kind: ExtensionKind::SynthesisEngine,
+            description: "Resampler SOLA nativo usado explicitamente no preview KFV 2 experimental; ainda não foi escolhido como backend de referência do produto.",
         },
         BuiltInCapability {
             id: "org.kamafeu.andromeda",
-            name: "Andromeda",
+            name: "Andromeda (wavtool alternativo)",
             kind: ExtensionKind::SynthesisEngine,
-            description: "Wavtool e mixer nativos para envelopes e crossfades UTAU.",
+            description: "Wavtool nativo alternativo que aplica o envelope UTAU com curva cosseno; não é o resampler nem o mixer de fase padrão.",
         },
         BuiltInCapability {
             id: "org.kamafeu.aps",
@@ -722,6 +728,20 @@ mod tests {
         assert!(capabilities
             .iter()
             .all(|capability| is_valid_extension_id(capability.id)));
+        let world = capabilities
+            .iter()
+            .find(|capability| capability.id == "org.kamafeu.world-rs")
+            .expect("native WORLD capability");
+        assert_eq!(world.name, "Tainah");
+        assert!(world.description.contains("SOLA"));
+        let sola = capabilities
+            .iter()
+            .find(|capability| capability.id == "org.kamafeu.sola")
+            .expect("native experimental SOLA capability");
+        assert!(sola.name.contains("experimental"));
+        assert!(!capabilities
+            .iter()
+            .any(|capability| capability.name == "VENUS"));
     }
 
     #[test]

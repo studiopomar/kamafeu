@@ -23,16 +23,15 @@ pub(super) fn draw(
         return;
     }
 
-    let viewport = ui.ctx().screen_rect();
-    // O Android é sempre touch-first. No desktop, só aumentamos a lista em
-    // larguras realmente estreitas; tablets continuam no layout compacto,
-    // mas não perdem espaço gráfico desnecessariamente.
-    let touch_first = cfg!(target_os = "android")
-        || viewport.width() < 720.0
-        || (viewport.height() < 500.0 && viewport.width() < 900.0);
-    let sidebar_width: f32 = if touch_first { 190.0 } else { 150.0 };
-    let tab_width = (sidebar_width - 15.0_f32).max(125.0_f32);
-    let tab_height: f32 = if touch_first { 40.0 } else { 18.0 };
+    let touch_first = crate::gui::touch_first_layout(ui.ctx());
+    let available_width = ui.available_width().max(360.0);
+    let sidebar_min_width = if touch_first { 150.0 } else { 128.0 };
+    let sidebar_max_width = (available_width * 0.42).min(360.0).max(sidebar_min_width);
+    let sidebar_width = state
+        .parameter_sidebar_width
+        .clamp(sidebar_min_width, sidebar_max_width);
+    let tab_width = (sidebar_width - 16.0).max(112.0);
+    let tab_height: f32 = if touch_first { 36.0 } else { 18.0 };
 
     let panel_response = egui::TopBottomPanel::bottom("bottom_param_drawer_fixed")
         .resizable(true)
@@ -42,7 +41,7 @@ pub(super) fn draw(
             egui::Frame::none()
                 .fill(theme.elevated_surface_c32())
                 .rounding(theme.ui_rounding())
-                .stroke(Stroke::new(0.8_f32, theme.accent_soft_c32())),
+                .stroke(theme.card_stroke()),
         )
         .show_inside(ui, |ui| {
             let drawer_available_h = ui.available_height().max(50.0);
@@ -66,10 +65,10 @@ pub(super) fn draw(
                                     lang.tr("PARÂMETROS / EXPRESSÕES", "PARAMETERS / EXPRESSIONS"),
                                 )
                                 .strong()
-                                .size(10.0)
-                                .color(theme.accent_c32()),
+                                .size(9.5)
+                                .color(theme.text_muted_c32()),
                             );
-                            ui.add_space(2.0);
+                            ui.add_space(5.0);
 
                             let list_height = (ui.available_height() - 4.0).max(40.0);
                             egui::ScrollArea::vertical()
@@ -146,23 +145,51 @@ pub(super) fn draw(
 
                                     for (p_name, tab_val) in param_tabs {
                                         let is_sel = state.selected_parameter == tab_val;
-                                        let (text_color, fill_color) = if is_sel {
-                                            (
-                                                Color32::from_rgb(0, 255, 157),
-                                                Color32::from_rgb(36, 27, 53),
-                                            )
+                                        let (tab_rect, response) = ui.allocate_exact_size(
+                                            Vec2::new(tab_width, tab_height),
+                                            Sense::click(),
+                                        );
+                                        let tab_painter = ui.painter();
+                                        let tab_fill = if is_sel {
+                                            theme.c32_alpha(theme.accent_color, 0.16)
+                                        } else if response.hovered() {
+                                            theme.c32_alpha(theme.text_primary, 0.06)
                                         } else {
-                                            (Color32::from_rgb(165, 148, 201), Color32::TRANSPARENT)
+                                            Color32::TRANSPARENT
                                         };
-
-                                        let btn = egui::Button::new(
-                                            egui::RichText::new(p_name).size(9.5).color(text_color),
-                                        )
-                                        .min_size(Vec2::new(tab_width, tab_height))
-                                        .fill(fill_color)
-                                        .rounding(Rounding::same(3.0));
-
-                                        let response = ui.add(btn);
+                                        tab_painter.rect_filled(
+                                            tab_rect,
+                                            Rounding::same(4.0),
+                                            tab_fill,
+                                        );
+                                        if is_sel {
+                                            tab_painter.rect_filled(
+                                                Rect::from_min_max(
+                                                    tab_rect.min + Vec2::new(0.0, 4.0),
+                                                    Pos2::new(
+                                                        tab_rect.min.x + 2.5,
+                                                        tab_rect.max.y - 4.0,
+                                                    ),
+                                                ),
+                                                Rounding::same(2.0),
+                                                theme.accent_c32(),
+                                            );
+                                        }
+                                        tab_painter.text(
+                                            Pos2::new(tab_rect.left() + 9.0, tab_rect.center().y),
+                                            egui::Align2::LEFT_CENTER,
+                                            p_name,
+                                            egui::FontId::proportional(if touch_first {
+                                                11.0
+                                            } else {
+                                                10.0
+                                            }),
+                                            if is_sel {
+                                                theme.text_primary_c32()
+                                            } else {
+                                                theme.text_muted_c32()
+                                            },
+                                        );
                                         if tab_val == ParameterTab::Timbre {
                                             response.clone().on_hover_text(lang.tr(
                                                 "Clique nas bolinhas ou arraste pelas notas. Botão direito restaura o padrão. A edição respeita a seleção.",
@@ -177,11 +204,54 @@ pub(super) fn draw(
                         },
                     );
 
-                    ui.add_space(4.0);
-                    ui.separator();
-                    ui.add_space(4.0);
+                    // Keep a generous, stable hit target. Resizing moves the
+                    // divider under the pointer, so deriving the cursor only
+                    // from `hovered()` makes the cursor flicker at its edge.
+                    let divider_width = if touch_first { 22.0 } else { 18.0 };
+                    let (divider_rect, divider_response) = ui.allocate_exact_size(
+                        Vec2::new(divider_width, drawer_available_h),
+                        Sense::drag(),
+                    );
+                    if divider_response.drag_started() {
+                        state.parameter_sidebar_drag_start = Some(());
+                    }
+                    if divider_response.dragged() {
+                        if state.parameter_sidebar_drag_start.is_some() {
+                            // egui's drag_delta is the pointer movement for
+                            // this frame, so apply it to the current width.
+                            // Adding it to the original width makes the
+                            // divider jump back and forth as the pointer moves.
+                            state.parameter_sidebar_width = (sidebar_width
+                                + divider_response.drag_delta().x)
+                                .clamp(sidebar_min_width, sidebar_max_width);
+                            ui.ctx().request_repaint();
+                        }
+                    }
+                    if divider_response.drag_stopped() {
+                        state.parameter_sidebar_drag_start = None;
+                    }
+                    // egui's drag capture can momentarily report `dragged()`
+                    // false as the layout follows the pointer. Keep the resize
+                    // cursor until release to avoid rapid cursor switching.
+                    let resizing_sidebar = state.parameter_sidebar_drag_start.is_some();
+                    if divider_response.hovered() || resizing_sidebar {
+                        ui.ctx().set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
+                    }
+                    let divider_painter = ui.painter();
+                    let handle_color = if divider_response.hovered() || resizing_sidebar {
+                        theme.accent_c32()
+                    } else {
+                        theme.c32_alpha(theme.text_muted, 0.55)
+                    };
+                    divider_painter.line_segment(
+                        [
+                            Pos2::new(divider_rect.center().x, divider_rect.top() + 8.0),
+                            Pos2::new(divider_rect.center().x, divider_rect.bottom() - 8.0),
+                        ],
+                        Stroke::new(1.0_f32, handle_color),
+                    );
 
-                    let graph_width = (ui.available_width() - 8.0).max(10.0);
+                    let graph_width = (ui.available_width() - 4.0).max(10.0);
                     let graph_height = available_graph_h.max(10.0);
                     let (graph_rect, graph_response) = ui.allocate_exact_size(
                         Vec2::new(graph_width, graph_height),
@@ -235,12 +305,12 @@ pub(super) fn draw(
                     painter.rect_filled(
                         graph_rect,
                         Rounding::same(3.0),
-                        Color32::from_rgb(18, 18, 22),
+                        ui.visuals().panel_fill,
                     );
                     painter.rect_stroke(
                         graph_rect,
                         Rounding::same(3.0),
-                        Stroke::new(1.0_f32, Color32::from_rgb(38, 38, 48)),
+                        Stroke::new(1.0_f32, ui.visuals().panel_fill),
                     );
 
                     let timeline_origin_x = ruler_rect.min.x + keyboard_width - timeline_scroll_x;
@@ -274,7 +344,7 @@ pub(super) fn draw(
                                 ],
                                 Stroke::new(
                                     1.0_f32,
-                                    Color32::from_rgba_unmultiplied(85, 85, 110, 85),
+                                    ui.visuals().text_color().linear_multiply(0.72).linear_multiply(85.0 / 255.0),
                                 ),
                             );
 
@@ -288,7 +358,7 @@ pub(super) fn draw(
                                     egui::Align2::LEFT_TOP,
                                     format!("{}", b + 1),
                                     egui::FontId::proportional(9.0),
-                                    Color32::from_rgb(140, 140, 160),
+                                    ui.visuals().text_color().linear_multiply(0.72),
                                 );
                             }
                         }
@@ -306,7 +376,7 @@ pub(super) fn draw(
                                     ],
                                     Stroke::new(
                                         0.5_f32,
-                                        Color32::from_rgba_unmultiplied(50, 50, 68, 45),
+                                        ui.visuals().hyperlink_color.linear_multiply(45.0 / 255.0),
                                     ),
                                 );
                             }
@@ -319,7 +389,7 @@ pub(super) fn draw(
                             Pos2::new(graph_rect.min.x, mid_y),
                             Pos2::new(graph_rect.max.x, mid_y),
                         ],
-                        Stroke::new(1.0_f32, Color32::from_rgba_unmultiplied(160, 175, 210, 100)),
+                        Stroke::new(1.0_f32, ui.visuals().hyperlink_color.linear_multiply(100.0 / 255.0)),
                     );
 
                     // Linhas guias de limite superior (+MAX) e inferior (-MAX)
@@ -330,14 +400,14 @@ pub(super) fn draw(
                             Pos2::new(graph_rect.min.x, top_y),
                             Pos2::new(graph_rect.max.x, top_y),
                         ],
-                        Stroke::new(0.6_f32, Color32::from_rgba_unmultiplied(90, 110, 160, 35)),
+                        Stroke::new(0.6_f32, ui.visuals().hyperlink_color.linear_multiply(35.0 / 255.0)),
                     );
                     painter.line_segment(
                         [
                             Pos2::new(graph_rect.min.x, bot_y),
                             Pos2::new(graph_rect.max.x, bot_y),
                         ],
-                        Stroke::new(0.6_f32, Color32::from_rgba_unmultiplied(90, 110, 160, 35)),
+                        Stroke::new(0.6_f32, ui.visuals().hyperlink_color.linear_multiply(35.0 / 255.0)),
                     );
 
                     // Indicadores numéricos no canto esquerdo
@@ -346,21 +416,21 @@ pub(super) fn draw(
                         egui::Align2::LEFT_TOP,
                         "+MAX",
                         egui::FontId::proportional(8.5),
-                        Color32::from_rgba_unmultiplied(0, 255, 157, 180),
+                        ui.visuals().hyperlink_color.linear_multiply(180.0 / 255.0),
                     );
                     painter.text(
                         Pos2::new(graph_rect.min.x + 6.0, mid_y - 2.0),
                         egui::Align2::LEFT_BOTTOM,
                         "0",
                         egui::FontId::proportional(8.5),
-                        Color32::from_rgba_unmultiplied(200, 200, 230, 160),
+                        ui.visuals().text_color().linear_multiply(160.0 / 255.0),
                     );
                     painter.text(
                         Pos2::new(graph_rect.min.x + 6.0, bot_y - 2.0),
                         egui::Align2::LEFT_BOTTOM,
                         "-MAX",
                         egui::FontId::proportional(8.5),
-                        Color32::from_rgba_unmultiplied(255, 120, 150, 180),
+                        ui.visuals().error_fg_color.linear_multiply(180.0 / 255.0),
                     );
 
                     // 3. Playhead no Drawer (se visível)
@@ -372,7 +442,7 @@ pub(super) fn draw(
                                 Pos2::new(playhead_x, graph_rect.min.y),
                                 Pos2::new(playhead_x, graph_rect.max.y),
                             ],
-                            Stroke::new(1.2_f32, Color32::from_rgb(0, 255, 157)),
+                            Stroke::new(1.2_f32, ui.visuals().hyperlink_color),
                         );
                     }
 
@@ -890,7 +960,7 @@ pub(super) fn draw(
                         // Linha branca suave contínua exatamente como no OpenUtau
                         painter.add(egui::Shape::line(
                             curve_points,
-                            Stroke::new(2.2_f32, Color32::WHITE),
+                            Stroke::new(2.2_f32, ui.visuals().text_color()),
                         ));
                     }
 
@@ -914,7 +984,7 @@ pub(super) fn draw(
                                 Pos2::new(x_start, graph_rect.bottom() - 5.0),
                                 Pos2::new(x_start, graph_rect.bottom()),
                             ],
-                            Stroke::new(1.0_f32, Color32::from_rgba_unmultiplied(145, 145, 170, 110)),
+                            Stroke::new(1.0_f32, ui.visuals().text_color().linear_multiply(0.72).linear_multiply(110.0 / 255.0)),
                         );
                         last_boundary = Some(x_start);
                     }
@@ -937,7 +1007,7 @@ pub(super) fn draw(
                                     ],
                                     Stroke::new(
                                         1.0_f32,
-                                        Color32::from_rgba_unmultiplied(0, 255, 180, 150),
+                                        ui.visuals().hyperlink_color.linear_multiply(150.0 / 255.0),
                                     ),
                                 );
                             }
@@ -947,12 +1017,12 @@ pub(super) fn draw(
                         painter.circle_filled(
                             Pos2::new(cursor_mpos.x, hover_curve_y),
                             4.0,
-                            Color32::from_rgb(0, 255, 157),
+                            ui.visuals().hyperlink_color,
                         );
                         painter.circle_stroke(
                             Pos2::new(cursor_mpos.x, hover_curve_y),
                             5.5,
-                            Stroke::new(1.2_f32, Color32::WHITE),
+                            Stroke::new(1.2_f32, ui.visuals().text_color()),
                         );
 
                         // Encontrar fonema sob o cursor para exibir lyric e valor formatado
@@ -1081,19 +1151,19 @@ pub(super) fn draw(
                         painter.rect_filled(
                             Rect::from_min_size(badge_pos, Vec2::new(badge_width, 16.0)),
                             Rounding::same(3.0),
-                            Color32::from_rgba_unmultiplied(20, 20, 30, 220),
+                            ui.visuals().panel_fill.linear_multiply(220.0 / 255.0),
                         );
                         painter.rect_stroke(
                             Rect::from_min_size(badge_pos, Vec2::new(badge_width, 16.0)),
                             Rounding::same(3.0),
-                            Stroke::new(1.0_f32, Color32::from_rgb(0, 255, 157)),
+                            Stroke::new(1.0_f32, ui.visuals().hyperlink_color),
                         );
                         painter.text(
                             Pos2::new(badge_pos.x + badge_width * 0.5, badge_pos.y + 8.0),
                             egui::Align2::CENTER_CENTER,
                             badge_text,
                             egui::FontId::proportional(8.5),
-                            Color32::from_rgb(0, 255, 157),
+                            ui.visuals().hyperlink_color,
                         );
                     }
                 },
@@ -1117,10 +1187,10 @@ fn draw_envelope_editor(
     on_note_changed: &mut dyn FnMut(),
 ) {
     let painter = ui.painter_at(graph_rect);
-    let bg = Color32::from_rgb(18, 18, 22);
+    let bg = ui.visuals().panel_fill;
     let lane = theme.c32_alpha(theme.bg_panel, 0.92);
     let lane_stroke = theme.note_stroke_c32();
-    let cyan = theme.accent_c32();
+    let coral = ui.visuals().warn_fg_color;
     let pink = theme.playhead_c32();
     let orange = theme.note_hover_c32();
     let white = theme.text_primary_c32();
@@ -1137,7 +1207,7 @@ fn draw_envelope_editor(
                 Pos2::new(graph_rect.left(), y),
                 Pos2::new(graph_rect.right(), y),
             ],
-            Stroke::new(1.0_f32, Color32::from_rgba_unmultiplied(128, 116, 157, 150)),
+            Stroke::new(1.0_f32, ui.visuals().text_color().linear_multiply(0.72).linear_multiply(150.0 / 255.0)),
         );
     }
     let px_per_ms = state.px_per_ms.max(0.001) as f64;
@@ -1209,12 +1279,12 @@ fn draw_envelope_editor(
             ));
             painter.add(egui::Shape::convex_polygon(
                 fill,
-                theme.c32_alpha(theme.note_stroke, 0.09),
+                ui.visuals().warn_fg_color.linear_multiply(23.0 / 255.0),
                 Stroke::NONE,
             ));
             painter.add(egui::Shape::line(
                 curve_screen_points,
-                Stroke::new(2.0_f32, cyan),
+                Stroke::new(2.0_f32, coral),
             ));
         }
         for (point_idx, point) in screen_points.iter().enumerate() {
@@ -1222,8 +1292,8 @@ fn draw_envelope_editor(
                 continue;
             }
             let color = match point_idx {
-                0 => cyan,
-                1 => cyan,
+                0 => coral,
+                1 => coral,
                 2 | 3 => orange,
                 _ => pink,
             };

@@ -84,6 +84,7 @@ hound = "3.5"
 rand = "0.8"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+sha2 = "0.10"
 pinyin = "0.11"
 yaml_serde = "0.10"
 clap = { version = "4.4", features = ["derive"] }
@@ -171,3 +172,9 @@ panic = "unwind"
 # writes its own render/error logs, while symbol-heavy release binaries are
 # needlessly large (especially with the cdylib target enabled).
 strip = "symbols"
+
+# `block 0.1.6` declares `_NSConcreteStackBlock` with an uninhabited enum,
+# which triggers a Rust future-incompatibility lint. Keep the upstream API and
+# ABI while using an inhabited opaque type until the dependency fixes it.
+[patch.crates-io]
+block = { path = "vendor/block" }

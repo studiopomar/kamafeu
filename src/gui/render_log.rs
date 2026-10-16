@@ -1,4 +1,3 @@
-use crate::gui::theme::MelodyneTheme;
 use crate::gui::KamafeuStudioApp;
 use crate::gui::RenderLogFilter;
 use eframe::egui;
@@ -68,23 +67,23 @@ impl KamafeuStudioApp {
                             egui::RichText::new(lang.tr("Terminal do Engine", "Engine Terminal"))
                                 .strong()
                                 .size(15.0)
-                                .color(egui::Color32::from_rgb(0, 255, 180)),
+                                .color(self.config.theme.success_c32()),
                         );
 
                         // Real-time Status Badge
                         let (badge_bg, badge_stroke, badge_text, badge_color) = if is_rendering {
                             (
-                                egui::Color32::from_rgb(50, 40, 20),
-                                egui::Color32::from_rgb(255, 200, 50),
+                                ui.visuals().panel_fill,
+                                ui.visuals().warn_fg_color,
                                 format!("{} ({:.0}%)", lang.tr("Renderizando", "Rendering"), self.render_progress * 100.0),
-                                egui::Color32::from_rgb(255, 220, 100),
+                                ui.visuals().warn_fg_color,
                             )
                         } else {
                             (
-                                egui::Color32::from_rgb(18, 45, 32),
-                                egui::Color32::from_rgb(0, 255, 150),
+                                ui.visuals().panel_fill,
+                                ui.visuals().hyperlink_color,
                                 lang.tr("Engine Pronto", "Engine Ready").to_string(),
-                                egui::Color32::from_rgb(0, 255, 180),
+                                self.config.theme.success_c32(),
                             )
                         };
 
@@ -169,7 +168,7 @@ impl KamafeuStudioApp {
                         ui.add(
                             egui::ProgressBar::new(self.render_progress)
                                 .text(format!("{:.0}%", self.render_progress * 100.0))
-                                .fill(egui::Color32::from_rgb(0, 230, 138))
+                                .fill(ui.visuals().hyperlink_color)
                                 .animate(is_rendering)
                                 .desired_width(ui.available_width() - 320.0),
                         );
@@ -181,7 +180,7 @@ impl KamafeuStudioApp {
                                     self.selected_resampler, self.selected_wavtool, self.render_threads
                                 ))
                                 .size(10.0)
-                                .color(egui::Color32::from_rgb(180, 170, 210)),
+                                .color(ui.visuals().text_color().linear_multiply(0.72)),
                             );
                         });
                     });
@@ -227,7 +226,7 @@ impl KamafeuStudioApp {
                         }
 
                         ui.add_space(8.0);
-                        ui.label(egui::RichText::new(lang.tr("Buscar:", "Search:")).size(11.0).color(MelodyneTheme::TEXT_MUTED));
+                        ui.label(egui::RichText::new(lang.tr("Buscar:", "Search:")).size(11.0).color(self.config.theme.text_muted_c32()));
                         ui.add(
                             egui::TextEdit::singleline(&mut self.render_log_search_query)
                                 .hint_text(lang.tr("Buscar mensagem ou nota...", "Search message or note..."))
@@ -258,7 +257,7 @@ impl KamafeuStudioApp {
                             ui.label(
                                 egui::RichText::new(format!("{:.1}px", self.render_log_font_size))
                                     .size(10.0)
-                                    .color(egui::Color32::from_rgb(170, 160, 190)),
+                                    .color(ui.visuals().text_color()),
                             );
                             ui.label(egui::RichText::new(format!("{}:", lang.tr("Fonte", "Font"))).size(10.0));
                         });
@@ -275,9 +274,9 @@ impl KamafeuStudioApp {
                     let mut displayed_lines = 0;
 
                     egui::Frame::none()
-                        .fill(egui::Color32::from_rgb(10, 8, 16))
+                        .fill(ui.visuals().panel_fill)
                         .rounding(egui::Rounding::same(6.0))
-                        .stroke(egui::Stroke::new(1.0_f32, egui::Color32::from_rgb(45, 35, 65)))
+                        .stroke(egui::Stroke::new(1.0_f32, ui.visuals().panel_fill))
                         .inner_margin(egui::Margin::same(8.0))
                         .show(ui, |ui| {
                             egui::ScrollArea::both()
@@ -293,7 +292,7 @@ impl KamafeuStudioApp {
                                                     .size(13.0)
                                                     .monospace()
                                                     .strong()
-                                                    .color(egui::Color32::from_rgb(0, 255, 180)),
+                                                    .color(self.config.theme.success_c32()),
                                             );
                                             ui.add_space(4.0);
                                             ui.label(
@@ -303,7 +302,7 @@ impl KamafeuStudioApp {
                                                 ))
                                                 .size(11.0)
                                                 .italics()
-                                                .color(egui::Color32::from_rgb(140, 130, 160)),
+                                                .color(ui.visuals().text_color().linear_multiply(0.72)),
                                             );
                                             ui.add_space(30.0);
                                         });
@@ -341,27 +340,27 @@ impl KamafeuStudioApp {
                                                             egui::RichText::new(format!("{:04} ", i + 1))
                                                                 .size(font_sz * 0.9)
                                                                 .monospace()
-                                                                .color(egui::Color32::from_rgb(85, 75, 105)),
+                                                                .color(ui.visuals().text_color().linear_multiply(0.72)),
                                                         );
                                                     }
 
                                                     // Category Badge Pill
                                                     let (pill_text, pill_color) = if is_err {
-                                                        ("[ERR]", egui::Color32::from_rgb(255, 90, 90))
+                                                        ("[ERR]", ui.visuals().error_fg_color)
                                                     } else if is_warn {
-                                                        ("[WARN]", egui::Color32::from_rgb(255, 200, 60))
+                                                        ("[WARN]", ui.visuals().warn_fg_color)
                                                     } else if is_timing {
-                                                        ("[TIME]", egui::Color32::from_rgb(255, 170, 100))
+                                                        ("[TIME]", ui.visuals().warn_fg_color)
                                                     } else if is_chunk {
-                                                        ("[CHUNK]", egui::Color32::from_rgb(110, 220, 180))
+                                                        ("[CHUNK]", ui.visuals().hyperlink_color)
                                                     } else if is_dsp {
-                                                        ("[DSP]", egui::Color32::from_rgb(216, 180, 254))
+                                                        ("[DSP]", ui.visuals().hyperlink_color)
                                                     } else if is_wav {
-                                                        ("[WAV]", egui::Color32::from_rgb(120, 220, 255))
+                                                        ("[WAV]", ui.visuals().hyperlink_color)
                                                     } else if msg.contains("Concluído") || msg.contains("Pronto") {
-                                                        ("[OK]", egui::Color32::from_rgb(0, 255, 157))
+                                                        ("[OK]", ui.visuals().hyperlink_color)
                                                     } else {
-                                                        ("[LOG]", egui::Color32::from_rgb(150, 160, 190))
+                                                        ("[LOG]", ui.visuals().text_color().linear_multiply(0.72))
                                                     };
 
                                                     ui.label(
@@ -374,17 +373,17 @@ impl KamafeuStudioApp {
 
                                                     // Text Body with Syntax Coloring
                                                     let text_color = if is_err {
-                                                        egui::Color32::from_rgb(255, 130, 130)
+                                                        ui.visuals().warn_fg_color
                                                     } else if is_warn {
-                                                        egui::Color32::from_rgb(255, 225, 140)
+                                                        ui.visuals().warn_fg_color
                                                     } else if is_dsp {
-                                                        egui::Color32::from_rgb(230, 200, 255)
+                                                        ui.visuals().hyperlink_color
                                                     } else if is_wav {
-                                                        egui::Color32::from_rgb(180, 235, 255)
+                                                        ui.visuals().hyperlink_color
                                                     } else if msg.contains("Concluído") || msg.contains("Pronto") {
-                                                        egui::Color32::from_rgb(140, 255, 190)
+                                                        ui.visuals().hyperlink_color
                                                     } else {
-                                                        egui::Color32::from_rgb(215, 210, 230)
+                                                        ui.visuals().text_color()
                                                     };
 
                                                     let mut lbl = egui::Label::new(
@@ -411,7 +410,7 @@ impl KamafeuStudioApp {
                                                     ))
                                                     .size(11.5)
                                                     .italics()
-                                                    .color(egui::Color32::from_rgb(160, 150, 180)),
+                                                    .color(ui.visuals().text_color()),
                                                 );
                                                 ui.add_space(20.0);
                                             });
@@ -434,7 +433,7 @@ impl KamafeuStudioApp {
                                 lang.tr("mensagens", "messages")
                             ))
                             .size(10.5)
-                            .color(egui::Color32::from_rgb(160, 150, 180)),
+                            .color(ui.visuals().text_color()),
                         );
 
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
@@ -442,7 +441,7 @@ impl KamafeuStudioApp {
                                 egui::RichText::new(format!("Kamafeu Engine v{} ({})", crate::APP_VERSION, crate::APP_CODENAME))
                                     .size(10.0)
                                     .monospace()
-                                    .color(egui::Color32::from_rgb(110, 100, 130)),
+                                    .color(ui.visuals().text_color().linear_multiply(0.72)),
                             );
                         });
                     });

@@ -1,14 +1,15 @@
-use crate::drivers::{ResamplerArgs, ResamplerDriver};
+use crate::drivers::{ResamplerArgs, ResamplerDriver, ResamplerExecutionInfo};
+use sha2::{Digest, Sha256};
 use std::collections::{HashMap, VecDeque};
 use std::hash::{DefaultHasher, Hash, Hasher};
+use std::io::Write;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex, OnceLock, RwLock};
 use std::time::Duration;
 
-// Timing/oto.ini semantics changed in v4 (negative overlap, UST overrides and
-// canonical manual VC placement). Older rendered fragments are incompatible.
-const CACHE_SCHEMA: u32 = 4;
+// v5 stores effective backend/fallback metadata beside each persistent render.
+const CACHE_SCHEMA: u32 = 5;
 const MAX_CACHE_ENTRIES: usize = 2048;
 const MAX_CACHE_SAMPLES: usize = 128 * 1024 * 1024;
 
@@ -56,7 +57,12 @@ impl Default for CacheLimits {
 
 enum CacheEntry {
     Rendering,
-    Ready(Arc<[f32]>),
+    Ready(CachedRender),
+}
+
+struct CachedRender {
+    samples: Arc<[f32]>,
+    execution: ResamplerExecutionInfo,
 }
 
 #[derive(Default)]
@@ -225,53 +231,120 @@ pub fn get_memory_cache_stats() -> (usize, usize) {
     (state.entries.len(), state.total_samples)
 }
 
-fn persistent_cache_path(key: u64) -> std::path::PathBuf {
-    persistent_cache_dir().join(format!("res-{key:016x}.wav"))
+fn persistent_cache_path_in(directory: &std::path::Path, key: u64) -> std::path::PathBuf {
+    directory.join(format!("res-{key:016x}.wav"))
 }
 
-fn load_persistent(key: u64, sample_rate: u32) -> Option<Vec<f32>> {
+fn persistent_execution_path_in(directory: &std::path::Path, key: u64) -> std::path::PathBuf {
+    directory.join(format!("res-{key:016x}.json"))
+}
+
+#[derive(serde::Serialize, serde::Deserialize)]
+struct PersistentExecution {
+    schema: u32,
+    cache_key: u64,
+    sample_rate: u32,
+    sample_count: usize,
+    audio_sha256: String,
+    execution: ResamplerExecutionInfo,
+}
+
+fn cached_audio_sha256(samples: &[f32]) -> String {
+    let mut hasher = Sha256::new();
+    for sample in samples {
+        hasher.update(sample.to_le_bytes());
+    }
+    format!("{:x}", hasher.finalize())
+}
+
+fn load_persistent(key: u64, sample_rate: u32) -> Option<(Vec<f32>, ResamplerExecutionInfo)> {
+    load_persistent_in(&persistent_cache_dir(), key, sample_rate)
+}
+
+fn load_persistent_in(
+    directory: &std::path::Path,
+    key: u64,
+    sample_rate: u32,
+) -> Option<(Vec<f32>, ResamplerExecutionInfo)> {
     #[cfg(target_arch = "wasm32")]
     {
-        let _ = (key, sample_rate);
+        let _ = (directory, key, sample_rate);
         None
     }
     #[cfg(not(target_arch = "wasm32"))]
     {
-        let path = persistent_cache_path(key);
+        let path = persistent_cache_path_in(directory, key);
+        let execution_path = persistent_execution_path_in(directory, key);
+        let execution = std::fs::read(&execution_path)
+            .ok()
+            .and_then(|bytes| serde_json::from_slice::<PersistentExecution>(&bytes).ok())
+            .filter(|value| {
+                value.schema == CACHE_SCHEMA
+                    && value.cache_key == key
+                    && value.sample_rate == sample_rate
+            });
         let loaded = crate::renderer::TrackRenderer::load_wav_samples(&path);
         match loaded {
-            Ok((samples, cached_rate)) if !samples.is_empty() && cached_rate == sample_rate => {
-                Some(samples)
+            Ok((samples, cached_rate))
+                if !samples.is_empty()
+                    && cached_rate == sample_rate
+                    && execution.as_ref().is_some_and(|metadata| {
+                        metadata.sample_count == samples.len()
+                            && metadata.audio_sha256 == cached_audio_sha256(&samples)
+                    }) =>
+            {
+                Some((samples, execution.unwrap().execution))
             }
             Ok(_) | Err(_) => {
                 if path.is_file() {
                     let _ = std::fs::remove_file(path);
                 }
+                let _ = std::fs::remove_file(execution_path);
                 None
             }
         }
     }
 }
 
-fn store_persistent(key: u64, samples: &[f32], sample_rate: u32) {
+fn store_persistent(
+    key: u64,
+    samples: &[f32],
+    sample_rate: u32,
+    execution: &ResamplerExecutionInfo,
+) {
+    store_persistent_in(
+        &persistent_cache_dir(),
+        key,
+        samples,
+        sample_rate,
+        execution,
+    )
+}
+
+fn store_persistent_in(
+    directory: &std::path::Path,
+    key: u64,
+    samples: &[f32],
+    sample_rate: u32,
+    execution: &ResamplerExecutionInfo,
+) {
     #[cfg(target_arch = "wasm32")]
     {
-        let _ = (key, samples, sample_rate);
+        let _ = (directory, key, samples, sample_rate, execution);
     }
     #[cfg(not(target_arch = "wasm32"))]
     {
         if samples.is_empty() {
             return;
         }
-        let directory = persistent_cache_dir();
-        if std::fs::create_dir_all(&directory).is_err() {
+        if std::fs::create_dir_all(directory).is_err() {
             return;
         }
-        let destination = persistent_cache_path(key);
+        let destination = persistent_cache_path_in(directory, key);
         let Ok(temporary) = tempfile::Builder::new()
             .prefix("res-")
             .suffix(".wav")
-            .tempfile_in(directory)
+            .tempfile_in(&directory)
         else {
             return;
         };
@@ -290,17 +363,35 @@ fn store_persistent(key: u64, samples: &[f32], sample_rate: u32) {
         });
         if stored.is_ok() {
             let _ = temporary.persist(destination);
-            prune_persistent_cache();
+            let metadata = PersistentExecution {
+                schema: CACHE_SCHEMA,
+                cache_key: key,
+                sample_rate,
+                sample_count: samples.len(),
+                audio_sha256: cached_audio_sha256(samples),
+                execution: execution.clone(),
+            };
+            if let Ok(bytes) = serde_json::to_vec(&metadata) {
+                if let Ok(mut file) = tempfile::Builder::new()
+                    .prefix("res-meta-")
+                    .suffix(".json")
+                    .tempfile_in(directory)
+                {
+                    if file.write_all(&bytes).is_ok() {
+                        let _ = file.persist(persistent_execution_path_in(directory, key));
+                    }
+                }
+            }
+            prune_persistent_cache(directory);
         }
     }
 }
 
-fn prune_persistent_cache() {
+fn prune_persistent_cache(directory: &std::path::Path) {
     let limit = cache_limits()
         .read()
         .map(|limits| limits.max_disk_bytes)
         .unwrap_or_else(|_| CacheLimits::default().max_disk_bytes);
-    let directory = persistent_cache_dir();
     let Ok(entries) = std::fs::read_dir(directory) else {
         return;
     };
@@ -432,7 +523,12 @@ fn cache_key(
     hasher.finish()
 }
 
-fn insert_ready(state: &mut CacheState, key: u64, samples: Vec<f32>) {
+fn insert_ready(
+    state: &mut CacheState,
+    key: u64,
+    samples: Vec<f32>,
+    execution: ResamplerExecutionInfo,
+) {
     let limits = cache_limits()
         .read()
         .map(|limits| *limits)
@@ -448,13 +544,17 @@ fn insert_ready(state: &mut CacheState, key: u64, samples: Vec<f32>) {
             break;
         };
         if let Some(CacheEntry::Ready(removed)) = state.entries.remove(&oldest) {
-            state.total_samples = state.total_samples.saturating_sub(removed.len());
+            state.total_samples = state.total_samples.saturating_sub(removed.samples.len());
         }
     }
     state.total_samples = state.total_samples.saturating_add(samples.len());
-    state
-        .entries
-        .insert(key, CacheEntry::Ready(Arc::from(samples)));
+    state.entries.insert(
+        key,
+        CacheEntry::Ready(CachedRender {
+            samples: Arc::from(samples),
+            execution,
+        }),
+    );
     state.insertion_order.push_back(key);
 }
 
@@ -468,7 +568,7 @@ pub(crate) fn render_with_cache(
     sample_rate: u32,
     args: &ResamplerArgs,
     cancel: Option<&std::sync::atomic::AtomicBool>,
-) -> Result<(Vec<f32>, bool), String> {
+) -> Result<(Vec<f32>, bool, ResamplerExecutionInfo), String> {
     use std::sync::atomic::Ordering;
 
     if cancel.is_some_and(|token| token.load(Ordering::Relaxed)) {
@@ -483,9 +583,9 @@ pub(crate) fn render_with_cache(
             .lock()
             .unwrap_or_else(|error| error.into_inner());
         match state.entries.get(&key) {
-            Some(CacheEntry::Ready(samples)) => {
+            Some(CacheEntry::Ready(cached)) => {
                 CACHE_HITS.fetch_add(1, Ordering::Relaxed);
-                return Ok((samples.to_vec(), true));
+                return Ok((cached.samples.to_vec(), true, cached.execution.clone()));
             }
             Some(CacheEntry::Rendering) => {
                 if cancel.is_some_and(|token| token.load(Ordering::Relaxed)) {
@@ -505,46 +605,47 @@ pub(crate) fn render_with_cache(
     }
 
     if driver.supports_persistent_cache() {
-        if let Some(samples) = load_persistent(key, sample_rate) {
+        if let Some((samples, execution)) = load_persistent(key, sample_rate) {
             CACHE_HITS.fetch_add(1, Ordering::Relaxed);
             let mut state = state_mutex
                 .lock()
                 .unwrap_or_else(|error| error.into_inner());
-            insert_ready(&mut state, key, samples.clone());
+            insert_ready(&mut state, key, samples.clone(), execution.clone());
             ready.notify_all();
-            return Ok((samples, true));
+            return Ok((samples, true, execution));
         }
     }
 
     CACHE_RENDERS.fetch_add(1, Ordering::Relaxed);
     let rendered = driver
-        .render_sample(raw_samples, sample_rate, args, cancel)
-        .and_then(|samples| {
+        .render_sample_with_execution(raw_samples, sample_rate, args, cancel)
+        .and_then(|output| {
+            let samples = output.samples;
             if samples.is_empty() || samples.iter().any(|s| !s.is_finite()) {
                 Err("Resampler produziu áudio vazio ou amostras inválidas".to_string())
             } else {
-                Ok(samples)
+                Ok((samples, output.execution))
             }
         });
     match rendered {
-        Ok(samples) => {
+        Ok((samples, execution)) => {
             // External drivers create this file only when the external engine
             // actually succeeds. Do not permanently cache a transient native
             // fallback caused by Wine/process failure.
             let cacheable = !driver.uses_external_process() || args.output_wav.is_file();
             if cacheable && driver.supports_persistent_cache() {
-                store_persistent(key, &samples, sample_rate);
+                store_persistent(key, &samples, sample_rate, &execution);
             }
             let mut state = state_mutex
                 .lock()
                 .unwrap_or_else(|error| error.into_inner());
             if cacheable {
-                insert_ready(&mut state, key, samples.clone());
+                insert_ready(&mut state, key, samples.clone(), execution.clone());
             } else {
                 state.entries.remove(&key);
             }
             ready.notify_all();
-            Ok((samples, false))
+            Ok((samples, false, execution))
         }
         Err(error) => {
             let mut state = state_mutex
@@ -573,6 +674,10 @@ mod tests {
     impl ResamplerDriver for CountingDriver {
         fn name(&self) -> &str {
             "cache-test"
+        }
+
+        fn engine_id(&self) -> &'static str {
+            "test.counting-driver"
         }
 
         fn cache_identity(&self) -> String {
@@ -626,6 +731,23 @@ mod tests {
     }
 
     #[test]
+    fn effective_flag_string_participates_in_render_cache_identity() {
+        let driver = CountingDriver {
+            id: 0,
+            calls: AtomicUsize::new(0),
+            delay: Duration::ZERO,
+        };
+        let input = vec![0.1f32; 128];
+        let base = args();
+        let mut changed = base.clone();
+        changed.flags = "g12t-4B30H8".into();
+        assert_ne!(
+            cache_key(&driver, 48_000, &base, &input),
+            cache_key(&driver, 48_000, &changed, &input)
+        );
+    }
+
+    #[test]
     fn identical_request_runs_resampler_once() {
         let driver = CountingDriver {
             id: 1,
@@ -638,8 +760,41 @@ mod tests {
 
         assert!(!first.1);
         assert!(second.1);
+        assert_eq!(first.2.effective_backend_id, "test.counting-driver");
+        assert_eq!(second.2, first.2);
         assert_eq!(driver.calls.load(Ordering::Relaxed), 1);
         assert_eq!(second.0, vec![0.1, 0.2]);
+    }
+
+    #[test]
+    fn persistent_cache_roundtrips_execution_and_rejects_audio_without_metadata() {
+        let directory = tempfile::tempdir().unwrap();
+        let execution = ResamplerExecutionInfo {
+            effective_backend_id: "kamafeu.sola".into(),
+            stages: vec!["kamafeu.sola".into()],
+            fallback_reasons: vec!["WORLD coverage guard rejected output".into()],
+            adjustments: Vec::new(),
+        };
+        store_persistent_in(directory.path(), 0x1234, &[0.25, -0.5], 44_100, &execution);
+
+        let loaded = load_persistent_in(directory.path(), 0x1234, 44_100)
+            .expect("audio and execution metadata");
+        assert_eq!(loaded.0, vec![0.25, -0.5]);
+        assert_eq!(loaded.1, execution);
+
+        crate::renderer::TrackRenderer::save_wav_samples(
+            &persistent_cache_path_in(directory.path(), 0x1234),
+            &[0.5, -0.25],
+            44_100,
+        )
+        .unwrap();
+        assert!(load_persistent_in(directory.path(), 0x1234, 44_100).is_none());
+        assert!(!persistent_cache_path_in(directory.path(), 0x1234).exists());
+
+        store_persistent_in(directory.path(), 0x1235, &[0.25, -0.5], 44_100, &execution);
+        std::fs::remove_file(persistent_execution_path_in(directory.path(), 0x1235)).unwrap();
+        assert!(load_persistent_in(directory.path(), 0x1235, 44_100).is_none());
+        assert!(!persistent_cache_path_in(directory.path(), 0x1235).exists());
     }
 
     #[test]

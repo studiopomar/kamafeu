@@ -177,6 +177,60 @@ impl TrackRenderer {
         on_progress: Option<&(dyn Fn(f32, &str) + Send + Sync)>,
         cancel: Option<&AtomicBool>,
     ) -> Result<Vec<f32>, String> {
+        Self::try_render_track_with_callbacks(
+            notes,
+            voicebank,
+            sample_rate,
+            tempo_bpm,
+            resampler_driver,
+            wavtool_driver,
+            vocal_mode,
+            on_progress,
+            None,
+            cancel,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn try_render_track_with_progress_events(
+        notes: &[UNote],
+        voicebank: &Voicebank,
+        sample_rate: u32,
+        tempo_bpm: f64,
+        resampler_driver: &dyn ResamplerDriver,
+        wavtool_driver: &dyn WavtoolDriver,
+        vocal_mode: Option<&RenderOptions>,
+        on_progress: Option<&(dyn Fn(f32, &str) + Send + Sync)>,
+        on_progress_event: Option<&(dyn Fn(crate::renderer::RenderProgressEvent) + Send + Sync)>,
+        cancel: Option<&AtomicBool>,
+    ) -> Result<Vec<f32>, String> {
+        Self::try_render_track_with_callbacks(
+            notes,
+            voicebank,
+            sample_rate,
+            tempo_bpm,
+            resampler_driver,
+            wavtool_driver,
+            vocal_mode,
+            on_progress,
+            on_progress_event,
+            cancel,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn try_render_track_with_callbacks(
+        notes: &[UNote],
+        voicebank: &Voicebank,
+        sample_rate: u32,
+        tempo_bpm: f64,
+        resampler_driver: &dyn ResamplerDriver,
+        wavtool_driver: &dyn WavtoolDriver,
+        vocal_mode: Option<&RenderOptions>,
+        on_progress: Option<&(dyn Fn(f32, &str) + Send + Sync)>,
+        on_progress_event: Option<&(dyn Fn(crate::renderer::RenderProgressEvent) + Send + Sync)>,
+        cancel: Option<&AtomicBool>,
+    ) -> Result<Vec<f32>, String> {
         if notes.is_empty() {
             return Ok(Vec::new());
         }
@@ -356,25 +410,25 @@ impl TrackRenderer {
         let io_threads = io_thread_count().read().map(|value| *value).unwrap_or(4);
         #[cfg(target_arch = "wasm32")]
         let io_threads = 1;
-        let load_wavs = || {
-            wav_paths_vec
-                .clone()
-                .into_par_iter()
-                .filter_map(|path| {
-                    Self::load_wav_samples(&path)
-                        .ok()
-                        .map(|(samples, rate)| (path, Arc::new((samples, rate))))
-                })
-                .collect()
-        };
+        #[cfg(not(target_arch = "wasm32"))]
         let wav_cache: HashMap<std::path::PathBuf, Arc<(Vec<f32>, u32)>> =
-            match rayon::ThreadPoolBuilder::new()
-                .num_threads(io_threads)
-                .thread_name(|index| format!("kamafeu-io-{index}"))
-                .build()
-            {
-                Ok(pool) => pool.install(load_wavs),
-                Err(_) => load_wavs(),
+            if wav_paths_vec.is_empty() {
+                HashMap::new()
+            } else {
+                let load_wavs = || {
+                    wav_paths_vec
+                        .into_par_iter()
+                        .filter_map(|path| {
+                            Self::load_wav_samples(&path)
+                                .ok()
+                                .map(|(samples, rate)| (path, Arc::new((samples, rate))))
+                        })
+                        .collect()
+                };
+                match crate::renderer::worker_pool::get(io_threads) {
+                    Ok(pool) => pool.install(load_wavs),
+                    Err(_) => load_wavs(),
+                }
             };
         #[cfg(target_arch = "wasm32")]
         let wav_cache: HashMap<std::path::PathBuf, Arc<(Vec<f32>, u32)>> = wav_paths_vec
@@ -497,6 +551,13 @@ impl TrackRenderer {
         }
 
         let total_phones = phones.len().max(1);
+        if let Some(callback) = on_progress_event {
+            callback(crate::renderer::RenderProgressEvent::counted(
+                crate::renderer::RenderStage::Rendering,
+                0,
+                total_phones,
+            ));
+        }
 
         // ------------------------------------------------------------------
         // Phase 1: Render each phone in parallel.
@@ -672,8 +733,16 @@ impl TrackRenderer {
                     cancel,
                 )
             };
-            let mut note_rendered = rendered_or_cached
-                .map(|(samples, cache_hit)| {
+            let rendered_with_execution =
+                rendered_or_cached.map(|(samples, cache_hit, execution)| {
+                    logs.push((
+                        progress,
+                        format!(
+                            "  [Resampler Execution] {}",
+                            serde_json::to_string(&execution)
+                                .expect("resampler execution metadata is serializable")
+                        ),
+                    ));
                     logs.push((
                         progress,
                         if cache_hit {
@@ -682,17 +751,20 @@ impl TrackRenderer {
                             "  [Resampler Cache] miss".to_string()
                         },
                     ));
-                    samples
-                })
-                .map_err(|error| {
-                    format!(
-                        "Fonema #{} '{}' em {:.1} ms, resampler {}: {error}",
-                        idx + 1,
-                        phone.lyric,
-                        phone.position_ms,
-                        resampler_driver.name()
-                    )
-                })?;
+                    (samples, execution)
+                });
+            let (mut note_rendered, resampler_execution): (
+                Vec<f32>,
+                crate::drivers::ResamplerExecutionInfo,
+            ) = rendered_with_execution.map_err(|error| {
+                format!(
+                    "Fonema #{} '{}' em {:.1} ms, resampler {}: {error}",
+                    idx + 1,
+                    phone.lyric,
+                    phone.position_ms,
+                    resampler_driver.name()
+                )
+            })?;
 
             if src_sample_rate != sample_rate {
                 note_rendered =
@@ -861,7 +933,13 @@ impl TrackRenderer {
             let render_diagnostic = crate::renderer::PhonemeRenderDiagnostic {
                 phone_index: idx,
                 lyric: phone.lyric.clone(),
+                resampler_driver_id: resampler_driver.engine_id().to_string(),
+                effective_resampler_engine_id: resampler_execution.effective_backend_id.clone(),
+                resampler_stages: resampler_execution.stages.clone(),
+                resampler_fallback_reasons: resampler_execution.fallback_reasons.clone(),
+                resampler_adjustments: resampler_execution.adjustments.clone(),
                 resampler: resampler_driver.name().to_string(),
+                wavtool_engine_id: wavtool_driver.engine_id().to_string(),
                 wavtool: wavtool_driver.name().to_string(),
                 input_wav: res_args.input_wav.display().to_string(),
                 output_wav: res_args.output_wav.display().to_string(),
@@ -992,6 +1070,13 @@ impl TrackRenderer {
             }
 
             let done = completed_ref.fetch_add(1, Ordering::Relaxed) + 1;
+            if let Some(callback) = on_progress_event {
+                callback(crate::renderer::RenderProgressEvent::counted(
+                    crate::renderer::RenderStage::Rendering,
+                    done,
+                    total_phones,
+                ));
+            }
             let cur_progress = (done as f32 / total_phones as f32).min(0.99);
             log(
                 cur_progress,

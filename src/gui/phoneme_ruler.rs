@@ -166,14 +166,14 @@ pub fn draw_phoneme_ruler(
                                 Pos2::new(x, strip_rect.min.y),
                                 Pos2::new(x, strip_rect.max.y),
                             ],
-                            Stroke::new(1.0_f32, Color32::from_rgba_unmultiplied(65, 52, 90, 140)),
+                            Stroke::new(1.0_f32, ui.visuals().hyperlink_color.linear_multiply(140.0 / 255.0)),
                         );
                         painter.text(
                             Pos2::new(x + 4.0, strip_rect.max.y - 4.0),
                             egui::Align2::LEFT_BOTTOM,
                             format!("{}", bar + 1),
                             egui::FontId::proportional(9.0),
-                            Color32::from_rgb(110, 100, 135),
+                            ui.visuals().text_color().linear_multiply(0.72),
                         );
                     }
                 }
@@ -191,17 +191,17 @@ pub fn draw_phoneme_ruler(
                 for (level, color, width) in [
                     (
                         0.0_f32,
-                        Color32::from_rgba_unmultiplied(120, 100, 150, 90),
+                        ui.visuals().text_color().linear_multiply(0.72).linear_multiply(90.0 / 255.0),
                         1.0_f32,
                     ),
                     (
                         0.5_f32,
-                        Color32::from_rgba_unmultiplied(160, 145, 190, 95),
+                        ui.visuals().text_color().linear_multiply(0.72).linear_multiply(95.0 / 255.0),
                         1.0_f32,
                     ),
                     (
                         1.0_f32,
-                        Color32::from_rgba_unmultiplied(220, 190, 240, 125),
+                        ui.visuals().hyperlink_color.linear_multiply(125.0 / 255.0),
                         1.2_f32,
                     ),
                 ] {
@@ -219,14 +219,14 @@ pub fn draw_phoneme_ruler(
                     egui::Align2::LEFT_BOTTOM,
                     "200%",
                     egui::FontId::proportional(8.0),
-                    Color32::from_rgba_unmultiplied(210, 190, 235, 150),
+                    ui.visuals().text_color().linear_multiply(150.0 / 255.0),
                 );
                 painter.text(
                     Pos2::new(strip_rect.min.x + 4.0, y_bottom - envelope_height * 0.5),
                     egui::Align2::LEFT_CENTER,
                     "100%",
                     egui::FontId::proportional(8.0),
-                    Color32::from_rgba_unmultiplied(210, 190, 235, 130),
+                    ui.visuals().text_color().linear_multiply(130.0 / 255.0),
                 );
 
                 let mut previous_note_end_ms: Option<f64> = None;
@@ -559,7 +559,7 @@ pub fn draw_phoneme_ruler(
                                 painter.rect_filled(
                                     c_rect,
                                     Rounding::ZERO,
-                                    Color32::from_rgba_unmultiplied(40, 140, 180, 45),
+                                    ui.visuals().hyperlink_color.linear_multiply(45.0 / 255.0),
                                 );
                             }
                             painter.line_segment(
@@ -569,7 +569,7 @@ pub fn draw_phoneme_ruler(
                                 ],
                                 Stroke::new(
                                     1.2_f32,
-                                    Color32::from_rgba_unmultiplied(120, 230, 200, 200),
+                                    ui.visuals().hyperlink_color.linear_multiply(200.0 / 255.0),
                                 ),
                             );
                         }
@@ -597,13 +597,13 @@ pub fn draw_phoneme_ruler(
                             painter.circle(
                                 Pos2::new(preutter_x, y_top),
                                 circle_radius,
-                                Color32::from_rgb(22, 17, 34),
+                                ui.visuals().panel_fill,
                                 Stroke::new(1.3_f32, stroke_color),
                             );
                             painter.circle(
                                 Pos2::new(overlap_x, y_bottom),
                                 circle_radius,
-                                Color32::from_rgb(22, 17, 34),
+                                ui.visuals().panel_fill,
                                 Stroke::new(1.3_f32, stroke_color),
                             );
                         }
@@ -635,7 +635,7 @@ pub fn draw_phoneme_ruler(
                                     let node_fill = if active {
                                         color
                                     } else {
-                                        Color32::from_rgb(20, 16, 32)
+                                        ui.visuals().panel_fill
                                     };
                                     painter.circle(
                                         draw_pos,
@@ -665,7 +665,7 @@ pub fn draw_phoneme_ruler(
                                         painter.rect_filled(
                                             pill_rect,
                                             Rounding::same(4.0),
-                                            Color32::from_rgba_unmultiplied(15, 20, 35, 230),
+                                            ui.visuals().panel_fill.linear_multiply(230.0 / 255.0),
                                         );
                                         painter.rect_stroke(
                                             pill_rect,
@@ -808,7 +808,7 @@ pub fn draw_phoneme_ruler(
                                     let node_fill = if active {
                                         color
                                     } else {
-                                        Color32::from_rgb(20, 16, 32)
+                                        ui.visuals().panel_fill
                                     };
                                     painter.circle(
                                         draw_pos,
@@ -837,7 +837,7 @@ pub fn draw_phoneme_ruler(
                                         painter.rect_filled(
                                             pill_rect,
                                             Rounding::same(4.0),
-                                            Color32::from_rgba_unmultiplied(15, 20, 35, 230),
+                                            ui.visuals().panel_fill.linear_multiply(230.0 / 255.0),
                                         );
                                         painter.rect_stroke(
                                             pill_rect,
@@ -900,7 +900,7 @@ pub fn draw_phoneme_ruler(
                                     let node_fill = if active {
                                         color
                                     } else {
-                                        Color32::from_rgb(20, 16, 32)
+                                        ui.visuals().panel_fill
                                     };
                                     painter.circle(
                                         draw_pos,
@@ -934,7 +934,7 @@ pub fn draw_phoneme_ruler(
                                         painter.rect_filled(
                                             pill_rect,
                                             Rounding::same(4.0),
-                                            Color32::from_rgba_unmultiplied(15, 20, 35, 230),
+                                            ui.visuals().panel_fill.linear_multiply(230.0 / 255.0),
                                         );
                                         painter.rect_stroke(
                                             pill_rect,
@@ -1012,14 +1012,14 @@ pub fn draw_phoneme_ruler(
                                 .map_or(seg_end_x, |point| point.x)
                                 .max(seg_end_x);
                             let lane_fill = if is_selected {
-                                Color32::from_rgba_unmultiplied(30, 170, 225, 115)
+                                ui.visuals().hyperlink_color.linear_multiply(115.0 / 255.0)
                             } else {
-                                Color32::from_rgba_unmultiplied(20, 125, 185, 105)
+                                ui.visuals().hyperlink_color.linear_multiply(105.0 / 255.0)
                             };
                             let lane_stroke = if is_selected {
-                                Color32::from_rgb(45, 190, 240)
+                                ui.visuals().hyperlink_color
                             } else {
-                                Color32::from_rgb(25, 145, 205)
+                                ui.visuals().hyperlink_color
                             };
                             // `convex_polygon` cannot represent an envelope
                             // with valleys: egui triangulates it as a fan,
@@ -1120,9 +1120,9 @@ pub fn draw_phoneme_ruler(
                                         point_pos,
                                         if hovered || dragging { 4.5 } else { 3.2 },
                                         if hovered || dragging {
-                                            Color32::from_rgb(110, 225, 255)
+                                            ui.visuals().hyperlink_color
                                         } else {
-                                            Color32::from_rgb(45, 190, 240)
+                                            ui.visuals().hyperlink_color
                                         },
                                     );
                                     if editable && (hovered || dragging) {
@@ -1284,11 +1284,11 @@ pub fn draw_phoneme_ruler(
                                 if x_right > x_left + 1.0 {
                                     painter.line_segment(
                                         [Pos2::new(x_left, y_top), Pos2::new(x_right, y_bottom)],
-                                        Stroke::new(1.0_f32, Color32::from_rgb(30, 150, 215)),
+                                        Stroke::new(1.0_f32, ui.visuals().hyperlink_color),
                                     );
                                     painter.line_segment(
                                         [Pos2::new(x_left, y_bottom), Pos2::new(x_right, y_top)],
-                                        Stroke::new(1.0_f32, Color32::from_rgb(30, 150, 215)),
+                                        Stroke::new(1.0_f32, ui.visuals().hyperlink_color),
                                     );
                                 }
                             }
@@ -1303,7 +1303,7 @@ pub fn draw_phoneme_ruler(
                                     ],
                                     Stroke::new(
                                         1.4_f32,
-                                        Color32::from_rgba_unmultiplied(255, 72, 180, 220),
+                                        ui.visuals().error_fg_color.linear_multiply(220.0 / 255.0),
                                     ),
                                 );
                             }
@@ -1324,7 +1324,7 @@ pub fn draw_phoneme_ruler(
                                     ],
                                     Stroke::new(
                                         1.0_f32,
-                                        Color32::from_rgba_unmultiplied(140, 125, 185, 160),
+                                        ui.visuals().hyperlink_color.linear_multiply(160.0 / 255.0),
                                     ),
                                 );
                                 let is_editing_this =
@@ -1420,9 +1420,9 @@ pub fn draw_phoneme_ruler(
                                                             .join(&entry.wav_filename)
                                                             .exists();
                                                         let color = if exists {
-                                                            Color32::from_rgb(140, 230, 160)
+                                                            ui.visuals().hyperlink_color
                                                         } else {
-                                                            Color32::from_rgb(255, 120, 120)
+                                                            ui.visuals().error_fg_color
                                                         };
                                                         ui.label(
                                                             RichText::new(&entry.wav_filename)
@@ -1459,7 +1459,7 @@ pub fn draw_phoneme_ruler(
                                                 } else {
                                                     ui.label(
                                                         RichText::new("Não encontrado no oto.ini")
-                                                            .color(Color32::from_rgb(255, 170, 80))
+                                                            .color(ui.visuals().warn_fg_color)
                                                             .size(10.0),
                                                     );
                                                 }
@@ -1488,7 +1488,7 @@ pub fn draw_phoneme_ruler(
                                     painter.rect_filled(
                                         edit_rect,
                                         Rounding::same(4.0),
-                                        Color32::from_rgb(45, 30, 75),
+                                        ui.visuals().panel_fill,
                                     );
                                     painter.rect_stroke(
                                         edit_rect,
@@ -1554,9 +1554,9 @@ pub fn draw_phoneme_ruler(
                                         pill_rect,
                                         Rounding::same(4.0),
                                         if is_selected {
-                                            Color32::from_rgb(45, 32, 70)
+                                            ui.visuals().hyperlink_color
                                         } else {
-                                            Color32::from_rgb(24, 18, 36)
+                                            ui.visuals().panel_fill
                                         },
                                     );
                                     painter.rect_stroke(
@@ -1567,7 +1567,7 @@ pub fn draw_phoneme_ruler(
                                             if is_selected {
                                                 theme.note_stroke_c32()
                                             } else {
-                                                Color32::from_rgb(120, 100, 170)
+                                                ui.visuals().hyperlink_color
                                             },
                                         ),
                                     );
@@ -1594,7 +1594,7 @@ pub fn draw_phoneme_ruler(
                                     egui::Align2::CENTER_CENTER,
                                     format!("{} ({:.0}ms)", label, duration),
                                     egui::FontId::proportional(9.5),
-                                    Color32::from_rgb(235, 225, 250),
+                                    ui.visuals().text_color(),
                                 );
                             }
 
@@ -1607,7 +1607,7 @@ pub fn draw_phoneme_ruler(
                                 {
                                     let boundary_x =
                                         boundary_x.clamp(strip_rect.min.x, strip_rect.max.x);
-                                    let color = Color32::from_rgb(235, 55, 155);
+                                    let color = ui.visuals().error_fg_color;
                                     let separator_hit_rect = Rect::from_min_max(
                                         Pos2::new(boundary_x - 9.0, y_top - 2.0),
                                         Pos2::new(boundary_x + 9.0, y_bottom + 2.0),
@@ -1651,13 +1651,13 @@ pub fn draw_phoneme_ruler(
                                         Pos2::new(boundary_x, y_top),
                                         4.0,
                                         separator_color,
-                                        Stroke::new(1.0_f32, Color32::BLACK),
+                                        Stroke::new(1.0_f32, ui.visuals().text_color()),
                                     );
                                     painter.circle(
                                         Pos2::new(boundary_x, y_bottom),
                                         4.0,
                                         separator_color,
-                                        Stroke::new(1.0_f32, Color32::BLACK),
+                                        Stroke::new(1.0_f32, ui.visuals().text_color()),
                                     );
                                     if is_hovered || is_dragging {
                                         ui.ctx()
@@ -1719,7 +1719,7 @@ pub fn draw_phoneme_ruler(
                                 ],
                                 Stroke::new(
                                     1.0_f32,
-                                    Color32::from_rgba_unmultiplied(140, 125, 185, 160),
+                                    ui.visuals().hyperlink_color.linear_multiply(160.0 / 255.0),
                                 ),
                             );
                         }
@@ -1828,9 +1828,9 @@ pub fn draw_phoneme_ruler(
                                                 let exists =
                                                     vb.root_path.join(&entry.wav_filename).exists();
                                                 let color = if exists {
-                                                    Color32::from_rgb(140, 230, 160)
+                                                    ui.visuals().hyperlink_color
                                                 } else {
-                                                    Color32::from_rgb(255, 120, 120)
+                                                    ui.visuals().error_fg_color
                                                 };
                                                 ui.label(
                                                     RichText::new(&entry.wav_filename)
@@ -1869,7 +1869,7 @@ pub fn draw_phoneme_ruler(
                                         } else {
                                             ui.label(
                                                 RichText::new("Não encontrado no oto.ini")
-                                                    .color(Color32::from_rgb(255, 170, 80))
+                                                    .color(ui.visuals().warn_fg_color)
                                                     .size(10.0),
                                             );
                                         }
@@ -1898,7 +1898,7 @@ pub fn draw_phoneme_ruler(
                             painter.rect_filled(
                                 edit_rect,
                                 Rounding::same(4.0),
-                                Color32::from_rgb(45, 30, 75),
+                                ui.visuals().panel_fill,
                             );
                             painter.rect_stroke(
                                 edit_rect,
@@ -1958,9 +1958,9 @@ pub fn draw_phoneme_ruler(
                                 pill_rect,
                                 Rounding::same(4.0),
                                 if is_selected {
-                                    Color32::from_rgb(38, 28, 56)
+                                    ui.visuals().panel_fill
                                 } else {
-                                    Color32::from_rgb(18, 14, 28)
+                                    ui.visuals().panel_fill
                                 },
                             );
                             painter.rect_stroke(
@@ -1971,7 +1971,7 @@ pub fn draw_phoneme_ruler(
                                     if is_selected {
                                         theme.note_stroke_c32()
                                     } else {
-                                        Color32::from_rgb(110, 95, 150)
+                                        ui.visuals().hyperlink_color
                                     },
                                 ),
                             );

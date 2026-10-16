@@ -29,7 +29,7 @@ impl KamafeuStudioApp {
                                 lang.tr("Validação do Projeto", "Project Validation"),
                             )
                             .strong()
-                            .color(egui::Color32::from_rgb(0, 255, 180)),
+                            .color(self.config.theme.success_c32()),
                         );
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                             if ui.button(lang.tr("Fechar", "Close")).clicked() {
@@ -53,14 +53,14 @@ impl KamafeuStudioApp {
                             lang.tr("seções", "sections"),
                         ))
                         .size(10.0)
-                        .color(crate::gui::theme::MelodyneTheme::TEXT_MUTED),
+                        .color(self.config.theme.text_muted_c32()),
                     );
                     let health_color = if report.error_count() > 0 {
-                        egui::Color32::from_rgb(255, 120, 100)
+                        ui.visuals().error_fg_color
                     } else if report.warning_count() > 0 {
-                        egui::Color32::from_rgb(255, 205, 100)
+                        ui.visuals().warn_fg_color
                     } else {
-                        egui::Color32::from_rgb(0, 255, 180)
+                        self.config.theme.success_c32()
                     };
                     ui.label(
                         egui::RichText::new(format!(
@@ -85,7 +85,7 @@ impl KamafeuStudioApp {
                                 "[OK] A estrutura do projeto está pronta para renderização.",
                                 "[OK] The project structure is ready for rendering.",
                             ))
-                            .color(egui::Color32::from_rgb(0, 255, 180)),
+                            .color(self.config.theme.success_c32()),
                         );
                     } else {
                         ui.label(
@@ -97,7 +97,7 @@ impl KamafeuStudioApp {
                                     "Fix the issues below before rendering."
                                 )
                             ))
-                            .color(egui::Color32::from_rgb(255, 100, 90)),
+                            .color(ui.visuals().error_fg_color),
                         );
                     }
                     if report.issues.is_empty() {
@@ -108,10 +108,10 @@ impl KamafeuStudioApp {
                         for issue in &report.issues {
                             let color = match issue.severity {
                                 crate::project::ProjectIssueSeverity::Error => {
-                                    egui::Color32::from_rgb(255, 120, 100)
+                                    ui.visuals().error_fg_color
                                 }
                                 crate::project::ProjectIssueSeverity::Warning => {
-                                    egui::Color32::from_rgb(255, 205, 100)
+                                    ui.visuals().warn_fg_color
                                 }
                             };
                             ui.group(|ui| {
@@ -151,7 +151,7 @@ impl KamafeuStudioApp {
                                         egui::RichText::new(format!("Sugestão: {suggestion}"))
                                             .italics()
                                             .size(9.5)
-                                            .color(egui::Color32::from_rgb(180, 200, 220)),
+                                            .color(ui.visuals().text_color().linear_multiply(0.72)),
                                     );
                                 }
                             });

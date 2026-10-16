@@ -1,5 +1,5 @@
 use crate::project::model::UNote;
-use eframe::egui::{self, Color32, RichText};
+use eframe::egui::{self, RichText};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum InspectorTab {
@@ -218,7 +218,7 @@ pub fn draw_inspector_panel(
             ui.label(
                 RichText::new("Select a note on the Piano Roll to adjust its expressions.")
                     .italics()
-                    .color(Color32::from_rgb(120, 135, 155)),
+                    .color(ui.visuals().text_color().linear_multiply(0.72)),
             );
         }
     });

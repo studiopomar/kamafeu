@@ -241,7 +241,7 @@ pub(super) fn draw(
                 .color(if is_empty {
                     theme.text_muted_c32()
                 } else {
-                    Color32::from_rgb(235, 100, 100)
+                    ui.visuals().error_fg_color
                 });
 
             let remove_btn = egui::Button::new(remove_text)

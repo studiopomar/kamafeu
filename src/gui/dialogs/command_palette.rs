@@ -283,11 +283,11 @@ impl KamafeuStudioApp {
                                     egui::Button::new(
                                         egui::RichText::new(label)
                                             .size(12.0)
-                                            .color(egui::Color32::WHITE),
+                                            .color(ui.visuals().text_color()),
                                     )
                                     .wrap()
                                     .fill(if is_selected {
-                                        egui::Color32::from_rgb(28, 101, 108)
+                                        ui.visuals().hyperlink_color
                                     } else {
                                         egui::Color32::TRANSPARENT
                                     }),

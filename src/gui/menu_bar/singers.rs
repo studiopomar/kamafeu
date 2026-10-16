@@ -78,7 +78,7 @@ impl KamafeuStudioApp {
                             lang.tr("Nenhum voicebank recente", "No recent voicebanks"),
                         )
                         .size(11.0)
-                        .color(MelodyneTheme::TEXT_MUTED),
+                        .color(self.config.theme.text_muted_c32()),
                     );
                 } else {
                     let mut to_load: Option<PathBuf> = None;

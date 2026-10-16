@@ -61,6 +61,7 @@ pub(super) fn draw(
     ui: &mut egui::Ui,
     notes: &mut Vec<UNote>,
     state: &mut PianoRollState,
+    theme: &ThemeConfig,
     lang: crate::config::AppLanguage,
     on_before_change: &mut dyn FnMut(),
     on_note_changed: &mut dyn FnMut(),
@@ -143,7 +144,7 @@ pub(super) fn draw(
                                     ui.label(
                                         egui::RichText::new(header)
                                             .size(11.5)
-                                            .color(MelodyneTheme::TEXT_GOLD_LABEL)
+                                            .color(theme.text_primary_c32())
                                             .strong(),
                                     );
                                 } else {
@@ -155,7 +156,7 @@ pub(super) fn draw(
                                     ui.label(
                                         egui::RichText::new(header)
                                             .size(11.5)
-                                            .color(MelodyneTheme::TEXT_GOLD_LABEL)
+                                            .color(theme.text_primary_c32())
                                             .strong(),
                                     );
                                 }
@@ -170,8 +171,8 @@ pub(super) fn draw(
                                         .map(|mode| mode.info().name.to_string())
                                         .unwrap_or_else(|| lang.tr("herdado", "inherited").to_string());
                                     egui::Frame::none()
-                                        .fill(Color32::from_rgba_unmultiplied(24, 31, 48, 210))
-                                        .stroke(Stroke::new(1.0_f32, Color32::from_rgb(56, 83, 112)))
+                                        .fill(theme.c32_alpha(theme.bg_panel, 210.0 / 255.0))
+                                        .stroke(Stroke::new(1.0_f32, theme.card_border_c32()))
                                         .rounding(Rounding::same(5.0))
                                         .inner_margin(egui::Margin::symmetric(8.0, 6.0))
                                         .show(ui, |ui| {
@@ -180,18 +181,18 @@ pub(super) fn draw(
                                                     egui::RichText::new(note.lyric.as_str())
                                                         .size(14.0)
                                                         .strong()
-                                                        .color(Color32::from_rgb(255, 226, 145)),
+                                                        .color(theme.warning_c32()),
                                                 );
                                                 ui.label(
                                                     egui::RichText::new(note.pitch.as_str())
                                                         .size(10.0)
-                                                        .color(Color32::from_rgb(145, 220, 255)),
+                                                        .color(theme.accent_c32()),
                                                 );
                                                 if sel_count > 1 {
                                                     ui.label(
                                                         egui::RichText::new(format!("+{}", sel_count - 1))
                                                             .size(10.0)
-                                                            .color(Color32::from_rgb(177, 190, 210)),
+                                                            .color(theme.text_muted_c32()),
                                                     );
                                                 }
                                             });
@@ -202,7 +203,7 @@ pub(super) fn draw(
                                                     mode_summary
                                                 ))
                                                 .size(9.5)
-                                                .color(Color32::from_rgb(165, 205, 220)),
+                                                .color(theme.text_primary_c32()),
                                             );
                                         });
                                     ui.add_space(5.0);
@@ -212,7 +213,7 @@ pub(super) fn draw(
                                     egui::RichText::new(lang.tr("AÇÕES RÁPIDAS", "QUICK ACTIONS"))
                                         .size(9.0)
                                         .strong()
-                                        .color(Color32::from_rgb(116, 231, 204)),
+                                        .color(theme.success_c32()),
                                 );
                                 let phonemizer_quick = ui
                                     .add_sized(
@@ -221,8 +222,8 @@ pub(super) fn draw(
                                             "ƒ  Alterar phonemizer desta nota",
                                             "ƒ  Change note phonemizer",
                                         ))
-                                        .fill(Color32::from_rgba_unmultiplied(25, 66, 78, 185))
-                                        .stroke(Stroke::new(1.0_f32, Color32::from_rgb(62, 194, 202)))
+                                        .fill(theme.c32_alpha(theme.bg_panel, 185.0 / 255.0))
+                                        .stroke(Stroke::new(1.0_f32, theme.accent_c32()))
                                         .rounding(Rounding::same(4.0)),
                                     )
                                     .on_hover_text(lang.tr(
@@ -242,8 +243,8 @@ pub(super) fn draw(
                                                 "▣  Propriedades detalhadas",
                                                 "▣  Detailed properties",
                                             ))
-                                            .fill(Color32::from_rgba_unmultiplied(42, 42, 63, 160))
-                                            .stroke(Stroke::new(1.0_f32, Color32::from_rgb(103, 115, 147)))
+                                            .fill(theme.c32_alpha(theme.bg_panel, 160.0 / 255.0))
+                                            .stroke(Stroke::new(1.0_f32, theme.card_border_c32()))
                                             .rounding(Rounding::same(4.0)),
                                         )
                                         .on_hover_text(lang.tr(
@@ -261,7 +262,7 @@ pub(super) fn draw(
                                     egui::RichText::new(lang.tr("FERRAMENTAS", "TOOLS"))
                                         .size(9.0)
                                         .strong()
-                                        .color(Color32::from_rgb(145, 177, 220)),
+                                        .color(theme.info_c32()),
                                 );
 
                                 // 1. Edição Básica
@@ -361,7 +362,7 @@ pub(super) fn draw(
 
                                 let r_reset_params = ui.button(
                                     egui::RichText::new(lang.tr("Limpar Todos os Parâmetros (Reset Geral)", "Reset All Parameters (Global Reset)"))
-                                        .color(Color32::from_rgb(255, 180, 90))
+                                        .color(theme.warning_c32())
                                         .strong(),
                                 );
                                 if r_reset_params.hovered() { state.context_menu_hovered_category = None; }
@@ -388,7 +389,7 @@ pub(super) fn draw(
 
                                 let r_export_demo = ui.button(
                                     egui::RichText::new(lang.tr("Exportar Seleção em Áudio (Demo / WIP)...", "Export Selection Audio (Demo / WIP)..."))
-                                        .color(Color32::from_rgb(0, 255, 180))
+                                        .color(theme.success_c32())
                                         .strong(),
                                 );
                                 if r_export_demo.hovered() { state.context_menu_hovered_category = None; }
@@ -401,7 +402,7 @@ pub(super) fn draw(
                                     let clear_cache = ui.button(egui::RichText::new(lang.tr(
                                         "Limpar cache e renderizar novamente",
                                         "Clear cache and render again",
-                                    )).color(Color32::from_rgb(255, 190, 90)));
+                                    )).color(theme.warning_c32()));
                                     if clear_cache.clicked() {
                                         state.request_clear_selected_render_cache = true;
                                         close_menu = true;
@@ -414,21 +415,21 @@ pub(super) fn draw(
                                 let mut draw_category_item = |label: &str, cat: ContextMenuCategory| {
                                     let is_active = state.context_menu_hovered_category == Some(cat);
                                     let text_color = if is_active {
-                                        Color32::from_rgb(0, 255, 180)
+                                        theme.success_c32()
                                     } else {
-                                        Color32::from_rgb(220, 225, 240)
+                                        theme.text_primary_c32()
                                     };
                                     let text = egui::RichText::new(format!("{} ▶", label))
                                         .size(11.0)
                                         .color(text_color);
                                     let btn = egui::Button::new(if is_active { text.strong() } else { text })
                                         .fill(if is_active {
-                                            Color32::from_rgb(36, 46, 70)
+                                            theme.bg_header_c32()
                                         } else {
                                             Color32::TRANSPARENT
                                         })
                                         .stroke(if is_active {
-                                            Stroke::new(1.0_f32, Color32::from_rgb(0, 200, 160))
+                                            Stroke::new(1.0_f32, theme.accent_c32())
                                         } else {
                                             Stroke::NONE
                                         })
@@ -459,7 +460,7 @@ pub(super) fn draw(
                                     ui.separator();
                                     let r_prop = ui.button(
                                         egui::RichText::new(lang.tr("Propriedades Detalhadas da Nota...", "Detailed Note Properties..."))
-                                            .color(Color32::from_rgb(230, 220, 240)),
+                                            .color(theme.text_primary_c32()),
                                     );
                                     if r_prop.hovered() { state.context_menu_hovered_category = None; }
                                     if r_prop.clicked() {
@@ -499,7 +500,7 @@ pub(super) fn draw(
 
                                     match cat {
                                         ContextMenuCategory::Selection => {
-                                            ui.label(egui::RichText::new(lang.tr("Seleção", "Selection")).size(11.0).color(MelodyneTheme::ACCENT_CYAN).strong());
+                                            ui.label(egui::RichText::new(lang.tr("Seleção", "Selection")).size(11.0).color(theme.accent_c32()).strong());
                                             ui.separator();
                                             if ui.button(lang.tr("Selecionar Tudo (Ctrl+A)", "Select All (Ctrl+A)")).clicked() {
                                                 state.selected_note_indices = (0..notes.len()).collect();
@@ -516,14 +517,14 @@ pub(super) fn draw(
                                             ui.separator();
                                             if ui.button(
                                                 egui::RichText::new(lang.tr("Exportar Seleção em Áudio (Demo / WIP)...", "Export Selected Audio (Demo / WIP)..."))
-                                                    .color(Color32::from_rgb(0, 255, 180))
+                                                    .color(theme.success_c32())
                                                     .strong(),
                                             ).clicked() {
                                                 state.request_export_selection_audio = true;
                                                 close_menu = true;
                                             }
                                             ui.separator();
-                                            ui.label(egui::RichText::new(lang.tr("Seleção Inteligente", "Smart Selection")).size(10.0).color(Color32::from_rgb(180, 180, 200)));
+                                            ui.label(egui::RichText::new(lang.tr("Seleção Inteligente", "Smart Selection")).size(10.0).color(theme.text_muted_c32()));
                                             if ui.button(lang.tr("Selecionar Notas Curtas (< 120ms)", "Select Short Notes (< 120ms)")).clicked() {
                                                 state.selected_note_indices.clear();
                                                 for (i, n) in notes.iter().enumerate() {
@@ -599,7 +600,7 @@ pub(super) fn draw(
                                         }
 
                                         ContextMenuCategory::QuantizeGrade => {
-                                            ui.label(egui::RichText::new(lang.tr("Quantização & Grade", "Quantization & Grid")).size(11.0).color(MelodyneTheme::ACCENT_CYAN).strong());
+                                            ui.label(egui::RichText::new(lang.tr("Quantização & Grade", "Quantization & Grid")).size(11.0).color(theme.accent_c32()).strong());
                                             ui.separator();
                                             if ui.button(lang.tr("Alinhar / Quantizar Snap Atual", "Align / Quantize to Current Snap")).clicked() {
                                                 state.request_quantize_snap = true;
@@ -620,7 +621,7 @@ pub(super) fn draw(
                                         }
 
                                         ContextMenuCategory::LyricsPhonemes => {
-                                            ui.label(egui::RichText::new(lang.tr("Letras & Fonemas", "Lyrics & Phonemes")).size(11.0).color(MelodyneTheme::ACCENT_CYAN).strong());
+                                            ui.label(egui::RichText::new(lang.tr("Letras & Fonemas", "Lyrics & Phonemes")).size(11.0).color(theme.accent_c32()).strong());
                                             ui.separator();
                                             if ui.button(lang.tr("Inserir Letras em Lote... (Ctrl+Shift+L)", "Insert Batch Lyrics... (Ctrl+Shift+L)")).clicked() {
                                                 state.request_batch_lyrics = true;
@@ -638,7 +639,7 @@ pub(super) fn draw(
                                             ui.label(
                                                 egui::RichText::new(lang.tr("Conversão japonesa das notas", "Japanese note conversion"))
                                                     .size(10.0)
-                                                    .color(Color32::from_rgb(180, 180, 200)),
+                                                    .color(theme.text_muted_c32()),
                                             );
                                             let target_indices: Vec<usize> = if !state.selected_note_indices.is_empty() {
                                                 state.selected_note_indices.iter().copied().collect()
@@ -725,7 +726,7 @@ pub(super) fn draw(
                                             ui.separator();
                                             if ui.button(
                                                 egui::RichText::new(lang.tr("Resetar Tempos dos Fonemas", "Reset Phoneme Timings"))
-                                                    .color(Color32::from_rgb(255, 205, 70)),
+                                                    .color(theme.warning_c32()),
                                             ).clicked() {
                                                 on_before_change();
                                                 let target_indices: Vec<usize> = if !state.selected_note_indices.is_empty() {
@@ -749,7 +750,7 @@ pub(super) fn draw(
                                             }
                                             if ui.button(
                                                 egui::RichText::new(lang.tr("Limpar Todos os Parâmetros da Nota", "Reset All Note Parameters"))
-                                                    .color(Color32::from_rgb(255, 180, 90)),
+                                                    .color(theme.warning_c32()),
                                             ).clicked() {
                                                 on_before_change();
                                                 let target_indices: Vec<usize> = if !state.selected_note_indices.is_empty() {
@@ -777,7 +778,7 @@ pub(super) fn draw(
                                                     "Per-note phonemizer",
                                                 ))
                                                 .size(11.0)
-                                                .color(MelodyneTheme::ACCENT_CYAN)
+                                                .color(theme.accent_c32())
                                                 .strong(),
                                             );
                                             ui.label(
@@ -786,7 +787,7 @@ pub(super) fn draw(
                                                     "A note can override the track mode.",
                                                 ))
                                                 .size(10.0)
-                                                .color(Color32::from_rgb(180, 180, 200)),
+                                                .color(theme.text_muted_c32()),
                                             );
                                             ui.separator();
 
@@ -808,7 +809,7 @@ pub(super) fn draw(
                                             ui.label(
                                                 egui::RichText::new(selected_label)
                                                     .size(10.0)
-                                                    .color(Color32::from_rgb(210, 220, 235)),
+                                                    .color(theme.text_primary_c32()),
                                             );
 
                                             let mut set_override =
@@ -864,7 +865,7 @@ pub(super) fn draw(
                                                     ))
                                                     .size(9.5)
                                                     .italics()
-                                                    .color(Color32::from_rgb(160, 175, 195)),
+                                                    .color(theme.text_muted_c32()),
                                                 );
                                             }
 
@@ -888,7 +889,7 @@ pub(super) fn draw(
                                         }
 
                                         ContextMenuCategory::MusicalTransform => {
-                                            ui.label(egui::RichText::new(lang.tr("Transformações Musicais", "Musical Transforms")).size(11.0).color(MelodyneTheme::ACCENT_CYAN).strong());
+                                            ui.label(egui::RichText::new(lang.tr("Transformações Musicais", "Musical Transforms")).size(11.0).color(theme.accent_c32()).strong());
                                             ui.separator();
                                             if ui.button(lang.tr("Humanizar Posições e Velocities", "Humanize Positions and Velocities")).clicked() {
                                                 state.request_humanize = true;
@@ -905,7 +906,7 @@ pub(super) fn draw(
                                         }
 
                                         ContextMenuCategory::Expression => {
-                                            ui.label(egui::RichText::new(lang.tr("Expressão & Articulação", "Expression & Articulation")).size(11.0).color(MelodyneTheme::ACCENT_CYAN).strong());
+                                            ui.label(egui::RichText::new(lang.tr("Expressão & Articulação", "Expression & Articulation")).size(11.0).color(theme.accent_c32()).strong());
                                             ui.separator();
                                             let target_indices: Vec<usize> = if !state.selected_note_indices.is_empty() {
                                                 state.selected_note_indices.iter().copied().collect()
@@ -943,7 +944,7 @@ pub(super) fn draw(
                                         }
 
                                         ContextMenuCategory::Transpose => {
-                                            ui.label(egui::RichText::new(lang.tr("Transposição", "Transpose")).size(11.0).color(MelodyneTheme::ACCENT_CYAN).strong());
+                                            ui.label(egui::RichText::new(lang.tr("Transposição", "Transpose")).size(11.0).color(theme.accent_c32()).strong());
                                             ui.separator();
                                             let mut apply_transpose = |semitones: i32| {
                                                 on_before_change();
@@ -980,12 +981,12 @@ pub(super) fn draw(
                                         }
 
                                         ContextMenuCategory::AutoPitch => {
-                                            ui.label(egui::RichText::new(lang.tr("Pre-tunning & Afinação", "Pre-tunning & Tuning")).size(11.0).color(MelodyneTheme::ACCENT_CYAN).strong());
+                                            ui.label(egui::RichText::new(lang.tr("Pre-tunning & Afinação", "Pre-tunning & Tuning")).size(11.0).color(theme.accent_c32()).strong());
                                             ui.separator();
                                             if ui
                                                 .button(
                                                     egui::RichText::new(lang.tr("Pre-tunning Suave / Pop", "Smooth / Pop Pre-tunning"))
-                                                        .color(Color32::from_rgb(0, 240, 255))
+                                                        .color(theme.accent_c32())
                                                         .strong(),
                                                 )
                                                 .clicked()
@@ -997,7 +998,7 @@ pub(super) fn draw(
                                             if ui
                                                 .button(
                                                     egui::RichText::new(lang.tr("Pre-tunning Natural (Humano)", "Natural Pre-tunning (Human)"))
-                                                        .color(MelodyneTheme::NOTE_SELECTED_GOLD),
+                                                        .color(theme.note_selected_fill_c32()),
                                                 )
                                                 .clicked()
                                             {
@@ -1008,7 +1009,7 @@ pub(super) fn draw(
                                             if ui
                                                 .button(
                                                     egui::RichText::new(lang.tr("Pre-tunning Balada / Emotivo", "Ballad / Expressive Pre-tunning"))
-                                                        .color(Color32::from_rgb(255, 120, 160)),
+                                                        .color(theme.accent_c32()),
                                                 )
                                                 .clicked()
                                             {
@@ -1019,7 +1020,7 @@ pub(super) fn draw(
                                             if ui
                                                 .button(
                                                     egui::RichText::new(lang.tr("Pre-tunning Rock / Belting", "Rock / Belting Pre-tunning"))
-                                                        .color(Color32::from_rgb(255, 180, 50)),
+                                                        .color(theme.warning_c32()),
                                                 )
                                                 .clicked()
                                             {
@@ -1030,7 +1031,7 @@ pub(super) fn draw(
                                             if ui
                                                 .button(
                                                     egui::RichText::new(lang.tr("Pre-tunning R&B / Soul", "R&B / Soul Pre-tunning"))
-                                                        .color(Color32::from_rgb(180, 130, 255)),
+                                                        .color(theme.pitch_curve_c32()),
                                                 )
                                                 .clicked()
                                             {
@@ -1041,7 +1042,7 @@ pub(super) fn draw(
                                             if ui
                                                 .button(
                                                     egui::RichText::new(lang.tr("Pre-tunning Hard Tune / Snap", "Hard Tune / Snap Pre-tunning"))
-                                                        .color(Color32::from_rgb(0, 255, 180)),
+                                                        .color(theme.success_c32()),
                                                 )
                                                 .clicked()
                                             {
@@ -1052,7 +1053,7 @@ pub(super) fn draw(
                                             if ui
                                                 .button(
                                                     egui::RichText::new(lang.tr("Pre-tunning Folk / Acústico", "Folk / Acoustic Pre-tunning"))
-                                                        .color(Color32::from_rgb(220, 200, 150)),
+                                                        .color(theme.text_primary_c32()),
                                                 )
                                                 .clicked()
                                             {
@@ -1063,7 +1064,7 @@ pub(super) fn draw(
                                             if ui
                                                 .button(
                                                     egui::RichText::new(lang.tr("Pre-tunning Lírico / Ópera", "Lyrical / Opera Pre-tunning"))
-                                                        .color(Color32::from_rgb(150, 220, 255)),
+                                                        .color(theme.info_c32()),
                                                 )
                                                 .clicked()
                                             {
@@ -1086,7 +1087,7 @@ pub(super) fn draw(
                                             if ui
                                                 .button(
                                                     egui::RichText::new(lang.tr("Limpar Curvas de Pitch e Vibrato", "Clear Pitch Curves and Vibrato"))
-                                                        .color(Color32::from_rgb(200, 190, 210)),
+                                                        .color(theme.text_muted_c32()),
                                                 )
                                                 .clicked()
                                             {
@@ -1102,7 +1103,7 @@ pub(super) fn draw(
                                             if ui
                                                 .button(
                                                     egui::RichText::new(lang.tr("Resetar Envelopes de Volume", "Reset Volume Envelopes"))
-                                                        .color(Color32::from_rgb(200, 190, 210)),
+                                                        .color(theme.text_muted_c32()),
                                                 )
                                                 .clicked()
                                             {
@@ -1117,7 +1118,7 @@ pub(super) fn draw(
                                         }
 
                                         ContextMenuCategory::Vibrato => {
-                                            ui.label(egui::RichText::new(lang.tr("Presets de Vibrato Vocal", "Vocal Vibrato Presets")).size(11.0).color(MelodyneTheme::ACCENT_CYAN).strong());
+                                            ui.label(egui::RichText::new(lang.tr("Presets de Vibrato Vocal", "Vocal Vibrato Presets")).size(11.0).color(theme.accent_c32()).strong());
                                             ui.separator();
                                             let mut apply_vibrato = |len: f64, depth: f64, period: f64, f_in: f64, f_out: f64| {
                                                 let targets: Vec<usize> = if !state.selected_note_indices.is_empty() {

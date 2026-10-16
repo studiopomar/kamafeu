@@ -16,7 +16,6 @@ mod shortcuts_guide;
 mod singers_gallery;
 mod templates;
 mod theme_customizer;
-mod theme_editor_dialog;
 mod voicebank;
 
 use super::KamafeuStudioApp;
@@ -34,7 +33,6 @@ impl KamafeuStudioApp {
         self.render_markers_dialog(ctx);
         self.render_recovery_snapshots_dialog(ctx);
 
-        self.show_theme_editor_dialog(ctx);
         self.show_fx_rack_dialog(ctx);
         self.show_lyrics_dialog(ctx);
         self.show_humanize_dialog(ctx);

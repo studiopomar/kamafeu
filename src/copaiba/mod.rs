@@ -1,4 +1,5 @@
 pub mod gui;
+pub mod native_project;
 
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -98,15 +99,6 @@ impl CopaibaConfig {
             let mut cfg = serde_json::from_str::<CopaibaConfig>(&content)
                 .map_err(|e| format!("Falha ao decodificar JSON do copaiba.config: {}", e))?;
 
-            for entry in &mut cfg.entries {
-                if entry.preutterance_ms == 0.0 {
-                    entry.preutterance_ms = 30.0;
-                }
-                if entry.overlap_ms == 0.0 {
-                    entry.overlap_ms = 15.0;
-                }
-            }
-
             let pmap_path = dir.join("prefix.map");
             if pmap_path.exists() {
                 if let Ok(bytes) = fs::read(&pmap_path) {
@@ -192,45 +184,23 @@ impl CopaibaConfig {
 
             let oto_path = dir.join("oto.ini");
             if oto_path.exists() {
-                if let Ok(bytes) = fs::read(&oto_path) {
-                    let (content, _, _) = encoding_rs::SHIFT_JIS.decode(&bytes);
-                    for line in content.lines() {
-                        let line = line.trim();
-                        if line.is_empty() || line.starts_with(';') || line.starts_with('#') {
-                            continue;
-                        }
-                        if let Some((file, params_str)) = line.split_once('=') {
-                            let parts: Vec<&str> = params_str.split(',').collect();
-                            let alias = parts.first().unwrap_or(&file).to_string();
-                            let offset: f64 =
-                                parts.get(1).and_then(|s| s.parse().ok()).unwrap_or(0.0);
-                            let consonant: f64 =
-                                parts.get(2).and_then(|s| s.parse().ok()).unwrap_or(50.0);
-                            let cutoff: f64 =
-                                parts.get(3).and_then(|s| s.parse().ok()).unwrap_or(0.0);
-                            let preutterance: f64 =
-                                parts.get(4).and_then(|s| s.parse().ok()).unwrap_or(30.0);
-                            let overlap: f64 =
-                                parts.get(5).and_then(|s| s.parse().ok()).unwrap_or(15.0);
-
-                            cfg.entries.push(CopaibaEntry {
-                                wav_filename: file.to_string(),
-                                alias: if alias.is_empty() {
-                                    file.to_string()
-                                } else {
-                                    alias
-                                },
-                                corte_inicial_ms: offset,
-                                consoante_ms: consonant,
-                                loop_inicio_ms: Some(offset + consonant),
-                                loop_fim_ms: Some(offset + consonant + 200.0),
-                                cauda_final_ms: None,
-                                corte_final_ms: cutoff,
-                                preutterance_ms: preutterance,
-                                overlap_ms: overlap,
-                            });
-                        }
-                    }
+                let bytes = fs::read(&oto_path)
+                    .map_err(|error| format!("Falha ao ler oto.ini: {error}"))?;
+                let entries = crate::oto::OtoParser::parse_bytes(&bytes)
+                    .map_err(|error| format!("oto.ini inválido: {error}"))?;
+                for entry in entries.into_values() {
+                    cfg.entries.push(CopaibaEntry {
+                        wav_filename: entry.wav_filename,
+                        alias: entry.alias,
+                        corte_inicial_ms: entry.offset,
+                        consoante_ms: entry.consonant,
+                        loop_inicio_ms: Some(entry.offset + entry.consonant),
+                        loop_fim_ms: Some(entry.offset + entry.consonant + 200.0),
+                        cauda_final_ms: None,
+                        corte_final_ms: entry.cutoff,
+                        preutterance_ms: entry.preutterance,
+                        overlap_ms: entry.overlap,
+                    });
                 }
             }
 
@@ -361,5 +331,46 @@ impl CopaibaConfig {
         atomic_write(&pmap_path, content.as_bytes())
             .map_err(|e| format!("Falha ao exportar prefix.map: {}", e))?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod oto_loading_tests {
+    use super::CopaibaConfig;
+    use std::fs;
+
+    #[test]
+    fn oto_loader_uses_zero_for_present_empty_numbers_and_rejects_bad_rows() {
+        let directory = tempfile::tempdir().unwrap();
+        fs::write(directory.path().join("oto.ini"), "sample.wav=,,,,,\n").unwrap();
+        let config = CopaibaConfig::load_from_dir(directory.path()).unwrap();
+        let entry = config
+            .entries
+            .iter()
+            .find(|entry| entry.alias == "sample")
+            .unwrap();
+        assert_eq!(entry.corte_inicial_ms, 0.0);
+        assert_eq!(entry.consoante_ms, 0.0);
+        assert_eq!(entry.corte_final_ms, 0.0);
+        assert_eq!(entry.preutterance_ms, 0.0);
+        assert_eq!(entry.overlap_ms, 0.0);
+
+        fs::write(
+            directory.path().join("oto.ini"),
+            "sample.wav=ka,0,0,0,0,bad\n",
+        )
+        .unwrap();
+        assert!(CopaibaConfig::load_from_dir(directory.path()).is_err());
+        fs::write(directory.path().join("oto.ini"), "sample.wav=ka,0,0,0,0\n").unwrap();
+        assert!(CopaibaConfig::load_from_dir(directory.path()).is_err());
+
+        fs::write(
+            directory.path().join("copaiba.config"),
+            r#"{"version":"1.0","voicebank_name":"test","author":"test","entries":[{"wav_filename":"sample.wav","alias":"sample","corte_inicial_ms":0,"consoante_ms":0,"corte_final_ms":0,"preutterance_ms":0,"overlap_ms":0}]}"#,
+        )
+        .unwrap();
+        let config = CopaibaConfig::load_from_dir(directory.path()).unwrap();
+        assert_eq!(config.entries[0].preutterance_ms, 0.0);
+        assert_eq!(config.entries[0].overlap_ms, 0.0);
     }
 }

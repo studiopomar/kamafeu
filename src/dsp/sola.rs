@@ -1,5 +1,6 @@
 use crate::dsp::pitch_bend::PitchBendSolver;
 use crate::project::model::UPitchBendPoint;
+use std::sync::atomic::{AtomicBool, Ordering};
 
 pub struct SolaResampler;
 
@@ -19,8 +20,21 @@ pub enum SolaStretchMode {
 
 impl SolaResampler {
     fn estimate_pitch(slice: &[f32], sample_rate: u32) -> Option<PitchEstimate> {
+        Self::estimate_pitch_cancellable(slice, sample_rate, None)
+            .ok()
+            .flatten()
+    }
+
+    fn estimate_pitch_cancellable(
+        slice: &[f32],
+        sample_rate: u32,
+        cancel: Option<&AtomicBool>,
+    ) -> Result<Option<PitchEstimate>, String> {
+        if is_cancelled(cancel) {
+            return Err("SOLA rendering cancelled".into());
+        }
         if slice.len() < 32 || sample_rate == 0 {
-            return None;
+            return Ok(None);
         }
 
         // YIN's cumulative mean normalized difference is considerably more
@@ -31,14 +45,14 @@ impl SolaResampler {
         let max_period =
             ((sample_rate as f64 / 55.0).ceil() as usize).min(slice.len().saturating_sub(2) / 2);
         if max_period <= min_period {
-            return None;
+            return Ok(None);
         }
 
         let window_len = (max_period * 2)
             .min(2_048)
             .min(slice.len().saturating_sub(max_period));
         if window_len < max_period {
-            return None;
+            return Ok(None);
         }
 
         let available = slice.len().saturating_sub(window_len + max_period);
@@ -48,6 +62,9 @@ impl SolaResampler {
         let mut cumulative = 0.0f64;
 
         for tau in 1..=max_period {
+            if tau % 8 == 0 && is_cancelled(cancel) {
+                return Err("SOLA rendering cancelled".into());
+            }
             let mut difference = 0.0f64;
             for index in 0..window_len {
                 let delta = f64::from(frame[index]) - f64::from(frame[index + tau]);
@@ -90,10 +107,10 @@ impl SolaResampler {
             }
         }
 
-        Some(PitchEstimate {
+        Ok(Some(PitchEstimate {
             period,
             periodicity: (1.0 - cmnd[best]).clamp(0.0, 1.0) as f32,
-        })
+        }))
     }
 
     /// Estimate the fundamental period using YIN with sub-sample refinement.
@@ -103,22 +120,34 @@ impl SolaResampler {
             .unwrap_or_else(|| ((sample_rate as f64 / 220.0).round() as usize).max(8))
     }
 
-    fn phase_match_mark(slice: &[f32], reference: usize, predicted: usize, period: f64) -> usize {
+    fn phase_match_mark(
+        slice: &[f32],
+        reference: usize,
+        predicted: usize,
+        period: f64,
+        cancel: Option<&AtomicBool>,
+    ) -> Result<usize, String> {
         let radius = (period * 0.22).round().max(2.0) as usize;
         let compare_half = (period * 0.42).round().clamp(8.0, 256.0) as usize;
         let search_start = predicted.saturating_sub(radius).max(compare_half + 1);
         let search_end = (predicted + radius).min(slice.len().saturating_sub(compare_half + 2));
         if search_start >= search_end || reference <= compare_half {
-            return predicted.min(slice.len().saturating_sub(1));
+            return Ok(predicted.min(slice.len().saturating_sub(1)));
         }
 
         let mut best = predicted.clamp(search_start, search_end);
         let mut best_score = f64::NEG_INFINITY;
         for candidate in search_start..=search_end {
+            if is_cancelled(cancel) {
+                return Err("SOLA rendering cancelled".into());
+            }
             let mut dot = 0.0f64;
             let mut ref_energy = 0.0f64;
             let mut candidate_energy = 0.0f64;
             for delta in 0..compare_half * 2 {
+                if delta % 64 == 0 && is_cancelled(cancel) {
+                    return Err("SOLA rendering cancelled".into());
+                }
                 let ref_sample = f64::from(slice[reference - compare_half + delta]);
                 let candidate_sample = f64::from(slice[candidate - compare_half + delta]);
                 dot += ref_sample * candidate_sample;
@@ -135,14 +164,25 @@ impl SolaResampler {
                 best = candidate;
             }
         }
-        best
+        Ok(best)
     }
 
     /// Track phase-coherent pitch marks instead of independently snapping
     /// every mark to the loudest peak, which often alternates between harmonics.
     pub fn find_pitch_marks(slice: &[f32], base_period: usize) -> Vec<usize> {
+        Self::find_pitch_marks_cancellable(slice, base_period, None).unwrap_or_default()
+    }
+
+    fn find_pitch_marks_cancellable(
+        slice: &[f32],
+        base_period: usize,
+        cancel: Option<&AtomicBool>,
+    ) -> Result<Vec<usize>, String> {
+        if is_cancelled(cancel) {
+            return Err("SOLA rendering cancelled".into());
+        }
         if slice.is_empty() || base_period == 0 {
-            return Vec::new();
+            return Ok(Vec::new());
         }
 
         let period = base_period.max(8) as f64;
@@ -162,11 +202,14 @@ impl SolaResampler {
         let mut forward = vec![anchor];
         let mut current = anchor;
         while current + base_period / 2 < slice.len().saturating_sub(2) {
+            if is_cancelled(cancel) {
+                return Err("SOLA rendering cancelled".into());
+            }
             let predicted = (current as f64 + period).round() as usize;
             if predicted >= slice.len().saturating_sub(1) {
                 break;
             }
-            let next = Self::phase_match_mark(slice, current, predicted, period);
+            let next = Self::phase_match_mark(slice, current, predicted, period, cancel)?;
             if next <= current {
                 break;
             }
@@ -177,8 +220,11 @@ impl SolaResampler {
         let mut backward = Vec::new();
         current = anchor;
         while current > base_period / 2 + 2 {
+            if is_cancelled(cancel) {
+                return Err("SOLA rendering cancelled".into());
+            }
             let predicted = current.saturating_sub(base_period);
-            let previous = Self::phase_match_mark(slice, current, predicted, period);
+            let previous = Self::phase_match_mark(slice, current, predicted, period, cancel)?;
             if previous >= current {
                 break;
             }
@@ -189,7 +235,7 @@ impl SolaResampler {
         backward.extend(forward);
         let mut marks = backward;
         marks.dedup();
-        marks
+        Ok(marks)
     }
 
     /// Resample a single phoneme sample using advanced Pitch-Synchronous Overlap-Add (TD-PSOLA).
@@ -241,6 +287,45 @@ impl SolaResampler {
         tail_start_ms: Option<f64>,
         mode: SolaStretchMode,
     ) -> Vec<f32> {
+        Self::render_sample_with_mode_cancellable(
+            input_samples,
+            sample_rate,
+            offset_ms,
+            source_consonant_ms,
+            target_consonant_ms,
+            cutoff_ms,
+            target_duration_ms,
+            target_pitch_freq,
+            pitch_points,
+            loop_start_ms,
+            loop_end_ms,
+            tail_start_ms,
+            mode,
+            None,
+        )
+        .expect("SOLA rendering without a cancellation token cannot be cancelled")
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub fn render_sample_with_mode_cancellable(
+        input_samples: &[f32],
+        sample_rate: u32,
+        offset_ms: f64,
+        source_consonant_ms: f64,
+        target_consonant_ms: f64,
+        cutoff_ms: f64,
+        target_duration_ms: f64,
+        target_pitch_freq: f64,
+        pitch_points: &[UPitchBendPoint],
+        loop_start_ms: Option<f64>,
+        loop_end_ms: Option<f64>,
+        tail_start_ms: Option<f64>,
+        mode: SolaStretchMode,
+        cancel: Option<&AtomicBool>,
+    ) -> Result<Vec<f32>, String> {
+        if is_cancelled(cancel) {
+            return Err("SOLA rendering cancelled".into());
+        }
         let (start_sample, end_sample) =
             crate::dsp::oto_source_bounds(input_samples.len(), sample_rate, offset_ms, cutoff_ms);
 
@@ -251,7 +336,7 @@ impl SolaResampler {
             || start_sample >= input_samples.len()
             || target_total_samples == 0
         {
-            return vec![0.0; target_total_samples];
+            return Ok(vec![0.0; target_total_samples]);
         }
 
         let slice = &input_samples[start_sample..end_sample];
@@ -290,13 +375,14 @@ impl SolaResampler {
         // Keep consonant timing independent while retuning any voiced portion
         // of the transition to the note pitch.
         if target_consonant_samples > 0 && !consonant_slice.is_empty() {
-            output.extend(Self::render_consonant(
+            output.extend(Self::render_consonant_cancellable(
                 consonant_slice,
                 sample_rate,
                 target_consonant_samples,
                 target_pitch_freq,
                 pitch_points,
-            ));
+                cancel,
+            )?);
         } else if target_consonant_samples > 0 {
             output.resize(target_consonant_samples, 0.0);
         }
@@ -306,11 +392,12 @@ impl SolaResampler {
         if target_vowel_samples > 0 && !vowel_slice.is_empty() {
             let vowel_out = if vowel_slice.len() < 32 {
                 // Truly too short for any periodic analysis; nothing to retune.
-                let mut out = crate::dsp::resize_preserving_pitch(
+                let mut out = crate::dsp::resize_preserving_pitch_cancellable(
                     vowel_slice,
                     target_vowel_samples + target_join_samples,
                     sample_rate,
-                );
+                    cancel,
+                )?;
                 if out.len() < target_vowel_samples + target_join_samples {
                     out.resize(target_vowel_samples + target_join_samples, 0.0);
                 }
@@ -328,7 +415,7 @@ impl SolaResampler {
                 } else {
                     mode
                 };
-                Self::render_vowel_psola(
+                Self::render_vowel_psola_cancellable(
                     vowel_slice,
                     sample_rate,
                     target_vowel_samples + target_join_samples,
@@ -362,12 +449,16 @@ impl SolaResampler {
                     // original pitch. Genuine unvoiced consonants never enter
                     // this vowel path and are still preserved.
                     true,
-                )
+                    cancel,
+                )?
             };
 
             if target_join_samples > 0 && output.len() >= target_join_samples {
                 let output_start = output.len() - target_join_samples;
                 for index in 0..target_join_samples {
+                    if index % 16_384 == 0 && is_cancelled(cancel) {
+                        return Err("SOLA rendering cancelled".into());
+                    }
                     let phase = (index as f32 + 0.5) / target_join_samples as f32;
                     let smooth_phase = phase * phase * (3.0 - 2.0 * phase);
                     let w_consonant = 1.0 - smooth_phase;
@@ -386,15 +477,18 @@ impl SolaResampler {
             output.resize(target_total_samples, 0.0);
         }
 
-        let max_peak = output.iter().map(|s| s.abs()).fold(0.0f32, f32::max);
+        let max_peak = max_abs_cancellable(&output, cancel)?;
         if max_peak > 0.95 {
             let scale = 0.94 / max_peak;
-            for s in &mut output {
+            for (index, s) in output.iter_mut().enumerate() {
+                if index % 16_384 == 0 && is_cancelled(cancel) {
+                    return Err("SOLA rendering cancelled".into());
+                }
                 *s *= scale;
             }
         }
 
-        output
+        Ok(output)
     }
 
     fn cubic_sample(samples: &[f32], position: f64) -> f32 {
@@ -537,17 +631,26 @@ impl SolaResampler {
         loop_start as f64 + mapped.min(loop_len.saturating_sub(1) as f64)
     }
 
-    fn voiced_transition_start(samples: &[f32], sample_rate: u32) -> Option<usize> {
+    fn voiced_transition_start_cancellable(
+        samples: &[f32],
+        sample_rate: u32,
+        cancel: Option<&AtomicBool>,
+    ) -> Result<Option<usize>, String> {
+        if is_cancelled(cancel) {
+            return Err("SOLA rendering cancelled".into());
+        }
         if samples.len() < 32 || sample_rate == 0 {
-            return None;
+            return Ok(None);
         }
         let window = ((sample_rate as f64 * 0.07).round() as usize)
             .clamp(64, 4_096)
             .min(samples.len());
         if window == samples.len() {
-            return Self::estimate_pitch(samples, sample_rate)
-                .filter(|estimate| estimate.periodicity >= 0.32)
-                .map(|_| 0);
+            return Ok(
+                Self::estimate_pitch_cancellable(samples, sample_rate, cancel)?
+                    .filter(|estimate| estimate.periodicity >= 0.32)
+                    .map(|_| 0),
+            );
         }
 
         let hop = ((sample_rate as f64 * 0.015).round() as usize).max(1);
@@ -555,22 +658,30 @@ impl SolaResampler {
         let mut consecutive = 0;
         let last_start = samples.len() - window;
         for start in (0..=last_start).step_by(hop) {
-            let voiced = Self::estimate_pitch(&samples[start..start + window], sample_rate)
-                .is_some_and(|estimate| estimate.periodicity >= 0.32);
+            if is_cancelled(cancel) {
+                return Err("SOLA rendering cancelled".into());
+            }
+            let voiced = Self::estimate_pitch_cancellable(
+                &samples[start..start + window],
+                sample_rate,
+                cancel,
+            )?
+            .is_some_and(|estimate| estimate.periodicity >= 0.32);
             if voiced {
                 candidate.get_or_insert(start);
                 consecutive += 1;
                 if consecutive >= 2 {
-                    return candidate;
+                    return Ok(candidate);
                 }
             } else {
                 candidate = None;
                 consecutive = 0;
             }
         }
-        None
+        Ok(None)
     }
 
+    #[cfg(test)]
     fn render_consonant(
         consonant: &[f32],
         sample_rate: u32,
@@ -578,11 +689,43 @@ impl SolaResampler {
         target_pitch_freq: f64,
         pitch_points: &[UPitchBendPoint],
     ) -> Vec<f32> {
-        let preserved = crate::dsp::resize_preserving_pitch(consonant, target_samples, sample_rate);
-        let Some(voiced_start) = Self::voiced_transition_start(consonant, sample_rate) else {
-            return preserved;
+        Self::render_consonant_cancellable(
+            consonant,
+            sample_rate,
+            target_samples,
+            target_pitch_freq,
+            pitch_points,
+            None,
+        )
+        .expect("SOLA rendering without a cancellation token cannot be cancelled")
+    }
+
+    fn render_consonant_cancellable(
+        consonant: &[f32],
+        sample_rate: u32,
+        target_samples: usize,
+        target_pitch_freq: f64,
+        pitch_points: &[UPitchBendPoint],
+        cancel: Option<&AtomicBool>,
+    ) -> Result<Vec<f32>, String> {
+        if is_cancelled(cancel) {
+            return Err("SOLA rendering cancelled".into());
+        }
+        let preserved = crate::dsp::resize_preserving_pitch_cancellable(
+            consonant,
+            target_samples,
+            sample_rate,
+            cancel,
+        )?;
+        if is_cancelled(cancel) {
+            return Err("SOLA rendering cancelled".into());
+        }
+        let Some(voiced_start) =
+            Self::voiced_transition_start_cancellable(consonant, sample_rate, cancel)?
+        else {
+            return Ok(preserved);
         };
-        let pitched = Self::render_vowel_psola(
+        let pitched = Self::render_vowel_psola_cancellable(
             consonant,
             sample_rate,
             target_samples,
@@ -596,25 +739,27 @@ impl SolaResampler {
             // Once a voiced transition has been identified, the piano roll is
             // authoritative even if this short slice cannot be analysed again.
             true,
-        );
+            cancel,
+        )?;
         let target_voiced_start =
             voiced_start as f64 * target_samples as f64 / consonant.len().max(1) as f64;
         let crossfade_samples = (sample_rate as f64 * 0.012).round().max(1.0);
 
-        preserved
-            .into_iter()
-            .zip(pitched)
-            .enumerate()
-            .map(|(index, (preserved, pitched))| {
-                let phase = ((index as f64 - target_voiced_start) / crossfade_samples)
-                    .clamp(0.0, 1.0) as f32;
-                let smooth_phase = phase * phase * (3.0 - 2.0 * phase);
-                preserved * (1.0 - smooth_phase) + pitched * smooth_phase
-            })
-            .collect()
+        let mut output = Vec::with_capacity(preserved.len().min(pitched.len()));
+        for (index, (preserved, pitched)) in preserved.into_iter().zip(pitched).enumerate() {
+            if index % 16_384 == 0 && is_cancelled(cancel) {
+                return Err("SOLA rendering cancelled".into());
+            }
+            let phase =
+                ((index as f64 - target_voiced_start) / crossfade_samples).clamp(0.0, 1.0) as f32;
+            let smooth_phase = phase * phase * (3.0 - 2.0 * phase);
+            output.push(preserved * (1.0 - smooth_phase) + pitched * smooth_phase);
+        }
+        Ok(output)
     }
 
     #[allow(clippy::too_many_arguments)]
+    #[cfg(test)]
     fn render_vowel_psola(
         vowel: &[f32],
         sample_rate: u32,
@@ -628,9 +773,44 @@ impl SolaResampler {
         mode: SolaStretchMode,
         force_absolute_pitch: bool,
     ) -> Vec<f32> {
+        Self::render_vowel_psola_cancellable(
+            vowel,
+            sample_rate,
+            target_samples,
+            target_pitch_freq,
+            pitch_points,
+            start_time_offset_ms,
+            loop_start_ms,
+            loop_end_ms,
+            tail_start_ms,
+            mode,
+            force_absolute_pitch,
+            None,
+        )
+        .expect("SOLA rendering without a cancellation token cannot be cancelled")
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn render_vowel_psola_cancellable(
+        vowel: &[f32],
+        sample_rate: u32,
+        target_samples: usize,
+        target_pitch_freq: f64,
+        pitch_points: &[UPitchBendPoint],
+        start_time_offset_ms: f64,
+        loop_start_ms: Option<f64>,
+        loop_end_ms: Option<f64>,
+        tail_start_ms: Option<f64>,
+        mode: SolaStretchMode,
+        force_absolute_pitch: bool,
+        cancel: Option<&AtomicBool>,
+    ) -> Result<Vec<f32>, String> {
+        if is_cancelled(cancel) {
+            return Err("SOLA rendering cancelled".into());
+        }
         let v_len = vowel.len();
         if v_len < 32 {
-            return vec![0.0; target_samples];
+            return Ok(vec![0.0; target_samples]);
         }
 
         // Resolve the stable sustain before analysis so noisy attacks and
@@ -662,8 +842,9 @@ impl SolaResampler {
         });
 
         let analysis_slice = &vowel[analysis_start..analysis_end];
-        let estimate = Self::estimate_pitch(analysis_slice, sample_rate)
-            .or_else(|| Self::estimate_pitch(vowel, sample_rate));
+        let estimate = Self::estimate_pitch_cancellable(analysis_slice, sample_rate, cancel)?.or(
+            Self::estimate_pitch_cancellable(vowel, sample_rate, cancel)?,
+        );
         let estimate = match estimate {
             Some(estimate) => estimate,
             None if force_absolute_pitch => PitchEstimate {
@@ -673,19 +854,36 @@ impl SolaResampler {
                 period: (sample_rate as f64 / target_pitch_freq.clamp(40.0, 1_400.0)).max(8.0),
                 periodicity: 0.0,
             },
-            None => return crate::dsp::resize_preserving_pitch(vowel, target_samples, sample_rate),
+            None => {
+                return Ok(crate::dsp::resize_preserving_pitch_cancellable(
+                    vowel,
+                    target_samples,
+                    sample_rate,
+                    cancel,
+                )?);
+            }
         };
 
         // PSOLA makes noise periodic. Route genuinely unvoiced/breathy regions
         // through WSOLA, which preserves their stochastic texture and timing.
         if estimate.periodicity < 0.15 && !force_absolute_pitch {
-            return crate::dsp::resize_preserving_pitch(vowel, target_samples, sample_rate);
+            return Ok(crate::dsp::resize_preserving_pitch_cancellable(
+                vowel,
+                target_samples,
+                sample_rate,
+                cancel,
+            )?);
         }
 
         let base_period = estimate.period.round().max(8.0) as usize;
-        let pitch_marks = Self::find_pitch_marks(vowel, base_period);
+        let pitch_marks = Self::find_pitch_marks_cancellable(vowel, base_period, cancel)?;
         if pitch_marks.len() < 2 && !force_absolute_pitch {
-            return crate::dsp::resize_preserving_pitch(vowel, target_samples, sample_rate);
+            return Ok(crate::dsp::resize_preserving_pitch_cancellable(
+                vowel,
+                target_samples,
+                sample_rate,
+                cancel,
+            )?);
         }
         let pitch_marks = if pitch_marks.len() < 2 {
             // The segment can contain only a partial glottal cycle. Regular
@@ -719,6 +917,9 @@ impl SolaResampler {
         // Fractional synthesis marks eliminate the integer-hop jitter that is
         // especially audible on sustained vowels and vibrato.
         while output_center < max_output_center {
+            if is_cancelled(cancel) {
+                return Err("SOLA rendering cancelled".into());
+            }
             let cur_time_ms = start_time_offset_ms + output_center / sample_rate as f64 * 1_000.0;
             let pitch_cents = PitchBendSolver::get_pitch_offset_cents(cur_time_ms, pitch_points);
             let cur_target_freq =
@@ -801,9 +1002,18 @@ impl SolaResampler {
         // isolated grains at the edges and alter the harmonic balance used by
         // the pitch tracker. The capped correction removes amplitude valleys
         // while leaving normally covered grains untouched.
-        let reference_weight = weights.iter().copied().fold(0.0f32, f32::max);
+        let mut reference_weight = 0.0f32;
+        for (index, weight) in weights.iter().enumerate() {
+            if index % 16_384 == 0 && is_cancelled(cancel) {
+                return Err("SOLA rendering cancelled".into());
+            }
+            reference_weight = reference_weight.max(*weight);
+        }
         if reference_weight > 1e-4 {
-            for (sample, weight) in output.iter_mut().zip(weights.iter()) {
+            for (index, (sample, weight)) in output.iter_mut().zip(weights.iter()).enumerate() {
+                if index % 16_384 == 0 && is_cancelled(cancel) {
+                    return Err("SOLA rendering cancelled".into());
+                }
                 if *weight > 1e-4 && *weight < reference_weight * 0.82 {
                     let gain = (reference_weight / *weight).min(1.22);
                     *sample *= gain;
@@ -817,12 +1027,8 @@ impl SolaResampler {
         // could apply up to 1.35x gain and make VC transitions jump above the
         // neighbouring CV phonemes. The wavtool envelope remains authoritative;
         // only the peak safety bound below is applied here.
-        let source_peak = vowel
-            .iter()
-            .map(|s| s.abs())
-            .fold(0.0f32, f32::max)
-            .clamp(0.05, 1.0);
-        let output_peak = output.iter().map(|s| s.abs()).fold(0.0f32, f32::max);
+        let source_peak = max_abs_cancellable(vowel, cancel)?.clamp(0.05, 1.0);
+        let output_peak = max_abs_cancellable(&output, cancel)?;
         if output_peak > source_peak && output_peak > 1e-4 {
             let target_peak = (source_peak * 0.999).min(0.98);
             let scale = target_peak / output_peak;
@@ -831,8 +1037,23 @@ impl SolaResampler {
             }
         }
 
-        output
+        Ok(output)
     }
+}
+
+fn is_cancelled(cancel: Option<&AtomicBool>) -> bool {
+    cancel.is_some_and(|token| token.load(Ordering::Relaxed))
+}
+
+fn max_abs_cancellable(samples: &[f32], cancel: Option<&AtomicBool>) -> Result<f32, String> {
+    let mut peak = 0.0f32;
+    for (index, sample) in samples.iter().enumerate() {
+        if index % 16_384 == 0 && is_cancelled(cancel) {
+            return Err("SOLA rendering cancelled".into());
+        }
+        peak = peak.max(sample.abs());
+    }
+    Ok(peak)
 }
 
 #[cfg(test)]
@@ -1228,6 +1449,30 @@ mod tests {
                 "silent output for {mode:?}"
             );
         }
+    }
+
+    #[test]
+    fn cancellable_sola_returns_a_cancellation_error() {
+        let sample_rate = 8_000;
+        let input = voice_like_tone(sample_rate, 220.0, 0.2);
+        let cancel = AtomicBool::new(true);
+        let result = SolaResampler::render_sample_with_mode_cancellable(
+            &input,
+            sample_rate,
+            0.0,
+            20.0,
+            20.0,
+            0.0,
+            800.0,
+            220.0,
+            &[],
+            None,
+            None,
+            None,
+            SolaStretchMode::Stretch,
+            Some(&cancel),
+        );
+        assert_eq!(result.unwrap_err(), "SOLA rendering cancelled");
     }
 
     #[test]

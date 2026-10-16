@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="description" content="Tainah: resampler nativo WORLD do Kamafeu, requisitos, stretch e diagnóstico.">
+  <title>Tainah · Kamafeu Studio</title><link rel="icon" href="assets/icon.png"><link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header class="site-header"><a class="brand" href="index.html"><span class="brand-mark">K</span><span>KAMAFEU <i>STUDIO</i></span></a><nav class="main-nav" aria-label="Navegação"><a href="index.html">Kamafeu</a><a href="https://github.com/studiopomar/kamafeu/blob/main/docs/kfv2/tainah.md">Technical reference ↗</a></nav></header>
+<main class="section-shell" style="padding-top:7rem;padding-bottom:5rem;max-width:900px">
+  <p class="eyebrow">NATIVE RESAMPLER / WORLD</p><h1>Tainah</h1>
+  <section lang="pt-BR"><h2>Português (Brasil)</h2>
+    <p>Tainah analisa F0, envoltória espectral e aperiodicidade com WORLD. Seu mapa temporal respeita offset, cutoff e marcas OTO de sustain/cauda. Quando a análise ou a saída falha nos critérios técnicos, o caminho clássico pode recorrer a SOLA ou resize preservando pitch. Os diagnósticos por fonema registram o caminho e a razão do fallback; isso indica cobertura técnica, não qualidade perceptiva.</p>
+    <h3>Instalação e seleção</h3><p>Instale uma versão desktop compatível e selecione <strong>Tainah</strong> nas opções de voz/resampler da faixa. Straycat continua como padrão desktop enquanto Tainah não passar por avaliação auditiva controlada. O Kamafeu Web não oferece o resampler nativo.</p>
+    <h3>Voicebank, OTO e stretch</h3><p>Use WAVs legíveis e aliases válidos em <code>oto.ini</code>. Offset, consonant, cutoff, preutterance e overlap controlam o recorte e o timing. Em notas longas, marcas de loop/sustain e tail ajudam a preservar ataque e cauda enquanto a sustentação é esticada. Alias ausente, WAV ilegível, região útil muito curta ou análise/saída inválida podem provocar fallback ou silêncio. Consulte os diagnósticos do projeto.</p>
+    <h3>Flags e limites</h3><p>As flags diferenciam maiúsculas de minúsculas e valores fora da faixa são limitados: <code>g</code> (−100 a +100) desloca a envoltória espectral em até meia oitava sem alterar F0; <code>t</code> (−100 a +100) soma 10 cents por unidade à curva de pitch; <code>B</code> (0 a 100) move a aperiodicidade medida em direção a 0,95; <code>H</code> (0 a 99) aplica corte logarítmico na envoltória de Nyquist até 1 kHz. Tokens não suportados continuam no projeto e aparecem nos diagnósticos. Outros resamplers podem atribuir semânticas diferentes às mesmas letras.</p>
+    <p>Não há benchmark público concluído nem aprovação de escuta cega. Não publique áudio de voicebanks sem autorização.</p>
+  </section>
+  <hr style="margin:3rem 0;opacity:.2">
+  <section lang="en"><h2>English</h2>
+    <p>Tainah analyzes F0, spectral envelope, and aperiodicity with WORLD. Its time map uses offset, cutoff, and OTO sustain/tail markers. If analysis or output fails technical checks, the classic path may use SOLA or pitch preserving resize. Per phoneme diagnostics record the path and fallback reason. This shows technical coverage, not perceptual quality.</p>
+    <h3>Installation and selection</h3><p>Install a compatible desktop build and select <strong>Tainah</strong> in the track voice/resampler options. Straycat remains the desktop default until Tainah passes a controlled listening evaluation. The Kamafeu Web build does not include this native resampler.</p>
+    <h3>Voicebanks, OTO, and stretch</h3><p>Use readable WAVs and valid aliases in <code>oto.ini</code>. Offset, consonant, cutoff, preutterance, and overlap control slicing and timing. For long notes, loop/sustain and tail markers help preserve the attack and ending while stretching the sustain. Missing aliases, unreadable WAVs, very short useful regions, or invalid analysis/output can cause fallback or silence. Check project diagnostics.</p>
+    <h3>Flags and limitations</h3><p>Flags are case sensitive and out of range values are clamped: <code>g</code> (−100 to +100) shifts the spectral envelope by up to half an octave without changing F0; <code>t</code> (−100 to +100) adds 10 cents per unit to the pitch curve; <code>B</code> (0 to 100) moves measured aperiodicity toward 0.95; <code>H</code> (0 to 99) applies a logarithmic envelope cutoff from Nyquist down to 1 kHz. Unsupported tokens remain in project data and appear in diagnostics. Other resamplers may assign different meanings to the same letters.</p>
+    <p>There is no completed public benchmark or approved blind listening result. Do not publish voicebank audio without authorization.</p>
+  </section>
+  <p><a class="text-link" href="https://github.com/studiopomar/kamafeu/blob/main/docs/kfv2/engine-audit.md">Audit trail and benchmark limits ↗</a></p>
+</main>
+<footer class="site-footer section-shell"><div class="footer-brand"><span class="brand-mark">K</span><strong>KAMAFEU STUDIO</strong><p>Open source vocal workstation<br>by Studio Pomar</p></div><div class="footer-links"><a href="index.html">Home</a><a href="https://github.com/studiopomar/kamafeu/blob/main/docs/kfv2/tainah.md">Technical reference</a><a href="https://github.com/studiopomar/kamafeu">GitHub</a></div></footer>
+</body></html>

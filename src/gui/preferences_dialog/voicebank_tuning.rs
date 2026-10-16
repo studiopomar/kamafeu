@@ -2,7 +2,6 @@ use super::help_marker;
 use super::section_card;
 use super::KamafeuStudioApp;
 use eframe::egui;
-use eframe::egui::Color32;
 use eframe::egui::RichText;
 
 impl KamafeuStudioApp {
@@ -21,7 +20,7 @@ impl KamafeuStudioApp {
                         ui.label(
                             RichText::new("dir:")
                                 .size(10.5)
-                                .color(Color32::from_rgb(180, 200, 240)),
+                                .color(ui.visuals().hyperlink_color),
                         );
                         ui.label(
                             RichText::new(folder.to_string_lossy().to_string())
@@ -43,7 +42,7 @@ impl KamafeuStudioApp {
                             .button(
                                 RichText::new(lang.tr("Remover", "Remove"))
                                     .size(10.0)
-                                    .color(Color32::from_rgb(255, 120, 120)),
+                                    .color(ui.visuals().error_fg_color),
                             )
                             .on_hover_text(
                                 lang.tr("Remover da lista de busca", "Remove from search paths"),

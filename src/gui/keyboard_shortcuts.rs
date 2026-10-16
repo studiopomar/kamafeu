@@ -155,8 +155,7 @@ impl KamafeuStudioApp {
                     self.autopitch_window_open = true;
                 }
                 if has_cmd_or_ctrl && i.modifiers.alt && i.key_pressed(Key::T) {
-                    self.theme_editor_dialog_state.is_open =
-                        !self.theme_editor_dialog_state.is_open;
+                    self.theme_customizer_open = !self.theme_customizer_open;
                 }
 
                 if has_cmd_or_ctrl && i.key_pressed(Key::O) {

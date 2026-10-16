@@ -7,7 +7,6 @@ use crate::gui::humanize_dialog;
 use crate::gui::lyrics_dialog;
 use crate::gui::phoneme_palette::PhonemePaletteState;
 use crate::gui::piano_roll::PianoRollState;
-use crate::gui::theme_editor_dialog;
 use crate::gui::types::RightSidebarTab;
 use crate::gui::types::TransportState;
 use crate::gui::types::{AutoScrollMode, ExportAudioScope, GridSnapOption};
@@ -139,6 +138,8 @@ impl KamafeuStudioApp {
         let selected_resampler = startup_engine_profile
             .and_then(|profile| profile.resampler.clone())
             .unwrap_or_else(|| config.dsp.default_resampler.clone());
+        let selected_resampler =
+            crate::drivers::canonical_resampler_display_label(&selected_resampler);
         let selected_wavtool = startup_engine_profile
             .and_then(|profile| profile.wavtool.clone())
             .unwrap_or_else(|| config.dsp.default_wavtool.clone());
@@ -314,6 +315,11 @@ impl KamafeuStudioApp {
             render_progress: 1.0,
             render_status_title: "Pronto".to_string(),
             render_log_channel_rx: None,
+            render_progress_event: None,
+            render_progress_rx: None,
+            render_task_kind: None,
+            render_progress_started_at: None,
+            render_progress_finished_at: None,
             export_rx: None,
             export_cancel: None,
             active_track_index: 0,
@@ -332,6 +338,10 @@ impl KamafeuStudioApp {
             preferences_state: crate::gui::preferences_dialog::PreferencesDialogState::default(),
             theme_customizer_open: false,
             theme_customizer_tab: 0,
+            saved_theme_selected: None,
+            saved_theme_name_draft: String::new(),
+            pending_theme_import: None,
+            pending_theme_delete: None,
             shortcuts_guide_open: false,
             command_palette_open: false,
             command_palette_query: String::new(),
@@ -392,7 +402,6 @@ impl KamafeuStudioApp {
             lyrics_dialog_state: lyrics_dialog::LyricsDialogState::default(),
             humanize_dialog_state,
             fx_rack_dialog_state: fx_rack_dialog::FxRackDialogState::default(),
-            theme_editor_dialog_state: theme_editor_dialog::ThemeEditorDialogState::default(),
             fx_rack_config: crate::audio::FxRackConfig::default(),
             fx_preview_refresh_pending: false,
             frame_time_ema_ms: 16.67,

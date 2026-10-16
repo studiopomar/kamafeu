@@ -1,9 +1,7 @@
 use super::help_marker;
 use super::section_card;
 use super::KamafeuStudioApp;
-use crate::gui::theme::MelodyneTheme;
 use eframe::egui;
-use eframe::egui::Color32;
 use eframe::egui::Frame;
 use eframe::egui::Margin;
 use eframe::egui::RichText;
@@ -14,15 +12,15 @@ impl KamafeuStudioApp {
     pub(in crate::gui) fn render_experimental_tab(&mut self, ui: &mut egui::Ui) {
         let lang = self.config.language;
         Frame::none()
-            .fill(Color32::from_rgb(58, 38, 16))
-            .stroke(Stroke::new(1.2_f32, Color32::from_rgb(255, 180, 70)))
+            .fill(ui.visuals().panel_fill)
+            .stroke(Stroke::new(1.2_f32, ui.visuals().warn_fg_color))
             .rounding(Rounding::same(6.0))
             .inner_margin(Margin::same(10.0))
             .show(ui, |ui| {
                 ui.label(
                     RichText::new(lang.tr("Opções avançadas", "Advanced Options"))
                         .strong()
-                        .color(Color32::from_rgb(255, 210, 120)),
+                        .color(ui.visuals().warn_fg_color),
                 );
                 ui.label(
                     RichText::new(lang.tr(
@@ -30,7 +28,7 @@ impl KamafeuStudioApp {
                         "Change settings on this page only if you understand the parameter and its effect on audio, memory, or stability. Improper values may cause playback and rendering issues.",
                     ))
                     .size(11.0)
-                    .color(Color32::from_rgb(255, 225, 175)),
+                    .color(ui.visuals().warn_fg_color),
                 );
             });
         ui.add_space(8.0);
@@ -45,12 +43,12 @@ impl KamafeuStudioApp {
                 ui.label(RichText::new(lang.tr(
                     "Execute diagnósticos em tempo real para verificar latência de áudio, poder de cálculo DSP, taxa de alocação de memória e integridade dos bancos de voz.",
                     "Run real-time diagnostics to check audio latency, DSP compute power, memory allocation rate, and voicebank integrity.",
-                )).size(11.0).color(MelodyneTheme::TEXT_MUTED));
+                )).size(11.0).color(self.config.theme.text_muted_c32()));
                 ui.add_space(6.0);
 
                 // 1. Live Signal Generator
                 ui.group(|ui| {
-                    ui.label(RichText::new(lang.tr("Gerador de Sinal de Teste & Calibração Acústica", "Test Signal Generator & Acoustic Calibration")).strong().size(12.0).color(Color32::from_rgb(0, 255, 180)));
+                    ui.label(RichText::new(lang.tr("Gerador de Sinal de Teste & Calibração Acústica", "Test Signal Generator & Acoustic Calibration")).strong().size(12.0).color(self.config.theme.success_c32()));
                     ui.add_space(2.0);
 
                     ui.horizontal(|ui| {
@@ -81,9 +79,9 @@ impl KamafeuStudioApp {
                         let sig_type = self.preferences_state.test_signal_type;
                         let freq = self.preferences_state.test_signal_freq;
                         let play_btn = egui::Button::new(
-                            RichText::new(lang.tr("Disparar Sinal de Calibração (0.5s)", "Trigger Calibration Signal (0.5s)")).strong().size(11.5).color(Color32::BLACK)
+                            RichText::new(lang.tr("Disparar Sinal de Calibração (0.5s)", "Trigger Calibration Signal (0.5s)")).strong().size(11.5).color(ui.visuals().text_color())
                         )
-                        .fill(Color32::from_rgb(0, 255, 180))
+                        .fill(self.config.theme.success_c32())
                         .min_size(egui::vec2(220.0, 26.0));
 
                         if ui.add(play_btn).clicked() {
@@ -110,7 +108,7 @@ impl KamafeuStudioApp {
                         ))
                         .strong()
                         .size(12.0)
-                        .color(Color32::from_rgb(255, 215, 100)),
+                        .color(ui.visuals().warn_fg_color),
                     );
                     ui.add_space(4.0);
 
@@ -160,7 +158,7 @@ impl KamafeuStudioApp {
                         ui.label(
                             RichText::new(res)
                                 .size(10.5)
-                                .color(Color32::from_rgb(0, 255, 180))
+                                .color(self.config.theme.success_c32())
                                 .monospace(),
                         );
                     }
@@ -170,7 +168,7 @@ impl KamafeuStudioApp {
                         ui.label(
                             RichText::new(res)
                                 .size(10.5)
-                                .color(Color32::from_rgb(180, 230, 255))
+                                .color(ui.visuals().hyperlink_color)
                                 .monospace(),
                         );
                     }
@@ -180,7 +178,7 @@ impl KamafeuStudioApp {
                         ui.label(
                             RichText::new(res)
                                 .size(10.5)
-                                .color(Color32::from_rgb(255, 220, 140))
+                                .color(ui.visuals().warn_fg_color)
                                 .monospace(),
                         );
                     }
@@ -345,9 +343,9 @@ impl KamafeuStudioApp {
                     let wine_found = crate::drivers::process::find_wine_executable();
                     if let Some(ref w) = wine_found {
                         let ver = crate::drivers::process::wine_version().unwrap_or_else(|| "Wine".to_string());
-                        ui.label(RichText::new(format!("✔ Wine: {} ({})", w.display(), ver)).size(11.0).color(Color32::from_rgb(0, 255, 157)));
+                        ui.label(RichText::new(format!("✔ Wine: {} ({})", w.display(), ver)).size(11.0).color(ui.visuals().hyperlink_color));
                     } else {
-                        ui.label(RichText::new(lang.tr("⚠ Wine não detectado (necessário para executar resamplers .exe no macOS/Linux)", "⚠ Wine not detected (needed for Windows .exe resamplers on macOS/Linux)")).size(11.0).color(Color32::from_rgb(255, 180, 70)));
+                        ui.label(RichText::new(lang.tr("⚠ Wine não detectado (necessário para executar resamplers .exe no macOS/Linux)", "⚠ Wine not detected (needed for Windows .exe resamplers on macOS/Linux)")).size(11.0).color(ui.visuals().warn_fg_color));
                     }
                 });
 
@@ -420,7 +418,7 @@ impl KamafeuStudioApp {
                             lang.tr("Sistema", "System")
                         ))
                         .strong()
-                        .color(Color32::from_rgb(180, 230, 255)),
+                        .color(ui.visuals().hyperlink_color),
                     );
                     ui.separator();
                     ui.label(
@@ -429,7 +427,7 @@ impl KamafeuStudioApp {
                             lang.tr("Threads Lógicas", "Logical Threads")
                         ))
                         .strong()
-                        .color(Color32::from_rgb(0, 255, 157)),
+                        .color(ui.visuals().hyperlink_color),
                     );
                     ui.separator();
                     ui.label(
@@ -443,7 +441,7 @@ impl KamafeuStudioApp {
                             }
                         ))
                         .strong()
-                        .color(Color32::from_rgb(255, 215, 100)),
+                        .color(ui.visuals().warn_fg_color),
                     );
                     ui.separator();
                     ui.label(
@@ -453,7 +451,7 @@ impl KamafeuStudioApp {
                             self.frame_time_ema_ms
                         ))
                         .monospace()
-                        .color(MelodyneTheme::TEXT_MUTED),
+                        .color(self.config.theme.text_muted_c32()),
                     );
                 });
             },

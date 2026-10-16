@@ -127,6 +127,7 @@ O nome **Kamafeu** faz referência à tradicional joia em camafeu, esculpida man
 
 ### Bancos de voz e suporte fonético
 - **Compatibilidade UTAU e OpenUtau:** Leitura e gravação de arquivos `oto.ini` em codificações UTF-8 e Shift-JIS com suporte a múltiplos tons via `prefix.map`.
+- **Campos do `oto.ini`:** Campos numéricos presentes, mas vazios, equivalem a `0`, assim como `0` explícito. Alias vazio usa o nome do WAV; coluna ausente ou número malformado continua sendo erro de validação.
 - **Fonemizadores integrados:**
 - Japonês: CV (Hiragana), VCV e CVVC com conversão automática Romaji para Kana.
 - Conversão de letras japonesas: limpeza de caracteres não-Hiragana com normalização de Katakana e conversão contextual de aliases CV/VCV pelo menu da nota.
@@ -144,7 +145,9 @@ O nome **Kamafeu** faz referência à tradicional joia em camafeu, esculpida man
 
 ### Personalização e temas visuais
 
-O Kamafeu Studio conta com um motor completo de temas e customização de interface (`Ctrl + Alt + T` / `Cmd + Alt + T`), permitindo alternar instantaneamente paletas de cores, cantos arredondados, contraste de notas e densidade de elementos:
+O Kamafeu Studio conta com um editor de temas em tempo real (`Ctrl + Alt + T` / `Cmd + Alt + T`). Ele permite editar cores da interface e do editor, criar uma biblioteca de temas, importar arquivos antigos ou versionados e exportar temas em JSON.
+
+O tema padrão **Calafate 3.0** combina grafite quente, ameixa suave, coral de goiaba e texto marfim. Os acentos são discretos, sem depender de ciano elétrico ou neon; estados de sucesso, aviso e erro mantêm cores editáveis próprias.
 
 As paletas oficiais são verificadas automaticamente com a razão de contraste WCAG AA
 (4,5:1 para texto normal) entre o texto primário e as superfícies de canvas e painel.
@@ -152,11 +155,14 @@ Temas personalizados não são sobrescritos: a mesma regra fica disponível no n
 como `contrast_ratio_rgb` e `meets_text_contrast`, permitindo que a interface e plugins
 diagnostiquem combinações de baixo contraste sem alterar a escolha do usuário.
 
+#### Calafate 3.0 (padrão 3.0.0)
+Grafite quente, notas em ameixa e seleção coral, com curvas em lilás suave e playhead âmbar. Temas personalizados existentes são preservados na atualização.
+
 #### Pomar Neon (Esmeralda)
 <img src="assets/themes/theme_pomar_neon.png" alt="Tema Pomar Neon (Esmeralda)" width="100%" />
 
-#### Melodina Classico (Calafate)
-<img src="assets/themes/theme_melodyne_gold.png" alt="Tema Melodina Classico (Calafate)" width="100%" />
+#### Âmbar Clássico
+<img src="assets/themes/theme_melodyne_gold.png" alt="Tema Âmbar Clássico" width="100%" />
 
 #### Cyberpunk (Synthwave)
 <img src="assets/themes/theme_cyberpunk.png" alt="Tema Cyberpunk (Synthwave)" width="100%" />
@@ -164,8 +170,8 @@ diagnostiquem combinações de baixo contraste sem alterar a escolha do usuário
 #### Nordic Slate (Clean Dark)
 <img src="assets/themes/theme_nordic_slate.png" alt="Tema Nordic Slate (Clean Dark)" width="100%" />
 
-#### Voz-a-loide Teal (Mikan)
-<img src="assets/themes/theme_mikan_teal.png" alt="Tema Voz-a-loide Teal (Mikan)" width="100%" />
+#### Horta Mikan
+<img src="assets/themes/theme_mikan_teal.png" alt="Tema Horta Mikan" width="100%" />
 
 ## Arquitetura e fluxo de síntese
 
@@ -195,10 +201,10 @@ A arquitetura do Kamafeu Studio foi projetada de ponta a ponta em Rust para gara
 │                   PIPELINE DE RENDERIZAÇÃO & SÍNTESE DSP                        │
 │  ├── Fila Concorrente (Thread Pool Rayon) & Cache de Amostras em Memória        │
 │  ├── Resampler (Modulação Tonal & Estiramento Temporal):                        │
-│  │   ├── VENUS (Nativo): Análise YIN, Síntese Formântica & Fase Mínima          │
+│  │   ├── Tainah: análise/ressíntese WORLD com stretch de sustentação e fallback SOLA │
 │  │   └── straycat-rs / Motores Externos via UTAU CLI Protocol                    │
 │  ├── Wavtool (Emenda, Splicing & Envelopamento):                                │
-│  │   ├── Andromeda (Nativo): Envelopes UTAU de 5 pontos & Equal-Power Crossfade │
+│  │   ├── Andromeda: wavtool alternativo para envelopes UTAU                      │
 │  │   └── wavtool-yawu / Utilitários Externos                                    │
 │  ├── Alinhamento de Fase: Redução de cancelamentos harmônicos em vogais ligadas │
 │  ├── Rack de Efeitos (FX): Equalizador Gráfico 31 bandas, Compressor, Reverb     │
@@ -211,8 +217,8 @@ A arquitetura do Kamafeu Studio foi projetada de ponta a ponta em Rust para gara
 1. **Estrutura de dados e eventos temporais:** O projeto decompõe composições em faixas e partes independentes. As notas musicais contêm posições e durações absolutas em milissegundos calculadas em função do andamento (BPM) e da métrica de compasso.
 2. **Resolução fonética e particionamento silábico:** O fonemizador converte as letras digitadas em cadeias de fonemas individuais (como ataques de início de frase, transições consoante-vogal e consoantes de término). Para cada fonema, o sistema consulta a tabela `oto.ini` do cantor ativo e determina a amostra WAV correspondente de acordo com o tom da nota (`prefix.map`).
 3. **Cálculo de temporização e sobreposição (*Timing Engine*):** A posição acústica de cada amostra é ajustada aplicando os valores de *preutterance* (para antecipar consoantes antes da batida musical) e *overlap* (definindo a zona de fusão com a nota precedente).
-4. **Resampling e transposição tonal:** O motor de afinação (como o **VENUS** nativo ou o **straycat-rs**) isola o trecho útil de áudio delimitado por *offset* e *cutoff*, preserva a consoante fixa sem deformação temporal e estica ou comprime a vogal periódica, transpondo a frequência fundamental para acompanhar a curva contínua de pitch bend e os parâmetros de expressão.
-5. **Emenda, envelopamento e splicing (*Wavtool & Mixing*):** O motor **Andromeda** aplica a curva de amplitude UTAU de 5 pontos a cada fatia e costura as amostras no buffer da faixa utilizando interpolação suave e *equal-power crossfade*.
+4. **Resampling e transposição tonal:** O resampler selecionado processa o trecho definido por *offset* e *cutoff*. O caminho nativo disponível na interface usa WORLD em Rust e pode recorrer a SOLA quando a análise falha ou a saída não atende aos critérios internos de cobertura. A implementação SOLA também existe como driver separado, mas ainda é experimental.
+5. **Emenda, envelopamento e splicing (*Wavtool & Mixing*):** O wavtool escolhido aplica o envelope e posiciona as amostras. Andromeda é uma alternativa que aplica o envelope UTAU com curva cosseno; Galapagos é o caminho nativo de alinhamento de fase. Seus papéis e critérios são distintos, e nenhum rótulo sozinho comprova qualidade acústica.
 6. **Streaming em tempo real e visualização:** O renderizador despacha tarefas em paralelo por blocos temporais (*progressive chunks*) através de um pool de threads gerenciado pelo Rayon. À medida que os blocos ficam prontos, eles são enviados diretamente para o dispositivo de áudio através de canais sincronizados sem bloqueio da interface gráfica, gerando simultaneamente a forma de onda de alta resolução exibida no fundo do piano roll.
 
 ## Por baixo dos panos
@@ -375,12 +381,13 @@ ida e volta.
 O Kamafeu Studio permite alternar entre o pipeline nativo de processamento e ferramentas clássicas de linha de comando:
 
 ### Motores de afinação (Resamplers)
-- **VENUS (Nativo):** Motor nativo em Rust baseado em síntese formântica pura, análise de periodicidade com YIN e reconstrução espectral de fase mínima. Preserva a inteligibilidade de consoantes rápidas sem cortes de alias e mantém a ressonância natural da voz sem artefatos anasalados.
+- **Tainah:** Resampler nativo do Studio Pomar baseado em WORLD, com estiramento das sustentações vocálicas e preservação dos ataques e caudas definidos pelo voicebank. No caminho clássico, falhas de análise, saída silenciosa/inválida ou cobertura insuficiente podem acionar SOLA ou resize de recuperação. Os diagnósticos por fonema registram estágios efetivos e motivos de recuperação; consulte o [estado auditado dos motores](docs/kfv2/engine-audit.md).
+- **SOLA (Nativo · experimental):** Driver nativo independente e backend explicitamente usado pelo preview KFV 2 atual. A comparação auditiva necessária para escolher um backend de referência ainda não foi concluída.
 - **straycat-rs (UtaUtaUtau):** Motor padrão recomendado para máxima compatibilidade e clareza acústica.
 - **Motores externos:** Suporte transparente a executáveis da comunidade como `Hifisampler`, `macres`, `moresampler`, `OpenMoresampler`, `world4utau`, `TIPS` e `Organum`. Os artefatos de release compilam `straycat-rs` e Organum quando a plataforma permite; o `openmoresampler.exe` versionado do repositório é um artefato separado e só deve ser considerado incluído quando estiver presente no pacote baixado. No macOS e Linux, executáveis Windows dependem do Wine. Consulte os [avisos de terceiros](NOTICE.md).
 
 ### Motores de junção e emenda de fonemas (Wavtools)
-- **Andromeda (Nativo):** Motor de emenda e costura de fonemas interno de alta performance escrito em Rust. Realiza cálculo de envelope de amplitude, interpolação de amostras e crossfade de potência constante (*equal-power*) diretamente na memória.
+- **Andromeda (wavtool alternativo):** Implementação nativa que aplica o envelope UTAU por fonema com curva cosseno. A concatenação/alinhamento de fase é fornecida por outros caminhos do mixer.
 - **wavtool-yawu / wavtool clássico:** Junção e costura de fonemas via linha de comando com suporte a fluxo contínuo por frases.
 
 ## Copaiba Voicebank Toolkit (Experimental)
@@ -443,8 +450,9 @@ instale o Wine antes de abrir o projeto.
 2. Autorize a instalação de aplicativos externos, se necessário.
 3. Instale o APK e conceda acesso aos arquivos quando solicitado.
 
-O APK é experimental. No Android, use preferencialmente os motores nativos VENUS
-e Andromeda; resamplers externos e executáveis Windows não são suportados.
+O APK é experimental. No Android, os caminhos disponíveis são os nativos
+WORLD (com fallback SOLA no resampler clássico) e Galapagos; resamplers externos
+e executáveis Windows não são suportados.
 
 ### iOS
 
@@ -500,7 +508,7 @@ O Kamafeu Studio conta com infraestrutura baseada em `winit` e `egui`, permitind
 1. **Impossibilidade de executar resamplers externos (Subprocessos CLI):**
    - Nos sistemas operacionais desktop (Windows, macOS, Linux), o Kamafeu pode invocar executáveis externos como `straycat-rs.exe` ou `hifisampler` através de processos filhos (`std::process::Command`) e Wine.
    - No Android e iOS, o isolamento rigoroso de processos (*sandbox*) e as políticas de segurança das lojas proíbem a criação de processos filhos arbitrários e a execução de binários Win32/x86.
-   - **Solução no Kamafeu:** Dispositivos móveis dependem 100% dos motores nativos (**VENUS** para modulação de pitch e **Andromeda** para emenda e junção de fatias), que rodam diretamente linkados na mesma memória do aplicativo.
+   - **Estado no Kamafeu:** Dispositivos móveis usam resampling nativo WORLD com fallback SOLA e o caminho nativo Galapagos para mistura/alinhamento. A disponibilidade do código não substitui testes de performance e áudio no aparelho.
 
 2. **Sistema de arquivos e permissões de armazenamento (*Scoped Storage*):**
    - No Android moderno (API 30+) e iOS, o acesso direto a caminhos tradicionais como `/sdcard/` ou pastas compartilhadas é bloqueado. O carregamento de voicebanks e projetos exige integração com *Storage Access Framework* (SAF) ou empacotamento prévio em arquivos `.kfv` / `.zip`.
@@ -702,6 +710,19 @@ cargo run --release --bin kamafeu -- voicebanks --path "/musica/Cantores" --path
 
 # Validar WAVs e tempos do oto.ini; retorna erro se houver problemas
 cargo run --release --bin kamafeu -- validate-voicebank "/caminho/do/voicebank"
+
+# Medir render frio e aquecido, verificando identidade do PCM entre iterações
+cargo run --release --bin render-benchmark -- projeto.aps "/caminho/do/voicebank" 9
+
+# Usar projeto e voicebank sintéticos reproduzíveis para uma referência local
+cargo run --release --bin render-benchmark -- --synthetic 9
+
+# Comparar custo end-to-end sem acertos de cache entre iterações
+cargo run --release --bin render-benchmark -- --synthetic 9 --uncached
+
+# Comparar com executáveis UTAU externos instalados localmente
+cargo run --release --bin render-benchmark -- projeto.aps "/caminho/do/voicebank" 9 \
+  --resampler "/caminho/resampler" --wavtool "/caminho/wavtool"
 
 # Conferir as faixas, notas e duração de qualquer projeto suportado
 cargo run --release --bin kamafeu -- project-info "musica.svp"
@@ -1000,10 +1021,10 @@ kamafeu/
     ├── dialogs.rs      # Gerenciador unificado de caixas de diálogo e mensagens modais
     │
     ├── audio/          # Motor de áudio (Rodio/CoreAudio/ALSA), metrônomo e rack FX (EQ, Reverb, Comp)
-    ├── bin/            # Ferramentas autônomas (Copaiba e análise/corpus VENUS)
+    ├── bin/            # Ferramentas autônomas (Copaiba e utilitários de áudio)
     ├── copaiba/        # Calibrador interativo de oto.ini, visualizador de onda e empacotador de voicebanks
-    ├── drivers/        # Drivers de comunicação com resamplers (VENUS, straycat-rs, Wine) e wavtools (Andromeda, Yawu)
-    ├── dsp/            # Processamento digital de sinais: VENUS, análise, pitch, envelopes UTAU e resample
+    ├── drivers/        # Drivers de resamplers (WORLD, SOLA, externos/Wine) e wavtools
+    ├── dsp/            # Processamento digital: WORLD, SOLA, análise, pitch e envelopes UTAU
     ├── formats/        # Parsers e conversores universais (.aps, .ustx, .ust, .mid, .ufdata, .svp, .vsqx, .kfv)
     ├── gui/            # Interface egui: piano roll, RADAR, arranjo multifaixa, inspetor e diálogos
     ├── oto/            # Leitura/escrita de oto.ini (UTF-8/Shift-JIS), prefix.map e scanner de cantores

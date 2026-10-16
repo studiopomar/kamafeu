@@ -19,7 +19,6 @@ mod view;
 #[cfg_attr(target_os = "macos", allow(dead_code))]
 mod vocal_modes;
 use super::KamafeuStudioApp;
-use crate::gui::theme::MelodyneTheme;
 use crate::gui::types::EditTool;
 use crate::oto::Voicebank;
 use eframe::egui::{self, Frame, TopBottomPanel};
@@ -31,11 +30,7 @@ impl KamafeuStudioApp {
     }
 
     fn render_in_window_menu_bar(&mut self, ctx: &egui::Context) {
-        let screen_width = ctx.screen_rect().width();
-        let viewport = ctx.screen_rect();
-        let is_mobile = cfg!(target_os = "android")
-            || screen_width < 1100.0
-            || (viewport.height() < 600.0 && screen_width < 1200.0);
+        let is_mobile = super::touch_first_layout(ctx);
 
         if is_mobile {
             self.render_mobile_menu_bar(ctx);
@@ -123,9 +118,9 @@ impl KamafeuStudioApp {
                     let (badge_bg, badge_border, badge_fg, badge_icon, badge_tooltip) = if self.is_dirty {
                         if is_light {
                             (
-                                egui::Color32::from_rgb(255, 235, 220),
-                                egui::Stroke::new(1.0_f32, egui::Color32::from_rgb(230, 120, 20)),
-                                egui::Color32::from_rgb(180, 70, 0),
+                                ui.visuals().warn_fg_color,
+                                egui::Stroke::new(1.0_f32, ui.visuals().error_fg_color),
+                                ui.visuals().warn_fg_color,
                                 "●",
                                 lang.tr(
                                     "Projeto modificado (não salvo). Clique aqui ou use Ctrl+S / Cmd+S para salvar agora.",
@@ -134,9 +129,9 @@ impl KamafeuStudioApp {
                             )
                         } else {
                             (
-                                egui::Color32::from_rgb(58, 30, 16),
-                                egui::Stroke::new(1.0_f32, egui::Color32::from_rgb(255, 170, 50)),
-                                egui::Color32::from_rgb(255, 200, 100),
+                                ui.visuals().panel_fill,
+                                egui::Stroke::new(1.0_f32, ui.visuals().warn_fg_color),
+                                ui.visuals().warn_fg_color,
                                 "●",
                                 lang.tr(
                                     "Projeto modificado (não salvo). Clique aqui ou use Ctrl+S / Cmd+S para salvar agora.",
@@ -147,9 +142,9 @@ impl KamafeuStudioApp {
                     } else {
                         if is_light {
                             (
-                                egui::Color32::from_rgb(230, 248, 238),
-                                egui::Stroke::new(1.0_f32, egui::Color32::from_rgb(40, 170, 100)),
-                                egui::Color32::from_rgb(20, 120, 60),
+                                ui.visuals().text_color(),
+                                egui::Stroke::new(1.0_f32, ui.visuals().hyperlink_color),
+                                ui.visuals().hyperlink_color,
                                 "•",
                                 lang.tr(
                                     "Projeto salvo no disco. Clique para salvar novamente ou salvar cópia.",
@@ -158,9 +153,9 @@ impl KamafeuStudioApp {
                             )
                         } else {
                             (
-                                egui::Color32::from_rgb(18, 32, 28),
-                                egui::Stroke::new(1.0_f32, egui::Color32::from_rgb(45, 180, 120)),
-                                egui::Color32::from_rgb(130, 240, 190),
+                                ui.visuals().panel_fill,
+                                egui::Stroke::new(1.0_f32, ui.visuals().hyperlink_color),
+                                ui.visuals().hyperlink_color,
                                 "•",
                                 lang.tr(
                                     "Projeto salvo no disco. Clique para salvar novamente ou salvar cópia.",
@@ -190,15 +185,15 @@ impl KamafeuStudioApp {
                         ui.add_space(4.0);
                         let (v_bg, v_stroke, v_fg) = if is_light {
                             (
-                                egui::Color32::from_rgb(255, 245, 220),
-                                egui::Stroke::new(1.0_f32, egui::Color32::from_rgb(220, 160, 40)),
-                                egui::Color32::from_rgb(160, 95, 0),
+                                ui.visuals().warn_fg_color,
+                                egui::Stroke::new(1.0_f32, ui.visuals().warn_fg_color),
+                                ui.visuals().error_fg_color,
                             )
                         } else {
                             (
-                                egui::Color32::from_rgb(38, 28, 14),
-                                egui::Stroke::new(1.0_f32, egui::Color32::from_rgb(200, 140, 40)),
-                                egui::Color32::from_rgb(255, 205, 100),
+                                ui.visuals().panel_fill,
+                                egui::Stroke::new(1.0_f32, ui.visuals().warn_fg_color),
+                                ui.visuals().warn_fg_color,
                             )
                         };
                         let version_badge = egui::Button::new(
@@ -284,7 +279,7 @@ impl KamafeuStudioApp {
 
                     ui.label(egui::RichText::new(title_text).strong().size(11.5).color(
                         if self.is_dirty {
-                            egui::Color32::from_rgb(255, 170, 50)
+                            ui.visuals().warn_fg_color
                         } else {
                             text_primary
                         },

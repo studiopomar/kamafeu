@@ -565,7 +565,8 @@ impl KamafeuStudioApp {
                         .first()
                         .and_then(|t| t.resampler.clone())
                 }) {
-                    self.selected_resampler = resampler.clone();
+                    self.selected_resampler =
+                        crate::drivers::canonical_resampler_display_label(resampler);
                 }
 
                 if let Some(ref wavtool) = self
@@ -708,7 +709,8 @@ impl KamafeuStudioApp {
                         .first()
                         .and_then(|t| t.resampler.clone())
                 }) {
-                    self.selected_resampler = resampler.clone();
+                    self.selected_resampler =
+                        crate::drivers::canonical_resampler_display_label(resampler);
                 }
 
                 if let Some(ref wavtool) = self

@@ -1,0 +1,29 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kamafeu.studiopomar.com/kfv2/schemas/phonetics.schema.json",
+  "title": "KFV 2 Phonetic Profile",
+  "description": "Structural schema for a kamafeu.phonetics profile. Symbol and pronunciation references are cross-validated by the application.",
+  "type": "object",
+  "required": ["format", "schema_version", "id", "language", "symbols", "unknown_word_policy"],
+  "properties": {
+    "format": { "const": "kamafeu.phonetics" },
+    "schema_version": { "type": "string", "pattern": "^1\\.[0-9]+\\.[0-9]+$" },
+    "id": { "$ref": "#/$defs/id" },
+    "language": { "$ref": "#/$defs/language" },
+    "symbols": { "type": "array", "items": { "$ref": "#/$defs/symbol" } },
+    "lexicon": { "type": "object", "additionalProperties": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/pronunciation" } } },
+    "unknown_word_policy": { "enum": ["ask-for-pronunciation", "error"] }
+  },
+  "$defs": {
+    "id": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "language": { "type": "string", "pattern": "^[A-Za-z]{2,8}(-[A-Za-z0-9]{1,8})*$" },
+    "symbol": {
+      "type": "object", "required": ["id", "ipa", "class", "voiced"],
+      "properties": { "id": { "$ref": "#/$defs/id" }, "ipa": { "type": "string" }, "class": { "type": "string" }, "voiced": { "type": "boolean" } }
+    },
+    "pronunciation": {
+      "type": "object", "required": ["phones"],
+      "properties": { "phones": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/id" } }, "stress_nuclei": { "type": "array", "items": { "type": "integer", "minimum": 0 } } }
+    }
+  }
+}

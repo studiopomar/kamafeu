@@ -150,14 +150,7 @@ impl KamafeuStudioApp {
                 ));
             }
 
-            if self.selected_resampler.contains("Venus")
-                || self.selected_resampler.contains("venus")
-                || self.selected_resampler.contains("VENUS")
-                || self.selected_resampler.contains("WORLD")
-                || self.selected_resampler.contains("world")
-                || self.selected_resampler.contains("Native")
-                || self.selected_resampler.contains("Nativo")
-            {
+            if crate::drivers::is_native_world_resampler_label(&self.selected_resampler) {
                 return Box::new(NativeWorldResamplerDriver);
             }
 
@@ -213,7 +206,8 @@ impl KamafeuStudioApp {
             });
         if let Some(engine_profile) = engine_profile {
             if let Some(resampler) = &engine_profile.resampler {
-                self.selected_resampler = resampler.clone();
+                self.selected_resampler =
+                    crate::drivers::canonical_resampler_display_label(resampler);
             }
             if let Some(wavtool) = &engine_profile.wavtool {
                 self.selected_wavtool = wavtool.clone();

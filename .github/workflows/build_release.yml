@@ -27,18 +27,18 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: 1.98.1
+          toolchain: 1.99.1
           components: rustfmt, clippy
       - name: Check formatting
         run: cargo fmt --all -- --check
       - name: Run tests
-        run: cargo test --all-targets --all-features
+        run: cargo test --all-targets --all-features --locked
       - name: Run Clippy
         # O CI principal executa Clippy sem promover avisos legados a erros.
         # Mantemos a análise no release sem bloquear os artefatos por
         # `multiple_bound_locations`, `too_many_arguments` e reassignments
         # existentes no CLI.
-        run: cargo clippy --all-targets --all-features
+        run: cargo clippy --all-targets --all-features --locked
       - name: Audit dependencies
         run: |
           cargo install cargo-audit --locked
@@ -141,12 +141,12 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: 1.98.1
+          toolchain: 1.99.1
           targets: ${{ matrix.job.target }}
 
       - name: Build Binary (Native)
         if: matrix.job.use_cross == false
-        run: cargo build --release --bins --target ${{ matrix.job.target }}
+        run: cargo build --release --bins --target ${{ matrix.job.target }} --locked
 
       - name: Install cross
         if: matrix.job.use_cross == true
@@ -156,7 +156,7 @@ jobs:
 
       - name: Build Binary (Cross)
         if: matrix.job.use_cross == true
-        run: cross build --release --bins --target ${{ matrix.job.target }}
+        run: cross build --release --bins --target ${{ matrix.job.target }} --locked
 
       - name: Build Bundled External Resamplers (straycat-rs & organum)
         if: matrix.job.use_cross == false

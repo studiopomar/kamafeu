@@ -10,6 +10,7 @@ use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
+use web_time::Instant;
 
 #[cfg(test)]
 fn progressive_chunk_ms(lookahead_ms: f32, render_chunk_bars: u32, bpm: f64) -> f64 {
@@ -154,6 +155,7 @@ impl KamafeuStudioApp {
             };
 
             let (log_tx, log_rx) = std::sync::mpsc::channel();
+            let (progress_tx, progress_rx) = std::sync::mpsc::channel();
             let (audio_tx, audio_rx) = std::sync::mpsc::sync_channel(16);
             let (ui_tx, ui_rx) = std::sync::mpsc::channel();
             if let Some(cancel) = self.preview_waveform_cancel.take() {
@@ -162,6 +164,13 @@ impl KamafeuStudioApp {
             self.preview_waveform_rx = None;
             let cancel = Arc::new(AtomicBool::new(false));
             self.render_log_channel_rx = Some(log_rx);
+            self.render_progress_rx = Some(progress_rx);
+            self.render_progress_event = Some(crate::renderer::RenderProgressEvent::stage(
+                crate::renderer::RenderStage::Preparing,
+            ));
+            self.render_task_kind = Some(super::RenderTaskKind::Preview);
+            self.render_progress_started_at = Some(Instant::now());
+            self.render_progress_finished_at = None;
             self.render_rx = Some(ui_rx);
             self.render_cancel = Some(cancel.clone());
             self.render_progress = 0.0;
@@ -190,7 +199,10 @@ impl KamafeuStudioApp {
                 let report_progress = move |progress, message: &str| {
                     let _ = log_tx.send((progress, message.to_string()));
                 };
-                let chunk = ProjectRenderer::retry_progressive_chunk(
+                let report_render_progress = move |event| {
+                    let _ = progress_tx.send(event);
+                };
+                let chunk = ProjectRenderer::retry_progressive_chunk_with_progress_events(
                     &project,
                     &voicebank,
                     sample_rate,
@@ -202,6 +214,7 @@ impl KamafeuStudioApp {
                     wavtool_driver.as_ref(),
                     &options,
                     Some(&report_progress),
+                    Some(&report_render_progress),
                     Some(cancel.as_ref()),
                 );
                 let _ = audio_tx.send(chunk);
@@ -346,6 +359,14 @@ impl KamafeuStudioApp {
 
         self.render_log_window_open = false;
         self.render_progress = 0.0;
+        let (progress_tx, progress_rx) = std::sync::mpsc::channel();
+        self.render_progress_rx = Some(progress_rx);
+        self.render_progress_event = Some(crate::renderer::RenderProgressEvent::stage(
+            crate::renderer::RenderStage::Preparing,
+        ));
+        self.render_task_kind = Some(super::RenderTaskKind::Preview);
+        self.render_progress_started_at = Some(Instant::now());
+        self.render_progress_finished_at = None;
         self.render_status_title = format!("{} • {:.0}ms", resampler_driver.name(), playhead_ms);
         self.transport_state.status_message = "Renderizando...".to_string();
 
@@ -371,6 +392,7 @@ impl KamafeuStudioApp {
         self.playback_chunk_buffer.reset(playhead_ms);
         let log_tx = Arc::new(std::sync::Mutex::new(log_tx));
         let log_tx_cb = log_tx.clone();
+        let progress_tx_cb = progress_tx.clone();
         #[cfg(not(target_arch = "wasm32"))]
         std::thread::spawn(move || {
             let report_progress = move |progress, message: &str| {
@@ -378,32 +400,35 @@ impl KamafeuStudioApp {
                     let _ = guard.send((progress, message.to_string()));
                 }
             };
+            let report_render_progress = move |event| {
+                let _ = progress_tx_cb.send(event);
+            };
 
             let render = || {
-                let rendered = ProjectRenderer::render_project_range_with_drivers_cancellable(
-                    &project,
-                    &active_vb,
-                    sample_rate,
-                    playhead_ms,
-                    Some(render_end_ms),
-                    resampler_driver.as_ref(),
-                    wavtool_driver.as_ref(),
-                    &vocal_mode_params,
-                    Some(&report_progress),
-                    Some(cancel.as_ref()),
-                );
+                let rendered =
+                    ProjectRenderer::render_project_range_with_progress_events_cancellable(
+                        &project,
+                        &active_vb,
+                        sample_rate,
+                        playhead_ms,
+                        Some(render_end_ms),
+                        resampler_driver.as_ref(),
+                        wavtool_driver.as_ref(),
+                        &vocal_mode_params,
+                        Some(&report_progress),
+                        Some(&report_render_progress),
+                        Some(cancel.as_ref()),
+                    );
                 let _ = audio_tx.send(rendered);
             };
-            let render_pool = rayon::ThreadPoolBuilder::new()
-                .num_threads(render_threads)
-                .thread_name(|index| format!("kamafeu-render-{index}"))
-                .build();
             // A panic in a native/ONNX resampler used to only disconnect the
             // channel, making Play appear to cancel without any explanation.
             // Keep the worker failure visible to the transport instead.
-            let worker = std::panic::AssertUnwindSafe(|| match render_pool {
-                Ok(pool) => pool.install(render),
-                Err(_) => render(),
+            let worker = std::panic::AssertUnwindSafe(|| {
+                match crate::renderer::worker_pool::get(render_threads) {
+                    Ok(pool) => pool.install(render),
+                    Err(_) => render(),
+                }
             });
             if std::panic::catch_unwind(worker).is_err() {
                 let _ = audio_tx.send(RenderedAudio::failed(
@@ -420,8 +445,11 @@ impl KamafeuStudioApp {
                     let _ = guard.send((progress, message.to_string()));
                 }
             };
+            let report_render_progress = move |event| {
+                let _ = progress_tx_cb.send(event);
+            };
 
-            let rendered = ProjectRenderer::render_project_range_with_drivers_cancellable(
+            let rendered = ProjectRenderer::render_project_range_with_progress_events_cancellable(
                 &project,
                 &active_vb,
                 sample_rate,
@@ -431,6 +459,7 @@ impl KamafeuStudioApp {
                 wavtool_driver.as_ref(),
                 &vocal_mode_params,
                 Some(&report_progress),
+                Some(&report_render_progress),
                 Some(cancel.as_ref()),
             );
             let _ = audio_tx.send(rendered);
@@ -438,8 +467,16 @@ impl KamafeuStudioApp {
     }
 
     pub fn pause_audio(&mut self) {
+        let was_rendering = self.direct_playback_rx.is_some() || self.render_rx.is_some();
         if let Some(cancel) = self.render_cancel.take() {
             cancel.store(true, Ordering::Relaxed);
+        }
+        if was_rendering {
+            self.render_progress_event = Some(crate::renderer::RenderProgressEvent::stage(
+                crate::renderer::RenderStage::Cancelled,
+            ));
+            self.render_progress_finished_at = Some(Instant::now());
+            self.render_progress_rx = None;
         }
         self.audio_player.stop();
         self.piano_roll_state.is_playing = false;
@@ -624,12 +661,7 @@ impl KamafeuStudioApp {
                 )
             };
 
-            let render_pool = rayon::ThreadPoolBuilder::new()
-                .num_threads(render_threads)
-                .thread_name(|idx| format!("kamafeu-preview-wf-{idx}"))
-                .build();
-
-            let rendered_audio = match render_pool {
+            let rendered_audio = match crate::renderer::worker_pool::get(render_threads) {
                 Ok(pool) => pool.install(render),
                 Err(_) => render(),
             };

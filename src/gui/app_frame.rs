@@ -94,12 +94,9 @@ impl eframe::App for KamafeuStudioApp {
             ctx.set_zoom_factor(active_scale);
         }
 
-        // Touch-first density on narrow viewports. Keep desktop compact, but
-        // make every primary control comfortable for a finger on Android.
-        let viewport = ctx.screen_rect();
-        let narrow = cfg!(target_os = "android")
-            || viewport.width() < 1100.0
-            || (viewport.height() < 600.0 && viewport.width() < 1200.0);
+        // Desktop remains compact at every window size. Touch-sized spacing is
+        // reserved for Android and narrow browser layouts.
+        let touch_first = super::touch_first_layout(ctx);
         ctx.style_mut(|style| {
             // Give hover/focus states a short, quiet interpolation instead of
             // switching abruptly between high-contrast surfaces.
@@ -113,37 +110,35 @@ impl eframe::App for KamafeuStudioApp {
             } else {
                 0.0
             };
-            if narrow {
-                style.spacing.item_spacing = egui::vec2(8.0, 8.0);
-                style.spacing.button_padding = egui::vec2(12.0, 8.0);
+            if touch_first {
+                style.spacing.item_spacing = egui::vec2(7.0, 6.0);
+                style.spacing.button_padding = egui::vec2(10.0, 7.0);
                 style.spacing.interact_size = egui::vec2(44.0, 44.0);
-                style.spacing.menu_margin = egui::Margin::same(8.0);
+                style.spacing.menu_margin = egui::Margin::same(7.0);
             } else {
-                // A densidade continua alta para quem trabalha com muitos
-                // parâmetros, mas os controles deixam de parecer colados.
-                style.spacing.item_spacing = egui::vec2(7.0, 5.0);
-                style.spacing.button_padding = egui::vec2(9.0, 6.0);
-                style.spacing.interact_size = egui::vec2(24.0, 24.0);
-                style.spacing.menu_margin = egui::Margin::same(6.0);
+                style.spacing.item_spacing = egui::vec2(4.0, 2.0);
+                style.spacing.button_padding = egui::vec2(4.0, 3.0);
+                style.spacing.interact_size = egui::vec2(20.0, 20.0);
+                style.spacing.menu_margin = egui::Margin::same(3.0);
             }
 
             // Escala tipográfica deliberada: o editor pode ser denso, mas
             // seus níveis de informação precisam ser imediatamente distintos.
-            let body_size = if narrow { 13.0 } else { 12.0 };
+            let body_size = if touch_first { 13.0 } else { 11.5 };
             style
                 .text_styles
                 .insert(egui::TextStyle::Body, egui::FontId::proportional(body_size));
             style.text_styles.insert(
                 egui::TextStyle::Button,
-                egui::FontId::proportional(if narrow { 13.0 } else { 11.5 }),
+                egui::FontId::proportional(if touch_first { 13.0 } else { 10.5 }),
             );
             style.text_styles.insert(
                 egui::TextStyle::Small,
-                egui::FontId::proportional(if narrow { 11.5 } else { 10.0 }),
+                egui::FontId::proportional(if touch_first { 11.5 } else { 9.5 }),
             );
             style.text_styles.insert(
                 egui::TextStyle::Heading,
-                egui::FontId::proportional(if narrow { 17.0 } else { 15.0 }),
+                egui::FontId::proportional(if touch_first { 17.0 } else { 14.0 }),
             );
         });
 

@@ -23,7 +23,7 @@ impl KamafeuStudioApp {
                             egui::RichText::new(lang.tr("Opções e Configurações de Exportação", "Export Options & Settings"))
                                 .strong()
                                 .size(15.0)
-                                .color(egui::Color32::from_rgb(0, 220, 255)),
+                                .color(ui.visuals().hyperlink_color),
                         );
                         ui.label(
                             egui::RichText::new(lang.tr(
@@ -31,7 +31,7 @@ impl KamafeuStudioApp {
                                 "Choose the audio scope, format, and quality desired for export:",
                             ))
                             .size(11.0)
-                            .color(egui::Color32::from_rgb(170, 160, 190)),
+                            .color(ui.visuals().text_color()),
                         );
 
                         ui.add_space(8.0);
@@ -44,7 +44,7 @@ impl KamafeuStudioApp {
                             egui::RichText::new(lang.tr("Mix Completa (Vocais + Instrumental/Áudios)", "Full Mix (Vocals + Instrumental/Audio)"))
                                 .strong()
                                 .size(13.0)
-                                .color(egui::Color32::from_rgb(230, 240, 255)),
+                                .color(ui.visuals().text_color()),
                         );
                         ui.indent("opt_full_mix", |ui| {
                             ui.label(
@@ -53,7 +53,7 @@ impl KamafeuStudioApp {
                                     "Exports final song, combining synthesized vocals with imported audio tracks.",
                                 ))
                                 .size(11.0)
-                                .color(egui::Color32::from_rgb(150, 145, 175)),
+                                .color(ui.visuals().text_color()),
                             );
                         });
 
@@ -65,7 +65,7 @@ impl KamafeuStudioApp {
                             egui::RichText::new(lang.tr("Apenas Vocais (Acapella)", "Vocals Only (Acapella)"))
                                 .strong()
                                 .size(13.0)
-                                .color(egui::Color32::from_rgb(230, 240, 255)),
+                                .color(ui.visuals().text_color()),
                         );
                         ui.indent("opt_vocals_only", |ui| {
                             ui.label(
@@ -74,7 +74,7 @@ impl KamafeuStudioApp {
                                     "Exports synthesized voices only (stems/acapella), muting instrumental tracks.",
                                 ))
                                 .size(11.0)
-                                .color(egui::Color32::from_rgb(150, 145, 175)),
+                                .color(ui.visuals().text_color()),
                             );
                         });
 
@@ -86,7 +86,7 @@ impl KamafeuStudioApp {
                             egui::RichText::new(lang.tr("Exportar Faixas Separadas (Stems / Multitrack)", "Export Separate Tracks (Stems / Multitrack)"))
                                 .strong()
                                 .size(13.0)
-                                .color(egui::Color32::from_rgb(230, 240, 255)),
+                                .color(ui.visuals().text_color()),
                         );
                         ui.indent("opt_stems", |ui| {
                             ui.label(
@@ -95,7 +95,7 @@ impl KamafeuStudioApp {
                                     "Generates individual audio files for each vocal and instrumental track separately.",
                                 ))
                                 .size(11.0)
-                                .color(egui::Color32::from_rgb(150, 145, 175)),
+                                .color(ui.visuals().text_color()),
                             );
                         });
 
@@ -107,7 +107,7 @@ impl KamafeuStudioApp {
                             egui::RichText::new(lang.tr("Formato do Arquivo de Áudio:", "Audio File Format:"))
                                 .strong()
                                 .size(12.5)
-                                .color(egui::Color32::from_rgb(0, 220, 255)),
+                                .color(ui.visuals().hyperlink_color),
                         );
 
                         egui::ComboBox::from_id_salt("export_format_options_combo")
@@ -160,9 +160,9 @@ impl KamafeuStudioApp {
                                     egui::RichText::new(lang.tr("Escolher Destino e Exportar...", "Choose Destination & Export..."))
                                         .strong()
                                         .size(12.0)
-                                        .color(egui::Color32::BLACK),
+                                        .color(ui.visuals().text_color()),
                                 )
-                                .fill(egui::Color32::from_rgb(0, 255, 180))
+                                .fill(self.config.theme.success_c32())
                                 .min_size(egui::vec2(160.0, 28.0));
 
                                 if ui.add(export_btn).clicked() {

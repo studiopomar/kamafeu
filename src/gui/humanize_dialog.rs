@@ -2,7 +2,7 @@ use crate::config::AppLanguage;
 use crate::dsp::pitch::VibratoParam;
 use crate::gui::theme::ThemeConfig;
 use crate::project::model::UNote;
-use eframe::egui::{self, Color32, Frame, RichText, Window};
+use eframe::egui::{self, Frame, RichText, Window};
 use std::collections::HashSet;
 
 #[derive(Debug, Clone)]
@@ -433,7 +433,7 @@ pub fn draw_humanize_dialog(
                         ))
                         .strong()
                         .size(11.5)
-                        .color(Color32::WHITE),
+                        .color(ui.visuals().text_color()),
                     )
                     .clicked()
                 {

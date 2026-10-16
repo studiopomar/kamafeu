@@ -73,7 +73,7 @@ pub(super) fn draw(
                                         Pos2::new(0.0, 0.0),
                                         Pos2::new(1.0, 1.0),
                                     );
-                                    painter.image(texture.id(), draw_rect, uv, Color32::WHITE);
+                                    painter.image(texture.id(), draw_rect, uv, ui.visuals().text_color());
                                     loaded_image = true;
                                 }
                             }
@@ -131,7 +131,7 @@ pub(super) fn draw(
                             egui::Button::new(
                                 RichText::new(lang.tr("Galeria", "Gallery"))
                                     .size(10.5)
-                                    .color(Color32::from_rgb(0, 220, 255)),
+                                    .color(cols[0].visuals().hyperlink_color),
                             ),
                         )
                         .on_hover_text(lang.tr(
@@ -330,7 +330,7 @@ pub(super) fn draw(
                                                             Pos2::ZERO,
                                                             Pos2::new(1.0, 1.0),
                                                         ),
-                                                        Color32::WHITE,
+                                                        ui.visuals().text_color(),
                                                     );
                                                     loaded_image = true;
                                                 }

@@ -59,7 +59,7 @@ fn graph_rect(output: &egui::FullOutput) -> Rect {
         .iter()
         .find_map(|clipped| {
             if let egui::epaint::Shape::Rect(rect) = &clipped.shape {
-                if rect.fill == Color32::from_rgb(18, 18, 22) {
+                if rect.fill == egui::Visuals::dark().panel_fill {
                     return Some(rect.rect.intersect(clipped.clip_rect));
                 }
             }

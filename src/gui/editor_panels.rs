@@ -144,10 +144,7 @@ impl KamafeuStudioApp {
         };
         // Portrait tablets and phones use the touch-first navigation instead of
         // squeezing desktop side panels into an unusable column.
-        let viewport = ctx.screen_rect();
-        let is_mobile = cfg!(target_os = "android")
-            || viewport.width() < 1100.0
-            || (viewport.height() < 600.0 && viewport.width() < 1200.0);
+        let is_mobile = super::touch_first_layout(ctx);
 
         if is_mobile {
             TopBottomPanel::top("top_unified_control_panel")
@@ -174,7 +171,7 @@ impl KamafeuStudioApp {
                 .show(ctx, &mut draw_toolbar);
         } else {
             TopBottomPanel::top("top_unified_control_panel")
-                .exact_height(36.0)
+                .exact_height(32.0)
                 .frame(Frame::none().fill(toolbar_fill).stroke(toolbar_stroke))
                 .show(ctx, &mut draw_toolbar);
         }
@@ -205,8 +202,8 @@ impl KamafeuStudioApp {
                 let mut window = egui::Window::new(inspector_title)
                     .id(egui::Id::new("workspace_inspector"))
                     .default_pos((900.0, 110.0))
-                    .default_size((300.0, 620.0))
-                    .min_width(200.0)
+                    .default_size((260.0, 560.0))
+                    .min_width(180.0)
                     .frame(
                         Frame::none()
                             .fill(bg_panel)
@@ -228,9 +225,9 @@ impl KamafeuStudioApp {
             } else {
                 SidePanel::right("right_inspector_panel")
                     .resizable(true)
-                    .default_width(240.0)
-                    .min_width(200.0)
-                    .max_width(480.0)
+                    .default_width(220.0)
+                    .min_width(180.0)
+                    .max_width(300.0)
                     .frame(Frame::none().fill(bg_panel).stroke(inspector_stroke))
                     .show(ctx, &mut draw_inspector);
             }
@@ -276,7 +273,7 @@ impl KamafeuStudioApp {
             } else {
                 TopBottomPanel::top("arrangement_multitrack_panel")
                     .resizable(true)
-                    .height_range(120.0..=420.0)
+                    .height_range(80.0..=420.0)
                     .default_height(default_arr_h)
                     .frame(Frame::none().fill(bg_panel).stroke(border_stroke))
                     .show(ctx, &mut draw_arrangement);

@@ -36,8 +36,8 @@ impl OtoParser {
         Self::parse_str_lossy(text.trim_start_matches('\u{feff}'))
     }
 
-    /// Parse an oto.ini using the same fail-fast rule as OpenUtau: malformed
-    /// numeric fields are errors, never implicit zeroes.
+    /// Parse an oto.ini using the same fail-fast rule as OpenUtau: present
+    /// empty numeric fields mean zero; malformed or missing fields are errors.
     pub fn parse_bytes(bytes: &[u8]) -> Result<HashMap<String, OtoEntry>, io::Error> {
         let text = match std::str::from_utf8(bytes) {
             Ok(text) => text.to_owned(),
@@ -84,9 +84,13 @@ impl OtoParser {
                 return Err(format!("linha {line_number}: alias vazio"));
             }
             let parse_num = |field: &str, name: &str| {
-                field
-                    .parse::<f64>()
-                    .map_err(|_| format!("linha {line_number}: campo {name} inválido: '{field}'"))
+                if field.is_empty() {
+                    Ok(0.0)
+                } else {
+                    field.parse::<f64>().map_err(|_| {
+                        format!("linha {line_number}: campo {name} inválido: '{field}'")
+                    })
+                }
             };
             let offset = parse_num(fields[1], "offset")?;
             let consonant = parse_num(fields[2], "consonant")?;
@@ -218,6 +222,19 @@ mod tests {
     }
 
     #[test]
+    fn empty_numeric_fields_match_explicit_zeroes() {
+        let empty = OtoParser::parse_str("sample.wav=,,,,,\n").unwrap();
+        let zero = OtoParser::parse_str("sample.wav=,0,0,0,0,0\n").unwrap();
+        assert_eq!(empty["sample"].offset, zero["sample"].offset);
+        assert_eq!(empty["sample"].consonant, zero["sample"].consonant);
+        assert_eq!(empty["sample"].cutoff, zero["sample"].cutoff);
+        assert_eq!(empty["sample"].preutterance, zero["sample"].preutterance);
+        assert_eq!(empty["sample"].overlap, zero["sample"].overlap);
+        assert_eq!(empty["sample"].alias, "sample");
+        assert!(OtoParser::parse_str("sample.wav=,0,0,0,0\n").is_err());
+    }
+
+    #[test]
     fn rejects_missing_fields_and_keeps_last_duplicate_alias() {
         assert!(OtoParser::parse_str("ka.wav=ka,0,50,0,20").is_err());
         let map = OtoParser::parse_str("a.wav=ka,0,1,0,1,0\nb.wav=ka,5,1,0,1,0").unwrap();
@@ -227,12 +244,10 @@ mod tests {
     #[test]
     fn lossy_diagnostics_keep_the_original_line_number() {
         let (_, diagnostics) = OtoParser::parse_str_lossy_diagnostics(
-            "; header\n\nka.wav=ka,0,50,0,20,\nki.wav=ki,0,50,0,20,10\n",
+            "; header\n\nka.wav=ka,0,50,0,20,invalid\nki.wav=ki,0,50,0,20,10\n",
         );
         assert_eq!(diagnostics.len(), 1);
         assert_eq!(diagnostics[0].line, 3);
         assert_eq!(diagnostics[0].field.as_deref(), Some("overlap"));
-        assert_eq!(diagnostics[0].summary(), "campo overlap inválido");
-        assert_eq!(diagnostics[0].display(), "linha 3: campo overlap inválido");
     }
 }

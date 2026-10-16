@@ -31,6 +31,7 @@ pub mod project;
 pub mod renderer;
 pub mod terminal_log;
 pub mod updater;
+pub mod voicebank;
 
 pub use audio::*;
 pub use config::*;

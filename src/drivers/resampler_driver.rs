@@ -28,6 +28,23 @@ pub struct ResamplerArgs {
     pub tail_start_ms: Option<f64>,
 }
 
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct ResamplerExecutionInfo {
+    pub effective_backend_id: String,
+    #[serde(default)]
+    pub stages: Vec<String>,
+    #[serde(default)]
+    pub fallback_reasons: Vec<String>,
+    #[serde(default)]
+    pub adjustments: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
+pub struct ResamplerRenderOutput {
+    pub samples: Vec<f32>,
+    pub execution: ResamplerExecutionInfo,
+}
+
 /// Human-readable command description used by diagnostics and render manifests.
 /// It is intentionally not an executable shell command: paths are quoted for
 /// display and no interpolation is ever passed back to a shell.
@@ -69,6 +86,11 @@ fn quote_path(path: &Path) -> String {
 
 pub trait ResamplerDriver: Send + Sync {
     fn name(&self) -> &str;
+    /// Stable implementation identity for project provenance and caches.
+    /// This is deliberately separate from the localized display name.
+    fn engine_id(&self) -> &'static str {
+        "external.unknown"
+    }
     fn prepare_flags(&self, base_flags: &str, gender: f64, breathiness: f64) -> String {
         prepare_classic_flags(base_flags, gender, breathiness)
     }
@@ -88,6 +110,27 @@ pub trait ResamplerDriver: Send + Sync {
         args: &ResamplerArgs,
         cancel: Option<&AtomicBool>,
     ) -> Result<Vec<f32>, String>;
+
+    /// Render audio and report the implementation path. Drivers with internal
+    /// fallbacks override this method; simple drivers inherit their own stable
+    /// identity as the effective backend.
+    fn render_sample_with_execution(
+        &self,
+        raw_samples: &[f32],
+        sample_rate: u32,
+        args: &ResamplerArgs,
+        cancel: Option<&AtomicBool>,
+    ) -> Result<ResamplerRenderOutput, String> {
+        self.render_sample(raw_samples, sample_rate, args, cancel)
+            .map(|samples| ResamplerRenderOutput {
+                samples,
+                execution: ResamplerExecutionInfo {
+                    effective_backend_id: self.engine_id().to_string(),
+                    stages: vec![self.engine_id().to_string()],
+                    ..Default::default()
+                },
+            })
+    }
 }
 
 fn prepare_classic_flags(base_flags: &str, gender: f64, breathiness: f64) -> String {
@@ -160,6 +203,20 @@ impl KnownResampler {
             Self::Tips => "TIPS (TIPS.exe)",
             Self::Moresampler => "moresampler (moresampler.exe)",
             Self::OpenMoresampler => "OpenMoresampler (openmoresampler.exe)",
+        }
+    }
+
+    pub const fn engine_id(self) -> &'static str {
+        match self {
+            Self::Catalina => "external.resampler.catalina",
+            Self::MacRes => "external.resampler.macres",
+            Self::Organum => "external.resampler.organum",
+            Self::StraycatRs => "external.resampler.straycat-rs",
+            Self::HifisamplerRs => "external.resampler.hifisampler-rs",
+            Self::World4Utau => "external.resampler.world4utau",
+            Self::Tips => "external.resampler.tips",
+            Self::Moresampler => "external.resampler.moresampler",
+            Self::OpenMoresampler => "external.resampler.openmoresampler",
         }
     }
 
@@ -404,15 +461,14 @@ pub struct NativeResamplerDriver;
 
 impl ResamplerDriver for NativeResamplerDriver {
     fn name(&self) -> &str {
-        "WORLD (Nativo)"
+        "SOLA (Nativo)"
+    }
+    fn engine_id(&self) -> &'static str {
+        "kamafeu.sola"
     }
 
     fn cache_identity(&self) -> String {
-        format!(
-            "{}:world-rs-v9-full-tail-coverage-watchdog:{}",
-            self.name(),
-            crate::dsp::world_resampler::cache_identity()
-        )
+        "kamafeu.sola:classic-oto-v1".to_string()
     }
 
     fn render_sample(
@@ -443,13 +499,37 @@ impl ResamplerDriver for NativeResamplerDriver {
 #[derive(Debug, Clone, Copy, Default)]
 pub struct NativeWorldResamplerDriver;
 
+pub const TAINAH_RESAMPLER_LABEL: &str = "Tainah";
+
+/// Recognizes the current display label and names stored by older projects.
+/// Keep this exact enough not to mistake external engines such as World4UTAU
+/// for the built-in renderer.
+pub fn is_native_world_resampler_label(label: &str) -> bool {
+    let normalized = label.trim().to_ascii_lowercase();
+    matches!(
+        normalized.as_str(),
+        "tainah" | "world" | "world-rs" | "world (nativo)" | "world (native)"
+    ) || normalized.contains("venus")
+}
+
+pub fn canonical_resampler_display_label(label: &str) -> String {
+    if is_native_world_resampler_label(label) {
+        TAINAH_RESAMPLER_LABEL.to_string()
+    } else {
+        label.to_string()
+    }
+}
+
 impl ResamplerDriver for NativeWorldResamplerDriver {
     fn name(&self) -> &str {
-        "WORLD (Nativo)"
+        TAINAH_RESAMPLER_LABEL
+    }
+    fn engine_id(&self) -> &'static str {
+        "kamafeu.world-rs"
     }
     fn cache_identity(&self) -> String {
         format!(
-            "WORLD:native-world-rs-v9-full-tail-coverage-watchdog:{}",
+            "kamafeu.world-rs:tainah-v11-oto-sustain-time-map-flags-g-t-B-H:{}",
             crate::dsp::world_resampler::cache_identity()
         )
     }
@@ -460,11 +540,22 @@ impl ResamplerDriver for NativeWorldResamplerDriver {
         args: &ResamplerArgs,
         cancel: Option<&AtomicBool>,
     ) -> Result<Vec<f32>, String> {
+        self.render_sample_with_execution(raw_samples, sample_rate, args, cancel)
+            .map(|output| output.samples)
+    }
+
+    fn render_sample_with_execution(
+        &self,
+        raw_samples: &[f32],
+        sample_rate: u32,
+        args: &ResamplerArgs,
+        cancel: Option<&AtomicBool>,
+    ) -> Result<ResamplerRenderOutput, String> {
         if cancel.is_some_and(|flag| flag.load(std::sync::atomic::Ordering::Relaxed)) {
             return Err("Renderização cancelada".to_string());
         }
         let world = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            crate::dsp::world_resampler::WorldResampler::render_sample_with_oto(
+            crate::dsp::world_resampler::WorldResampler::render_sample_with_oto_traced_flags(
                 raw_samples,
                 sample_rate,
                 args.offset_ms,
@@ -477,31 +568,79 @@ impl ResamplerDriver for NativeWorldResamplerDriver {
                 args.loop_start_ms,
                 args.loop_end_ms,
                 args.tail_start_ms,
+                &args.flags,
             )
         }));
         let expected_len =
             ((args.duration_ms.max(0.0) / 1_000.0) * sample_rate as f64).round() as usize;
+        let execution;
         let rendered = match world {
-            Ok(samples) if has_render_coverage(&samples, expected_len, sample_rate) => samples,
-            _ => crate::dsp::SolaResampler::render_sample(
-                raw_samples,
-                sample_rate,
-                args.offset_ms,
-                args.source_consonant_ms,
-                args.consonant_ms,
-                args.cutoff_ms,
-                args.duration_ms,
-                args.pitch_freq,
-                &args.pitch_points,
-                args.loop_start_ms,
-                args.loop_end_ms,
-                args.tail_start_ms,
-            ),
+            Ok(output) if has_render_coverage(&output.samples, expected_len, sample_rate) => {
+                execution = ResamplerExecutionInfo {
+                    effective_backend_id: output.trace.effective_backend_id(),
+                    stages: output.trace.stages,
+                    fallback_reasons: output.trace.fallback_reasons,
+                    adjustments: output.trace.adjustments,
+                };
+                output.samples
+            }
+            Ok(output) => {
+                let attempted_path = output.trace.effective_backend_id();
+                let mut fallback_reasons = output.trace.fallback_reasons;
+                fallback_reasons.push(format!(
+                    "WORLD driver coverage guard rejected attempted path {attempted_path}"
+                ));
+                execution = ResamplerExecutionInfo {
+                    effective_backend_id: "kamafeu.sola".into(),
+                    stages: vec!["kamafeu.sola".into()],
+                    fallback_reasons,
+                    adjustments: Vec::new(),
+                };
+                crate::dsp::SolaResampler::render_sample(
+                    raw_samples,
+                    sample_rate,
+                    args.offset_ms,
+                    args.source_consonant_ms,
+                    args.consonant_ms,
+                    args.cutoff_ms,
+                    args.duration_ms,
+                    args.pitch_freq,
+                    &args.pitch_points,
+                    args.loop_start_ms,
+                    args.loop_end_ms,
+                    args.tail_start_ms,
+                )
+            }
+            Err(_) => {
+                execution = ResamplerExecutionInfo {
+                    effective_backend_id: "kamafeu.sola".into(),
+                    stages: vec!["kamafeu.sola".into()],
+                    fallback_reasons: vec!["WORLD driver panicked".into()],
+                    adjustments: Vec::new(),
+                };
+                crate::dsp::SolaResampler::render_sample(
+                    raw_samples,
+                    sample_rate,
+                    args.offset_ms,
+                    args.source_consonant_ms,
+                    args.consonant_ms,
+                    args.cutoff_ms,
+                    args.duration_ms,
+                    args.pitch_freq,
+                    &args.pitch_points,
+                    args.loop_start_ms,
+                    args.loop_end_ms,
+                    args.tail_start_ms,
+                )
+            }
         };
         if cancel.is_some_and(|flag| flag.load(std::sync::atomic::Ordering::Relaxed)) {
             return Err("Renderização cancelada".to_string());
         }
-        Ok(rendered)
+        Ok(ResamplerRenderOutput {
+            samples: rendered,
+            execution,
+        })
     }
 }
 
@@ -693,6 +832,10 @@ impl MacResDriver {
 impl ResamplerDriver for MacResDriver {
     fn name(&self) -> &str {
         "macres (titinko/macres)"
+    }
+
+    fn engine_id(&self) -> &'static str {
+        KnownResampler::MacRes.engine_id()
     }
 
     fn cache_identity(&self) -> String {
@@ -986,6 +1129,12 @@ impl ResamplerDriver for ExternalResamplerDriver {
         &self.display_name
     }
 
+    fn engine_id(&self) -> &'static str {
+        self.profile
+            .map(KnownResampler::engine_id)
+            .unwrap_or("external.resampler.unknown")
+    }
+
     fn prepare_flags(&self, base_flags: &str, gender: f64, breathiness: f64) -> String {
         if self.profile == Some(KnownResampler::StraycatRs) {
             prepare_straycat_flags(base_flags, gender, breathiness)
@@ -1104,6 +1253,30 @@ mod tests {
     use super::*;
 
     #[test]
+    fn tainah_display_name_and_legacy_world_names_keep_the_native_route() {
+        for label in [
+            "Tainah",
+            "WORLD (Nativo)",
+            "WORLD (Native)",
+            "WORLD",
+            "Venus Spectral",
+        ] {
+            assert!(is_native_world_resampler_label(label), "{label}");
+        }
+        assert!(!is_native_world_resampler_label("World4UTAU"));
+        assert_eq!(
+            canonical_resampler_display_label("WORLD (Nativo)"),
+            "Tainah"
+        );
+        assert_eq!(
+            canonical_resampler_display_label("straycat-rs (UtaUtaUtau)"),
+            "straycat-rs (UtaUtaUtau)"
+        );
+        assert_eq!(NativeWorldResamplerDriver.name(), "Tainah");
+        assert_eq!(NativeWorldResamplerDriver.engine_id(), "kamafeu.world-rs");
+    }
+
+    #[test]
     fn executable_cache_identity_uses_content_not_metadata() {
         let directory = tempfile::tempdir().unwrap();
         let path = directory.path().join("resampler.bin");
@@ -1141,11 +1314,30 @@ mod tests {
     }
 
     #[test]
+    fn world_driver_reports_the_effective_sola_coverage_fallback() {
+        let driver = NativeWorldResamplerDriver;
+        let output = driver
+            .render_sample_with_execution(&vec![0.0; 44_100], 44_100, &sample_args(), None)
+            .expect("WORLD recovery output");
+        assert_eq!(output.execution.effective_backend_id, "kamafeu.sola");
+        assert!(output
+            .execution
+            .fallback_reasons
+            .iter()
+            .any(|reason| reason.contains("coverage guard")));
+        assert_eq!(output.samples.len(), 22_050);
+    }
+
+    #[test]
     fn known_profiles_roundtrip_their_labels() {
         for profile in KnownResampler::ALL {
             assert_eq!(KnownResampler::from_label(profile.label()), Some(profile));
             assert!(!profile.executable_names().is_empty());
+            assert_ne!(profile.engine_id(), "external.resampler.unknown");
         }
+        let ids = KnownResampler::ALL.map(KnownResampler::engine_id);
+        let unique = ids.iter().collect::<std::collections::HashSet<_>>();
+        assert_eq!(ids.len(), unique.len());
     }
 
     #[test]

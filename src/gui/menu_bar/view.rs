@@ -198,18 +198,8 @@ impl KamafeuStudioApp {
             });
             if ui
                 .button(lang.tr(
-                    "Editor Visual de Temas (Tempo Real)...  (Ctrl+Alt+T)",
-                    "Visual Theme Editor (Real-Time)...  (Ctrl+Alt+T)",
-                ))
-                .clicked()
-            {
-                self.theme_editor_dialog_state.is_open = true;
-                ui.close_menu();
-            }
-            if ui
-                .button(lang.tr(
-                    "Personalizar Tema e Cores...",
-                    "Customize Theme & Colors...",
+                    "Temas e Aparência...  (Ctrl+Alt+T)",
+                    "Themes & Appearance...  (Ctrl+Alt+T)",
                 ))
                 .clicked()
             {

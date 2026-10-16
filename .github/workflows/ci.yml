@@ -23,7 +23,7 @@ jobs:
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
-          toolchain: 1.98.1
+          toolchain: 1.99.1
           components: rustfmt, clippy
 
       - name: Cache Cargo artifacts
@@ -33,27 +33,27 @@ jobs:
         run: cargo fmt --all -- --check
 
       - name: Run Clippy
-        run: cargo clippy --all-targets --all-features
+        run: cargo clippy --all-targets --all-features --locked
 
       - name: Run tests
-        run: cargo test --all-targets --all-features
+        run: cargo test --all-targets --all-features --locked
 
       - name: Check release build
-        run: cargo check --release --all-targets
+        run: cargo check --release --all-targets --locked
 
       - name: Check x86-64 SIMD paths
-        run: cargo check --target x86_64-unknown-linux-gnu --lib
+        run: cargo check --target x86_64-unknown-linux-gnu --lib --locked
 
       - name: Check WASM platform contract
         run: |
           rustup target add wasm32-unknown-unknown
-          cargo clippy --target wasm32-unknown-unknown --no-default-features -- -D warnings
-          cargo check --target wasm32-unknown-unknown --no-default-features
+          cargo clippy --target wasm32-unknown-unknown --no-default-features --locked -- -D warnings
+          cargo check --target wasm32-unknown-unknown --no-default-features --locked
 
       - name: Check WASI platform contract
         run: |
           rustup target add wasm32-wasip2
-          cargo check --target wasm32-wasip2 --no-default-features
+          cargo check --target wasm32-wasip2 --no-default-features --locked
 
       - name: Install cargo-audit
         run: cargo install cargo-audit --locked

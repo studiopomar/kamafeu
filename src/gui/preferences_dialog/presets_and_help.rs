@@ -1,8 +1,6 @@
 use super::section_card;
 use super::KamafeuStudioApp;
-use crate::gui::theme::MelodyneTheme;
 use eframe::egui;
-use eframe::egui::Color32;
 use eframe::egui::RichText;
 
 impl KamafeuStudioApp {
@@ -18,7 +16,7 @@ impl KamafeuStudioApp {
                     "These presets adjust playback, rendering, and cache only. Singer, project, and export settings remain unchanged.",
                 ))
                 .size(11.0)
-                .color(MelodyneTheme::TEXT_MUTED),
+                .color(self.config.theme.text_muted_c32()),
             );
                 ui.add_space(8.0);
 
@@ -27,7 +25,7 @@ impl KamafeuStudioApp {
                         ui.label(
                             RichText::new(lang.tr("Equilibrado", "Balanced"))
                                 .strong()
-                                .color(Color32::from_rgb(0, 255, 157)),
+                                .color(ui.visuals().hyperlink_color),
                         );
                         ui.label(lang.tr(
                             "Boa resposta e estabilidade para a maioria dos projetos.",
@@ -53,7 +51,7 @@ impl KamafeuStudioApp {
                         ui.label(
                             RichText::new(lang.tr("Baixa latência", "Low Latency"))
                                 .strong()
-                                .color(Color32::from_rgb(180, 220, 255)),
+                                .color(ui.visuals().hyperlink_color),
                         );
                         ui.label(lang.tr(
                             "Resposta mais rápida em projetos pequenos e máquinas estáveis.",
@@ -80,7 +78,7 @@ impl KamafeuStudioApp {
                         ui.label(
                             RichText::new(lang.tr("Projeto pesado", "Heavy Project"))
                                 .strong()
-                                .color(Color32::from_rgb(255, 205, 110)),
+                                .color(ui.visuals().warn_fg_color),
                         );
                         ui.label(lang.tr(
                             "Mais tolerância a muitas notas, faixas e resamplers externos.",

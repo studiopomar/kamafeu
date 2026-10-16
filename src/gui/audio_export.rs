@@ -146,6 +146,14 @@ impl KamafeuStudioApp {
 
             let (tx, rx) = std::sync::mpsc::channel();
             self.render_log_channel_rx = Some(rx);
+            let (progress_tx, progress_rx) = std::sync::mpsc::channel();
+            self.render_progress_rx = Some(progress_rx);
+            self.render_progress_event = Some(crate::renderer::RenderProgressEvent::stage(
+                crate::renderer::RenderStage::Preparing,
+            ));
+            self.render_task_kind = Some(super::RenderTaskKind::Export);
+            self.render_progress_started_at = Some(crate::gui::Instant::now());
+            self.render_progress_finished_at = None;
 
             let (export_tx, export_rx) = std::sync::mpsc::channel();
             self.export_rx = Some(export_rx);
@@ -159,6 +167,9 @@ impl KamafeuStudioApp {
                     if let Ok(guard) = tx_cb.lock() {
                         let _ = guard.send((prog, msg.to_string()));
                     }
+                };
+                let report_render_progress = |event| {
+                    let _ = progress_tx.send(event);
                 };
 
                 let mut fx_proc = crate::audio::FxRackProcessor::new(fx_config, sample_rate);
@@ -194,9 +205,14 @@ impl KamafeuStudioApp {
                                     &track.name
                                 ),
                             );
+                            report_render_progress(crate::renderer::RenderProgressEvent::units(
+                                crate::renderer::RenderStage::Rendering,
+                                t_idx,
+                                track_count + 1,
+                            ));
 
                             let mut audio =
-                                ProjectRenderer::render_project_with_drivers_cancellable(
+                                ProjectRenderer::render_project_with_progress_events_cancellable(
                                     &track_proj,
                                     &active_vb,
                                     sample_rate,
@@ -205,9 +221,15 @@ impl KamafeuStudioApp {
                                     wavtool_driver.as_ref(),
                                     &vocal_mode_params,
                                     None,
+                                    None,
                                     Some(&export_cancel),
                                 );
                             if let Some(error) = audio.error.take() {
+                                report_render_progress(
+                                    crate::renderer::RenderProgressEvent::stage(
+                                        crate::renderer::RenderStage::Failed,
+                                    ),
+                                );
                                 let _ = export_tx.send(Err(error));
                                 return;
                             }
@@ -230,22 +252,37 @@ impl KamafeuStudioApp {
                                 export_format,
                                 dither_mode,
                             );
+                            report_render_progress(crate::renderer::RenderProgressEvent::units(
+                                crate::renderer::RenderStage::Rendering,
+                                t_idx + 1,
+                                track_count + 1,
+                            ));
                         }
                     }
 
                     // Also export full mixdown
-                    let mut audio = ProjectRenderer::render_project_with_drivers_cancellable(
-                        &project,
-                        &active_vb,
-                        sample_rate,
-                        0.0,
-                        resampler_driver.as_ref(),
-                        wavtool_driver.as_ref(),
-                        &vocal_mode_params,
-                        None,
-                        Some(&export_cancel),
-                    );
+                    report_render_progress(crate::renderer::RenderProgressEvent::units(
+                        crate::renderer::RenderStage::Rendering,
+                        track_count,
+                        track_count + 1,
+                    ));
+                    let mut audio =
+                        ProjectRenderer::render_project_with_progress_events_cancellable(
+                            &project,
+                            &active_vb,
+                            sample_rate,
+                            0.0,
+                            resampler_driver.as_ref(),
+                            wavtool_driver.as_ref(),
+                            &vocal_mode_params,
+                            None,
+                            None,
+                            Some(&export_cancel),
+                        );
                     if let Some(error) = audio.error.take() {
+                        report_render_progress(crate::renderer::RenderProgressEvent::stage(
+                            crate::renderer::RenderStage::Failed,
+                        ));
                         let _ = export_tx.send(Err(error));
                         return;
                     }
@@ -260,6 +297,11 @@ impl KamafeuStudioApp {
                         &AudioDiagnostics::analyze(&audio.samples, audio.channels)
                             .render_log_line("mix final de stems"),
                     );
+                    report_render_progress(crate::renderer::RenderProgressEvent::units(
+                        crate::renderer::RenderStage::Rendering,
+                        track_count + 1,
+                        track_count + 1,
+                    ));
                     let result = AudioExporter::export_audio_with_dither(
                         &save_path,
                         &audio.samples,
@@ -268,6 +310,13 @@ impl KamafeuStudioApp {
                         export_format,
                         dither_mode,
                     );
+                    report_render_progress(crate::renderer::RenderProgressEvent::stage(
+                        if result.is_ok() {
+                            crate::renderer::RenderStage::Complete
+                        } else {
+                            crate::renderer::RenderStage::Failed
+                        },
+                    ));
                     match &result {
                         Ok(()) => {
                             report_progress(
@@ -285,7 +334,7 @@ impl KamafeuStudioApp {
                     let _ = export_tx.send(result);
                 } else {
                     let render = || {
-                        ProjectRenderer::render_project_with_drivers_cancellable(
+                        ProjectRenderer::render_project_with_progress_events_cancellable(
                             &project,
                             &active_vb,
                             sample_rate,
@@ -294,16 +343,13 @@ impl KamafeuStudioApp {
                             wavtool_driver.as_ref(),
                             &vocal_mode_params,
                             Some(&report_progress),
+                            Some(&report_render_progress),
                             Some(&export_cancel),
                         )
                     };
                     #[cfg(not(target_arch = "wasm32"))]
                     let mut audio = {
-                        let render_pool = rayon::ThreadPoolBuilder::new()
-                            .num_threads(render_threads)
-                            .thread_name(|index| format!("kamafeu-export-{index}"))
-                            .build();
-                        match render_pool {
+                        match crate::renderer::worker_pool::get(render_threads) {
                             Ok(pool) => pool.install(render),
                             Err(_) => render(),
                         }
@@ -327,6 +373,9 @@ impl KamafeuStudioApp {
                         &AudioDiagnostics::analyze(&audio.samples, audio.channels)
                             .render_log_line("mix final"),
                     );
+                    report_render_progress(crate::renderer::RenderProgressEvent::stage(
+                        crate::renderer::RenderStage::Finalizing,
+                    ));
 
                     let result = AudioExporter::export_audio_with_dither(
                         &save_path,
@@ -336,6 +385,13 @@ impl KamafeuStudioApp {
                         export_format,
                         dither_mode,
                     );
+                    report_render_progress(crate::renderer::RenderProgressEvent::stage(
+                        if result.is_ok() {
+                            crate::renderer::RenderStage::Complete
+                        } else {
+                            crate::renderer::RenderStage::Failed
+                        },
+                    ));
                     match &result {
                         Ok(()) => {
                             report_progress(
@@ -551,6 +607,14 @@ impl KamafeuStudioApp {
 
             let (tx, rx) = std::sync::mpsc::channel();
             self.render_log_channel_rx = Some(rx);
+            let (progress_tx, progress_rx) = std::sync::mpsc::channel();
+            self.render_progress_rx = Some(progress_rx);
+            self.render_progress_event = Some(crate::renderer::RenderProgressEvent::stage(
+                crate::renderer::RenderStage::Preparing,
+            ));
+            self.render_task_kind = Some(super::RenderTaskKind::Export);
+            self.render_progress_started_at = Some(web_time::Instant::now());
+            self.render_progress_finished_at = None;
             let (export_tx, export_rx) = std::sync::mpsc::channel();
             self.export_rx = Some(export_rx);
             let export_cancel = Arc::new(AtomicBool::new(false));
@@ -565,10 +629,16 @@ impl KamafeuStudioApp {
                         let _ = guard.send((prog, msg.to_string()));
                     }
                 };
+                let report_render_progress = |event| {
+                    let _ = progress_tx.send(event);
+                };
 
                 report_progress(0.1, "[WIP Demo] Renderizando notas selecionadas...");
+                report_render_progress(crate::renderer::RenderProgressEvent::stage(
+                    crate::renderer::RenderStage::Preparing,
+                ));
 
-                let mut audio = ProjectRenderer::render_project_with_drivers_cancellable(
+                let mut audio = ProjectRenderer::render_project_with_progress_events_cancellable(
                     &export_project,
                     &active_vb,
                     sample_rate,
@@ -577,15 +647,22 @@ impl KamafeuStudioApp {
                     wavtool_driver.as_ref(),
                     &vocal_mode_params,
                     None,
+                    Some(&report_render_progress),
                     Some(&export_cancel),
                 );
 
                 if let Some(error) = audio.error.take() {
+                    report_render_progress(crate::renderer::RenderProgressEvent::stage(
+                        crate::renderer::RenderStage::Failed,
+                    ));
                     let _ = export_tx.send(Err(error));
                     return;
                 }
 
                 report_progress(0.8, "[WIP Demo] Processando efeitos FX...");
+                report_render_progress(crate::renderer::RenderProgressEvent::stage(
+                    crate::renderer::RenderStage::Finalizing,
+                ));
                 let mut fx_proc = crate::audio::FxRackProcessor::new(fx_config, sample_rate);
                 fx_proc.process_interleaved(&mut audio.samples, audio.sample_rate);
                 audio.sample_rate = mastering_options.prepare(
@@ -608,6 +685,13 @@ impl KamafeuStudioApp {
                     export_format,
                     dither_mode,
                 );
+                report_render_progress(crate::renderer::RenderProgressEvent::stage(
+                    if result.is_ok() {
+                        crate::renderer::RenderStage::Complete
+                    } else {
+                        crate::renderer::RenderStage::Failed
+                    },
+                ));
 
                 match &result {
                     Ok(()) => {

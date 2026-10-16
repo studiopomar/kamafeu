@@ -23,7 +23,7 @@ impl KamafeuStudioApp {
                         ui.heading(
                             egui::RichText::new(lang.tr("Escolha um Modelo de Projeto", "Choose a Project Template"))
                                 .strong()
-                                .color(egui::Color32::from_rgb(0, 255, 180)),
+                                .color(self.config.theme.success_c32()),
                         );
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                             if ui.button(lang.tr("Cancelar", "Cancel")).clicked() {
@@ -85,21 +85,21 @@ impl KamafeuStudioApp {
 
                     for (id, title, meta, desc) in templates {
                         egui::Frame::none()
-                            .fill(egui::Color32::from_rgb(26, 20, 38))
-                            .stroke(egui::Stroke::new(1.0_f32, egui::Color32::from_rgb(52, 40, 72)))
+                            .fill(ui.visuals().panel_fill)
+                            .stroke(egui::Stroke::new(1.0_f32, ui.visuals().hyperlink_color))
                             .rounding(egui::Rounding::same(6.0))
                             .inner_margin(egui::Margin::symmetric(10.0, 8.0))
                             .show(ui, |ui| {
                                 ui.horizontal(|ui| {
                                     ui.vertical(|ui| {
                                         ui.horizontal(|ui| {
-                                            ui.label(egui::RichText::new(title).strong().size(13.0).color(egui::Color32::WHITE));
-                                            ui.label(egui::RichText::new(format!("({})", meta)).size(10.5).color(crate::gui::theme::MelodyneTheme::TEXT_MUTED));
+                                            ui.label(egui::RichText::new(title).strong().size(13.0).color(ui.visuals().text_color()));
+                                            ui.label(egui::RichText::new(format!("({})", meta)).size(10.5).color(self.config.theme.text_muted_c32()));
                                         });
-                                        ui.label(egui::RichText::new(desc).size(10.5).color(egui::Color32::from_rgb(180, 175, 200)));
+                                        ui.label(egui::RichText::new(desc).size(10.5).color(ui.visuals().text_color()));
                                     });
                                     ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                                        if ui.button(egui::RichText::new(lang.tr("Criar Projeto", "Create Project")).strong().color(egui::Color32::from_rgb(0, 255, 180))).clicked() {
+                                        if ui.button(egui::RichText::new(lang.tr("Criar Projeto", "Create Project")).strong().color(self.config.theme.success_c32())).clicked() {
                                             load_template_name = Some(id);
                                         }
                                     });

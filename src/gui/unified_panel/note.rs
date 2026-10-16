@@ -375,7 +375,7 @@ pub(super) fn draw(
                                         egui::Button::new(
                                             RichText::new(lang.tr("Editar no Copaiba", "Edit in Copaiba"))
                                                 .size(9.5)
-                                                .color(Color32::from_rgb(0, 220, 255)),
+                                                .color(ui.visuals().hyperlink_color),
                                         ),
                                     )
                                     .on_hover_text(format!("{} '{}' {}", lang.tr("Editar alias", "Edit alias"), ruler_name, lang.tr("no editor Copaiba", "in Copaiba editor")))
@@ -392,7 +392,7 @@ pub(super) fn draw(
                                     egui::Button::new(
                                         RichText::new(lang.tr("Resetar Parâmetros da Nota", "Reset Note Parameters"))
                                             .size(10.0)
-                                            .color(Color32::from_rgb(255, 180, 90)),
+                                            .color(ui.visuals().warn_fg_color),
                                     ),
                                 )
                                 .on_hover_text(lang.tr(
@@ -761,26 +761,26 @@ pub(super) fn draw(
                             ui.label(RichText::new("Envelope da Nota:").size(9.5).color(theme.text_muted_c32()));
                             ui.horizontal_wrapped(|ui| {
                                 let overlap = voicebank.and_then(|vb| vb.find_mapped_entry(&lyric, &pitch_str).map(|e| e.overlap)).unwrap_or(fade_in_ms.max(20.0));
-                                if ui.small_button(RichText::new("Crossfade automático").strong().color(Color32::from_rgb(0, 255, 157))).on_hover_text("Ajusta somente a junção com a nota vizinha usando o overlap do oto.ini").clicked() {
+                                if ui.small_button(RichText::new("Crossfade automático").strong().color(ui.visuals().hyperlink_color)).on_hover_text("Ajusta somente a junção com a nota vizinha usando o overlap do oto.ini").clicked() {
                                     fade_in_ms = overlap.max(5.0);
                                     note_crossfade_ms = 0.0;
                                     changed_fades = true;
                                 }
-                                if ui.small_button(RichText::new("Ataque suave").strong().color(Color32::from_rgb(147, 197, 253))).on_hover_text("Suaviza somente a zona de ataque da nota").clicked() {
+                                if ui.small_button(RichText::new("Ataque suave").strong().color(ui.visuals().hyperlink_color)).on_hover_text("Suaviza somente a zona de ataque da nota").clicked() {
                                     fade_in_ms = overlap.max(5.0);
                                     note_crossfade_ms = 0.0;
                                     changed_fades = true;
                                 }
-                                if ui.small_button(RichText::new("Sustain constante").strong().color(Color32::from_rgb(216, 180, 254))).on_hover_text("Mantém o nível do sustain constante").clicked() {
+                                if ui.small_button(RichText::new("Sustain constante").strong().color(ui.visuals().hyperlink_color)).on_hover_text("Mantém o nível do sustain constante").clicked() {
                                     changed_fades = true;
                                 }
-                                if ui.small_button(RichText::new("Release suave").strong().color(Color32::from_rgb(253, 224, 71))).on_hover_text("Ajusta o release proporcionalmente à duração da nota").clicked() {
+                                if ui.small_button(RichText::new("Release suave").strong().color(ui.visuals().warn_fg_color)).on_hover_text("Ajusta o release proporcionalmente à duração da nota").clicked() {
                                     fade_in_ms = (dur_ms * 0.25).min(overlap).max(5.0);
                                     fade_out_ms = (dur_ms * 0.2).clamp(5.0, 35.0);
                                     note_crossfade_ms = 0.0;
                                     changed_fades = true;
                                 }
-                                if ui.small_button(RichText::new("Restaurar padrão").strong().color(Color32::from_rgb(248, 113, 113))).on_hover_text("Restaura ataque, sustain, release e crossfade padrão").clicked() {
+                                if ui.small_button(RichText::new("Restaurar padrão").strong().color(ui.visuals().error_fg_color)).on_hover_text("Restaura ataque, sustain, release e crossfade padrão").clicked() {
                                     fade_in_ms = 5.0;
                                     fade_out_ms = 35.0;
                                     note_crossfade_ms = 0.0;
@@ -1120,7 +1120,7 @@ pub(super) fn draw(
                                     RichText::new(query_alias)
                                         .strong()
                                         .size(10.5)
-                                        .color(Color32::WHITE),
+                                        .color(ui.visuals().text_color()),
                                 );
                             });
 
@@ -1136,7 +1136,7 @@ pub(super) fn draw(
                                             RichText::new(&entry.alias)
                                                 .strong()
                                                 .size(10.5)
-                                                .color(Color32::from_rgb(180, 220, 255)),
+                                                .color(ui.visuals().hyperlink_color),
                                         );
                                     });
                                     ui.horizontal(|ui| {
@@ -1147,9 +1147,9 @@ pub(super) fn draw(
                                         );
                                         let exists = vb.root_path.join(&entry.wav_filename).exists();
                                         let file_color = if exists {
-                                            Color32::from_rgb(140, 230, 160)
+                                            ui.visuals().hyperlink_color
                                         } else {
-                                            Color32::from_rgb(255, 120, 120)
+                                            ui.visuals().error_fg_color
                                         };
                                         let status_txt = if exists {
                                             format!("{} (OK)", entry.wav_filename)
@@ -1215,7 +1215,7 @@ pub(super) fn draw(
                                         ui.label(
                                             RichText::new(lang.tr("Não encontrado no banco", "Not found in voicebank"))
                                                 .size(9.5)
-                                                .color(Color32::from_rgb(255, 160, 80)),
+                                                .color(ui.visuals().warn_fg_color),
                                         );
                                     });
                                 }

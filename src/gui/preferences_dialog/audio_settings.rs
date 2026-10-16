@@ -2,9 +2,7 @@ use super::help_marker;
 use super::section_card;
 use super::KamafeuStudioApp;
 use crate::audio::player::AudioPlayer;
-use crate::gui::theme::MelodyneTheme;
 use eframe::egui;
-use eframe::egui::Color32;
 use eframe::egui::RichText;
 use eframe::egui::Rounding;
 use eframe::egui::Stroke;
@@ -22,7 +20,7 @@ impl KamafeuStudioApp {
                 let host_name = AudioPlayer::default_host_name();
                 ui.horizontal(|ui| {
                 ui.label(lang.tr("Host de Áudio Ativo:", "Active Audio Host:"));
-                ui.label(RichText::new(&host_name).strong().color(Color32::from_rgb(180, 230, 255)));
+                ui.label(RichText::new(&host_name).strong().color(ui.visuals().hyperlink_color));
                 help_marker(
                     ui,
                     lang.tr(
@@ -154,9 +152,9 @@ impl KamafeuStudioApp {
                 for rate in [44100, 48000, 88200, 96000, 192000] {
                     let is_sel = self.config.audio.sample_rate == rate;
                     let (bg, text, stroke) = if is_sel {
-                        (Color32::from_rgb(60, 42, 90), Color32::from_rgb(0, 255, 157), Stroke::new(1.5_f32, Color32::from_rgb(0, 255, 157)))
+                        (ui.visuals().panel_fill, ui.visuals().hyperlink_color, Stroke::new(1.5_f32, ui.visuals().hyperlink_color))
                     } else {
-                        (Color32::from_rgb(32, 24, 46), Color32::from_rgb(200, 190, 220), Stroke::new(1.0_f32, Color32::from_rgb(50, 40, 70)))
+                        (ui.visuals().panel_fill, ui.visuals().text_color(), Stroke::new(1.0_f32, ui.visuals().panel_fill))
                     };
                     if ui.add(egui::Button::new(RichText::new(format!("{:.1} kHz", rate as f32 / 1000.0)).size(11.0).color(text)).fill(bg).stroke(stroke).rounding(Rounding::same(4.0))).clicked() {
                         self.config.audio.sample_rate = rate;
@@ -179,9 +177,9 @@ impl KamafeuStudioApp {
                 for buf in [64, 128, 256, 512, 1024, 2048] {
                     let is_sel = self.config.audio.buffer_size_frames == buf;
                     let (bg, text, stroke) = if is_sel {
-                        (Color32::from_rgb(60, 42, 90), Color32::from_rgb(0, 255, 157), Stroke::new(1.5_f32, Color32::from_rgb(0, 255, 157)))
+                        (ui.visuals().panel_fill, ui.visuals().hyperlink_color, Stroke::new(1.5_f32, ui.visuals().hyperlink_color))
                     } else {
-                        (Color32::from_rgb(32, 24, 46), Color32::from_rgb(200, 190, 220), Stroke::new(1.0_f32, Color32::from_rgb(50, 40, 70)))
+                        (ui.visuals().panel_fill, ui.visuals().text_color(), Stroke::new(1.0_f32, ui.visuals().panel_fill))
                     };
                     if ui.add(egui::Button::new(RichText::new(format!("{buf}")).size(11.0).color(text)).fill(bg).stroke(stroke).rounding(Rounding::same(4.0))).clicked() {
                         self.config.audio.buffer_size_frames = buf;
@@ -189,7 +187,7 @@ impl KamafeuStudioApp {
                 }
 
                 let latency_ms = (self.config.audio.buffer_size_frames as f32 / self.config.audio.sample_rate.max(1) as f32) * 1000.0;
-                ui.label(RichText::new(format!("(~{:.1} ms {})", latency_ms, lang.tr("latência", "latency"))).size(10.5).color(MelodyneTheme::TEXT_MUTED));
+                ui.label(RichText::new(format!("(~{:.1} ms {})", latency_ms, lang.tr("latência", "latency"))).size(10.5).color(self.config.theme.text_muted_c32()));
                 help_marker(
                     ui,
                     lang.tr(

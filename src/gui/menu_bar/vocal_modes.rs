@@ -85,7 +85,7 @@ impl KamafeuStudioApp {
             ui.label(
                 egui::RichText::new(lang.tr("[JA] Japonês", "[JA] Japanese"))
                     .strong()
-                    .color(egui::Color32::from_rgb(255, 215, 0)),
+                    .color(ui.visuals().warn_fg_color),
             );
             if ui
                 .radio_value(
@@ -121,7 +121,7 @@ impl KamafeuStudioApp {
             ui.label(
                 egui::RichText::new(lang.tr("[EN] Inglês", "[EN] English"))
                     .strong()
-                    .color(egui::Color32::from_rgb(255, 215, 0)),
+                    .color(ui.visuals().warn_fg_color),
             );
             if ui
                 .radio_value(
@@ -166,7 +166,7 @@ impl KamafeuStudioApp {
             ui.label(
                 egui::RichText::new(lang.tr("[PT] Português", "[PT] Portuguese"))
                     .strong()
-                    .color(egui::Color32::from_rgb(255, 215, 0)),
+                    .color(ui.visuals().warn_fg_color),
             );
             if ui
                 .radio_value(

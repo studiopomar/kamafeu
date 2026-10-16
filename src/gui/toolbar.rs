@@ -17,7 +17,7 @@ fn toolbar_card<R>(
             0.6_f32,
             theme.c32_alpha(theme.grid_line_sub, 0.34),
         ))
-        .inner_margin(Margin::symmetric(6.0, 3.0))
+        .inner_margin(Margin::symmetric(4.0, 2.0))
         .show(ui, add_contents);
     frame.inner
 }
@@ -79,11 +79,11 @@ fn draw_vu_meter(
                 Pos2::new(bar_x_start + fill_w, bar_y + bar_h),
             );
             let fill_color = if *level > 0.85 {
-                Color32::from_rgb(255, 65, 85)
+                theme.danger_c32()
             } else if *level > 0.65 {
-                Color32::from_rgb(255, 205, 45)
+                theme.warning_c32()
             } else {
-                theme.note_fill_c32()
+                theme.meter_c32()
             };
             painter.rect_filled(fill_rect, Rounding::same(1.5), fill_color);
         }
@@ -92,7 +92,7 @@ fn draw_vu_meter(
         let peak_x = bar_x_start + bar_max_w * peak.clamp(0.0, 1.0);
         if peak_x > bar_x_start + 1.0 {
             let peak_color = if *peak > 0.85 {
-                Color32::from_rgb(255, 80, 100)
+                theme.danger_c32()
             } else {
                 theme.playhead_c32()
             };
@@ -138,21 +138,18 @@ pub fn draw_unified_toolbar(
     on_envelope_opt: &mut dyn FnMut(),
     on_envelope_reset: &mut dyn FnMut(),
 ) {
-    let viewport = ui.ctx().screen_rect();
-    let touch_first = cfg!(target_os = "android")
-        || viewport.width() < 1100.0
-        || (viewport.height() < 600.0 && viewport.width() < 1200.0);
+    let touch_first = crate::gui::touch_first_layout(ui.ctx());
 
     // Alguns controles do toolbar têm um tamanho mínimo próprio. Reforçamos
     // aqui a área de interação para que esses valores não deixem alvos
     // pequenos demais no celular.
     ui.spacing_mut().item_spacing = if touch_first {
-        Vec2::new(8.0, 4.0)
+        Vec2::new(7.0, 4.0)
     } else {
         Vec2::new(3.0, 0.0)
     };
     ui.spacing_mut().interact_size = if touch_first {
-        Vec2::new(44.0, 40.0)
+        Vec2::new(44.0, 44.0)
     } else {
         Vec2::new(24.0, 24.0)
     };
@@ -308,12 +305,12 @@ pub fn draw_unified_toolbar(
                     for (mode, label, tooltip) in [
                         (
                             AutoScrollMode::Off,
-                            "Horizontal: Off",
+                            "H:Off",
                             lang.tr("Rolagem horizontal desligada", "Horizontal scrolling off"),
                         ),
                         (
                             AutoScrollMode::StationaryCursor,
-                            "Horizontal: Cursor",
+                            "H:Cur",
                             lang.tr(
                                 "Cursor horizontal estacionário",
                                 "Stationary horizontal cursor",
@@ -321,7 +318,7 @@ pub fn draw_unified_toolbar(
                         ),
                         (
                             AutoScrollMode::PageScroll,
-                            "Horizontal: Página",
+                            "H:Pg",
                             lang.tr("Rolagem horizontal por página", "Horizontal page scrolling"),
                         ),
                     ] {
@@ -335,7 +332,7 @@ pub fn draw_unified_toolbar(
                                     theme.text_muted_c32()
                                 }),
                         )
-                        .min_size(Vec2::new(82.0, 20.0))
+                        .min_size(Vec2::new(42.0, 18.0))
                         .fill(if selected {
                             theme.c32_alpha(theme.accent_color, 0.22)
                         } else {
@@ -355,7 +352,7 @@ pub fn draw_unified_toolbar(
                     }
 
                     let vertical_button = egui::Button::new(
-                        RichText::new("Vertical: Notas")
+                        RichText::new("V:Nt")
                             .size(9.5)
                             .color(if *vertical_pitch_follow {
                                 theme.note_fill_c32()
@@ -363,7 +360,7 @@ pub fn draw_unified_toolbar(
                                 theme.text_muted_c32()
                             }),
                     )
-                    .min_size(Vec2::new(84.0, 20.0))
+                    .min_size(Vec2::new(42.0, 18.0))
                     .fill(if *vertical_pitch_follow {
                         theme.c32_alpha(theme.note_fill, 0.22)
                     } else {
@@ -388,39 +385,6 @@ pub fn draw_unified_toolbar(
                         *vertical_pitch_follow = !*vertical_pitch_follow;
                     }
 
-                    // Keep the active loop range visible in the main toolbar;
-                    // users should not have to open the overflow menu to know
-                    // which part of the track will repeat.
-                    ui.separator();
-                    ui.label(
-                        RichText::new("A")
-                            .size(9.0)
-                            .strong()
-                            .color(theme.accent_c32()),
-                    );
-                    ui.add_sized(
-                        [48.0, 20.0],
-                        egui::DragValue::new(&mut state.loop_start_ms)
-                            .range(0.0..=3_600_000.0)
-                            .speed(10.0)
-                            .suffix("ms"),
-                    );
-                    ui.label(
-                        RichText::new("B")
-                            .size(9.0)
-                            .strong()
-                            .color(theme.accent_c32()),
-                    );
-                    ui.add_sized(
-                        [48.0, 20.0],
-                        egui::DragValue::new(&mut state.loop_end_ms)
-                            .range(1.0..=3_600_000.0)
-                            .speed(10.0)
-                            .suffix("ms"),
-                    );
-                    if state.loop_end_ms <= state.loop_start_ms {
-                        state.loop_end_ms = state.loop_start_ms + 1.0;
-                    }
                 });
 
                 // ── Card 2: Edit Tools ──
@@ -615,7 +579,7 @@ pub fn draw_unified_toolbar(
                                 "ACPT: Auto-adjust envelope crossfades to overlap (UTAU Auto Crossfade)",
                             ),
                             on_envelope_acpt,
-                            Color32::from_rgb(0, 235, 185),
+                            ui.visuals().hyperlink_color,
                         ),
                         (
                             "P2P3",
@@ -624,7 +588,7 @@ pub fn draw_unified_toolbar(
                                 "P2P3: Smooth overlap transition between notes and VC/CV phonemes",
                             ),
                             on_envelope_p2p3,
-                            Color32::from_rgb(125, 205, 255),
+                            ui.visuals().hyperlink_color,
                         ),
                         (
                             "P1P4",
@@ -633,7 +597,7 @@ pub fn draw_unified_toolbar(
                                 "P1P4: Zero envelope margins (p1=0, p4=0)",
                             ),
                             on_envelope_p1p4,
-                            Color32::from_rgb(255, 190, 95),
+                            ui.visuals().text_color().linear_multiply(0.72),
                         ),
                         (
                             "OPT",
@@ -642,7 +606,7 @@ pub fn draw_unified_toolbar(
                                 "OPT: Optimize envelopes and transitions proportionally",
                             ),
                             on_envelope_opt,
-                            Color32::from_rgb(230, 155, 255),
+                            ui.visuals().hyperlink_color,
                         ),
                         (
                             "RESET",
@@ -651,7 +615,7 @@ pub fn draw_unified_toolbar(
                                 "RESET: Reset volume envelopes to default UTAU (5/35/0/35)",
                             ),
                             on_envelope_reset,
-                            Color32::from_rgb(255, 125, 125),
+                            ui.visuals().warn_fg_color,
                         ),
                     ];
 
@@ -662,7 +626,7 @@ pub fn draw_unified_toolbar(
                                 .size(9.5)
                                 .color(text_color),
                         )
-                        .min_size(Vec2::new(26.0, 20.0))
+                        .min_size(Vec2::new(24.0, 18.0))
                         .fill(theme.bg_header_c32())
                         .stroke(Stroke::new(1.0_f32, theme.grid_line_sub_c32()))
                         .rounding(Rounding::same(3.0));

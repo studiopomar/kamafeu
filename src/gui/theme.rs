@@ -3,6 +3,7 @@ use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ThemePreset {
+    CalafateEditorial,
     PomarNeon,
     MelodyneGold,
     Cyberpunk,
@@ -15,7 +16,8 @@ pub enum ThemePreset {
 }
 
 impl ThemePreset {
-    pub const ALL: [ThemePreset; 8] = [
+    pub const ALL: [ThemePreset; 9] = [
+        ThemePreset::CalafateEditorial,
         ThemePreset::PomarNeon,
         ThemePreset::MelodyneGold,
         ThemePreset::Cyberpunk,
@@ -33,21 +35,23 @@ impl ThemePreset {
     pub fn display_name_for(&self, lang: crate::config::AppLanguage) -> &'static str {
         match lang {
             crate::config::AppLanguage::PtBr => match self {
+                ThemePreset::CalafateEditorial => "Calafate 3.0",
                 ThemePreset::PomarNeon => "Pomar Neon (Esmeralda)",
-                ThemePreset::MelodyneGold => "Melodina Classico (Calafate)",
+                ThemePreset::MelodyneGold => "Âmbar Clássico",
                 ThemePreset::Cyberpunk => "Cyberpunk (Synthwave)",
                 ThemePreset::NordicSlate => "Nordic Slate (Clean Dark)",
-                ThemePreset::MikanTeal => "Voz-a-loide Teal (Mikan)",
+                ThemePreset::MikanTeal => "Horta Mikan",
                 ThemePreset::SolarizedDark => "Solarized Dark",
                 ThemePreset::CleanLight => "Clean Light (Estúdio Claro)",
                 ThemePreset::Custom => "Personalizado",
             },
             crate::config::AppLanguage::EnUs => match self {
+                ThemePreset::CalafateEditorial => "Calafate 3.0",
                 ThemePreset::PomarNeon => "Pomar Neon (Emerald)",
-                ThemePreset::MelodyneGold => "Melodina Classico (Calafate)",
+                ThemePreset::MelodyneGold => "Classic Amber",
                 ThemePreset::Cyberpunk => "Cyberpunk (Synthwave)",
                 ThemePreset::NordicSlate => "Nordic Slate (Clean Dark)",
-                ThemePreset::MikanTeal => "Vocaloid Teal (Mikan)",
+                ThemePreset::MikanTeal => "Mikan Orchard",
                 ThemePreset::SolarizedDark => "Solarized Dark",
                 ThemePreset::CleanLight => "Clean Light (Studio Light)",
                 ThemePreset::Custom => "Custom",
@@ -62,6 +66,9 @@ impl ThemePreset {
     pub fn description_for(&self, lang: crate::config::AppLanguage) -> &'static str {
         match lang {
             crate::config::AppLanguage::PtBr => match self {
+                ThemePreset::CalafateEditorial => {
+                    "Grafite quente, ameixa suave e coral de goiaba para uma identidade de estúdio própria."
+                }
                 ThemePreset::PomarNeon => {
                     "Tema escuro neutro com notas translúcidas em verde oliva suave."
                 }
@@ -75,7 +82,7 @@ impl ThemePreset {
                     "Azul ardósia minimalista com notas em azul ártico suave para longas sessões."
                 }
                 ThemePreset::MikanTeal => {
-                    "Turquesa icônica inspirada em voz-a-loide com destaques em rosa pastel."
+                    "Verde-frio suave com detalhes rosados inspirados em folhas e frutos cítricos."
                 }
                 ThemePreset::SolarizedDark => {
                     "Azul petróleo clássico com notas douradas de alto contraste."
@@ -86,6 +93,9 @@ impl ThemePreset {
                 ThemePreset::Custom => "Esquema totalmente configurado pelo usuário.",
             },
             crate::config::AppLanguage::EnUs => match self {
+                ThemePreset::CalafateEditorial => {
+                    "Warm graphite, soft plum, and guava coral for a distinctive studio identity."
+                }
                 ThemePreset::PomarNeon => "Neutral dark theme with soft translucent olive notes.",
                 ThemePreset::MelodyneGold => {
                     "Classic elegant style with gold notes and warm amber accents."
@@ -97,7 +107,7 @@ impl ThemePreset {
                     "Minimalist slate blue with soft arctic blue notes for long sessions."
                 }
                 ThemePreset::MikanTeal => {
-                    "Iconic vocaloid-inspired turquoise with pastel pink accents."
+                    "Soft cool green with pink details inspired by citrus leaves and fruit."
                 }
                 ThemePreset::SolarizedDark => {
                     "Classic petrol blue with high-contrast golden notes."
@@ -111,7 +121,8 @@ impl ThemePreset {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(default)]
 pub struct ThemeConfig {
     pub preset: ThemePreset,
     pub bg_canvas: [u8; 3],
@@ -142,6 +153,130 @@ pub struct ThemeConfig {
     pub text_note_tag: [u8; 3],
     pub ui_corner_radius: f32,
     pub panel_opacity: f32,
+    pub semantic: ThemeSemanticColors,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct SavedTheme {
+    pub name: String,
+    pub theme: ThemeConfig,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+pub struct ThemeDocument {
+    pub format: String,
+    pub version: u32,
+    pub name: String,
+    pub theme: serde_json::Value,
+}
+
+impl ThemeDocument {
+    pub fn from_theme(name: &str, theme: &ThemeConfig) -> Result<Self, String> {
+        let name = validate_theme_name(name)?;
+        theme.validate()?;
+        Ok(Self {
+            format: "kamafeu-theme".to_string(),
+            version: 1,
+            name,
+            theme: serde_json::to_value(theme)
+                .map_err(|error| format!("Falha ao serializar tema: {error}"))?,
+        })
+    }
+
+    /// Reads versioned theme documents and legacy flat ThemeConfig JSON. In
+    /// merge mode, omitted properties retain their current values; in replace
+    /// mode they use the current default theme.
+    pub fn import(
+        content: &str,
+        current: &ThemeConfig,
+        merge: bool,
+        fallback_name: &str,
+    ) -> Result<SavedTheme, String> {
+        let root: serde_json::Value = serde_json::from_str(content)
+            .map_err(|error| format!("JSON de tema inválido: {error}"))?;
+        let (name, imported_values) = if root.get("format").is_some() {
+            let document: Self = serde_json::from_value(root)
+                .map_err(|error| format!("Documento de tema inválido: {error}"))?;
+            if document.format != "kamafeu-theme" {
+                return Err("Formato de tema não reconhecido.".to_string());
+            }
+            if document.version != 1 {
+                return Err(format!(
+                    "Versão de tema não suportada: {}.",
+                    document.version
+                ));
+            }
+            (validate_theme_name(&document.name)?, document.theme)
+        } else {
+            (validate_theme_name(fallback_name)?, root)
+        };
+
+        let mut combined = serde_json::to_value(if merge {
+            current.clone()
+        } else {
+            ThemeConfig::default()
+        })
+        .map_err(|error| format!("Falha ao preparar tema: {error}"))?;
+        let (Some(base), Some(imported)) = (combined.as_object_mut(), imported_values.as_object())
+        else {
+            return Err("As cores do tema precisam estar em um objeto JSON.".to_string());
+        };
+        for (key, value) in imported {
+            base.insert(key.clone(), value.clone());
+        }
+        let mut theme: ThemeConfig = serde_json::from_value(combined)
+            .map_err(|error| format!("Campos do tema inválidos: {error}"))?;
+        theme.preset = ThemePreset::Custom;
+        theme.validate()?;
+        Ok(SavedTheme { name, theme })
+    }
+}
+
+pub fn validate_theme_name(name: &str) -> Result<String, String> {
+    let name = name.trim();
+    if name.is_empty() {
+        return Err("O nome do tema não pode ficar vazio.".to_string());
+    }
+    if name.chars().count() > 64 {
+        return Err("O nome do tema pode ter até 64 caracteres.".to_string());
+    }
+    Ok(name.to_string())
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(default)]
+pub struct ThemeSemanticColors {
+    pub success: [u8; 3],
+    pub warning: [u8; 3],
+    pub danger: [u8; 3],
+    pub info: [u8; 3],
+    pub waveform: [u8; 3],
+    pub waveform_grid: [u8; 3],
+    pub marker: [u8; 3],
+    pub loop_region: [u8; 3],
+    pub meter: [u8; 3],
+}
+
+impl Default for ThemeSemanticColors {
+    fn default() -> Self {
+        Self {
+            success: [126, 171, 137],
+            warning: [220, 164, 95],
+            danger: [207, 112, 117],
+            info: [127, 163, 184],
+            waveform: [217, 135, 121],
+            waveform_grid: [151, 130, 139],
+            marker: [190, 150, 181],
+            loop_region: [151, 119, 170],
+            meter: [126, 171, 137],
+        }
+    }
+}
+
+impl Default for ThemeConfig {
+    fn default() -> Self {
+        Self::from_preset(ThemePreset::CalafateEditorial)
+    }
 }
 
 /// Retorna a razão de contraste WCAG entre duas cores RGB opacas.
@@ -178,32 +313,83 @@ pub fn meets_text_contrast(foreground: [u8; 3], background: [u8; 3]) -> bool {
     contrast_ratio_rgb(foreground, background) >= 4.5
 }
 
-impl Default for ThemeConfig {
-    fn default() -> Self {
-        Self::from_preset(ThemePreset::PomarNeon)
-    }
-}
-
 impl ThemeConfig {
+    pub fn validate(&self) -> Result<(), String> {
+        let finite_in = |value: f32, min: f32, max: f32| {
+            value.is_finite() && (min..=max).contains(&value)
+        };
+        for (label, value, min, max) in [
+            ("cantos das notas", self.note_corner_radius, 0.0, 14.0),
+            ("borda das notas", self.note_stroke_width, 0.5, 4.0),
+            ("opacidade das notas", self.note_opacity, 0.0, 1.0),
+            (
+                "opacidade da waveform",
+                self.note_waveform_opacity,
+                0.0,
+                1.0,
+            ),
+            ("cantos da interface", self.ui_corner_radius, 0.0, 20.0),
+            ("opacidade dos painéis", self.panel_opacity, 0.0, 1.0),
+        ] {
+            if !finite_in(value, min, max) {
+                return Err(format!("Valor inválido para {label}."));
+            }
+        }
+        Ok(())
+    }
+
     /// Upgrade only the exact original Pomar preset. Customized themes are
     /// intentionally left untouched.
     pub fn upgrade_legacy_pomar_neon(&mut self) -> bool {
         let is_legacy = self.preset == ThemePreset::PomarNeon
-            && self.bg_canvas == [20, 18, 28]
-            && self.bg_panel == [28, 25, 38]
-            && self.note_fill == [34, 180, 126]
-            && self.note_stroke == [45, 205, 145]
-            && self.note_selected_fill == [52, 212, 155]
-            && self.note_selected_stroke == [220, 245, 235]
-            && self.note_opacity == 1.0;
+            && ((self.bg_canvas == [20, 18, 28]
+                && self.bg_panel == [28, 25, 38]
+                && self.note_fill == [34, 180, 126]
+                && self.note_stroke == [45, 205, 145]
+                && self.note_selected_fill == [52, 212, 155]
+                && self.note_selected_stroke == [220, 245, 235]
+                && self.note_opacity == 1.0)
+                || *self == Self::from_preset(ThemePreset::PomarNeon));
         if is_legacy {
-            *self = Self::from_preset(ThemePreset::PomarNeon);
+            *self = Self::from_preset(ThemePreset::CalafateEditorial);
         }
         is_legacy
     }
 
     pub fn from_preset(preset: ThemePreset) -> Self {
         match preset {
+            ThemePreset::CalafateEditorial => Self {
+                preset: ThemePreset::CalafateEditorial,
+                bg_canvas: [32, 30, 34],
+                bg_panel: [42, 39, 44],
+                bg_header: [54, 48, 54],
+                bg_row_white_key: [38, 35, 40],
+                bg_row_black_key: [27, 25, 29],
+                bg_keyboard_white: [231, 224, 220],
+                bg_keyboard_black: [34, 30, 34],
+                grid_line_bar: [82, 72, 80],
+                grid_line_sub: [56, 50, 57],
+                note_fill: [145, 104, 127],
+                note_stroke: [183, 132, 154],
+                note_selected_fill: [186, 111, 116],
+                note_selected_stroke: [242, 218, 212],
+                note_hover: [168, 119, 139],
+                note_corner_radius: 5.0,
+                note_stroke_width: 1.2,
+                note_opacity: 0.78,
+                note_waveform_opacity: 0.3,
+                note_waveform_color: [230, 211, 208],
+                pitch_curve_color: [211, 174, 205],
+                pitch_anchor_color: [232, 186, 151],
+                accent_color: [217, 135, 121],
+                playhead_color: [231, 178, 125],
+                text_primary: [240, 232, 229],
+                text_muted: [180, 166, 170],
+                text_note_tag: [250, 239, 234],
+                ui_corner_radius: 5.0,
+                panel_opacity: 1.0,
+                semantic: ThemeSemanticColors::default(),
+            },
             ThemePreset::PomarNeon => Self {
                 preset: ThemePreset::PomarNeon,
                 bg_canvas: [27, 27, 29],
@@ -234,6 +420,7 @@ impl ThemeConfig {
                 text_note_tag: [238, 238, 236],
                 ui_corner_radius: 2.0,
                 panel_opacity: 1.0,
+                semantic: ThemeSemanticColors::default(),
             },
             ThemePreset::MelodyneGold => Self {
                 preset: ThemePreset::MelodyneGold,
@@ -265,6 +452,7 @@ impl ThemeConfig {
                 text_note_tag: [255, 255, 255],
                 ui_corner_radius: 5.0,
                 panel_opacity: 1.0,
+                semantic: ThemeSemanticColors::default(),
             },
             ThemePreset::Cyberpunk => Self {
                 preset: ThemePreset::Cyberpunk,
@@ -296,6 +484,7 @@ impl ThemeConfig {
                 text_note_tag: [255, 255, 255],
                 ui_corner_radius: 2.0,
                 panel_opacity: 0.95,
+                semantic: ThemeSemanticColors::default(),
             },
             ThemePreset::NordicSlate => Self {
                 preset: ThemePreset::NordicSlate,
@@ -327,6 +516,7 @@ impl ThemeConfig {
                 text_note_tag: [255, 255, 255],
                 ui_corner_radius: 6.0,
                 panel_opacity: 1.0,
+                semantic: ThemeSemanticColors::default(),
             },
             ThemePreset::MikanTeal => Self {
                 preset: ThemePreset::MikanTeal,
@@ -358,6 +548,7 @@ impl ThemeConfig {
                 text_note_tag: [255, 255, 255],
                 ui_corner_radius: 6.0,
                 panel_opacity: 1.0,
+                semantic: ThemeSemanticColors::default(),
             },
             ThemePreset::SolarizedDark => Self {
                 preset: ThemePreset::SolarizedDark,
@@ -389,6 +580,7 @@ impl ThemeConfig {
                 text_note_tag: [255, 255, 255],
                 ui_corner_radius: 4.0,
                 panel_opacity: 1.0,
+                semantic: ThemeSemanticColors::default(),
             },
             ThemePreset::CleanLight => Self {
                 preset: ThemePreset::CleanLight,
@@ -420,9 +612,10 @@ impl ThemeConfig {
                 text_note_tag: [255, 255, 255],
                 ui_corner_radius: 6.0,
                 panel_opacity: 1.0,
+                semantic: ThemeSemanticColors::default(),
             },
             ThemePreset::Custom => {
-                let mut theme = Self::from_preset(ThemePreset::PomarNeon);
+                let mut theme = Self::from_preset(ThemePreset::CalafateEditorial);
                 theme.preset = ThemePreset::Custom;
                 theme
             }
@@ -594,11 +787,11 @@ impl ThemeConfig {
     }
 
     pub fn scale_out_of_key_tint(&self) -> Color32 {
-        Color32::from_rgba_unmultiplied(7, 6, 12, 125)
+        self.c32_alpha(self.bg_row_black_key, 0.50)
     }
 
     pub fn scale_in_key_tint(&self) -> Color32 {
-        Color32::from_rgba_unmultiplied(45, 105, 155, 34)
+        self.c32_alpha(self.semantic.info, 0.14)
     }
 
     pub fn scale_tonic_tint(&self) -> Color32 {
@@ -638,7 +831,10 @@ impl ThemeConfig {
     }
 
     pub fn is_light(&self) -> bool {
-        self.preset == ThemePreset::CleanLight
+        let luminance = 0.2126 * self.bg_canvas[0] as f32
+            + 0.7152 * self.bg_canvas[1] as f32
+            + 0.0722 * self.bg_canvas[2] as f32;
+        luminance > 150.0
     }
 
     pub fn card_bg_c32(&self) -> Color32 {
@@ -672,19 +868,39 @@ impl ThemeConfig {
     /// Elas permanecem legíveis em todos os presets, mas não competem com o
     /// acento autoral do tema.
     pub fn success_c32(&self) -> Color32 {
-        self.c32([64, 205, 145])
+        self.c32(self.semantic.success)
     }
 
     pub fn warning_c32(&self) -> Color32 {
-        self.c32([235, 175, 75])
+        self.c32(self.semantic.warning)
     }
 
     pub fn danger_c32(&self) -> Color32 {
-        self.c32([235, 85, 85])
+        self.c32(self.semantic.danger)
     }
 
     pub fn info_c32(&self) -> Color32 {
-        self.c32([90, 190, 235])
+        self.c32(self.semantic.info)
+    }
+
+    pub fn waveform_c32(&self) -> Color32 {
+        self.c32(self.semantic.waveform)
+    }
+
+    pub fn waveform_grid_c32(&self) -> Color32 {
+        self.c32(self.semantic.waveform_grid)
+    }
+
+    pub fn marker_c32(&self) -> Color32 {
+        self.c32(self.semantic.marker)
+    }
+
+    pub fn loop_region_c32(&self) -> Color32 {
+        self.c32(self.semantic.loop_region)
+    }
+
+    pub fn meter_c32(&self) -> Color32 {
+        self.c32(self.semantic.meter)
     }
 
     pub fn card_stroke(&self) -> Stroke {
@@ -892,6 +1108,78 @@ mod tests {
         assert_eq!(deserialized.preset, ThemePreset::Cyberpunk);
         assert_eq!(deserialized.note_fill, [210, 55, 120]);
         assert_eq!(deserialized.accent_color, [70, 205, 230]);
+    }
+
+    #[test]
+    fn default_theme_is_calafate_editorial_and_valid() {
+        let theme = ThemeConfig::default();
+        assert_eq!(theme.preset, ThemePreset::CalafateEditorial);
+        theme.validate().expect("default theme must be valid");
+        assert!(meets_text_contrast(theme.text_primary, theme.bg_canvas));
+        assert!(meets_text_contrast(theme.text_primary, theme.bg_panel));
+    }
+
+    #[test]
+    fn old_theme_json_receives_default_semantic_colors() {
+        let theme = ThemeConfig::from_preset(ThemePreset::NordicSlate);
+        let mut value = serde_json::to_value(&theme).expect("serialize theme");
+        value.as_object_mut().unwrap().remove("semantic");
+        let loaded: ThemeConfig = serde_json::from_value(value).expect("load legacy theme");
+        assert_eq!(loaded.semantic, ThemeSemanticColors::default());
+        assert_eq!(loaded.bg_canvas, theme.bg_canvas);
+    }
+
+    #[test]
+    fn theme_document_supports_replace_merge_and_legacy_files() {
+        let mut current = ThemeConfig::default();
+        current.bg_canvas = [1, 2, 3];
+        let partial = r#"{"format":"kamafeu-theme","version":1,"name":"Parcial","theme":{"accent_color":[4,5,6]}}"#;
+        let replaced = ThemeDocument::import(partial, &current, false, "fallback").unwrap();
+        assert_eq!(replaced.theme.bg_canvas, ThemeConfig::default().bg_canvas);
+        assert_eq!(replaced.theme.accent_color, [4, 5, 6]);
+
+        let merged = ThemeDocument::import(partial, &current, true, "fallback").unwrap();
+        assert_eq!(merged.theme.bg_canvas, [1, 2, 3]);
+        assert_eq!(merged.theme.accent_color, [4, 5, 6]);
+
+        let legacy = serde_json::to_string(&current).unwrap();
+        let imported = ThemeDocument::import(&legacy, &ThemeConfig::default(), false, "Antigo")
+            .unwrap();
+        assert_eq!(imported.name, "Antigo");
+        assert_eq!(imported.theme.bg_canvas, current.bg_canvas);
+    }
+
+    #[test]
+    fn versioned_theme_export_roundtrips_and_preserves_name() {
+        let theme = ThemeConfig::from_preset(ThemePreset::CalafateEditorial);
+        let document = ThemeDocument::from_theme("Minha Paleta", &theme).unwrap();
+        let content = serde_json::to_string(&document).unwrap();
+        let imported = ThemeDocument::import(&content, &ThemeConfig::default(), false, "x")
+            .unwrap();
+        assert_eq!(imported.name, "Minha Paleta");
+        assert_eq!(imported.theme.bg_canvas, theme.bg_canvas);
+        assert_eq!(imported.theme.semantic, theme.semantic);
+        assert_eq!(imported.theme.preset, ThemePreset::Custom);
+    }
+
+    #[test]
+    fn invalid_theme_documents_are_rejected_without_normalization() {
+        let invalid = r#"{"format":"kamafeu-theme","version":1,"name":"Inválido","theme":{"note_opacity":3.0}}"#;
+        assert!(ThemeDocument::import(invalid, &ThemeConfig::default(), false, "x").is_err());
+        let unsupported = r#"{"format":"kamafeu-theme","version":7,"name":"Futuro","theme":{}}"#;
+        assert!(ThemeDocument::import(unsupported, &ThemeConfig::default(), false, "x").is_err());
+    }
+
+    #[test]
+    fn only_stock_defaults_are_migrated_to_calafate_editorial() {
+        let mut stock = ThemeConfig::from_preset(ThemePreset::PomarNeon);
+        assert!(stock.upgrade_legacy_pomar_neon());
+        assert_eq!(stock.preset, ThemePreset::CalafateEditorial);
+
+        let mut customized = ThemeConfig::from_preset(ThemePreset::PomarNeon);
+        customized.accent_color = [1, 2, 3];
+        assert!(!customized.upgrade_legacy_pomar_neon());
+        assert_eq!(customized.accent_color, [1, 2, 3]);
     }
 
     #[test]

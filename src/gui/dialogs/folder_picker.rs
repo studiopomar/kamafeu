@@ -23,7 +23,7 @@ impl KamafeuStudioApp {
                             ui.heading(
                                 egui::RichText::new(lang.tr("Explorador de Pastas (Android / Local)", "Folder Explorer (Android / Local)"))
                                     .strong()
-                                    .color(egui::Color32::from_rgb(0, 255, 180)),
+                                    .color(self.config.theme.success_c32()),
                             );
                         });
                         ui.add_space(4.0);
@@ -32,7 +32,7 @@ impl KamafeuStudioApp {
                             ui.label(
                                 egui::RichText::new(lang.tr("Atalhos:", "Shortcuts:"))
                                     .strong()
-                                    .color(egui::Color32::from_rgb(255, 215, 0)),
+                                    .color(ui.visuals().warn_fg_color),
                             );
                             for (label, path_str) in [
                                 (lang.tr("Downloads", "Downloads"), "/sdcard/Download"),
@@ -61,7 +61,7 @@ impl KamafeuStudioApp {
                             ui.label(
                                 egui::RichText::new(self.folder_picker_current_dir.display().to_string())
                                     .monospace()
-                                    .color(egui::Color32::from_rgb(200, 220, 255)),
+                                    .color(ui.visuals().text_color()),
                             );
                         });
 
@@ -69,7 +69,7 @@ impl KamafeuStudioApp {
                             || self.folder_picker_current_dir.join("character.txt").is_file();
                         if has_oto {
                             ui.colored_label(
-                                egui::Color32::from_rgb(0, 255, 150),
+                                ui.visuals().hyperlink_color,
                                 lang.tr(
                                     "[Voicebank] Voicebank detectado nesta pasta (oto.ini / character.txt encontrado)!",
                                     "[Voicebank] Voicebank detected in this folder (oto.ini / character.txt found)!",
@@ -111,9 +111,9 @@ impl KamafeuStudioApp {
                                                 format!("{prefix} {name}")
                                             };
                                             let color = if is_vb {
-                                                egui::Color32::from_rgb(0, 255, 200)
+                                                ui.visuals().hyperlink_color
                                             } else {
-                                                egui::Color32::WHITE
+                                                ui.visuals().text_color()
                                             };
                                             if ui.button(egui::RichText::new(text).color(color)).clicked() {
                                                 self.folder_picker_current_dir = dir;
@@ -134,9 +134,9 @@ impl KamafeuStudioApp {
                                     egui::Button::new(
                                         egui::RichText::new(lang.tr("Selecionar Esta Pasta", "Select This Folder"))
                                             .strong()
-                                            .color(egui::Color32::from_rgb(0, 255, 180)),
+                                            .color(self.config.theme.success_c32()),
                                     )
-                                    .fill(egui::Color32::from_rgb(20, 60, 45)),
+                                    .fill(ui.visuals().panel_fill),
                                 )
                                 .clicked()
                             {

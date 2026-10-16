@@ -251,6 +251,12 @@ impl Default for UExpressions {
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct UPhonemeOverride {
     pub index: usize,
+    /// Stable KFV 2 selection overrides. These are not aliases and do not
+    /// affect classic OTO resolution.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub native_unit_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub native_layer_id: Option<String>,
     /// OpenUtau alternate suffix used while resolving the phoneme alias.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub alternate: Option<i32>,
@@ -503,6 +509,10 @@ pub struct UTrack {
     pub singer: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub voicebank_path: Option<String>,
+    /// Stable KFV 2 identity for this track. The legacy path above remains a
+    /// location hint so older projects and imports remain readable.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub native_voicebank: Option<NativeVoicebankReference>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub phonemizer: Option<crate::phonemizer::PhonemizerMode>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -527,6 +537,7 @@ impl Default for UTrack {
             name: "Track 1".to_string(),
             singer: "Default Singer".to_string(),
             voicebank_path: None,
+            native_voicebank: None,
             phonemizer: None,
             resampler: None,
             wavtool: None,
@@ -741,6 +752,23 @@ pub struct UProjectExtension {
     pub version: String,
     pub origin: String,
     pub manifest_fingerprint: String,
+}
+
+/// Reproducibility metadata for a native voicebank bound to this project.
+/// Stable IDs and hashes are authoritative; the source path is only a hint.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct NativeVoicebankReference {
+    pub bank_id: String,
+    pub bank_version: String,
+    pub package_revision: u32,
+    pub content_sha256: String,
+    pub engine_id: String,
+    pub engine_api_major: u32,
+    pub planner_version: String,
+    pub phonetic_profile_id: String,
+    pub style_id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub source_path_hint: Option<String>,
 }
 
 fn default_time_signature_numerator() -> u8 {

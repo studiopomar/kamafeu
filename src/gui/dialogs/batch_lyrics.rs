@@ -28,7 +28,7 @@ impl KamafeuStudioApp {
                                 lang.tr("Inserir Letras em Lote", "Insert Batch Lyrics"),
                             )
                             .strong()
-                            .color(egui::Color32::from_rgb(0, 255, 180)),
+                            .color(self.config.theme.success_c32()),
                         );
                         ui.add_space(6.0);
                         ui.label(lang.tr(

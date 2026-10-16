@@ -1,0 +1,12 @@
+{
+  "format": "kamafeu.phonetics",
+  "schema_version": "1.0.0",
+  "id": "pt-br-v1",
+  "language": "pt-BR",
+  "symbols": [
+    { "id": "k", "ipa": "k", "class": "stop", "voiced": false },
+    { "id": "a", "ipa": "a", "class": "vowel", "voiced": true }
+  ],
+  "lexicon": { "cá": [{ "phones": ["k", "a"], "stress_nuclei": [1] }] },
+  "unknown_word_policy": "ask-for-pronunciation"
+}

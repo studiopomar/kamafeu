@@ -23,8 +23,9 @@ impl KamafeuStudioApp {
                     animation_policy.transition_duration(0.45),
                 );
                 let visibility = if animated { fade_in.min(fade_out) } else { 1.0 };
-                let success = self.config.theme.success_c32();
-                let muted = self.config.theme.text_muted_c32();
+                let theme = self.config.theme.clone();
+                let success = theme.success_c32();
+                let muted = theme.text_muted_c32();
                 if animated && visibility < 0.999 {
                     if let Some(interval) = self.animation_policy().interval() {
                         ctx.request_repaint_after(interval);
@@ -38,12 +39,7 @@ impl KamafeuStudioApp {
                     .order(egui::Order::Foreground)
                     .show(ctx, |ui| {
                         egui::Frame::none()
-                            .fill(egui::Color32::from_rgba_unmultiplied(
-                                26,
-                                22,
-                                38,
-                                (235.0 * visibility) as u8,
-                            ))
+                            .fill(theme.c32_alpha(theme.bg_panel, 235.0 / 255.0 * visibility))
                             .rounding(egui::Rounding::same(8.0))
                             .stroke(egui::Stroke::new(
                                 1.2_f32,
@@ -69,7 +65,7 @@ impl KamafeuStudioApp {
                                             egui::RichText::new(text)
                                                 .strong()
                                                 .size(12.0)
-                                                .color(egui::Color32::WHITE),
+                                                .color(ui.visuals().text_color()),
                                         );
                                         ui.label(
                                             egui::RichText::new(path.to_string_lossy())
@@ -87,9 +83,9 @@ impl KamafeuStudioApp {
                                         egui::RichText::new(reveal_label)
                                             .size(11.0)
                                             .strong()
-                                            .color(egui::Color32::BLACK),
+                                            .color(ui.visuals().text_color()),
                                     )
-                                    .fill(egui::Color32::from_rgb(0, 255, 180))
+                                    .fill(self.config.theme.success_c32())
                                     .min_size(egui::vec2(130.0, 24.0));
 
                                     if ui.add(reveal_btn).clicked() {
@@ -99,7 +95,7 @@ impl KamafeuStudioApp {
                                     let copy_btn = egui::Button::new(
                                         egui::RichText::new(lang.tr("Copiar", "Copy")).size(10.0),
                                     )
-                                    .fill(egui::Color32::from_rgb(45, 40, 60))
+                                    .fill(ui.visuals().panel_fill)
                                     .min_size(egui::vec2(45.0, 24.0));
 
                                     if ui
@@ -120,9 +116,9 @@ impl KamafeuStudioApp {
                                     let close_btn = egui::Button::new(
                                         egui::RichText::new("X")
                                             .size(11.0)
-                                            .color(egui::Color32::from_rgb(180, 175, 195)),
+                                            .color(ui.visuals().text_color().linear_multiply(0.72)),
                                     )
-                                    .fill(egui::Color32::from_rgb(45, 40, 60))
+                                    .fill(ui.visuals().panel_fill)
                                     .min_size(egui::vec2(24.0, 24.0));
 
                                     if ui.add(close_btn).clicked() {
@@ -187,6 +183,7 @@ impl KamafeuStudioApp {
 
         let mut dismiss = false;
         let lang = self.config.language;
+        let theme = self.config.theme.clone();
 
         egui::Area::new(egui::Id::new("panel_tips_bubble_area"))
             .fixed_pos(anchor_pos)
@@ -194,11 +191,11 @@ impl KamafeuStudioApp {
             .order(egui::Order::Foreground)
             .interactable(true)
             .show(ctx, |ui| {
-                let bg_color = egui::Color32::from_rgba_unmultiplied(22, 20, 32, (245.0 * alpha) as u8);
-                let stroke_color = egui::Color32::from_rgba_unmultiplied(0, 255, 180, (230.0 * alpha) as u8);
-                let text_color = egui::Color32::from_rgba_unmultiplied(240, 240, 250, (255.0 * alpha) as u8);
-                let text_sec = egui::Color32::from_rgba_unmultiplied(165, 160, 190, (230.0 * alpha) as u8);
-                let shortcut_color = egui::Color32::from_rgba_unmultiplied(255, 205, 75, (255.0 * alpha) as u8);
+                let bg_color = theme.c32_alpha(theme.bg_panel, 245.0 / 255.0 * alpha);
+                let stroke_color = theme.c32_alpha(theme.accent_color, 230.0 / 255.0 * alpha);
+                let text_color = theme.c32_alpha(theme.text_primary, alpha);
+                let text_sec = theme.c32_alpha(theme.text_muted, 230.0 / 255.0 * alpha);
+                let shortcut_color = theme.c32_alpha(theme.semantic.warning, alpha);
                 let arrow_color = stroke_color;
 
                 // Draw upward pointing tooltip arrow pointing directly to the toggle buttons
@@ -282,9 +279,9 @@ impl KamafeuStudioApp {
 
                                 for (btn_name, key, desc) in items {
                                     egui::Frame::none()
-                                        .fill(egui::Color32::from_rgba_unmultiplied(35, 32, 50, (230.0 * alpha) as u8))
+                                        .fill(theme.c32_alpha(theme.bg_header, 230.0 / 255.0 * alpha))
                                         .rounding(egui::Rounding::same(4.0))
-                                        .stroke(egui::Stroke::new(1.0_f32, egui::Color32::from_rgba_unmultiplied(65, 60, 85, (200.0 * alpha) as u8)))
+                                        .stroke(egui::Stroke::new(1.0_f32, theme.c32_alpha(theme.semantic.info, 200.0 / 255.0 * alpha)))
                                         .inner_margin(egui::Margin::symmetric(6.0, 3.0))
                                         .show(ui, |ui| {
                                             ui.horizontal(|ui| {
@@ -359,10 +356,10 @@ impl KamafeuStudioApp {
             .order(egui::Order::Foreground)
             .interactable(true)
             .show(ctx, |ui| {
-                let bg_color = egui::Color32::from_rgb(26, 22, 28);
-                let border_color = egui::Color32::from_rgb(255, 175, 55);
-                let text_main = egui::Color32::from_rgb(245, 240, 248);
-                let text_sec = egui::Color32::from_rgb(195, 180, 200);
+                let bg_color = ui.visuals().panel_fill;
+                let border_color = ui.visuals().warn_fg_color;
+                let text_main = ui.visuals().text_color();
+                let text_sec = ui.visuals().text_color().linear_multiply(0.72);
 
                 egui::Frame::none()
                     .fill(bg_color)
@@ -400,7 +397,7 @@ impl KamafeuStudioApp {
                                             .size(10.0)
                                             .color(text_sec),
                                     )
-                                    .fill(egui::Color32::from_rgb(45, 38, 50))
+                                    .fill(ui.visuals().panel_fill)
                                     .min_size(egui::vec2(18.0, 18.0));
                                     if ui.add(close_btn).on_hover_text(lang.tr("Dispensar aviso", "Dismiss warning")).clicked() {
                                         dismiss = true;
@@ -437,7 +434,7 @@ impl KamafeuStudioApp {
                                             egui::RichText::new(label)
                                                 .size(9.5)
                                                 .strong()
-                                                .color(egui::Color32::BLACK),
+                                                .color(ui.visuals().text_color()),
                                         )
                                         .fill(border_color)
                                         .min_size(egui::vec2(54.0, 20.0));
@@ -452,7 +449,7 @@ impl KamafeuStudioApp {
                                             .size(9.5)
                                             .color(text_main),
                                     )
-                                    .fill(egui::Color32::from_rgb(50, 42, 58))
+                                    .fill(ui.visuals().panel_fill)
                                     .min_size(egui::vec2(48.0, 20.0));
 
                                     if ui.add(more_btn).on_hover_text(lang.tr("Ver todos os fonemizadores", "View all phonemizers")).clicked() {
@@ -472,7 +469,7 @@ impl KamafeuStudioApp {
                                                 ui.label(egui::RichText::new(format!("{} [{}]", info.language, info.source)).strong().size(10.0).color(border_color));
                                                 language = Some(info.language);
                                             }
-                                            if ui.small_button(egui::RichText::new(info.name).strong().color(egui::Color32::BLACK)).clicked() {
+                                            if ui.small_button(egui::RichText::new(info.name).strong().color(ui.visuals().text_color())).clicked() {
                                                 selected_new_mode = Some(mode);
                                             }
                                         }
@@ -484,7 +481,7 @@ impl KamafeuStudioApp {
                                                 (crate::phonemizer::PhonemizerMode::VCV, "JA: VCV"),
                                                 (crate::phonemizer::PhonemizerMode::CVVC, "JA: Japanese CVVC"),
                                             ] {
-                                                if ui.small_button(egui::RichText::new(label).strong().color(egui::Color32::BLACK)).clicked() {
+                                                if ui.small_button(egui::RichText::new(label).strong().color(ui.visuals().text_color())).clicked() {
                                                     selected_new_mode = Some(mode);
                                                 }
                                             }
@@ -500,7 +497,7 @@ impl KamafeuStudioApp {
                                                 (crate::phonemizer::PhonemizerMode::PortugueseVCV, "PT: VCV"),
                                                 (crate::phonemizer::PhonemizerMode::PortugueseG2P, "PT: G2P"),
                                             ] {
-                                                if ui.small_button(egui::RichText::new(label).strong().color(egui::Color32::BLACK)).clicked() {
+                                                if ui.small_button(egui::RichText::new(label).strong().color(ui.visuals().text_color())).clicked() {
                                                     selected_new_mode = Some(mode);
                                                 }
                                             }
@@ -514,7 +511,7 @@ impl KamafeuStudioApp {
                                                 (crate::phonemizer::PhonemizerMode::EnglishVCCV, "EN: English VCCV"),
                                                 (crate::phonemizer::PhonemizerMode::EnglishG2P, "EN: G2P (Words)"),
                                             ] {
-                                                if ui.small_button(egui::RichText::new(label).strong().color(egui::Color32::BLACK)).clicked() {
+                                                if ui.small_button(egui::RichText::new(label).strong().color(ui.visuals().text_color())).clicked() {
                                                     selected_new_mode = Some(mode);
                                                 }
                                             }

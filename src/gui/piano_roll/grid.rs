@@ -2,7 +2,33 @@ use crate::dsp::pitch::{midi_to_freq, midi_to_note_name};
 use crate::gui::piano_roll::state::PianoRollState;
 use crate::gui::theme::ThemeConfig;
 use crate::gui::types::GridSnapOption;
-use eframe::egui::{self, Color32, Painter, Pos2, Rect, Rounding, Stroke};
+use eframe::egui::{self, Painter, Pos2, Rect, Rounding, Stroke};
+
+fn keyboard_text_color(
+    background: egui::Color32,
+    underlying: egui::Color32,
+    tonic: bool,
+) -> egui::Color32 {
+    let [r, g, b, alpha] = background.to_array();
+    let [ur, ug, ub, _] = underlying.to_array();
+    let blend = |top: u8, bottom: u8| {
+        ((top as u16 * alpha as u16 + bottom as u16 * (255 - alpha as u16)) / 255) as u8
+    };
+    let [r, g, b] = [blend(r, ur), blend(g, ug), blend(b, ub)];
+    let foregrounds = if tonic {
+        [[112, 58, 28], [255, 202, 132]]
+    } else {
+        [[30, 27, 31], [250, 247, 243]]
+    };
+    let foreground = foregrounds
+        .into_iter()
+        .max_by(|left, right| {
+            crate::gui::theme::contrast_ratio_rgb(*left, [r, g, b])
+                .total_cmp(&crate::gui::theme::contrast_ratio_rgb(*right, [r, g, b]))
+        })
+        .unwrap_or([30, 27, 31]);
+    egui::Color32::from_rgb(foreground[0], foreground[1], foreground[2])
+}
 
 pub fn draw_piano_keys(
     painter: &Painter,
@@ -72,15 +98,7 @@ pub fn draw_piano_keys(
         let note_str = midi_to_note_name(midi);
         let is_c = midi % 12 == 0;
 
-        let text_color = if is_active {
-            Color32::WHITE
-        } else if is_tonic {
-            Color32::from_rgb(180, 70, 0)
-        } else if is_c {
-            Color32::from_rgb(20, 15, 30)
-        } else {
-            Color32::from_rgb(60, 55, 75)
-        };
+        let text_color = keyboard_text_color(key_color, theme.bg_keyboard_white_c32(), is_tonic);
 
         let font_size = if is_c || is_tonic { 11.5 } else { 10.0 };
         painter.text(
@@ -98,7 +116,7 @@ pub fn draw_piano_keys(
                     y_top + state.row_height * 0.5,
                 ),
                 3.0,
-                Color32::from_rgb(255, 180, 0),
+                keyboard_text_color(key_color, theme.bg_keyboard_white_c32(), true),
             );
         }
     }
@@ -131,7 +149,7 @@ pub fn draw_piano_keys(
         let key_color = if is_active {
             theme.key_active_c32()
         } else if is_hovered {
-            Color32::from_rgb(50, 42, 68)
+            ui.visuals().hyperlink_color
         } else {
             theme.bg_keyboard_black_c32()
         };
@@ -142,13 +160,7 @@ pub fn draw_piano_keys(
             && state.active_scale.is_tonic(state.scale_root_key, midi);
         let note_str = midi_to_note_name(midi);
 
-        let text_color = if is_active {
-            Color32::WHITE
-        } else if is_tonic {
-            Color32::from_rgb(255, 215, 0)
-        } else {
-            Color32::from_rgb(220, 215, 235)
-        };
+        let text_color = keyboard_text_color(key_color, theme.bg_keyboard_black_c32(), is_tonic);
 
         painter.text(
             Pos2::new(sticky_key_x + 5.0, y_top + state.row_height * 0.5),

@@ -10,6 +10,11 @@ pub struct SingerInfo {
     pub path: PathBuf,
     pub image_path: Option<PathBuf>,
     pub voice_type: String,
+    /// False for formats that can be catalogued but have no project render route.
+    pub selectable: bool,
+    /// KFV 2 uses the native project binding path instead of the OTO loader.
+    pub is_native_kfv2: bool,
+    pub diagnostic: Option<String>,
 }
 
 pub struct SingerScanner;
@@ -138,6 +143,18 @@ impl SingerScanner {
         let has_char = dir.join("character.txt").exists();
         let has_char_yaml = dir.join("character.yaml").exists();
         let has_native = dir.join("kamafeu_voicebank.json").exists();
+
+        if has_native {
+            if let Ok(content) = fs::read_to_string(dir.join("kamafeu_voicebank.json")) {
+                if let Ok(value) = serde_json::from_str::<serde_json::Value>(&content) {
+                    if value.get("format").and_then(|value| value.as_str())
+                        == Some("kamafeu.voicebank")
+                    {
+                        return Some(Self::inspect_kfv2_manifest(dir, &content));
+                    }
+                }
+            }
+        }
 
         let mut sub_has_oto = false;
         if !has_oto && !has_char && !has_char_yaml && !has_native {
@@ -295,13 +312,109 @@ impl SingerScanner {
             path: dir.to_path_buf(),
             image_path,
             voice_type,
+            selectable: true,
+            is_native_kfv2: false,
+            diagnostic: None,
         })
+    }
+
+    fn inspect_kfv2_manifest(dir: &Path, content: &str) -> SingerInfo {
+        let fallback_name = dir
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("KFV 2 voice")
+            .to_string();
+        let manifest = match crate::voicebank::native::Manifest::parse_json(content) {
+            Ok(manifest) => manifest,
+            Err(error) => {
+                return SingerInfo {
+                    name: fallback_name,
+                    author: "Manifesto KFV 2 inválido".into(),
+                    web: None,
+                    path: dir.to_path_buf(),
+                    image_path: None,
+                    voice_type: "KFV 2 · não carregável".into(),
+                    selectable: false,
+                    is_native_kfv2: true,
+                    diagnostic: Some(error),
+                };
+            }
+        };
+        let image_path = manifest
+            .presentation
+            .as_ref()
+            .and_then(|presentation| {
+                presentation
+                    .avatar
+                    .as_ref()
+                    .or(presentation.portrait.as_ref())
+            })
+            .and_then(|relative| manifest.resolve_existing(dir, relative).ok());
+        SingerInfo {
+            name: manifest.display_name,
+            author: manifest.publisher,
+            web: None,
+            path: dir.to_path_buf(),
+            image_path,
+            voice_type: "Voz Kamafeu · Nativa (preview SOLA experimental)".into(),
+            selectable: true,
+            is_native_kfv2: true,
+            diagnostic: Some(
+                "Preview experimental via SOLA. Use phones explícitos no campo de pronúncia; ainda não há G2P nativo nem A/B acústico aprovado.".into(),
+            ),
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    fn kfv2_manifest() -> crate::voicebank::native::Manifest {
+        use crate::voicebank::native::{
+            Defaults, EngineRequirement, Layer, Manifest, PhoneticProfileRef, Style,
+        };
+        Manifest {
+            format: "kamafeu.voicebank".into(),
+            schema_version: "2.0.0".into(),
+            voice_id: "com.example.voice".into(),
+            bank_id: "com.example.voice.natural".into(),
+            bank_version: "1.0.0".into(),
+            package_revision: 1,
+            display_name: "Voz Nativa de Teste".into(),
+            publisher: "Autoria de Teste".into(),
+            description: String::new(),
+            languages: vec!["pt-BR".into()],
+            phonetic_profiles: vec![PhoneticProfileRef {
+                id: "pt-br-v1".into(),
+                language: "pt-BR".into(),
+                path: "phonetics/pt-BR.json".into(),
+            }],
+            engine: EngineRequirement {
+                id: "kamafeu.concat".into(),
+                api_major: 1,
+                required_features: vec![],
+            },
+            styles: vec![Style {
+                id: "natural".into(),
+                display_name: "Natural".into(),
+            }],
+            layers: vec![Layer {
+                id: "natural-c4".into(),
+                style_id: "natural".into(),
+                recorded_midi: 60,
+                units_path: "units/c4.json".into(),
+            }],
+            defaults: Defaults {
+                phonetic_profile_id: "pt-br-v1".into(),
+                style_id: "natural".into(),
+                layer_policy: "nearest-recorded".into(),
+                missing_unit_policy: "error".into(),
+            },
+            presentation: None,
+            license: None,
+        }
+    }
 
     #[test]
     fn test_inspect_missing_dir_returns_none() {
@@ -357,5 +470,45 @@ mod tests {
                 .map(|name| name.to_ascii_lowercase()),
             Some("portrait.png".to_string())
         );
+    }
+
+    #[test]
+    fn kfv2_catalog_reads_manifest_metadata_without_loading_audio_and_enables_native_binding() {
+        let directory = tempfile::tempdir().expect("temporary KFV 2 folder");
+        fs::write(
+            directory.path().join("kamafeu_voicebank.json"),
+            serde_json::to_vec(&kfv2_manifest()).unwrap(),
+        )
+        .unwrap();
+
+        let singer = SingerScanner::inspect_singer_directory(directory.path())
+            .expect("valid KFV 2 manifest should be catalogued");
+        assert_eq!(singer.name, "Voz Nativa de Teste");
+        assert_eq!(singer.author, "Autoria de Teste");
+        assert!(singer.voice_type.contains("Voz Kamafeu · Nativa"));
+        assert!(singer.selectable);
+        assert!(singer.is_native_kfv2);
+        assert!(singer.diagnostic.unwrap().contains("phones explícitos"));
+    }
+
+    #[test]
+    fn invalid_kfv2_manifest_is_not_misclassified_as_a_classic_singer() {
+        let directory = tempfile::tempdir().expect("temporary invalid KFV 2 folder");
+        fs::write(
+            directory.path().join("kamafeu_voicebank.json"),
+            r#"{"format":"kamafeu.voicebank","schema_version":"2.0.0"}"#,
+        )
+        .unwrap();
+        fs::write(
+            directory.path().join("oto.ini"),
+            "sample.wav=ka,0,100,-400,80,30\n",
+        )
+        .unwrap();
+
+        let singer = SingerScanner::inspect_singer_directory(directory.path())
+            .expect("invalid native bank should remain visible as an error");
+        assert_eq!(singer.voice_type, "KFV 2 · não carregável");
+        assert!(!singer.selectable);
+        assert!(singer.diagnostic.is_some());
     }
 }

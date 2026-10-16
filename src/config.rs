@@ -13,11 +13,11 @@ fn default_editor_zoom() -> f32 {
     0.25
 }
 fn default_row_height() -> f32 {
-    22.0
+    18.0
 }
 
 fn default_arrangement_height() -> f32 {
-    180.0
+    140.0
 }
 
 fn default_min_midi() -> u8 {
@@ -178,7 +178,7 @@ impl Default for AudioDeviceConfig {
 fn default_resampler_str() -> String {
     #[cfg(any(target_arch = "wasm32", target_os = "android"))]
     {
-        "WORLD (Nativo)".to_string()
+        "Tainah".to_string()
     }
     #[cfg(not(any(target_arch = "wasm32", target_os = "android")))]
     {
@@ -862,6 +862,8 @@ pub struct KamafeuConfig {
     #[serde(default)]
     pub theme: crate::gui::theme::ThemeConfig,
     #[serde(default)]
+    pub saved_themes: Vec<crate::gui::theme::SavedTheme>,
+    #[serde(default)]
     pub audio: AudioDeviceConfig,
     #[serde(default)]
     pub dsp: DspEngineConfig,
@@ -911,6 +913,7 @@ impl Default for KamafeuConfig {
             discord_rpc_enabled: true,
             ui_scale_factor: 1.0,
             theme: crate::gui::theme::ThemeConfig::default(),
+            saved_themes: Vec::new(),
             audio: AudioDeviceConfig::default(),
             dsp: DspEngineConfig::default(),
             vocal_render: crate::renderer::RenderOptions::default(),

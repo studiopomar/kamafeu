@@ -7,8 +7,10 @@ impl KamafeuStudioApp {
             let lang = self.config.language;
             let mut is_open = self.singers_gallery_window_open;
             let mut singer_to_load: Option<std::path::PathBuf> = None;
+            let mut native_singer_to_bind: Option<std::path::PathBuf> = None;
             let mut trigger_add_dir = false;
             let mut trigger_reload = false;
+            let mut trigger_install_kfv2 = false;
 
             ctx.show_viewport_immediate(
                 egui::ViewportId::from_hash_of("singers_gallery_native_viewport"),
@@ -23,12 +25,12 @@ impl KamafeuStudioApp {
                                 egui::RichText::new(lang.tr("Cantores Instalados", "Installed Singers"))
                                     .strong()
                                     .size(16.0)
-                                    .color(egui::Color32::from_rgb(0, 255, 180)),
+                                    .color(self.config.theme.success_c32()),
                             );
                             ui.label(
                                 egui::RichText::new(format!("({} {})", self.singers_list.len(), lang.tr("encontrados", "found")))
                                     .size(11.0)
-                                    .color(crate::gui::theme::MelodyneTheme::TEXT_MUTED),
+                                    .color(self.config.theme.text_muted_c32()),
                             );
                             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                                 if ui.button(lang.tr("Recarregar", "Reload")).clicked() {
@@ -36,6 +38,9 @@ impl KamafeuStudioApp {
                                 }
                                 if ui.button(lang.tr("+ Registrar Pasta...", "+ Add Folder...")).clicked() {
                                     trigger_add_dir = true;
+                                }
+                                if ui.button("Instalar KFV 2...").clicked() {
+                                    trigger_install_kfv2 = true;
                                 }
                             });
                         });
@@ -45,7 +50,7 @@ impl KamafeuStudioApp {
                             ui.label(
                                 egui::RichText::new(lang.tr("Buscar:", "Search:"))
                                     .size(11.0)
-                                    .color(crate::gui::theme::MelodyneTheme::TEXT_MUTED),
+                                    .color(self.config.theme.text_muted_c32()),
                             );
                             ui.add(
                                 egui::TextEdit::singleline(&mut self.singer_search_query)
@@ -79,7 +84,7 @@ impl KamafeuStudioApp {
                                         ui.label(
                                             egui::RichText::new(lang.tr("Nenhum cantor encontrado.", "No singers found."))
                                                 .size(13.0)
-                                                .color(crate::gui::theme::MelodyneTheme::TEXT_MUTED),
+                                                .color(self.config.theme.text_muted_c32()),
                                         );
                                         ui.label(
                                             egui::RichText::new(
@@ -90,7 +95,7 @@ impl KamafeuStudioApp {
                                             )
                                             .size(10.5)
                                             .italics()
-                                            .color(egui::Color32::from_rgb(180, 190, 220)),
+                                            .color(ui.visuals().text_color().linear_multiply(0.72)),
                                         );
                                     });
                                 } else {
@@ -102,20 +107,28 @@ impl KamafeuStudioApp {
                                         .spacing([12.0, 12.0])
                                         .show(ui, |ui| {
                                             for (idx, singer) in filtered.iter().enumerate() {
-                                                let is_current = self
-                                                    .voicebank
-                                                    .as_ref()
-                                                    .is_some_and(|v| v.root_path == singer.path);
+                                                let is_current = if singer.is_native_kfv2 {
+                                                    self.project
+                                                        .tracks
+                                                        .get(self.active_track_index)
+                                                        .and_then(|track| track.native_voicebank.as_ref())
+                                                        .and_then(|reference| reference.source_path_hint.as_deref())
+                                                        .is_some_and(|path| std::path::Path::new(path) == singer.path)
+                                                } else {
+                                                    self.voicebank
+                                                        .as_ref()
+                                                        .is_some_and(|v| v.root_path == singer.path)
+                                                };
 
                                                 let bg_color = if is_current {
-                                                    egui::Color32::from_rgb(45, 30, 68)
+                                                    ui.visuals().hyperlink_color
                                                 } else {
-                                                    egui::Color32::from_rgb(24, 18, 34)
+                                                    ui.visuals().panel_fill
                                                 };
                                                 let stroke_color = if is_current {
-                                                    egui::Color32::from_rgb(0, 255, 180)
+                                                    self.config.theme.success_c32()
                                                 } else {
-                                                    egui::Color32::from_rgb(52, 40, 72)
+                                                    ui.visuals().hyperlink_color
                                                 };
 
                                                 egui::Frame::none()
@@ -136,7 +149,7 @@ impl KamafeuStudioApp {
                                                             painter.rect_filled(
                                                                 avatar_rect,
                                                                 egui::Rounding::same(6.0),
-                                                                egui::Color32::from_rgb(36, 26, 52),
+                                                                ui.visuals().panel_fill,
                                                             );
 
                                                             let mut loaded = false;
@@ -149,7 +162,7 @@ impl KamafeuStudioApp {
                                                                             egui::Pos2::new(0.0, 0.0),
                                                                             egui::Pos2::new(1.0, 1.0),
                                                                         ),
-                                                                        egui::Color32::WHITE,
+                                                                        ui.visuals().text_color(),
                                                                     );
                                                                     loaded = true;
                                                                 }
@@ -160,14 +173,14 @@ impl KamafeuStudioApp {
                                                                 painter.circle_filled(
                                                                     avatar_rect.center(),
                                                                     18.0,
-                                                                    egui::Color32::from_rgb(192, 132, 252),
+                                                                    ui.visuals().hyperlink_color,
                                                                 );
                                                                 painter.text(
                                                                     avatar_rect.center(),
                                                                     egui::Align2::CENTER_CENTER,
                                                                     initial.to_string(),
                                                                     egui::FontId::proportional(16.0),
-                                                                    egui::Color32::from_rgb(20, 14, 30),
+                                                                    ui.visuals().panel_fill,
                                                                 );
                                                             }
 
@@ -178,21 +191,24 @@ impl KamafeuStudioApp {
                                                                         .strong()
                                                                         .size(11.5)
                                                                         .color(if is_current {
-                                                                            egui::Color32::from_rgb(0, 255, 180)
+                                                                            self.config.theme.success_c32()
                                                                         } else {
-                                                                            egui::Color32::WHITE
+                                                                            ui.visuals().text_color()
                                                                         }),
                                                                 );
                                                                 ui.label(
                                                                     egui::RichText::new(&singer.author)
                                                                         .size(9.0)
-                                                                        .color(crate::gui::theme::MelodyneTheme::TEXT_MUTED),
+                                                                        .color(self.config.theme.text_muted_c32()),
                                                                 );
-                                                                ui.label(
+                                                                let format_label = ui.label(
                                                                     egui::RichText::new(&singer.voice_type)
                                                                         .size(8.5)
-                                                                        .color(egui::Color32::from_rgb(216, 180, 254)),
+                                                                        .color(ui.visuals().hyperlink_color),
                                                                 );
+                                                                if let Some(diagnostic) = &singer.diagnostic {
+                                                                    format_label.on_hover_text(diagnostic);
+                                                                }
 
                                                                 if let Some(web) = singer.web.as_deref() {
                                                                     if ui.small_button(lang.tr("Site", "Website")).clicked() {
@@ -209,10 +225,16 @@ impl KamafeuStudioApp {
                                                                         egui::RichText::new(lang.tr("[Em Uso]", "[In Use]"))
                                                                             .strong()
                                                                             .size(10.0)
-                                                                            .color(egui::Color32::from_rgb(0, 255, 180)),
+                                                                            .color(self.config.theme.success_c32()),
                                                                     );
-                                                                } else if ui.small_button(lang.tr("Selecionar", "Select")).clicked() {
-                                                                    singer_to_load = Some(singer.path.clone());
+                                                                } else if singer.selectable && ui.small_button(lang.tr("Selecionar", "Select")).clicked() {
+                                                                    if singer.is_native_kfv2 {
+                                                                        native_singer_to_bind = Some(singer.path.clone());
+                                                                    } else {
+                                                                        singer_to_load = Some(singer.path.clone());
+                                                                    }
+                                                                } else if !singer.selectable {
+                                                                    ui.add_enabled(false, egui::Button::new(lang.tr("Formato indisponível", "Format unavailable")));
                                                                 }
                                                             });
                                                         });
@@ -247,10 +269,73 @@ impl KamafeuStudioApp {
                 self.reload_singers();
             }
 
+            if trigger_install_kfv2 {
+                if let Some(package) = crate::dialogs::FileDialog::new()
+                    .add_filter("Kamafeu Voicebank (*.kfv)", &["kfv"])
+                    .pick_file()
+                {
+                    if let Some(parent) = crate::dialogs::FileDialog::new().pick_folder() {
+                        let install_result = (|| {
+                            let summary =
+                                crate::voicebank::package::inspect_package_metadata(&package)?;
+                            let safe_component: String =
+                                format!("{}_{}", summary.bank_id, summary.bank_version)
+                                    .chars()
+                                    .map(|character| {
+                                        if character.is_ascii_alphanumeric()
+                                            || character == '-'
+                                            || character == '_'
+                                        {
+                                            character
+                                        } else {
+                                            '_'
+                                        }
+                                    })
+                                    .collect();
+                            let destination = parent.join(safe_component);
+                            let report = crate::voicebank::package::install_package_atomic(
+                                &package,
+                                &destination,
+                            )?;
+                            Ok::<_, String>((summary, report))
+                        })();
+                        match install_result {
+                            Ok((summary, report)) => {
+                                if !self.config.singers_paths.contains(&parent) {
+                                    self.config.singers_paths.push(parent);
+                                    self.persist_config();
+                                }
+                                self.reload_singers();
+                                self.transport_state.status_message = format!(
+                                    "KFV 2 instalado: {} · {} · sha256 {} · catálogo atualizado; selecione-o para vincular à faixa ativa (preview SOLA experimental)",
+                                    summary.display_name,
+                                    report.bank_version,
+                                    report.content_sha256.trim_start_matches("sha256:")
+                                );
+                            }
+                            Err(error) => {
+                                self.transport_state.status_message =
+                                    format!("Falha ao instalar KFV 2: {error}");
+                            }
+                        }
+                    }
+                }
+            }
+
             if let Some(path) = singer_to_load {
                 match crate::oto::Voicebank::new(&path) {
                     Ok(vb) => {
+                        if let Some(track) = self.project.tracks.get_mut(self.active_track_index) {
+                            track.native_voicebank = None;
+                            track.voicebank_path = Some(path.display().to_string());
+                            track.singer = vb.name.clone();
+                            self.is_dirty = true;
+                            self.project.render_state = Some(Default::default());
+                        }
                         self.activate_voicebank(vb);
+                        self.piano_roll_state.phoneme_cache_hash = 0;
+                        self.piano_roll_state.phoneme_cache.clear();
+                        self.piano_roll_state.note_phonemes_cache.clear();
                         is_open = false;
                     }
                     Err(error) => {
@@ -262,6 +347,44 @@ impl KamafeuStudioApp {
                             ),
                             error
                         );
+                    }
+                }
+            }
+
+            if let Some(path) = native_singer_to_bind {
+                match crate::voicebank::native::NativeBank::load_path(&path).and_then(|bank| {
+                    let reference = bank.project_reference(Some(path.display().to_string()))?;
+                    let coverage =
+                        bank.coverage_summary(&reference.phonetic_profile_id, &reference.style_id)?;
+                    Ok((bank.manifest.display_name.clone(), reference, coverage))
+                }) {
+                    Ok((display_name, reference, coverage)) => {
+                        if let Some(track) = self.project.tracks.get_mut(self.active_track_index) {
+                            track.native_voicebank = Some(reference);
+                            track.voicebank_path = Some(path.display().to_string());
+                            track.singer = display_name.clone();
+                            self.is_dirty = true;
+                            self.project.render_state = Some(Default::default());
+                            self.piano_roll_state.phoneme_cache_hash = 0;
+                            self.piano_roll_state.phoneme_cache.clear();
+                            self.piano_roll_state.note_phonemes_cache.clear();
+                            self.transport_state.status_message = format!(
+                                "{} vinculada à faixa {} · cobertura estrutural: {}/{} phones, {} unidades, {} revisadas · preview SOLA experimental",
+                                display_name,
+                                track.name,
+                                coverage.covered_phone_symbols,
+                                coverage.total_phone_symbols,
+                                coverage.unit_count,
+                                coverage.reviewed_unit_count
+                            );
+                        } else {
+                            self.transport_state.status_message =
+                                "Não há faixa ativa para vincular o KFV 2".into();
+                        }
+                    }
+                    Err(error) => {
+                        self.transport_state.status_message =
+                            format!("Falha ao vincular KFV 2: {error}");
                     }
                 }
             }

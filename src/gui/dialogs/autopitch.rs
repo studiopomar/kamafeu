@@ -30,7 +30,7 @@ impl KamafeuStudioApp {
                                         egui::RichText::new("Pre-tunning")
                                             .strong()
                                             .size(18.0)
-                                            .color(egui::Color32::from_rgb(0, 255, 180)),
+                                            .color(self.config.theme.success_c32()),
                                     );
                                 });
                                 ui.label(
@@ -41,7 +41,7 @@ impl KamafeuStudioApp {
                                         ),
                                     )
                                     .size(11.0)
-                                    .color(egui::Color32::from_rgb(180, 175, 200)),
+                                    .color(ui.visuals().text_color()),
                                 );
 
                                 ui.add_space(2.0);
@@ -53,7 +53,7 @@ impl KamafeuStudioApp {
                                     egui::RichText::new(lang.tr("ESTILO / PRESET VOCAL:", "VOCAL STYLE / PRESET:"))
                                         .strong()
                                         .size(12.0)
-                                        .color(egui::Color32::from_rgb(255, 215, 0)),
+                                        .color(ui.visuals().warn_fg_color),
                                 );
 
                                 ui.horizontal_wrapped(|ui| {
@@ -61,15 +61,15 @@ impl KamafeuStudioApp {
                                         let is_selected = self.autopitch_options.preset == *preset;
                                         let (bg_color, stroke_color, text_color) = if is_selected {
                                             (
-                                                egui::Color32::from_rgb(50, 40, 75),
-                                                egui::Stroke::new(1.5_f32, egui::Color32::from_rgb(0, 255, 180)),
-                                                egui::Color32::from_rgb(0, 255, 220),
+                                                ui.visuals().hyperlink_color,
+                                                egui::Stroke::new(1.5_f32, self.config.theme.success_c32()),
+                                                ui.visuals().hyperlink_color,
                                             )
                                         } else {
                                             (
-                                                egui::Color32::from_rgb(26, 20, 36),
-                                                egui::Stroke::new(1.0_f32, egui::Color32::from_rgb(50, 40, 65)),
-                                                egui::Color32::from_rgb(200, 195, 215),
+                                                ui.visuals().panel_fill,
+                                                egui::Stroke::new(1.0_f32, ui.visuals().panel_fill),
+                                                ui.visuals().text_color().linear_multiply(0.72),
                                             )
                                         };
 
@@ -92,8 +92,8 @@ impl KamafeuStudioApp {
                                 });
 
                                 egui::Frame::none()
-                                    .fill(egui::Color32::from_rgb(20, 16, 28))
-                                    .stroke(egui::Stroke::new(1.0_f32, egui::Color32::from_rgb(45, 38, 60)))
+                                    .fill(ui.visuals().panel_fill)
+                                    .stroke(egui::Stroke::new(1.0_f32, ui.visuals().panel_fill))
                                     .rounding(egui::Rounding::same(4.0))
                                     .inner_margin(egui::Margin::same(8.0))
                                     .show(ui, |ui| {
@@ -102,7 +102,7 @@ impl KamafeuStudioApp {
                                                 egui::RichText::new(self.autopitch_options.preset.description_for(lang))
                                                     .size(11.0)
                                                     .italics()
-                                                    .color(egui::Color32::from_rgb(220, 215, 240)),
+                                                    .color(ui.visuals().text_color()),
                                             );
                                         });
                                     });
@@ -116,7 +116,7 @@ impl KamafeuStudioApp {
                                     egui::RichText::new(lang.tr("CURVAS DE AFINAÇÃO & VIBRATO:", "PITCH CURVES & VIBRATO:"))
                                         .strong()
                                         .size(12.0)
-                                        .color(egui::Color32::from_rgb(255, 215, 0)),
+                                        .color(ui.visuals().warn_fg_color),
                                 );
 
                                 ui.horizontal(|ui| {
@@ -216,7 +216,7 @@ impl KamafeuStudioApp {
                                     ))
                                         .strong()
                                         .size(12.0)
-                                        .color(egui::Color32::from_rgb(255, 215, 0)),
+                                        .color(ui.visuals().warn_fg_color),
                                 );
 
                                 ui.horizontal(|ui| {
@@ -285,7 +285,7 @@ impl KamafeuStudioApp {
                                     egui::RichText::new(lang.tr("APLICAR EM:", "APPLY TO:"))
                                         .strong()
                                         .size(12.0)
-                                        .color(egui::Color32::from_rgb(255, 215, 0)),
+                                        .color(ui.visuals().warn_fg_color),
                                 );
 
                                 let sel_count = self.piano_roll_state.selected_note_indices.len();
@@ -326,9 +326,9 @@ impl KamafeuStudioApp {
                                             egui::RichText::new(lang.tr("Aplicar Pre-tunning", "Apply Pre-tunning"))
                                                 .strong()
                                                 .size(13.0)
-                                                .color(egui::Color32::BLACK),
+                                                .color(ui.visuals().text_color()),
                                         )
-                                        .fill(egui::Color32::from_rgb(0, 255, 180))
+                                        .fill(self.config.theme.success_c32())
                                         .rounding(egui::Rounding::same(4.0))
                                         .min_size(egui::vec2(160.0, 30.0));
 

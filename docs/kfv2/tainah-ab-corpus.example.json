@@ -1,0 +1,16 @@
+{
+  "format": "kamafeu.tainah-ab-corpus",
+  "schema_version": "1.0.0",
+  "cases": [
+    {
+      "id": "vowel-sustain-mid-register",
+      "project": "phrases/vowel-sustain-mid-register.aps",
+      "voicebank": "../authorized-voicebank"
+    },
+    {
+      "id": "cv-transition-upward-leap",
+      "project": "phrases/cv-transition-upward-leap.aps",
+      "voicebank": "../authorized-voicebank"
+    }
+  ]
+}

@@ -5,6 +5,10 @@ pub(crate) struct TimelinePlaybackStatus<'a> {
     pub is_rendering: bool,
     pub is_playing: bool,
     pub render_progress: f32,
+    pub render_event: Option<crate::renderer::RenderProgressEvent>,
+    pub elapsed_seconds: f64,
+    pub is_exporting: bool,
+    pub language: crate::config::AppLanguage,
     pub title: &'a str,
     pub message: &'a str,
     pub engine: &'a str,
@@ -18,6 +22,10 @@ impl Default for TimelinePlaybackStatus<'static> {
             is_rendering: false,
             is_playing: false,
             render_progress: 1.0,
+            render_event: None,
+            elapsed_seconds: 0.0,
+            is_exporting: false,
+            language: crate::config::AppLanguage::default(),
             title: "Pronto",
             message: "Pronto",
             engine: "",
@@ -236,17 +244,27 @@ pub(super) fn draw(
             // state so a completed drag always drops its saved origin.
             state.minimap_drag_scroll_origin = None;
         }
-
-        if playback.is_rendering || playback.is_playing || playback.has_error {
-            draw_playback_bar(ui, state, theme, playback, animation_policy, pulse);
-        }
     }
+
+    // Keep the render/playhead bar visible even when idle or the minimap is
+    // hidden, so its location and current timeline position stay discoverable.
+    let status_animation_policy = crate::gui::animation::AnimationPolicy {
+        enabled: state.ui_animations_enabled,
+        reduce_motion: state.ui_reduce_motion,
+        speed: state.ui_animation_speed,
+        frame_time_ema_ms: if state.animation_quality_reduced {
+            crate::gui::animation::HIGH_FRAME_TIME_MS
+        } else {
+            16.0
+        },
+    };
+    draw_playback_bar(ui, state, theme, playback, status_animation_policy, 0.0);
 }
 
 fn draw_playback_bar(
     ui: &mut egui::Ui,
     state: &PianoRollState,
-    _theme: &ThemeConfig,
+    theme: &ThemeConfig,
     playback: TimelinePlaybackStatus<'_>,
     animation_policy: crate::gui::animation::AnimationPolicy,
     pulse: f32,
@@ -256,109 +274,191 @@ fn draw_playback_bar(
             ui.ctx().request_repaint_after(interval);
         }
     }
-    let height = 30.0;
+    let height = 34.0;
     let (bar_rect, _) =
         ui.allocate_exact_size(Vec2::new(ui.available_width(), height), Sense::hover());
     let painter = ui.painter_at(bar_rect);
-    let black = Color32::from_rgb(15, 13, 11);
-    let amber = Color32::from_rgb(255, 181, 52);
-    let muted_amber = Color32::from_rgb(112, 79, 30);
-    let red = Color32::from_rgb(238, 82, 65);
-
-    painter.rect_filled(bar_rect, Rounding::ZERO, black);
+    let red = ui.visuals().error_fg_color;
+    let accent = theme.accent_c32();
+    let muted = theme.text_muted_c32();
+    let text_color = theme.text_primary_c32();
+    painter.rect_filled(bar_rect, theme.ui_rounding(), theme.card_bg_c32());
     painter.rect_stroke(
         bar_rect,
-        Rounding::ZERO,
-        Stroke::new(2.0_f32, if playback.has_error { red } else { amber }),
+        theme.ui_rounding(),
+        if playback.has_error {
+            Stroke::new(1.25_f32, red)
+        } else {
+            theme.card_stroke()
+        },
     );
 
-    let label = if playback.has_error {
-        "ERROR"
-    } else if playback.is_playing {
-        "PLAY"
-    } else if playback.render_progress <= 0.001 {
-        "PREPARANDO"
+    let event = playback.render_event;
+    let stage = event.map(|event| event.stage);
+    let (label, stage_detail) =
+        if playback.has_error || stage == Some(crate::renderer::RenderStage::Failed) {
+            (playback.language.tr("ERRO", "ERROR"), playback.message)
+        } else if stage == Some(crate::renderer::RenderStage::Cancelled) {
+            (
+                playback.language.tr("CANCELADO", "CANCELLED"),
+                playback.message,
+            )
+        } else if stage == Some(crate::renderer::RenderStage::Complete) {
+            (
+                playback.language.tr("CONCLUÍDO", "COMPLETE"),
+                playback.message,
+            )
+        } else if playback.is_rendering {
+            let label = if playback.is_exporting {
+                playback.language.tr("EXPORTANDO", "EXPORTING")
+            } else {
+                playback.language.tr("PRÉVIA", "PREVIEW")
+            };
+            let detail = match stage {
+                Some(crate::renderer::RenderStage::Rendering) => {
+                    playback.language.tr("Sintetizando", "Synthesizing")
+                }
+                Some(crate::renderer::RenderStage::Mixing) => {
+                    playback.language.tr("Mixando faixas", "Mixing tracks")
+                }
+                Some(crate::renderer::RenderStage::Finalizing) => {
+                    playback.language.tr("Finalizando", "Finalizing")
+                }
+                _ => playback.language.tr("Preparando áudio", "Preparing audio"),
+            };
+            (label, detail)
+        } else {
+            (
+                playback.language.tr("PRONTO", "READY"),
+                playback.language.tr("Renderização pronta", "Render ready"),
+            )
+        };
+    let label_color = if playback.has_error || stage == Some(crate::renderer::RenderStage::Failed) {
+        red
+    } else if stage == Some(crate::renderer::RenderStage::Cancelled) {
+        muted
     } else {
-        "RESAMPLER"
+        accent
     };
+
+    let badge_rect = Rect::from_min_size(
+        Pos2::new(bar_rect.min.x + 7.0, bar_rect.min.y + 6.0),
+        Vec2::new(78.0, 21.0),
+    );
+    painter.rect_filled(badge_rect, Rounding::same(5.0), theme.bg_panel_c32());
     painter.text(
-        Pos2::new(bar_rect.min.x + 8.0, bar_rect.center().y),
-        egui::Align2::LEFT_CENTER,
+        badge_rect.center(),
+        egui::Align2::CENTER_CENTER,
         label,
-        egui::FontId::monospace(10.0),
-        if playback.has_error { red } else { amber },
+        egui::FontId::proportional(9.0),
+        label_color,
     );
 
-    let bar_left = bar_rect.min.x + 98.0;
-    let bar_right = (bar_rect.max.x - 112.0).max(bar_left + 20.0);
-    let segment_count = 28usize;
-    let gap = 2.0;
-    let segment_width =
-        ((bar_right - bar_left) - gap * (segment_count as f32 - 1.0)) / segment_count as f32;
+    let narrow = bar_rect.width() < 560.0;
+    let bar_left = bar_rect.min.x + if narrow { 106.0 } else { 174.0 };
+    let bar_right = (bar_rect.max.x - 88.0).max(bar_left + 28.0);
+    let bar_height = 7.0;
+    let progress_rect = Rect::from_min_max(
+        Pos2::new(bar_left, bar_rect.max.y - 11.0),
+        Pos2::new(bar_right, bar_rect.max.y - 4.0),
+    );
+    painter.rect_filled(progress_rect, Rounding::same(4.0), theme.bg_canvas_c32());
     let progress = if playback.is_playing {
-        if playback.total_duration_ms > 0.0 {
+        Some(if playback.total_duration_ms > 0.0 {
             (state.playhead_ms / playback.total_duration_ms).clamp(0.0, 1.0) as f32
         } else {
             0.0
-        }
+        })
+    } else if playback.is_rendering {
+        event
+            .and_then(|event| event.fraction)
+            .or_else(|| (stage == Some(crate::renderer::RenderStage::Complete)).then_some(1.0))
     } else {
-        playback.render_progress.clamp(0.0, 1.0)
-    };
-    let filled = (progress * segment_count as f32).floor() as usize;
-    let sweep = if playback.is_rendering && playback.render_progress <= 0.001 {
-        ((ui.input(|input| input.time) as f32 * animation_policy.visual_speed() * 12.0) as usize)
-            % segment_count
-    } else {
-        0
-    };
-    for index in 0..segment_count {
-        let x = bar_left + index as f32 * (segment_width + gap);
-        let active = index < filled
-            || (playback.is_rendering && playback.render_progress <= 0.001 && index == sweep);
-        let color = if active {
-            amber.linear_multiply(0.75 + pulse * 0.25)
+        Some(if playback.total_duration_ms > 0.0 {
+            (state.playhead_ms / playback.total_duration_ms).clamp(0.0, 1.0) as f32
         } else {
-            muted_amber
-        };
-        painter.rect_filled(
-            Rect::from_min_size(
-                Pos2::new(x, bar_rect.min.y + 9.0),
-                Vec2::new(segment_width.max(1.0), 10.0),
-            ),
-            Rounding::ZERO,
-            color,
-        );
+            0.0
+        })
+    };
+    if playback.is_rendering && progress.is_none() {
+        if animation_policy.enabled && !animation_policy.reduce_motion {
+            if let Some(interval) = animation_policy.interval() {
+                ui.ctx().request_repaint_after(interval);
+            }
+            let width = progress_rect.width() * 0.24;
+            let phase =
+                (ui.input(|input| input.time) as f32 * animation_policy.visual_speed() * 0.65)
+                    .rem_euclid(1.0);
+            let left = progress_rect.left() + (progress_rect.width() - width) * phase;
+            painter.rect_filled(
+                Rect::from_min_size(
+                    Pos2::new(left, progress_rect.top()),
+                    Vec2::new(width, bar_height),
+                ),
+                Rounding::same(4.0),
+                accent.linear_multiply(0.9 + pulse * 0.1),
+            );
+        } else {
+            painter.circle_filled(progress_rect.center(), 2.5, accent);
+        }
+    } else if let Some(progress) = progress {
+        let fill_width = progress_rect.width() * progress.clamp(0.0, 1.0);
+        if fill_width > 0.0 {
+            painter.rect_filled(
+                Rect::from_min_size(progress_rect.min, Vec2::new(fill_width, bar_height)),
+                Rounding::same(4.0),
+                if playback.has_error {
+                    red
+                } else {
+                    accent.linear_multiply(0.9 + pulse * 0.1)
+                },
+            );
+        }
     }
 
-    let percent = format!("{:>3.0}%", progress * 100.0);
+    let percent = progress
+        .map(|value| format!("{:.0}%", value * 100.0))
+        .unwrap_or_else(|| playback.language.tr("···", "···").to_string());
     painter.text(
-        Pos2::new(bar_rect.max.x - 8.0, bar_rect.center().y),
+        Pos2::new(bar_rect.max.x - 8.0, bar_rect.center().y - 4.0),
         egui::Align2::RIGHT_CENTER,
         percent,
-        egui::FontId::monospace(10.0),
-        if playback.has_error { red } else { amber },
+        egui::FontId::monospace(9.5),
+        label_color,
     );
-    let detail = if playback.is_playing {
-        playback.message
-    } else if !playback.title.is_empty() {
-        playback.title
+
+    let count_detail = event
+        .and_then(|event| event.completed.zip(event.total))
+        .map(|(completed, total)| format!("{completed}/{total}"));
+    let detail = if playback.is_playing && !playback.is_rendering {
+        playback.message.to_string()
+    } else if let Some(count) = count_detail {
+        format!(
+            "{stage_detail} · {count} {}",
+            playback.language.tr("faixas", "tracks")
+        )
     } else {
-        ""
+        stage_detail.to_string()
     };
     painter.text(
-        Pos2::new(bar_rect.min.x + 98.0, bar_rect.max.y - 4.0),
-        egui::Align2::LEFT_BOTTOM,
+        Pos2::new(bar_left, bar_rect.min.y + 4.0),
+        egui::Align2::LEFT_TOP,
         detail,
-        egui::FontId::monospace(7.0),
-        amber.linear_multiply(0.7),
+        egui::FontId::proportional(8.5),
+        text_color,
     );
-    if !playback.engine.is_empty() {
+    if !narrow && !playback.engine.is_empty() {
         painter.text(
-            Pos2::new(bar_rect.min.x + 8.0, bar_rect.max.y - 4.0),
-            egui::Align2::LEFT_BOTTOM,
-            playback.engine,
-            egui::FontId::monospace(7.0),
-            amber.linear_multiply(0.7),
+            Pos2::new(bar_rect.max.x - 8.0, bar_rect.max.y - 3.0),
+            egui::Align2::RIGHT_BOTTOM,
+            format!(
+                "{} · {:02}:{:02}",
+                playback.engine,
+                playback.elapsed_seconds as u64 / 60,
+                playback.elapsed_seconds as u64 % 60
+            ),
+            egui::FontId::proportional(8.0),
+            muted,
         );
     }
 }

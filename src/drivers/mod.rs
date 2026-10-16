@@ -4,7 +4,9 @@ pub mod wavtool_driver;
 
 pub use resampler_driver::{
     ExternalResamplerDriver, KnownResampler, MacResDriver, NativeResamplerDriver,
-    NativeWorldResamplerDriver, ResamplerArgs, ResamplerDriver,
+    NativeWorldResamplerDriver, ResamplerArgs, ResamplerDriver, ResamplerExecutionInfo,
+    ResamplerRenderOutput, TAINAH_RESAMPLER_LABEL, canonical_resampler_display_label,
+    is_native_world_resampler_label,
 };
 pub use wavtool_driver::{
     ExternalWavtoolDriver, GalapagosWavtoolDriver, KnownWavtool, NativeWavtoolDriver,

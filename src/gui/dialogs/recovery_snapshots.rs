@@ -141,7 +141,7 @@ impl KamafeuStudioApp {
                                                         let color = if same_shape {
                                                             self.config.theme.text_muted_c32()
                                                         } else {
-                                                            egui::Color32::from_rgb(255, 194, 82)
+                                                            ui.visuals().text_color().linear_multiply(0.72)
                                                         };
                                                         ui.label(
                                                             egui::RichText::new(format!(
@@ -174,7 +174,7 @@ impl KamafeuStudioApp {
                                                     }
                                                     Err(error) => {
                                                         ui.colored_label(
-                                                            egui::Color32::from_rgb(255, 120, 120),
+                                                            ui.visuals().error_fg_color,
                                                             format!("Snapshot inválido: {error}"),
                                                         );
                                                     }
@@ -243,7 +243,7 @@ impl KamafeuStudioApp {
                         }
                         Err(error) => {
                             ui.colored_label(
-                                egui::Color32::from_rgb(255, 120, 120),
+                                ui.visuals().error_fg_color,
                                 format!("{}: {error}", lang.tr("Não foi possível listar snapshots", "Could not list snapshots")),
                             );
                         }

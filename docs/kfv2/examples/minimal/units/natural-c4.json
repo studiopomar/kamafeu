@@ -1,0 +1,20 @@
+{
+  "format": "kamafeu.units",
+  "schema_version": "1.0.0",
+  "layer_id": "natural-c4",
+  "assets": [
+    { "id": "take-1", "path": "audio/natural/c4/take-1.wav", "sample_rate_hz": 48000, "channels": 1, "frame_count": 4800 }
+  ],
+  "units": [
+    {
+      "id": "ka-1",
+      "asset_id": "take-1",
+      "kind": "CV",
+      "phones": ["k", "a"],
+      "left_context": { "type": "boundary" },
+      "right_context": { "type": "any" },
+      "source": { "start_frame": 0, "end_frame": 4800, "anchor_frame": 1200, "fixed_end_frame": 2400 },
+      "timing": { "min_target_ms": 35.0, "preferred_crossfade_ms": 8.0, "max_crossfade_ms": 20.0 }
+    }
+  ]
+}

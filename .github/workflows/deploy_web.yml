@@ -27,6 +27,7 @@ jobs:
       - name: Set up Rust toolchain
         uses: dtolnay/rust-toolchain@stable
         with:
+          toolchain: 1.99.1
           targets: wasm32-unknown-unknown
 
       - name: Cache Cargo and Trunk dependencies

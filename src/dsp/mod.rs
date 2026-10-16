@@ -26,11 +26,29 @@ pub(crate) fn resize_preserving_pitch(
     target_len: usize,
     sample_rate: u32,
 ) -> Vec<f32> {
+    resize_preserving_pitch_cancellable(samples, target_len, sample_rate, None)
+        .expect("WSOLA resizing without a cancellation token cannot be cancelled")
+}
+
+pub(crate) fn resize_preserving_pitch_cancellable(
+    samples: &[f32],
+    target_len: usize,
+    sample_rate: u32,
+    cancel: Option<&std::sync::atomic::AtomicBool>,
+) -> Result<Vec<f32>, String> {
+    let check_cancelled = || {
+        if cancel.is_some_and(|token| token.load(std::sync::atomic::Ordering::Relaxed)) {
+            Err("SOLA rendering cancelled".to_string())
+        } else {
+            Ok(())
+        }
+    };
+    check_cancelled()?;
     if target_len == 0 || samples.is_empty() {
-        return Vec::new();
+        return Ok(Vec::new());
     }
     if samples.len() == target_len {
-        return samples.to_vec();
+        return Ok(samples.to_vec());
     }
 
     let window_len = ((sample_rate as usize * 20) / 1000)
@@ -38,9 +56,14 @@ pub(crate) fn resize_preserving_pitch(
         .min(samples.len())
         .min(target_len);
     if window_len < 32 {
-        return (0..target_len)
-            .map(|index| samples[index.min(samples.len() - 1)])
-            .collect();
+        let mut output = Vec::with_capacity(target_len);
+        for index in 0..target_len {
+            if index % 16_384 == 0 {
+                check_cancelled()?;
+            }
+            output.push(samples[index.min(samples.len() - 1)]);
+        }
+        return Ok(output);
     }
 
     let synthesis_hop = (window_len / 2).max(1);
@@ -60,6 +83,7 @@ pub(crate) fn resize_preserving_pitch(
     let mut weights = vec![0.0f32; target_len];
 
     for frame in 0..frame_count {
+        check_cancelled()?;
         let output_start = (frame * synthesis_hop).min(target_len.saturating_sub(window_len));
         let nominal = (frame as f64 * analysis_hop).round() as usize;
         let mut input_start = nominal.min(analysis_span);
@@ -70,6 +94,7 @@ pub(crate) fn resize_preserving_pitch(
             let overlap_len = window_len.min(output_start + window_len).min(synthesis_hop);
             let mut best_score = f64::NEG_INFINITY;
             for candidate in search_start..=search_end {
+                check_cancelled()?;
                 let mut dot = 0.0f64;
                 let mut old_energy = 0.0f64;
                 let mut new_energy = 0.0f64;
@@ -108,14 +133,17 @@ pub(crate) fn resize_preserving_pitch(
         }
     }
 
-    for (sample, weight) in output.iter_mut().zip(weights) {
+    for (index, (sample, weight)) in output.iter_mut().zip(weights).enumerate() {
+        if index % 16_384 == 0 {
+            check_cancelled()?;
+        }
         if weight > 1e-6 {
             *sample /= weight;
         }
     }
     output[0] = samples[0];
     output[target_len - 1] = samples[samples.len() - 1];
-    output
+    Ok(output)
 }
 
 pub(crate) fn oto_source_bounds(

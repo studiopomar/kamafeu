@@ -1,7 +1,7 @@
 use crate::gui::piano_roll::state::ArrangementMeterState;
 use crate::gui::theme::ThemeConfig;
 use crate::project::model::{UTrack, UVoicePart, UWavePart};
-use eframe::egui::{self, Color32, Pos2, Rect, Rounding, Stroke, Vec2};
+use eframe::egui::{self, Pos2, Rect, Rounding, Stroke, Vec2};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
@@ -254,7 +254,7 @@ pub fn draw_arrangement_view(
                 .button(
                     egui::RichText::new(lang.tr("Adicionar Áudio...", "Add Audio..."))
                         .size(10.5)
-                        .color(Color32::from_rgb(100, 200, 255)),
+                        .color(ui.visuals().hyperlink_color),
                 )
                 .clicked()
             {
@@ -299,7 +299,7 @@ pub fn draw_arrangement_view(
                     .button(
                         egui::RichText::new(lang.tr("Excluir Track", "Delete Track"))
                             .size(10.5)
-                            .color(Color32::from_rgb(255, 100, 100)),
+                            .color(ui.visuals().error_fg_color),
                     )
                     .clicked()
             {
@@ -340,7 +340,7 @@ pub fn draw_arrangement_view(
                         .unwrap_or("Track")
                 ))
                 .size(11.0)
-                .color(Color32::from_rgb(0, 255, 157)),
+                .color(ui.visuals().hyperlink_color),
             );
 
             ui.separator();
@@ -585,7 +585,7 @@ pub fn draw_arrangement_view(
                                         ui.separator();
                                         if ui.button(
                                             egui::RichText::new(lang.tr("Excluir esta Faixa", "Delete this Track"))
-                                                .color(Color32::from_rgb(255, 100, 100)),
+                                                .color(ui.visuals().error_fg_color),
                                         ).clicked() {
                                             header_action = Some(HeaderAction::DeleteTrack(idx));
                                             ui.close_menu();
@@ -647,9 +647,9 @@ pub fn draw_arrangement_view(
 
                                 let color_badge = match idx % 4 {
                                     0 => theme.note_fill_c32(),
-                                    1 => Color32::from_rgb(230, 126, 34),
+                                    1 => ui.visuals().warn_fg_color,
                                     2 => theme.accent_c32(),
-                                    _ => Color32::from_rgb(241, 196, 15),
+                                    _ => ui.visuals().warn_fg_color,
                                 };
 
                                 ui.painter().rect_filled(
@@ -680,7 +680,7 @@ pub fn draw_arrangement_view(
                                     changed = true;
                                 }
                                 let mute_bg = if track.mute {
-                                    Color32::from_rgb(220, 50, 50)
+                                    ui.visuals().error_fg_color
                                 } else {
                                     theme.bg_header_c32()
                                 };
@@ -691,7 +691,7 @@ pub fn draw_arrangement_view(
                                     egui::Align2::CENTER_CENTER,
                                     "M",
                                     egui::FontId::proportional(10.0),
-                                    Color32::WHITE,
+                                    ui.visuals().text_color(),
                                 );
 
                                 let solo_resp = ui.allocate_rect(solo_rect, egui::Sense::click());
@@ -712,9 +712,9 @@ pub fn draw_arrangement_view(
                                     "S",
                                     egui::FontId::proportional(10.0),
                                     if track.solo {
-                                        Color32::BLACK
+                                        ui.visuals().text_color()
                                     } else {
-                                        Color32::WHITE
+                                        ui.visuals().text_color()
                                     },
                                 );
 
@@ -735,7 +735,7 @@ pub fn draw_arrangement_view(
                                     ui.painter().rect_stroke(
                                         fx_rect,
                                         Rounding::same(3.0),
-                                        Stroke::new(1.0_f32, Color32::WHITE),
+                                        Stroke::new(1.0_f32, ui.visuals().text_color()),
                                     );
                                 }
                                 ui.painter().text(
@@ -744,7 +744,7 @@ pub fn draw_arrangement_view(
                                     "FX",
                                     egui::FontId::proportional(9.5),
                                     if has_fx {
-                                        Color32::BLACK
+                                        ui.visuals().text_color()
                                     } else {
                                         theme.text_primary_c32()
                                     },
@@ -762,13 +762,37 @@ pub fn draw_arrangement_view(
                                 ui.allocate_new_ui(
                                     egui::UiBuilder::new().max_rect(name_rect),
                                     |ui| {
-                                        let name_resp = ui.add(
-                                            egui::TextEdit::singleline(&mut track.name)
-                                                .desired_width(92.0)
-                                                .font(egui::FontId::proportional(11.0)),
-                                        );
-                                        if name_resp.changed() {
-                                            changed = true;
+                                        let edit_id = egui::Id::new(("arrangement_track_name", idx));
+                                        let editing = ui.memory(|memory| memory.data.get_temp::<bool>(edit_id).unwrap_or(false));
+                                        if editing {
+                                            let response = ui.add(
+                                                egui::TextEdit::singleline(&mut track.name)
+                                                    .desired_width(92.0)
+                                                    .font(egui::FontId::proportional(11.0)),
+                                            );
+                                            response.request_focus();
+                                            if response.changed() {
+                                                changed = true;
+                                            }
+                                            if response.lost_focus() || ui.input(|input| input.key_pressed(egui::Key::Enter)) {
+                                                ui.memory_mut(|memory| memory.data.insert_temp(edit_id, false));
+                                            }
+                                            if response.has_focus() == false && ui.input(|input| input.key_pressed(egui::Key::Escape)) {
+                                                ui.memory_mut(|memory| memory.data.insert_temp(edit_id, false));
+                                            }
+                                        } else {
+                                            let response = ui.add_sized(
+                                                [92.0, 18.0],
+                                                egui::Button::new(egui::RichText::new(&track.name)
+                                                    .size(11.0)
+                                                    .color(theme.text_primary_c32()))
+                                                    .frame(false),
+                                            );
+                                            let double_clicked = response.double_clicked();
+                                            response.on_hover_text(lang.tr("Duplo clique para renomear", "Double-click to rename"));
+                                            if double_clicked {
+                                                ui.memory_mut(|memory| memory.data.insert_temp(edit_id, true));
+                                            }
                                         }
                                     },
                                 );
@@ -1176,9 +1200,9 @@ pub fn draw_arrangement_view(
 
                                         let color_badge = match idx % 4 {
                                             0 => theme.note_fill_c32(),
-                                            1 => Color32::from_rgb(230, 126, 34),
+                                            1 => ui.visuals().warn_fg_color,
                                             2 => theme.accent_c32(),
-                                            _ => Color32::from_rgb(241, 196, 15),
+                                            _ => ui.visuals().warn_fg_color,
                                         };
 
                                         let mut part_to_remove: Option<usize> = None;
@@ -1258,7 +1282,7 @@ pub fn draw_arrangement_view(
                                                         egui::RichText::new(format!("{}: {}", lang.tr("Parte MIDI", "MIDI Part"), &part.name))
                                                             .strong()
                                                             .size(11.5)
-                                                            .color(Color32::from_rgb(0, 255, 157)),
+                                                            .color(ui.visuals().hyperlink_color),
                                                     );
                                                     ui.separator();
 
@@ -1308,7 +1332,7 @@ pub fn draw_arrangement_view(
 
                                                     if ui.button(
                                                         egui::RichText::new(lang.tr("Excluir Parte Vocal", "Delete Vocal Part"))
-                                                            .color(Color32::from_rgb(255, 100, 100)),
+                                                            .color(ui.visuals().error_fg_color),
                                                     ).clicked() {
                                                         part_to_remove = Some(p_idx);
                                                         ui.close_menu();
@@ -1316,14 +1340,14 @@ pub fn draw_arrangement_view(
                                                 });
 
                                                 let clip_bg = if is_active {
-                                                    Color32::from_rgb(10, 60, 40)
+                                                    ui.visuals().panel_fill
                                                 } else {
-                                                    Color32::from_rgb(20, 45, 35)
+                                                    ui.visuals().panel_fill
                                                 };
                                                 let clip_stroke = if is_active {
                                                     Stroke::new(
                                                         1.5_f32,
-                                                        Color32::from_rgb(0, 255, 157),
+                                                        ui.visuals().hyperlink_color,
                                                     )
                                                 } else {
                                                     Stroke::new(1.0_f32, color_badge)
@@ -1345,7 +1369,7 @@ pub fn draw_arrangement_view(
                                                     egui::Align2::LEFT_TOP,
                                                     &part.name,
                                                     egui::FontId::proportional(10.0),
-                                                    Color32::from_rgb(0, 255, 157),
+                                                    ui.visuals().hyperlink_color,
                                                 );
 
                                                 let (pitch_min, pitch_max) = track_pitch_bounds
@@ -1382,7 +1406,7 @@ pub fn draw_arrangement_view(
                                                         ui.painter().rect_filled(
                                                             note_rect,
                                                             Rounding::same(0.5),
-                                                            Color32::from_rgb(244, 246, 255),
+                                                            ui.visuals().text_color(),
                                                         );
                                                     }
                                                 }
@@ -1498,7 +1522,7 @@ pub fn draw_arrangement_view(
                                                         egui::RichText::new(format!("{}: {}", lang.tr("Áudio", "Audio"), &wave.name))
                                                             .strong()
                                                             .size(11.5)
-                                                            .color(Color32::from_rgb(120, 225, 255)),
+                                                            .color(ui.visuals().hyperlink_color),
                                                     );
                                                     ui.separator();
 
@@ -1583,7 +1607,7 @@ pub fn draw_arrangement_view(
 
                                                     if ui.button(
                                                         egui::RichText::new(lang.tr("Excluir Clipe de Áudio", "Delete Audio Clip"))
-                                                            .color(Color32::from_rgb(255, 100, 100)),
+                                                            .color(ui.visuals().error_fg_color),
                                                     ).clicked() {
                                                         wave_to_remove = Some(w_idx);
                                                         ui.close_menu();
@@ -1627,7 +1651,7 @@ pub fn draw_arrangement_view(
                                                             ],
                                                             Stroke::new(
                                                                 0.5_f32,
-                                                                Color32::from_rgba_unmultiplied(100, 210, 255, 70),
+                                                                ui.visuals().hyperlink_color.linear_multiply(70.0 / 255.0),
                                                             ),
                                                         );
                                                         let pixels = inner_w.ceil() as usize;
@@ -1653,7 +1677,7 @@ pub fn draw_arrangement_view(
                                                             if hi >= lo {
                                                                 ui.painter().line_segment(
                                                                     [Pos2::new(bx, center_y - hi * half_h), Pos2::new(bx, center_y - lo * half_h)],
-                                                                    Stroke::new(1.0_f32, Color32::from_rgb(44, 205, 255)),
+                                                                    Stroke::new(1.0_f32, ui.visuals().hyperlink_color),
                                                                 );
                                                             }
                                                         }
@@ -1672,7 +1696,7 @@ pub fn draw_arrangement_view(
                                                         &wave.name, mins, secs
                                                     ),
                                                     egui::FontId::proportional(10.0),
-                                                    Color32::from_rgb(120, 225, 255),
+                                                    ui.visuals().hyperlink_color,
                                                 );
                                             }
                                         }

@@ -2,7 +2,6 @@ use super::help_marker;
 use super::section_card;
 use super::KamafeuStudioApp;
 use eframe::egui;
-use eframe::egui::Color32;
 use eframe::egui::RichText;
 
 impl KamafeuStudioApp {
@@ -23,7 +22,7 @@ impl KamafeuStudioApp {
                 ui.label(lang.tr("Threads de Renderização:", "Render Threads:"));
                 let threads_val = self.config.dsp.render_threads;
                 if threads_val == 0 {
-                    ui.label(RichText::new(format!("{cpu_threads} {}", lang.tr("Automático (threads detectadas)", "Auto (threads detected)"))).strong().color(Color32::from_rgb(0, 255, 157)));
+                    ui.label(RichText::new(format!("{cpu_threads} {}", lang.tr("Automático (threads detectadas)", "Auto (threads detected)"))).strong().color(ui.visuals().hyperlink_color));
                 } else {
                     ui.label(format!("{threads_val} {}", lang.tr("threads dedicadas", "dedicated threads")));
                 }
@@ -380,12 +379,12 @@ impl KamafeuStudioApp {
             |ui| {
                 ui.horizontal(|ui| {
                     ui.label(lang.tr("Resampler Padrão:", "Default Resampler:"));
-                    ui.label(RichText::new(&self.selected_resampler).strong().color(Color32::from_rgb(216, 180, 254)));
+                    ui.label(RichText::new(&self.selected_resampler).strong().color(ui.visuals().hyperlink_color));
                     help_marker(
                         ui,
                         lang.tr(
-                            "Motor de alteração de altura tonal e estiramento temporal. O straycat-rs e o Native Hybrid TD-PSOLA oferecem alta fidelidade vocal.",
-                            "Pitch-shifting and time-stretching engine. straycat-rs and Native Hybrid TD-PSOLA provide high vocal fidelity.",
+                            "Motor de alteração de altura tonal e estiramento temporal. Tainah busca uma assinatura stretch nas sustentações vocálicas; a comparação auditiva com straycat-rs ainda está em andamento.",
+                            "Pitch-shifting and time-stretching engine. Tainah targets a stretch signature in sustained vowels; listening comparisons with straycat-rs are still pending.",
                         ),
                     );
                 });
@@ -394,7 +393,7 @@ impl KamafeuStudioApp {
                     ui.label(
                         RichText::new(&self.selected_wavtool)
                             .strong()
-                            .color(Color32::from_rgb(216, 180, 254)),
+                            .color(ui.visuals().hyperlink_color),
                     );
                     help_marker(
                         ui,

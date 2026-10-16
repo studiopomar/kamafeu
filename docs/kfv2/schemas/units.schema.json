@@ -1,0 +1,60 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://kamafeu.studiopomar.com/kfv2/schemas/units.schema.json",
+  "title": "KFV 2 Unit Layer",
+  "description": "Structural schema for a kamafeu.units layer. Asset references, phoneme IDs, frame bounds, and sustain/release ordering are cross-validated by the application.",
+  "type": "object",
+  "required": ["format", "schema_version", "layer_id", "assets", "units"],
+  "properties": {
+    "format": { "const": "kamafeu.units" },
+    "schema_version": { "type": "string", "pattern": "^1\\.[0-9]+\\.[0-9]+$" },
+    "layer_id": { "$ref": "#/$defs/id" },
+    "assets": { "type": "array", "items": { "$ref": "#/$defs/asset" } },
+    "units": { "type": "array", "items": { "$ref": "#/$defs/unit" } }
+  },
+  "$defs": {
+    "id": { "type": "string", "minLength": 1, "maxLength": 200 },
+    "relativePath": { "type": "string", "minLength": 1 },
+    "asset": {
+      "type": "object", "required": ["id", "path", "sample_rate_hz", "channels", "frame_count"],
+      "properties": { "id": { "$ref": "#/$defs/id" }, "path": { "$ref": "#/$defs/relativePath" }, "sample_rate_hz": { "type": "integer", "minimum": 1, "maximum": 4294967295 }, "channels": { "const": 1 }, "frame_count": { "type": "integer", "minimum": 1, "maximum": 18446744073709551615 } }
+    },
+    "context": {
+      "type": "object", "required": ["type"],
+      "properties": { "type": { "enum": ["boundary", "any", "phone"] }, "phone": { "anyOf": [{ "$ref": "#/$defs/id" }, { "type": "null" }] } }
+    },
+    "frameRange": { "type": "object", "required": ["start_frame", "end_frame"], "properties": { "start_frame": { "type": "integer", "minimum": 0, "maximum": 18446744073709551615 }, "end_frame": { "type": "integer", "minimum": 0, "maximum": 18446744073709551615 } } },
+    "source": {
+      "type": "object", "required": ["start_frame", "end_frame", "anchor_frame", "fixed_end_frame"],
+      "properties": {
+        "start_frame": { "type": "integer", "minimum": 0, "maximum": 18446744073709551615 },
+        "end_frame": { "type": "integer", "minimum": 0, "maximum": 18446744073709551615 },
+        "anchor_frame": { "type": "integer", "minimum": 0, "maximum": 18446744073709551615 },
+        "fixed_end_frame": { "type": "integer", "minimum": 0, "maximum": 18446744073709551615 },
+        "sustain": { "anyOf": [{ "$ref": "#/$defs/frameRange" }, { "type": "null" }] },
+        "release_start_frame": { "anyOf": [{ "type": "integer", "minimum": 0, "maximum": 18446744073709551615 }, { "type": "null" }] }
+      }
+    },
+    "timing": {
+      "type": "object", "required": ["min_target_ms", "preferred_crossfade_ms", "max_crossfade_ms"],
+      "properties": { "min_target_ms": { "type": "number", "exclusiveMinimum": 0 }, "preferred_crossfade_ms": { "type": "number", "minimum": 0 }, "max_crossfade_ms": { "type": "number", "minimum": 0 } }
+    },
+    "render": {
+      "type": "object", "required": ["sustain_mode"],
+      "properties": { "sustain_mode": { "enum": ["finite", "loop", "stretch"] }, "gain_db": { "type": "number" }, "formant_shift_cents": { "type": "number" } }
+    },
+    "quality": { "type": "object", "properties": { "reviewed": { "type": "boolean" }, "priority": { "type": "integer", "minimum": -2147483648, "maximum": 2147483647 } } },
+    "unit": {
+      "type": "object", "required": ["id", "asset_id", "kind", "phones", "left_context", "right_context", "source", "timing"],
+      "properties": {
+        "id": { "$ref": "#/$defs/id" }, "asset_id": { "$ref": "#/$defs/id" },
+        "kind": { "enum": ["CV", "VC", "V", "VV", "CC", "breath", "release"] },
+        "phones": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/id" } },
+        "left_context": { "$ref": "#/$defs/context" }, "right_context": { "$ref": "#/$defs/context" },
+        "legacy_aliases": { "type": "array", "items": { "type": "string" } },
+        "source": { "$ref": "#/$defs/source" }, "timing": { "$ref": "#/$defs/timing" },
+        "render": { "$ref": "#/$defs/render" }, "quality": { "$ref": "#/$defs/quality" }
+      }
+    }
+  }
+}
