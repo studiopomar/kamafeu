@@ -1,0 +1,171 @@
+{
+  "format": "kamafeu-theme",
+  "version": 1,
+  "name": "Tema personalizado",
+  "theme": {
+    "accent_color": [
+      217,
+      135,
+      121
+    ],
+    "bg_canvas": [
+      32,
+      30,
+      34
+    ],
+    "bg_header": [
+      54,
+      48,
+      54
+    ],
+    "bg_keyboard_black": [
+      34,
+      30,
+      34
+    ],
+    "bg_keyboard_white": [
+      231,
+      224,
+      220
+    ],
+    "bg_panel": [
+      42,
+      39,
+      44
+    ],
+    "bg_row_black_key": [
+      27,
+      25,
+      29
+    ],
+    "bg_row_white_key": [
+      38,
+      35,
+      40
+    ],
+    "grid_line_bar": [
+      82,
+      72,
+      80
+    ],
+    "grid_line_sub": [
+      56,
+      50,
+      57
+    ],
+    "note_corner_radius": 5.0,
+    "note_fill": [
+      145,
+      104,
+      127
+    ],
+    "note_hover": [
+      168,
+      119,
+      139
+    ],
+    "note_opacity": 0.7799999713897705,
+    "note_selected_fill": [
+      186,
+      111,
+      116
+    ],
+    "note_selected_stroke": [
+      242,
+      218,
+      212
+    ],
+    "note_stroke": [
+      183,
+      132,
+      154
+    ],
+    "note_stroke_width": 1.2000000476837158,
+    "note_waveform_color": [
+      230,
+      211,
+      208
+    ],
+    "note_waveform_opacity": 0.30000001192092896,
+    "panel_opacity": 1.0,
+    "pitch_anchor_color": [
+      232,
+      186,
+      151
+    ],
+    "pitch_curve_color": [
+      211,
+      174,
+      205
+    ],
+    "playhead_color": [
+      231,
+      178,
+      125
+    ],
+    "preset": "CalafateEditorial",
+    "semantic": {
+      "danger": [
+        207,
+        112,
+        117
+      ],
+      "info": [
+        127,
+        163,
+        184
+      ],
+      "loop_region": [
+        151,
+        119,
+        170
+      ],
+      "marker": [
+        190,
+        150,
+        181
+      ],
+      "meter": [
+        126,
+        171,
+        137
+      ],
+      "success": [
+        126,
+        171,
+        137
+      ],
+      "warning": [
+        220,
+        164,
+        95
+      ],
+      "waveform": [
+        217,
+        135,
+        121
+      ],
+      "waveform_grid": [
+        151,
+        130,
+        139
+      ]
+    },
+    "text_muted": [
+      180,
+      166,
+      170
+    ],
+    "text_note_tag": [
+      250,
+      239,
+      234
+    ],
+    "text_primary": [
+      240,
+      232,
+      229
+    ],
+    "ui_corner_radius": 5.0
+  }
+}
