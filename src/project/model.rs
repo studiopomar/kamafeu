@@ -252,7 +252,7 @@ impl Default for UExpressions {
 pub struct UPhonemeOverride {
     pub index: usize,
     /// Stable KFV 2 selection overrides. These are not aliases and do not
-    /// affect classic OTO resolution.
+    /// affect classic oto.ini resolution.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub native_unit_id: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]

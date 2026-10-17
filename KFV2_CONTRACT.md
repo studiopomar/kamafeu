@@ -9,8 +9,8 @@ The current implementation introduces Rust models and structural validation
 for the manifest, phonetic profiles, assets, and unit regions. The
 `VoicebankHandle` facade can validate/open a KFV 2 directory or `.kfv` package;
 the classic `Voicebank::new` entrypoint deliberately rejects KFV 2 because it
-still returns the OTO-shaped legacy model. Existing OTO and Copaíba JSON banks
-continue through their current path.
+still returns the legacy model for classic `oto.ini` voicebanks. Existing
+`oto.ini` and Copaíba JSON banks continue through their current path.
 
 The native planner selects a deterministic, context-eligible unit, honors
 explicit unit/layer overrides, records the decision and anchor timing, and
@@ -50,7 +50,7 @@ planner/profile/style IDs, and an optional path hint). Per-phoneme unit and
 layer override IDs also roundtrip in APS. The singer gallery can bind an
 installed native bank to the active track, and the normal project renderer now
 routes audible native tracks through their binding while classic tracks keep
-the OTO renderer. Native tracks use direct phone sequences and the experimental
+the classic voicebank renderer. Native tracks use direct phone sequences and the experimental
 SOLA prototype before project gain, pan, effects, wave parts, and range mixing.
 Playback and export call that project renderer. This remains a preview path,
 not a validated product backend; one- or two-phone notes map to a single KFV 2
@@ -67,8 +67,8 @@ The package module can inspect a root manifest without inflating WAV entries
 and can install a package by validating it in a sibling staging directory and
 renaming that directory into place. The singer gallery now lists valid KFV 2
 manifest metadata and can install `.kfv` packages into a chosen parent folder.
-KFV 2 entries use a native gallery action and are not passed to the classic
-OTO loader. The active track stores stable bank identity plus an optional local
+KFV 2 entries use a native gallery action and are not passed to the legacy
+oto.ini voicebank loader. The active track stores stable bank identity plus an optional local
 path hint; rendering reopens and verifies that binding.
 
 Native project phrase renders use a bounded in-memory cache keyed by the
@@ -99,8 +99,9 @@ The structural preview currently supports `kamafeu.voicebank` 2.x,
 must not be inferred from these parsers alone. Audio metadata is checked
 against the declared WAV metadata when a bank is opened.
 
-The library provides a copy-only assisted migration from classic OTO entries
-to a new KFV 2 directory. It rereads root and subbank OTO lines, retains
+The library provides a copy-only assisted migration from entries in classic
+`oto.ini` voicebanks to a new KFV 2 directory. It rereads root and subbank
+`oto.ini` lines, retains
 duplicate aliases as separate candidates, and flags collisions in its
 per-entry inference and loss report. It skips ambiguous mappings or invalid
 source regions, validates a sibling staging
@@ -124,9 +125,9 @@ The built-in resampler drivers have stable IDs `kamafeu.sola` and
 the selected driver ID, effective backend stages, fallback reasons, adjustments
 and wavtool ID. Cache entries carry the same execution metadata in memory and in
 a persistent JSON sidecar; cached WAV data without matching metadata is
-discarded. The classic WORLD route can use SOLA or pitch-preserving resize
-under its recovery conditions. KFV 2's explicit SOLA prototype never falls
-back to WORLD. A product reference backend remains undecided until the
+discarded. Tainah's WORLD route reports analysis, synthesis, and coverage
+failures as errors; it does not switch to SOLA or pitch-preserving resize.
+KFV 2's explicit SOLA prototype never falls back to WORLD. A product reference backend remains undecided until the
 recording A/B spike is complete; see the [engine audit](docs/kfv2/engine-audit.md).
 
 ## Validation

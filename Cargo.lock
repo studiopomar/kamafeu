@@ -2081,6 +2081,7 @@ dependencies = [
  "hound",
  "image",
  "js-sys",
+ "libloading",
  "log",
  "midly",
  "muda",
@@ -2104,7 +2105,6 @@ dependencies = [
  "web-sys",
  "web-time",
  "winit",
- "world-rs",
  "yaml_serde",
  "zip",
 ]
@@ -3279,15 +3279,6 @@ name = "rctree"
 version = "0.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3b42e27ef78c35d3998403c1d26f3efd9e135d3e5121b0a4845cc5cc27547f4f"
-
-[[package]]
-name = "realfft"
-version = "3.5.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "f821338fddb99d089116342c46e9f1fbf3828dba077674613e734e01d6ea8677"
-dependencies = [
- "rustfft",
-]
 
 [[package]]
 name = "redox_syscall"
@@ -5206,17 +5197,6 @@ name = "wit-bindgen"
 version = "0.57.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "1ebf944e87a7c253233ad6766e082e3cd714b5d03812acc24c318f549614536e"
-
-[[package]]
-name = "world-rs"
-version = "0.1.0"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "294e6fd4bc49ee58bfa2f290a3bdf9f2214430708507ce083073f1b665adba0e"
-dependencies = [
- "num-complex",
- "realfft",
- "rustfft",
-]
 
 [[package]]
 name = "writeable"

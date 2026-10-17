@@ -709,7 +709,7 @@ impl ProjectRenderer {
                 ));
             }
 
-            // Keep the established OTO renderer responsible for classic tracks,
+            // Keep the established classic voicebank renderer responsible for these tracks,
             // while muting native tracks in this clone so their notes cannot be
             // phonemized or rendered through a classic voicebank by accident.
             let mut classic_project = project.clone();
@@ -1882,6 +1882,37 @@ mod tests {
             assert_eq!(chunks[i].chunk_index, i);
         }
         assert_eq!(chunks[0].chunk_index, 0);
+
+        // Starting playback from a non-zero playhead must keep chunk timing
+        // anchored to the requested project position and trim the final
+        // partial chunk to the project end.
+        let (offset_tx, offset_rx) = std::sync::mpsc::sync_channel(4);
+        ProjectRenderer::render_project_progressive(
+            &project,
+            &vb,
+            44100,
+            500.0,
+            3000.0,
+            1000.0,
+            &crate::drivers::NativeResamplerDriver,
+            &crate::drivers::NativeWavtoolDriver,
+            &options,
+            None,
+            None,
+            &offset_tx,
+        );
+        let offset_chunks: Vec<_> = offset_rx.try_iter().collect();
+        assert_eq!(
+            offset_chunks
+                .iter()
+                .map(|chunk| chunk.chunk_start_ms)
+                .collect::<Vec<_>>(),
+            vec![500.0, 1500.0, 2500.0]
+        );
+        assert_eq!(offset_chunks[0].audio.frame_count(), 44_100);
+        assert_eq!(offset_chunks[1].audio.frame_count(), 44_100);
+        assert_eq!(offset_chunks[2].audio.frame_count(), 22_050);
+        assert!(offset_chunks[2].is_final);
     }
 
     #[test]

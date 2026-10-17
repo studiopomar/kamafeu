@@ -56,9 +56,18 @@ O executável é construído sobre crates publicados no crates.io. As
 dependências diretas usadas nesta versão incluem `clap`, `encoding_rs`,
 `eframe`, `egui`, `flacenc`, `hound`, `image`, `midly`, `ndarray`, `rand`,
 `rayon`, `rodio`, `rustfft`, `serde`, `serde_json`, `ureq`, `wasmi`, `winit`,
-`world-rs`, `yaml_serde`, `zip` e as crates específicas de Android, macOS e
+`libloading`, `yaml_serde`, `zip` e as crates específicas de Android, macOS e
 Web declaradas em `Cargo.toml`. As dependências transitivas são fixadas por
 `Cargo.lock` e mantêm os avisos de licença publicados por cada crate.
+
+## Tainah / lessampler-ng
+
+O Tainah desktop carrega uma biblioteca compartilhada derivada de
+`dorayakito/lessampler-ng`, licenciada sob LGPL-3.0. O código fonte do
+adaptador ABI fica em `native/tainah/` e o restante do código lessampler-ng
+pode ser obtido na revisão indicada em `native/tainah/build.py`. Os pacotes
+incluem `lessampler-ng-LGPL-3.0.txt` junto da biblioteca. Modificações nessa
+biblioteca permanecem sob LGPL-3.0; a licença MIT do aplicativo não as altera.
 
 Para uma distribuição jurídica completa, gere o inventário de licenças a
 partir do `Cargo.lock` com uma ferramenta como `cargo-about` e inclua o

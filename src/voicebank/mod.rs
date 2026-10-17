@@ -1,4 +1,4 @@
-//! Versioned voicebank contracts. The classic OTO loader remains in `crate::oto`.
+//! Versioned voicebank contracts. The classic loader for oto.ini banks remains in `crate::oto`.
 pub mod migration;
 pub mod native;
 pub mod package;
@@ -17,7 +17,7 @@ pub enum VoicebankHandle {
 impl VoicebankHandle {
     /// Format-aware facade. Native manifests are fully validated before the
     /// caller receives a KFV 2 handle; classic folders and legacy packages
-    /// keep using the existing OTO/Copaíba loader.
+    /// keep using the existing loader for oto.ini banks and Copaíba.
     pub fn open(path: impl AsRef<Path>) -> Result<Self, String> {
         let path = path.as_ref();
         match native::NativeBank::load_path(path) {

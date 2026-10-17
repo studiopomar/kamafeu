@@ -3,16 +3,15 @@ use crate::audio::ProgressivePlaybackHandle;
 use crate::gui::piano_roll::PianoRollState;
 use crate::gui::KamafeuStudioApp;
 use crate::oto::Voicebank;
-use crate::renderer::ProjectRenderer;
 #[cfg(not(target_arch = "wasm32"))]
-use crate::renderer::{ProgressiveChunk, RenderedAudio};
+use crate::renderer::ProgressiveChunk;
+use crate::renderer::ProjectRenderer;
 use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
 use web_time::Instant;
 
-#[cfg(test)]
 fn progressive_chunk_ms(lookahead_ms: f32, render_chunk_bars: u32, bpm: f64) -> f64 {
     let bpm = bpm.clamp(20.0, 600.0);
     let bars_ms = f64::from(render_chunk_bars.clamp(1, 16)) * 4.0 * 60_000.0 / bpm;
@@ -27,14 +26,13 @@ fn progressive_chunk_ms(lookahead_ms: f32, render_chunk_bars: u32, bpm: f64) -> 
         .clamp(500.0, 10_000.0)
 }
 
-pub(super) fn progressive_startup_ready(buffered_chunks: usize, current_is_final: bool) -> bool {
-    // Start as soon as a valid block exists. Waiting for a second block makes
-    // short/newly-created notes look frozen while the next page is still
-    // being rendered (and is especially visible with external resamplers).
-    // The scheduler already handles waiting between chunks, so the first
-    // block is enough to make the transport responsive without sacrificing
-    // progressive rendering.
-    buffered_chunks >= 1 || current_is_final
+const PROGRESSIVE_STARTUP_BUFFER_MS: f64 = 3_000.0;
+
+pub(super) fn progressive_startup_ready(buffered_ms: f64, current_is_final: bool) -> bool {
+    // A single page can be consumed before the next page finishes, especially
+    // when external resamplers are busy. Prime three seconds of contiguous
+    // audio before opening the sink to avoid starting playback on a thin runway.
+    buffered_ms >= PROGRESSIVE_STARTUP_BUFFER_MS || current_is_final
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -54,7 +52,10 @@ fn spawn_progressive_audio_bridge(
             for mut chunk in audio_rx {
                 let _ = ui_tx.send(chunk.clone());
                 if chunk.audio.error.is_some() {
-                    continue;
+                    // A failed render leaves a hole in the indexed timeline.
+                    // Stop this generation so a later chunk cannot be sent as
+                    // Start or Append with no accepted initial format.
+                    break;
                 }
                 let final_chunk = chunk.is_final;
                 final_chunk_received |= final_chunk;
@@ -79,7 +80,11 @@ fn spawn_progressive_audio_bridge(
                         chunk.audio.channels,
                         final_chunk,
                     ));
-                    if !progressive_startup_ready(startup.len(), final_chunk) {
+                    let buffered_ms = startup
+                        .iter()
+                        .map(|(_, start_ms, end_ms, _, _, _, _)| (end_ms - start_ms).max(0.0))
+                        .sum();
+                    if !progressive_startup_ready(buffered_ms, final_chunk) {
                         continue;
                     }
                     let mut queued = startup.drain(..);
@@ -359,8 +364,10 @@ impl KamafeuStudioApp {
 
         self.render_log_window_open = false;
         self.render_progress = 0.0;
-        let (progress_tx, progress_rx) = std::sync::mpsc::channel();
-        self.render_progress_rx = Some(progress_rx);
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            self.render_progress_rx = None;
+        }
         self.render_progress_event = Some(crate::renderer::RenderProgressEvent::stage(
             crate::renderer::RenderStage::Preparing,
         ));
@@ -376,8 +383,6 @@ impl KamafeuStudioApp {
             cancel.store(true, Ordering::Relaxed);
         }
         self.preview_waveform_rx = None;
-        let (audio_tx, audio_rx) = std::sync::mpsc::channel();
-        self.direct_playback_rx = Some(audio_rx);
         self.direct_playback_active = false;
         let cancel = Arc::new(AtomicBool::new(false));
         self.render_cancel = Some(cancel.clone());
@@ -392,54 +397,70 @@ impl KamafeuStudioApp {
         self.playback_chunk_buffer.reset(playhead_ms);
         let log_tx = Arc::new(std::sync::Mutex::new(log_tx));
         let log_tx_cb = log_tx.clone();
-        let progress_tx_cb = progress_tx.clone();
         #[cfg(not(target_arch = "wasm32"))]
-        std::thread::spawn(move || {
-            let report_progress = move |progress, message: &str| {
-                if let Ok(guard) = log_tx_cb.lock() {
-                    let _ = guard.send((progress, message.to_string()));
-                }
-            };
-            let report_render_progress = move |event| {
-                let _ = progress_tx_cb.send(event);
-            };
-
-            let render = || {
-                let rendered =
-                    ProjectRenderer::render_project_range_with_progress_events_cancellable(
+        {
+            let (audio_tx, audio_rx) = std::sync::mpsc::sync_channel(16);
+            let (ui_tx, ui_rx) = std::sync::mpsc::channel();
+            self.render_rx = Some(ui_rx);
+            self.direct_playback_rx = None;
+            let chunk_ms = progressive_chunk_ms(
+                self.config.dsp.render_lookahead_ms,
+                self.config.dsp.render_chunk_bars,
+                project.bpm,
+            );
+            self.audio_player.begin_progressive_generation();
+            spawn_progressive_audio_bridge(
+                audio_rx,
+                ui_tx,
+                self.audio_player.progressive_handle(),
+                self.transport_state.metronome_enabled,
+                project.bpm,
+            );
+            std::thread::spawn(move || {
+                let report_progress = move |progress, message: &str| {
+                    if let Ok(guard) = log_tx_cb.lock() {
+                        let _ = guard.send((progress, message.to_string()));
+                    }
+                };
+                let render = || {
+                    ProjectRenderer::render_project_progressive(
                         &project,
                         &active_vb,
                         sample_rate,
                         playhead_ms,
-                        Some(render_end_ms),
+                        render_end_ms,
+                        chunk_ms,
                         resampler_driver.as_ref(),
                         wavtool_driver.as_ref(),
                         &vocal_mode_params,
                         Some(&report_progress),
-                        Some(&report_render_progress),
                         Some(cancel.as_ref()),
+                        &audio_tx,
                     );
-                let _ = audio_tx.send(rendered);
-            };
-            // A panic in a native/ONNX resampler used to only disconnect the
-            // channel, making Play appear to cancel without any explanation.
-            // Keep the worker failure visible to the transport instead.
-            let worker = std::panic::AssertUnwindSafe(|| {
-                match crate::renderer::worker_pool::get(render_threads) {
-                    Ok(pool) => pool.install(render),
-                    Err(_) => render(),
+                };
+                let worker =
+                    std::panic::AssertUnwindSafe(|| {
+                        match crate::renderer::worker_pool::get(render_threads) {
+                            Ok(pool) => pool.install(render),
+                            Err(_) => render(),
+                        }
+                    });
+                if std::panic::catch_unwind(worker).is_err() {
+                    crate::terminal_log::error(
+                        "Render",
+                        "O worker do Catalina encerrou com panic durante a renderização progressiva",
+                    );
                 }
             });
-            if std::panic::catch_unwind(worker).is_err() {
-                let _ = audio_tx.send(RenderedAudio::failed(
-                    sample_rate,
-                    "O worker do Catalina encerrou com panic durante a renderização".to_string(),
-                ));
-            }
-        });
+        }
 
         #[cfg(target_arch = "wasm32")]
         {
+            let (progress_tx, progress_rx) = std::sync::mpsc::channel();
+            self.render_progress_rx = Some(progress_rx);
+            let progress_tx_cb = progress_tx.clone();
+            let (audio_tx, audio_rx) = std::sync::mpsc::channel();
+            self.direct_playback_rx = Some(audio_rx);
             let report_progress = move |progress, message: &str| {
                 if let Ok(guard) = log_tx_cb.lock() {
                     let _ = guard.send((progress, message.to_string()));
@@ -468,6 +489,10 @@ impl KamafeuStudioApp {
 
     pub fn pause_audio(&mut self) {
         let was_rendering = self.direct_playback_rx.is_some() || self.render_rx.is_some();
+        if self.progressive_playback_started && !self.direct_playback_active {
+            self.piano_roll_state.playhead_ms = self.playback_start_offset_ms
+                + self.audio_player.scheduler_position_ms();
+        }
         if let Some(cancel) = self.render_cancel.take() {
             cancel.store(true, Ordering::Relaxed);
         }
@@ -714,6 +739,45 @@ impl KamafeuStudioApp {
 mod tests {
     use super::{progressive_chunk_ms, progressive_startup_ready};
 
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn failed_progressive_chunk_stops_the_generation() {
+        use super::spawn_progressive_audio_bridge;
+        use crate::renderer::{ProgressiveChunk, RenderedAudio};
+        let (audio_tx, audio_rx) = std::sync::mpsc::channel();
+        let (ui_tx, ui_rx) = std::sync::mpsc::channel();
+        spawn_progressive_audio_bridge(audio_rx, ui_tx, None, false, 120.0);
+        audio_tx
+            .send(ProgressiveChunk {
+                audio: RenderedAudio::failed(48_000, "WORLD failed".into()),
+                chunk_start_ms: 0.0,
+                chunk_index: 0,
+                is_final: true,
+            })
+            .unwrap();
+        let _ = audio_tx.send(ProgressiveChunk {
+            audio: RenderedAudio {
+                samples: vec![0.1; 96_000],
+                sample_rate: 48_000,
+                channels: 2,
+                error: None,
+            },
+            chunk_start_ms: 1000.0,
+            chunk_index: 1,
+            is_final: true,
+        });
+        drop(audio_tx);
+        assert!(ui_rx
+            .recv_timeout(std::time::Duration::from_secs(2))
+            .unwrap()
+            .audio
+            .error
+            .is_some());
+        assert!(ui_rx
+            .recv_timeout(std::time::Duration::from_millis(100))
+            .is_err());
+    }
+
     #[test]
     fn progressive_chunk_respects_lookahead_and_musical_bar_limit() {
         assert_eq!(progressive_chunk_ms(2_000.0, 4, 120.0), 2_000.0);
@@ -722,9 +786,9 @@ mod tests {
     }
 
     #[test]
-    fn progressive_playback_waits_for_runway_but_not_after_final_chunk() {
-        assert!(progressive_startup_ready(1, false));
-        assert!(progressive_startup_ready(2, false));
-        assert!(progressive_startup_ready(1, true));
+    fn progressive_playback_primes_three_seconds_but_starts_short_final_projects() {
+        assert!(!progressive_startup_ready(2_000.0, false));
+        assert!(progressive_startup_ready(3_000.0, false));
+        assert!(progressive_startup_ready(1_000.0, true));
     }
 }

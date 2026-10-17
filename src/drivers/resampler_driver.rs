@@ -508,7 +508,13 @@ pub fn is_native_world_resampler_label(label: &str) -> bool {
     let normalized = label.trim().to_ascii_lowercase();
     matches!(
         normalized.as_str(),
-        "tainah" | "world" | "world-rs" | "world (nativo)" | "world (native)"
+        "tainah"
+            | "world"
+            | "world-rs"
+            | "kamafeu.world-rs"
+            | "kamafeu.lessampler-tainah"
+            | "world (nativo)"
+            | "world (native)"
     ) || normalized.contains("venus")
 }
 
@@ -525,13 +531,13 @@ impl ResamplerDriver for NativeWorldResamplerDriver {
         TAINAH_RESAMPLER_LABEL
     }
     fn engine_id(&self) -> &'static str {
-        "kamafeu.world-rs"
+        "kamafeu.lessampler-tainah"
     }
     fn cache_identity(&self) -> String {
-        format!(
-            "kamafeu.world-rs:tainah-v11-oto-sustain-time-map-flags-g-t-B-H:{}",
-            crate::dsp::world_resampler::cache_identity()
-        )
+        #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
+        { super::tainah_ffi::cache_identity() }
+        #[cfg(any(target_os = "android", target_arch = "wasm32"))]
+        { "lessampler-tainah:unsupported-platform".to_string() }
     }
     fn render_sample(
         &self,
@@ -543,7 +549,6 @@ impl ResamplerDriver for NativeWorldResamplerDriver {
         self.render_sample_with_execution(raw_samples, sample_rate, args, cancel)
             .map(|output| output.samples)
     }
-
     fn render_sample_with_execution(
         &self,
         raw_samples: &[f32],
@@ -551,96 +556,25 @@ impl ResamplerDriver for NativeWorldResamplerDriver {
         args: &ResamplerArgs,
         cancel: Option<&AtomicBool>,
     ) -> Result<ResamplerRenderOutput, String> {
-        if cancel.is_some_and(|flag| flag.load(std::sync::atomic::Ordering::Relaxed)) {
-            return Err("Renderização cancelada".to_string());
+        #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
+        {
+            let samples = super::tainah_ffi::render(raw_samples, sample_rate, args, cancel)
+                .map_err(|reason| format!("Tainah WORLD render failed: {reason}"))?;
+            let expected_len = ((args.duration_ms.max(0.0) / 1_000.0) * sample_rate as f64).round() as usize;
+            if !has_render_coverage(&samples, expected_len, sample_rate) {
+                return Err("Tainah WORLD render failed: output failed coverage validation".into());
+            }
+            Ok(ResamplerRenderOutput {
+                samples,
+                execution: ResamplerExecutionInfo {
+                    effective_backend_id: self.engine_id().to_string(),
+                    stages: vec![self.engine_id().to_string()],
+                    ..Default::default()
+                },
+            })
         }
-        let world = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
-            crate::dsp::world_resampler::WorldResampler::render_sample_with_oto_traced_flags(
-                raw_samples,
-                sample_rate,
-                args.offset_ms,
-                args.source_consonant_ms,
-                args.consonant_ms,
-                args.duration_ms,
-                args.pitch_freq,
-                &args.pitch_points,
-                args.cutoff_ms,
-                args.loop_start_ms,
-                args.loop_end_ms,
-                args.tail_start_ms,
-                &args.flags,
-            )
-        }));
-        let expected_len =
-            ((args.duration_ms.max(0.0) / 1_000.0) * sample_rate as f64).round() as usize;
-        let execution;
-        let rendered = match world {
-            Ok(output) if has_render_coverage(&output.samples, expected_len, sample_rate) => {
-                execution = ResamplerExecutionInfo {
-                    effective_backend_id: output.trace.effective_backend_id(),
-                    stages: output.trace.stages,
-                    fallback_reasons: output.trace.fallback_reasons,
-                    adjustments: output.trace.adjustments,
-                };
-                output.samples
-            }
-            Ok(output) => {
-                let attempted_path = output.trace.effective_backend_id();
-                let mut fallback_reasons = output.trace.fallback_reasons;
-                fallback_reasons.push(format!(
-                    "WORLD driver coverage guard rejected attempted path {attempted_path}"
-                ));
-                execution = ResamplerExecutionInfo {
-                    effective_backend_id: "kamafeu.sola".into(),
-                    stages: vec!["kamafeu.sola".into()],
-                    fallback_reasons,
-                    adjustments: Vec::new(),
-                };
-                crate::dsp::SolaResampler::render_sample(
-                    raw_samples,
-                    sample_rate,
-                    args.offset_ms,
-                    args.source_consonant_ms,
-                    args.consonant_ms,
-                    args.cutoff_ms,
-                    args.duration_ms,
-                    args.pitch_freq,
-                    &args.pitch_points,
-                    args.loop_start_ms,
-                    args.loop_end_ms,
-                    args.tail_start_ms,
-                )
-            }
-            Err(_) => {
-                execution = ResamplerExecutionInfo {
-                    effective_backend_id: "kamafeu.sola".into(),
-                    stages: vec!["kamafeu.sola".into()],
-                    fallback_reasons: vec!["WORLD driver panicked".into()],
-                    adjustments: Vec::new(),
-                };
-                crate::dsp::SolaResampler::render_sample(
-                    raw_samples,
-                    sample_rate,
-                    args.offset_ms,
-                    args.source_consonant_ms,
-                    args.consonant_ms,
-                    args.cutoff_ms,
-                    args.duration_ms,
-                    args.pitch_freq,
-                    &args.pitch_points,
-                    args.loop_start_ms,
-                    args.loop_end_ms,
-                    args.tail_start_ms,
-                )
-            }
-        };
-        if cancel.is_some_and(|flag| flag.load(std::sync::atomic::Ordering::Relaxed)) {
-            return Err("Renderização cancelada".to_string());
-        }
-        Ok(ResamplerRenderOutput {
-            samples: rendered,
-            execution,
-        })
+        #[cfg(any(target_os = "android", target_arch = "wasm32"))]
+        { let _ = (raw_samples, sample_rate, args, cancel); Err("Tainah WORLD library is unavailable on this platform".into()) }
     }
 }
 
@@ -1256,6 +1190,7 @@ mod tests {
     fn tainah_display_name_and_legacy_world_names_keep_the_native_route() {
         for label in [
             "Tainah",
+            "kamafeu.world-rs",
             "WORLD (Nativo)",
             "WORLD (Native)",
             "WORLD",
@@ -1273,7 +1208,7 @@ mod tests {
             "straycat-rs (UtaUtaUtau)"
         );
         assert_eq!(NativeWorldResamplerDriver.name(), "Tainah");
-        assert_eq!(NativeWorldResamplerDriver.engine_id(), "kamafeu.world-rs");
+        assert_eq!(NativeWorldResamplerDriver.engine_id(), "kamafeu.lessampler-tainah");
     }
 
     #[test]
@@ -1314,18 +1249,80 @@ mod tests {
     }
 
     #[test]
-    fn world_driver_reports_the_effective_sola_coverage_fallback() {
+    fn world_driver_rejects_silent_input_without_fallback() {
         let driver = NativeWorldResamplerDriver;
-        let output = driver
+        let error = driver
             .render_sample_with_execution(&vec![0.0; 44_100], 44_100, &sample_args(), None)
-            .expect("WORLD recovery output");
-        assert_eq!(output.execution.effective_backend_id, "kamafeu.sola");
+            .expect_err("silent input must not yield a plausible render");
+        assert!(error.contains("Tainah WORLD render failed"));
+        assert!(!error.to_ascii_lowercase().contains("sola"));
+    }
+
+    #[test]
+    fn world_driver_rejects_invalid_input_and_zero_coverage_without_fallback() {
+        let driver = NativeWorldResamplerDriver;
+        let error = driver
+            .render_sample_with_execution(&[], 44_100, &sample_args(), None)
+            .expect_err("empty input must fail WORLD analysis");
+        assert!(error.contains("Tainah WORLD render failed"), "{error}");
+
+        let mut args = sample_args();
+        args.duration_ms = 0.0;
+        let input = (0..44_100)
+            .map(|index| {
+                (std::f64::consts::TAU * 220.0 * index as f64 / 44_100.0).sin() as f32 * 0.25
+            })
+            .collect::<Vec<_>>();
+        let error = driver
+            .render_sample_with_execution(&input, 44_100, &args, None)
+            .expect_err("zero requested duration cannot pass WORLD coverage");
+        assert!(error.contains("Tainah WORLD render failed"), "{error}");
+        assert!(!error.to_ascii_lowercase().contains("sola"));
+    }
+
+    #[test]
+    fn world_driver_success_reports_only_world_stages() {
+        let driver = NativeWorldResamplerDriver;
+        let input = (0..44_100)
+            .map(|index| {
+                (std::f64::consts::TAU * 220.0 * index as f64 / 44_100.0).sin() as f32 * 0.25
+            })
+            .collect::<Vec<_>>();
+        let output = driver
+            .render_sample_with_execution(&input, 44_100, &sample_args(), None)
+            .expect("WORLD should synthesize a voiced tone");
+        assert_eq!(output.samples.len(), 22_050);
+        assert!(output.samples.iter().all(|sample| sample.is_finite()));
+        assert!(output.samples.iter().any(|sample| sample.abs() > 1e-5));
         assert!(output
             .execution
-            .fallback_reasons
+            .stages
             .iter()
-            .any(|reason| reason.contains("coverage guard")));
-        assert_eq!(output.samples.len(), 22_050);
+            .all(|stage| stage.contains("lessampler-tainah")));
+    }
+
+    #[test]
+    fn world_driver_accepts_short_voiced_phoneme_input() {
+        let driver = NativeWorldResamplerDriver;
+        let rate = 16_000_u32;
+        let input = (0..rate as usize / 5)
+            .map(|index| {
+                (std::f64::consts::TAU * 220.0 * index as f64 / rate as f64).sin() as f32 * 0.25
+            })
+            .collect::<Vec<_>>();
+        let mut args = sample_args();
+        args.offset_ms = 0.0;
+        args.duration_ms = 200.0;
+        args.source_consonant_ms = 0.0;
+        args.consonant_ms = 0.0;
+        args.cutoff_ms = 0.0;
+        args.pitch_freq = 220.0;
+        let output = driver
+            .render_sample_with_execution(&input, rate, &args, None)
+            .expect("short voiced phoneme should remain renderable by WORLD");
+        assert_eq!(output.samples.len(), 3_200);
+        assert!(output.samples.iter().all(|sample| sample.is_finite()));
+        assert!(output.samples.iter().any(|sample| sample.abs() > 1e-5));
     }
 
     #[test]

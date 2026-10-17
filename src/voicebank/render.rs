@@ -41,7 +41,7 @@ impl PreviewBackend {
     fn engine_id(self) -> &'static str {
         match self {
             Self::Sola => "kamafeu.sola",
-            Self::World => "kamafeu.world-rs",
+            Self::World => "kamafeu.lessampler-tainah",
         }
     }
 }

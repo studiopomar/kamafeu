@@ -2,6 +2,18 @@ use crate::gui::KamafeuStudioApp;
 use eframe::egui;
 use web_time::Instant;
 
+fn poll_render_chunk(
+    rx: &std::sync::mpsc::Receiver<crate::renderer::ProgressiveChunk>,
+    completed: bool,
+) -> Result<crate::renderer::ProgressiveChunk, std::sync::mpsc::TryRecvError> {
+    // The producer normally closes immediately after its final chunk. Once
+    // that chunk (or an error) is handled, do not interpret closure as failure.
+    if completed {
+        return Err(std::sync::mpsc::TryRecvError::Empty);
+    }
+    rx.try_recv()
+}
+
 fn scheduler_may_stop_transport(
     scheduler_finished: bool,
     scheduler_stopped: bool,
@@ -25,6 +37,10 @@ fn playback_playhead_ms(
     start_offset_ms.max(0.0) + bounded_ms
 }
 
+fn progressive_playhead_ms(start_offset_ms: f64, scheduler_position_ms: f64) -> f64 {
+    start_offset_ms.max(0.0) + scheduler_position_ms.max(0.0)
+}
+
 impl KamafeuStudioApp {
     pub(super) fn update_background_tasks(&mut self, ctx: &egui::Context) {
         // Progressive audio still crosses the UI boundary before reaching the
@@ -33,6 +49,7 @@ impl KamafeuStudioApp {
         if self.render_rx.is_some()
             || self.direct_playback_rx.is_some()
             || self.piano_roll_state.is_playing
+            || self.audio_player.scheduler_is_active()
         {
             if let Some(interval) = self.animation_policy().interval() {
                 ctx.request_repaint_after(interval);
@@ -48,12 +65,34 @@ impl KamafeuStudioApp {
         let mut scheduler_stopped = false;
         #[cfg(not(target_arch = "wasm32"))]
         for event in self.audio_player.drain_scheduler_events() {
+            let event_generation = match &event {
+                crate::audio::PlaybackSchedulerEvent::PlaybackStarted { generation, .. }
+                | crate::audio::PlaybackSchedulerEvent::ChunkAccepted { generation, .. }
+                | crate::audio::PlaybackSchedulerEvent::ChunkRejected { generation, .. }
+                | crate::audio::PlaybackSchedulerEvent::WaitingForChunk { generation, .. }
+                | crate::audio::PlaybackSchedulerEvent::PlaybackResumed { generation, .. }
+                | crate::audio::PlaybackSchedulerEvent::Underrun { generation, .. }
+                | crate::audio::PlaybackSchedulerEvent::PlaybackFinished { generation, .. }
+                | crate::audio::PlaybackSchedulerEvent::PlaybackStopped { generation, .. }
+                | crate::audio::PlaybackSchedulerEvent::ProducerClosed { generation, .. } => {
+                    *generation
+                }
+            };
+            if event_generation != self.audio_player.current_playback_generation() {
+                // A stop/finish from the previous Play request may still be
+                // queued when the next request begins. It must not cancel the
+                // new transport or overwrite its diagnostics.
+                continue;
+            }
             let render_state = self
                 .project
                 .render_state
                 .get_or_insert_with(Default::default);
             let (generation, state, played_ms) = match &event {
                 crate::audio::PlaybackSchedulerEvent::PlaybackStarted { generation, .. } => {
+                    self.piano_roll_state.is_playing = true;
+                    self.progressive_playback_started = true;
+                    self.playback_start_instant = Some(Instant::now());
                     (*generation, "running", 0.0)
                 }
                 crate::audio::PlaybackSchedulerEvent::ChunkAccepted { generation, .. } => (
@@ -380,7 +419,7 @@ impl KamafeuStudioApp {
             // Drain the whole ready window in one frame. The producer may
             // already have rendered ahead while egui was busy scrolling.
             for _ in 0..64 {
-                match rx.try_recv() {
+                match poll_render_chunk(rx, drop_rx) {
                     Ok(chunk) => {
                         #[cfg(not(target_arch = "wasm32"))]
                         if let Some(delay_ms) = std::env::var("KAMAFEU_DEBUG_UI_CHUNK_DELAY_MS")
@@ -574,6 +613,11 @@ impl KamafeuStudioApp {
                         player_position_ms,
                         fallback_elapsed_ms,
                     )
+                } else if self.progressive_playback_started {
+                    progressive_playhead_ms(
+                        self.playback_start_offset_ms,
+                        self.audio_player.scheduler_position_ms(),
+                    )
                 } else {
                     self.playback_start_offset_ms + fallback_elapsed_ms
                 };
@@ -713,7 +757,43 @@ impl KamafeuStudioApp {
 
 #[cfg(test)]
 mod tests {
-    use super::{playback_playhead_ms, scheduler_may_stop_transport};
+    use super::{
+        playback_playhead_ms, poll_render_chunk, progressive_playhead_ms,
+        scheduler_may_stop_transport,
+    };
+
+    #[test]
+    fn completed_render_does_not_turn_producer_closure_into_a_stop() {
+        use crate::renderer::{ProgressiveChunk, RenderedAudio};
+        use std::sync::mpsc::{channel, TryRecvError};
+
+        for final_chunk in [false, true] {
+            let (tx, rx) = channel();
+            tx.send(ProgressiveChunk {
+                audio: RenderedAudio {
+                    samples: vec![0.25; 4410],
+                    sample_rate: 44100,
+                    channels: 1,
+                    error: None,
+                },
+                chunk_start_ms: 0.0,
+                chunk_index: 0,
+                is_final: final_chunk,
+            })
+            .unwrap();
+            drop(tx);
+
+            let chunk = poll_render_chunk(&rx, false).unwrap();
+            let result = poll_render_chunk(&rx, chunk.is_final);
+            if final_chunk {
+                assert!(matches!(result, Err(TryRecvError::Empty)));
+            } else {
+                // A producer that really failed before the final chunk must
+                // still reach the transport's disconnected-worker handler.
+                assert!(matches!(result, Err(TryRecvError::Disconnected)));
+            }
+        }
+    }
 
     #[test]
     fn stale_scheduler_stop_never_freezes_direct_playback() {
@@ -732,5 +812,13 @@ mod tests {
     #[test]
     fn direct_playhead_uses_monotonic_fallback_when_backend_has_no_position() {
         assert_eq!(playback_playhead_ms(250.0, 1_000.0, None, 300.0), 550.0);
+    }
+
+    #[test]
+    fn progressive_playhead_uses_scheduler_clock_and_preserves_nonzero_start() {
+        assert_eq!(progressive_playhead_ms(1_250.0, 375.0), 1_625.0);
+        // Repeated scheduler positions while waiting keep the GUI playhead
+        // frozen instead of advancing from wall-clock time.
+        assert_eq!(progressive_playhead_ms(1_250.0, 375.0), 1_625.0);
     }
 }

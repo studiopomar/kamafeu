@@ -1,4 +1,4 @@
-//! KFV 2 authoring state for Copaíba, separate from the legacy OTO editor.
+//! KFV 2 authoring state for Copaíba, separate from the legacy oto.ini editor.
 use crate::voicebank::native::{
     Asset, Context, Defaults, EngineRequirement, Layer, Manifest, NativeBank, PhoneSymbol,
     PhoneticProfile, PhoneticProfileRef, Quality, RenderTuning, SourceRegion, Style, Unit,

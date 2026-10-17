@@ -24,15 +24,16 @@ selected layer, rechecks their declared WAV metadata, and never writes into the
 source recordings. Interactive waveform comparison currently limits each
 decoded asset to 8,388,608 mono frames.
 
-The library also exposes an assisted OTO-to-KFV2 migration API. It only writes
+The library also exposes an assisted migration API from classic `oto.ini`
+voicebanks to KFV 2. It only writes
 a new directory outside the source bank, stages and validates that directory,
 then renames it into place. Existing destinations are rejected. Per-alias
 reports distinguish explicit phone mappings from exact whitespace-token
-inferences; root and subbank OTO lines are reread so duplicate aliases are
+inferences; root and subbank `oto.ini` lines are reread so duplicate aliases are
 retained as separate candidates and flagged as collisions. Ambiguous aliases
 and unsafe, missing, oversized, stereo, or invalid WAV regions are skipped
-with reasons. OTO offset, consonant, cutoff,
-loop, and tail marks are converted where their frame ranges are valid.
+with reasons. Offset, consonant, cutoff, loop, and tail marks from `oto.ini`
+are converted where their frame ranges are valid.
 Millisecond-to-frame conversion uses the classic renderer's truncation rule;
 negative offsets clamp to frame zero, positive cutoffs trim from file end,
 negative cutoffs count forward from the clamped offset, and zero cutoff uses
@@ -42,8 +43,8 @@ The authoring directory retains the complete per-entry report as
 `migration_report.json`; it is not included in the manifest content hash or the
 public package allowlist.
 The optional mapping file accepted by the Copaíba wizard and
-`kamafeu migrate-voicebank` CLI is a UTF-8 JSON object from exact OTO alias
-strings to one- or two-phone arrays, for example `{"ka": ["k", "a"]}`.
+`kamafeu migrate-voicebank` CLI is a UTF-8 JSON object mapping exact aliases in
+`oto.ini` to one- or two-phone arrays, for example `{"ka": ["k", "a"]}`.
 Phone IDs must exist in the chosen profile. Without that file, only exact
 whitespace-token inference is attempted. The map is retained in the private
 authoring directory as `migration_phone_mappings.json` for review; it is not
@@ -75,7 +76,7 @@ also enforces rules that span documents or require filesystem inspection:
   `start_frame < end_frame`; the anchor, fixed region, sustain, and optional
   release must be ordered and contained in the source interval.
 - A looping or stretched sustain requires an explicit sustain region. Missing
-  mandatory units are errors; native rendering never substitutes OTO audio.
+  mandatory units are errors; native rendering never substitutes recordings referenced by `oto.ini`.
 - `quality.reviewed` records an explicit author review, not an automatic audio
   quality judgment. The planner may use it as a deterministic tie-breaker.
 - ZIP packages have entry-count and expanded-size limits and reject duplicate

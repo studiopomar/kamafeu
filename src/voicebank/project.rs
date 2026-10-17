@@ -85,7 +85,7 @@ fn store_native_phrase(key: [u8; 32], phrase: NativeProjectPhrase) {
 
 /// Plan and render one APS vocal track with its explicitly bound KFV 2 bank.
 /// The project must contain direct phone sequences in `phonetic_hint`, lyric,
-/// or the first native phoneme override. No G2P or classic OTO fallback occurs.
+/// or the first native phoneme override. No G2P or classic voicebank fallback occurs.
 pub fn render_project_track_sola(
     bank: &NativeBank,
     project: &UProject,

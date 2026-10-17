@@ -91,7 +91,7 @@ impl KamafeuStudioApp {
             })
             .unwrap_or_else(|| requested_alias.trim().to_string());
         // Use the embedded Copaiba editor so the selected phoneme, its WAV and
-        // all OTO timing fields are immediately editable. The external NEO
+        // all oto.ini timing fields are immediately editable. The external NEO
         // launcher remains available to callers that explicitly need it.
         self.copaiba_app
             .open_alias(voicebank.root_path.clone(), &alias);

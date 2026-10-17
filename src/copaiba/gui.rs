@@ -3,11 +3,102 @@ use crate::copaiba::{CopaibaConfig, CopaibaEntry};
 use eframe::egui::{self, Color32, Pos2, Rect, RichText, Rounding, Sense, Stroke, Vec2};
 use std::path::PathBuf;
 
+mod visual_tokens {
+    use eframe::egui::Color32;
+
+    pub const BACKGROUND: Color32 = Color32::from_rgb(19, 19, 22);
+    pub const PANEL: Color32 = Color32::from_rgb(27, 27, 31);
+    pub const SURFACE: Color32 = Color32::from_rgb(36, 35, 40);
+    pub const SURFACE_HOVER: Color32 = Color32::from_rgb(47, 47, 52);
+    pub const BORDER: Color32 = Color32::from_rgb(67, 65, 72);
+    pub const TEXT: Color32 = Color32::from_rgb(242, 239, 233);
+    pub const MUTED: Color32 = Color32::from_rgb(174, 170, 178);
+    pub const ACCENT: Color32 = Color32::from_rgb(195, 232, 120);
+    pub const ACCENT_HOVER: Color32 = Color32::from_rgb(211, 244, 151);
+    pub const ACCENT_DARK: Color32 = Color32::from_rgb(33, 42, 24);
+    pub const SUCCESS: Color32 = Color32::from_rgb(133, 211, 166);
+    pub const WARNING: Color32 = Color32::from_rgb(242, 194, 117);
+    pub const ERROR: Color32 = Color32::from_rgb(245, 130, 124);
+}
+
+pub fn configure_copaiba_theme(ctx: &egui::Context) {
+    let mut style = (*ctx.style()).clone();
+    let mut visuals = egui::Visuals::dark();
+    let border = Stroke::new(1.0_f32, visual_tokens::BORDER);
+    let rounding = Rounding::same(8.0);
+
+    visuals.panel_fill = visual_tokens::BACKGROUND;
+    visuals.window_fill = visual_tokens::PANEL;
+    visuals.override_text_color = Some(visual_tokens::TEXT);
+    visuals.hyperlink_color = visual_tokens::ACCENT;
+    visuals.faint_bg_color = visual_tokens::SURFACE;
+    visuals.extreme_bg_color = visual_tokens::BACKGROUND;
+    visuals.code_bg_color = visual_tokens::SURFACE;
+    visuals.warn_fg_color = visual_tokens::WARNING;
+    visuals.error_fg_color = visual_tokens::ERROR;
+    visuals.window_rounding = rounding;
+    visuals.window_stroke = border;
+    visuals.menu_rounding = rounding;
+    visuals.button_frame = true;
+    visuals.collapsing_header_frame = true;
+    visuals.striped = true;
+    visuals.selection.bg_fill = visual_tokens::ACCENT_DARK;
+    visuals.selection.stroke = Stroke::new(1.0_f32, visual_tokens::ACCENT);
+
+    let widgets = &mut visuals.widgets;
+    widgets.noninteractive.bg_fill = visual_tokens::PANEL;
+    widgets.noninteractive.weak_bg_fill = visual_tokens::PANEL;
+    widgets.noninteractive.bg_stroke = border;
+    widgets.noninteractive.rounding = rounding;
+    widgets.noninteractive.fg_stroke = Stroke::new(1.0_f32, visual_tokens::TEXT);
+
+    widgets.inactive.bg_fill = visual_tokens::SURFACE;
+    widgets.inactive.weak_bg_fill = visual_tokens::SURFACE;
+    widgets.inactive.bg_stroke = border;
+    widgets.inactive.rounding = rounding;
+    widgets.inactive.fg_stroke = Stroke::new(1.0_f32, visual_tokens::TEXT);
+
+    widgets.hovered.bg_fill = visual_tokens::SURFACE_HOVER;
+    widgets.hovered.weak_bg_fill = visual_tokens::SURFACE_HOVER;
+    widgets.hovered.bg_stroke = Stroke::new(1.0_f32, visual_tokens::ACCENT);
+    widgets.hovered.rounding = rounding;
+    widgets.hovered.fg_stroke = Stroke::new(1.0_f32, visual_tokens::TEXT);
+
+    widgets.active.bg_fill = visual_tokens::ACCENT;
+    widgets.active.weak_bg_fill = visual_tokens::ACCENT;
+    widgets.active.bg_stroke = Stroke::new(1.0_f32, visual_tokens::ACCENT_HOVER);
+    widgets.active.rounding = rounding;
+    widgets.active.fg_stroke = Stroke::new(1.0_f32, visual_tokens::BACKGROUND);
+
+    widgets.open.bg_fill = visual_tokens::ACCENT_DARK;
+    widgets.open.weak_bg_fill = visual_tokens::ACCENT_DARK;
+    widgets.open.bg_stroke = Stroke::new(1.0_f32, visual_tokens::ACCENT);
+    widgets.open.rounding = rounding;
+    widgets.open.fg_stroke = Stroke::new(1.0_f32, visual_tokens::TEXT);
+
+    style.visuals = visuals;
+    style.spacing.item_spacing = Vec2::new(10.0, 10.0);
+    style.spacing.button_padding = Vec2::new(12.0, 8.0);
+    style.spacing.interact_size = Vec2::new(40.0, 34.0);
+    style.spacing.window_margin = egui::Margin::same(16.0);
+    style.spacing.menu_margin = egui::Margin::same(10.0);
+    style.spacing.slider_width = 150.0;
+    ctx.set_style(style);
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ListFilterMode {
     ByAlias,
     ByWavFile,
     PrefixMap,
+}
+
+#[derive(Clone)]
+struct PendingClassicMigration {
+    profile_path: PathBuf,
+    mapping_path: Option<PathBuf>,
+    destination_parent: PathBuf,
+    preview: crate::voicebank::migration::LegacyMigrationPreview,
 }
 
 pub struct CopaibaToolkitApp {
@@ -49,6 +140,8 @@ pub struct CopaibaToolkitApp {
     pub new_mapping_prefix: String,
     pub new_mapping_suffix: String,
     pub status_message: String,
+    pending_classic_migration: Option<PendingClassicMigration>,
+    migration_report: Option<crate::voicebank::migration::MigrationReport>,
 }
 
 impl Default for CopaibaToolkitApp {
@@ -92,13 +185,15 @@ impl Default for CopaibaToolkitApp {
             new_mapping_prefix: String::new(),
             new_mapping_suffix: String::new(),
             status_message: String::new(),
+            pending_classic_migration: None,
+            migration_report: None,
         }
     }
 }
 
 impl CopaibaToolkitApp {
     /// Opens a voicebank and selects the exact alias requested by the editor.
-    /// This is used by the Kamafeu phoneme ruler so manual OTO fixes start on
+    /// This is used by the Kamafeu phoneme ruler so manual oto.ini fixes start on
     /// the offending sample instead of making the user search the bank again.
     pub fn open_alias(&mut self, path: PathBuf, alias: &str) {
         let oto_path = crate::copaiba_bridge::oto_path_for_alias(&path, alias).ok();
@@ -131,6 +226,8 @@ impl CopaibaToolkitApp {
     }
 
     pub fn open_dir(&mut self, path: PathBuf) {
+        self.pending_classic_migration = None;
+        self.migration_report = None;
         if path.is_file()
             && path
                 .extension()
@@ -738,27 +835,11 @@ impl CopaibaToolkitApp {
             .as_deref()
             .ok_or("Nenhum voicebank clássico aberto")?;
         if self.native_project.is_some() {
-            return Err("A migração OTO só se aplica a um banco clássico".into());
+            return Err("A migração oto.ini só se aplica a um banco clássico".into());
         }
         let source = crate::oto::Voicebank::new(source_root)
-            .map_err(|error| format!("Não foi possível abrir o OTO de origem: {error}"))?;
-        let profile: crate::voicebank::native::PhoneticProfile = serde_json::from_slice(
-            &std::fs::read(profile_path)
-                .map_err(|error| format!("Não foi possível ler o perfil fonético: {error}"))?,
-        )
-        .map_err(|error| format!("Perfil fonético inválido: {error}"))?;
-        profile.validate()?;
-        let phone_mappings = if let Some(path) = mapping_path {
-            serde_json::from_slice::<std::collections::BTreeMap<String, Vec<String>>>(
-                &std::fs::read(path)
-                    .map_err(|error| format!("Não foi possível ler o mapa de aliases: {error}"))?,
-            )
-            .map_err(|error| {
-                format!("Mapa de aliases inválido; esperado objeto alias → lista de IDs: {error}")
-            })?
-        } else {
-            std::collections::BTreeMap::new()
-        };
+            .map_err(|error| format!("Não foi possível abrir o oto.ini de origem: {error}"))?;
+        let (profile, phone_mappings) = load_migration_inputs(profile_path, mapping_path)?;
 
         let slug = migration_slug(&source.name);
         let options = crate::voicebank::migration::LegacyMigrationOptions {
@@ -789,6 +870,7 @@ impl CopaibaToolkitApp {
             crate::copaiba::native_project::CopaibaNativeProject::load_dir(&report.destination)
                 .map_err(|error| format!("Rascunho criado, mas não reabriu no Copaíba: {error}"))?;
         self.activate_native_project(project);
+        self.migration_report = Some(report.clone());
         let inferred = report
             .entries
             .iter()
@@ -829,6 +911,68 @@ impl CopaibaToolkitApp {
         );
         self.status_message = status;
         Ok(())
+    }
+
+    fn prepare_classic_voicebank_migration(
+        &mut self,
+        profile_path: PathBuf,
+        mapping_path: Option<PathBuf>,
+        destination_parent: PathBuf,
+    ) -> Result<(), String> {
+        let source_root = self
+            .current_dir
+            .as_deref()
+            .ok_or("Nenhum voicebank clássico aberto")?;
+        if self.native_project.is_some() {
+            return Err("A migração oto.ini só se aplica a um banco clássico".into());
+        }
+        let source = crate::oto::Voicebank::new(source_root)
+            .map_err(|error| format!("Não foi possível abrir o oto.ini de origem: {error}"))?;
+        let output_parent = std::fs::canonicalize(&destination_parent)
+            .map_err(|error| format!("Não foi possível validar a pasta de destino: {error}"))?;
+        let destination = output_parent.join(format!(
+            "{}-kfv2-draft",
+            migration_slug(&source.name)
+        ));
+        let canonical_source = std::fs::canonicalize(source_root)
+            .map_err(|error| format!("Não foi possível validar o banco de origem: {error}"))?;
+        if destination.starts_with(&canonical_source) {
+            return Err("A pasta de destino precisa ficar fora do voicebank original".into());
+        }
+        if destination.exists() || std::fs::symlink_metadata(&destination).is_ok() {
+            return Err(format!(
+                "A pasta de destino já existe: {}",
+                destination.display()
+            ));
+        }
+        let (profile, phone_mappings) =
+            load_migration_inputs(&profile_path, mapping_path.as_deref())?;
+        let preview = crate::voicebank::migration::preview_legacy_voicebank_migration(
+            &source,
+            &profile,
+            &phone_mappings,
+        )?;
+        self.pending_classic_migration = Some(PendingClassicMigration {
+            profile_path,
+            mapping_path,
+            destination_parent,
+            preview,
+        });
+        Ok(())
+    }
+
+    fn confirm_classic_voicebank_migration(&mut self) {
+        let Some(pending) = self.pending_classic_migration.take() else {
+            return;
+        };
+        self.status_message = match self.migrate_classic_voicebank(
+            &pending.profile_path,
+            pending.mapping_path.as_deref(),
+            &pending.destination_parent,
+        ) {
+            Ok(()) => self.status_message.clone(),
+            Err(error) => format!("Falha na migração assistida: {error}"),
+        };
     }
 
     pub fn preview_native_unit(&mut self, audio_player: &mut AudioPlayer) -> Result<(), String> {
@@ -985,6 +1129,33 @@ fn migration_slug(value: &str) -> String {
     }
 }
 
+fn load_migration_inputs(
+    profile_path: &std::path::Path,
+    mapping_path: Option<&std::path::Path>,
+) -> Result<(
+    crate::voicebank::native::PhoneticProfile,
+    std::collections::BTreeMap<String, Vec<String>>,
+), String> {
+    let profile: crate::voicebank::native::PhoneticProfile = serde_json::from_slice(
+        &std::fs::read(profile_path)
+            .map_err(|error| format!("Não foi possível ler o perfil fonético: {error}"))?,
+    )
+    .map_err(|error| format!("Perfil fonético inválido: {error}"))?;
+    profile.validate()?;
+    let phone_mappings = if let Some(path) = mapping_path {
+        serde_json::from_slice::<std::collections::BTreeMap<String, Vec<String>>>(
+            &std::fs::read(path)
+                .map_err(|error| format!("Não foi possível ler o mapa de aliases: {error}"))?,
+        )
+        .map_err(|error| {
+            format!("Mapa de aliases inválido; esperado objeto alias → lista de IDs: {error}")
+        })?
+    } else {
+        std::collections::BTreeMap::new()
+    };
+    Ok((profile, phone_mappings))
+}
+
 #[cfg(test)]
 mod migration_ui_tests {
     use super::*;
@@ -1034,6 +1205,9 @@ mod migration_ui_tests {
 
         app.migrate_classic_voicebank(&profile_path, Some(&mapping_path), &destination_parent)
             .unwrap();
+        let migration_report = app.migration_report.as_ref().unwrap();
+        assert_eq!(migration_report.migrated_units, 1);
+        assert_eq!(migration_report.entries.len(), 1);
         let output = destination_parent.join("voz-de-teste-kfv2-draft");
         let native = crate::voicebank::native::NativeBank::load_dir(&output).unwrap();
         assert_eq!(native.layers[0].1.units.len(), 1);
@@ -1130,7 +1304,7 @@ fn draw_copaiba_native_ui(
         match project.layer_coverage(&selected_layer) {
             Ok(coverage) => {
                 let color = if coverage.missing_symbols.is_empty() {
-                    Color32::from_rgb(0, 230, 150)
+                    visual_tokens::SUCCESS
                 } else {
                     Color32::from_rgb(255, 190, 80)
                 };
@@ -1163,6 +1337,67 @@ fn draw_copaiba_native_ui(
                 );
             }
         }
+    }
+    if let Some(report) = app.migration_report.as_ref() {
+        ui.collapsing(
+            format!(
+                "Relatório da migração · {} convertidas · {} ignoradas",
+                report.migrated_units, report.skipped_entries
+            ),
+            |ui| {
+                ui.small(format!(
+                    "Origem: {} · {} gravações copiadas · SHA-256 {}",
+                    report.source_name, report.copied_assets, report.content_sha256
+                ));
+                egui::ScrollArea::vertical()
+                    .max_height(190.0)
+                    .show(ui, |ui| {
+                        for entry in &report.entries {
+                            let (status, color) = match &entry.status {
+                                crate::voicebank::migration::MigrationEntryStatus::Migrated => {
+                                    ("convertida", visual_tokens::SUCCESS)
+                                }
+                                crate::voicebank::migration::MigrationEntryStatus::Skipped => {
+                                    ("ignorada", Color32::from_rgb(255, 190, 80))
+                                }
+                            };
+                            let mapping = match &entry.mapping_origin {
+                                crate::voicebank::migration::MappingOrigin::Explicit => {
+                                    "mapa explícito"
+                                }
+                                crate::voicebank::migration::MappingOrigin::ExactAliasTokens => {
+                                    "inferência por tokens exatos"
+                                }
+                                crate::voicebank::migration::MappingOrigin::Unmapped => {
+                                    "sem mapeamento"
+                                }
+                            };
+                            ui.separator();
+                            ui.colored_label(
+                                color,
+                                format!(
+                                    "{} · {} · {} → {}",
+                                    status,
+                                    entry.alias,
+                                    mapping,
+                                    if entry.phones.is_empty() {
+                                        "(sem fonemas)".to_string()
+                                    } else {
+                                        entry.phones.join(" ")
+                                    }
+                                ),
+                            );
+                            ui.small(format!("WAV: {}", entry.wav_filename));
+                            for warning in &entry.warnings {
+                                ui.small(warning);
+                            }
+                        }
+                    });
+                for warning in &report.warnings {
+                    ui.colored_label(Color32::YELLOW, warning);
+                }
+            },
+        );
     }
     ui.horizontal(|ui| {
         ui.label("Teste de frase (fonemas):");
@@ -1418,7 +1653,7 @@ fn draw_copaiba_native_ui(
                         Sense::hover(),
                     );
                     let painter = column.painter_at(rect);
-                    painter.rect_filled(rect, Rounding::ZERO, Color32::from_rgb(16, 16, 16));
+                    painter.rect_filled(rect, Rounding::same(6.0), visual_tokens::BACKGROUND);
                     draw_waveform_peak_envelope(&painter, rect, samples, color, 0.8, 1.0);
                 } else {
                     column.small("Gravação B indisponível");
@@ -1428,13 +1663,13 @@ fn draw_copaiba_native_ui(
                 &mut columns[0],
                 asset_a_label,
                 app.native_comparison_a.as_ref(),
-                Color32::from_rgb(0, 255, 160),
+                visual_tokens::ACCENT,
             );
             draw_take(
                 &mut columns[1],
                 asset_b_label,
                 app.native_comparison_b.as_ref(),
-                Color32::from_rgb(80, 190, 255),
+                Color32::from_rgb(126, 190, 226),
             );
         });
     }
@@ -1507,7 +1742,7 @@ fn draw_copaiba_native_ui(
             asset.frame_count
         ))
         .strong()
-        .color(Color32::from_rgb(0, 255, 157)),
+        .color(visual_tokens::ACCENT),
     );
     let mut reviewed = unit.quality.reviewed;
     if ui
@@ -1537,13 +1772,18 @@ fn draw_copaiba_native_ui(
     let duration_ms = asset.frame_count as f64 * 1_000.0 / sample_rate;
     let (rect, _) = ui.allocate_exact_size(Vec2::new(ui.available_width(), 170.0), Sense::hover());
     let painter = ui.painter_at(rect);
-    painter.rect_filled(rect, Rounding::ZERO, Color32::from_rgb(16, 16, 16));
+    painter.rect_filled(rect, Rounding::same(6.0), visual_tokens::BACKGROUND);
+    painter.rect_stroke(
+        rect,
+        Rounding::same(6.0),
+        Stroke::new(1.0_f32, visual_tokens::BORDER),
+    );
     if let Some((samples, _)) = &app.loaded_waveform {
         draw_waveform_peak_envelope(
             &painter,
             rect,
             samples,
-            Color32::from_rgb(0, 255, 160),
+            visual_tokens::ACCENT,
             0.8,
             1.0,
         );
@@ -1566,28 +1806,28 @@ fn draw_copaiba_native_ui(
                 color,
             );
         };
-        mark(unit.source.start_frame, Color32::GREEN, "início");
-        mark(unit.source.anchor_frame, Color32::YELLOW, "âncora");
+        mark(unit.source.start_frame, Color32::from_rgb(126, 190, 226), "início");
+        mark(unit.source.anchor_frame, visual_tokens::ACCENT, "âncora");
         mark(
             unit.source.fixed_end_frame,
-            Color32::from_rgb(255, 160, 40),
+            visual_tokens::WARNING,
             "fixo",
         );
-        mark(unit.source.end_frame, Color32::RED, "fim");
+        mark(unit.source.end_frame, visual_tokens::ERROR, "fim");
         if let Some(sustain) = &unit.source.sustain {
             mark(
                 sustain.start_frame,
-                Color32::from_rgb(0, 255, 255),
+                Color32::from_rgb(126, 190, 226),
                 "sustain início",
             );
             mark(
                 sustain.end_frame,
-                Color32::from_rgb(80, 170, 255),
+                Color32::from_rgb(110, 150, 205),
                 "sustain fim",
             );
         }
         if let Some(release) = unit.source.release_start_frame {
-            mark(release, Color32::from_rgb(210, 100, 255), "release");
+            mark(release, Color32::from_rgb(192, 150, 218), "release");
         }
     }
 
@@ -1777,219 +2017,348 @@ pub fn draw_copaiba_toolkit_ui(
     ui: &mut egui::Ui,
 ) {
     ui.vertical(|ui| {
-        let mut style = ui.style().as_ref().clone();
+        egui::Frame::none()
+            .fill(visual_tokens::PANEL)
+            .stroke(Stroke::new(1.0_f32, visual_tokens::BORDER))
+            .rounding(Rounding::same(10.0))
+            .inner_margin(egui::Margin::symmetric(16.0, 12.0))
+            .show(ui, |ui| {
+                ui.horizontal_wrapped(|ui| {
+                    ui.vertical(|ui| {
+                        ui.heading(
+                            RichText::new("COPAÍBA")
+                                .strong()
+                                .size(22.0)
+                                .color(visual_tokens::ACCENT),
+                        );
+                        ui.label(
+                            RichText::new("VOICEBANK WORKSHOP · KAMAFEU")
+                                .size(10.5)
+                                .strong()
+                                .color(visual_tokens::MUTED),
+                        );
+                    });
+                    ui.add_space(10.0);
 
-        style.visuals.widgets.noninteractive.rounding = egui::Rounding::ZERO;
-        style.visuals.widgets.inactive.rounding = egui::Rounding::ZERO;
-        style.visuals.widgets.hovered.rounding = egui::Rounding::ZERO;
-        style.visuals.widgets.active.rounding = egui::Rounding::ZERO;
-        style.visuals.widgets.open.rounding = egui::Rounding::ZERO;
-        style.visuals.window_rounding = egui::Rounding::ZERO;
-        style.visuals.menu_rounding = egui::Rounding::ZERO;
-
-        let border_stroke = Stroke::new(2.0_f32, Color32::BLACK);
-        style.visuals.widgets.noninteractive.bg_stroke = border_stroke;
-        style.visuals.widgets.inactive.bg_stroke = border_stroke;
-        style.visuals.widgets.hovered.bg_stroke = border_stroke;
-        style.visuals.widgets.active.bg_stroke = border_stroke;
-
-        style.visuals.widgets.inactive.bg_fill = Color32::from_rgb(28, 28, 28);
-        style.visuals.widgets.inactive.fg_stroke = Stroke::new(1.5_f32, Color32::from_rgb(240, 240, 240));
-
-        style.visuals.widgets.hovered.bg_fill = Color32::from_rgb(180, 255, 0);
-        style.visuals.widgets.hovered.fg_stroke = Stroke::new(1.8_f32, Color32::BLACK);
-
-        style.visuals.widgets.active.bg_fill = Color32::from_rgb(0, 230, 255);
-        style.visuals.widgets.active.fg_stroke = Stroke::new(1.8_f32, Color32::BLACK);
-
-        ui.set_style(style);
-
-
-        ui.horizontal(|ui| {
-            ui.heading(RichText::new("Copaiba Voicebank Toolkit").strong().color(Color32::from_rgb(180, 255, 0)));
-            ui.add_space(15.0);
-
-            if ui.button(RichText::new("Abrir Pasta do Voicebank...").strong().color(Color32::WHITE)).clicked() {
-                if let Some(folder) = crate::dialogs::FileDialog::new().pick_folder() {
-                    app.open_dir(folder);
-                }
-            }
-
-            if ui.button("Abrir pacote KFV 2...").clicked() {
-                if let Some(package) = crate::dialogs::FileDialog::new()
-                    .add_filter("Kamafeu Voicebank (*.kfv)", &["kfv"])
-                    .pick_file()
-                {
-                    app.open_dir(package);
-                }
-            }
-
-            if app.native_project.is_none() && ui.button("Novo banco nativo...").clicked() {
-                app.native_create_wizard_open = !app.native_create_wizard_open;
-            }
-
-            if app.native_project.is_some() {
-                if ui.button("Salvar KFV 2").clicked() {
-                    app.status_message = match app.save_config() {
-                        Ok(()) => "Marcas KFV 2 salvas".into(),
-                        Err(error) => format!("Falha ao salvar KFV 2: {error}"),
-                    };
-                }
-                if ui.button("Recarregar").clicked() {
-                    app.reload_current();
-                }
-                if ui.button("Desfazer").clicked() {
-                    let result = app.native_project.as_mut().unwrap().undo();
-                    app.status_message = match result {
-                        Ok(true) => { app.load_selected_wav_samples(); "Edição desfeita".into() }
-                        Ok(false) => "Não há edição para desfazer".into(),
-                        Err(error) => format!("Falha ao desfazer: {error}"),
-                    };
-                }
-                if ui.button("Refazer").clicked() {
-                    let result = app.native_project.as_mut().unwrap().redo();
-                    app.status_message = match result {
-                        Ok(true) => { app.load_selected_wav_samples(); "Edição refeita".into() }
-                        Ok(false) => "Não há edição para refazer".into(),
-                        Err(error) => format!("Falha ao refazer: {error}"),
-                    };
-                }
-                if ui.button("Importar gravação WAV...").clicked() {
-                    if let Some(source) = crate::dialogs::FileDialog::new()
-                        .add_filter("Áudio WAV (*.wav)", &["wav"])
-                        .pick_file()
-                    {
-                        let stem = source.file_stem().and_then(|name| name.to_str()).unwrap_or("take");
-                        let asset_id: String = stem.chars().map(|ch| {
-                            if ch.is_ascii_alphanumeric() || ch == '-' || ch == '_' { ch } else { '-' }
-                        }).collect();
-                        if let Err(error) = app.import_native_recording(source, &asset_id) {
-                            app.status_message = error;
-                        }
-                    }
-                }
-                if ui.button("Testar unidade · SOLA").clicked() {
-                    app.status_message = match app.preview_native_unit(audio_player) {
-                        Ok(()) => app.status_message.clone(),
-                        Err(error) => format!("Preview experimental: {error}"),
-                    };
-                }
-                if ui.button("Empacotar rascunho KFV 2...").clicked() {
-                    let default_name = app.native_project.as_ref()
-                        .map(|project| format!("{}.kfv", project.manifest.bank_id.replace('.', "_")))
-                        .unwrap_or_else(|| "voicebank.kfv".into());
-                    if let Some(destination) = crate::dialogs::FileDialog::new()
-                        .set_file_name(&default_name)
-                        .add_filter("Kamafeu Voicebank (*.kfv)", &["kfv"])
-                        .save_file()
-                    {
-                        app.status_message = match app.package_native_draft(&destination) {
-                            Ok(()) => format!("Rascunho KFV 2 verificado: {}", destination.display()),
-                            Err(error) => format!("Falha ao empacotar rascunho: {error}"),
-                        };
-                    }
-                }
-            } else if app.current_dir.is_some() {
-                if ui.button(RichText::new("Salvar").strong().color(Color32::WHITE)).clicked() {
-                    app.status_message = match app.save_config() {
-                        Ok(()) => "Configurações salvas!".to_string(),
-                        Err(err) => format!("Erro ao salvar: {err}"),
-                    };
-                }
-
-                if ui.button(RichText::new("Recarregar").strong().color(Color32::WHITE)).clicked() {
-                    app.reload_current();
-                }
-
-                ui.add_space(10.0);
-                if ui.button(RichText::new("Compilar e Empacotar (.kfv)").strong().color(Color32::BLACK)).clicked() {
-                    let default_name = format!("{}.kfv", app.config.voicebank_name);
-                    if let Some(dest_file) = crate::dialogs::FileDialog::new()
-                        .set_file_name(&default_name)
-                        .add_filter("Kamafeu Voicebank (*.kfv)", &["kfv"])
-                        .save_file()
-                    {
-                        match app.compile_and_package_kfv(&dest_file) {
-                            Ok(()) => {
-                                app.status_message = format!("Compilado com sucesso: {}", dest_file.file_name().unwrap_or_default().to_string_lossy());
+                    if app.current_dir.is_some() {
+                        if ui.button("Abrir pasta").clicked() {
+                            if let Some(folder) = crate::dialogs::FileDialog::new().pick_folder() {
+                                app.open_dir(folder);
                             }
-                            Err(err) => {
-                                app.status_message = format!("Erro ao empacotar: {}", err);
+                        }
+
+                        if ui.button("Abrir pacote .kfv").clicked() {
+                            if let Some(package) = crate::dialogs::FileDialog::new()
+                                .add_filter("Kamafeu Voicebank (*.kfv)", &["kfv"])
+                                .pick_file()
+                            {
+                                app.open_dir(package);
                             }
                         }
                     }
-                }
 
-                if ui.button("Migrar OTO para KFV 2 (rascunho)...").clicked() {
-                    if let Some(profile_path) = crate::dialogs::FileDialog::new()
-                        .add_filter("Perfil fonético KFV 2 (*.json)", &["json"])
-                        .pick_file()
+                    if app.current_dir.is_some()
+                        && app.native_project.is_none()
+                        && ui.button("Novo banco KFV 2").clicked()
                     {
-                        let mapping_path = crate::dialogs::FileDialog::new()
-                            .add_filter("Mapa JSON alias → fonemas (*.json)", &["json"])
-                            .pick_file();
-                        if let Some(destination_parent) = crate::dialogs::FileDialog::new().pick_folder() {
-                            app.status_message = match app.migrate_classic_voicebank(
-                                &profile_path,
-                                mapping_path.as_deref(),
-                                &destination_parent,
-                            ) {
-                                Ok(()) => app.status_message.clone(),
-                                Err(error) => format!("Falha na migração assistida: {error}"),
+                        app.native_create_wizard_open = !app.native_create_wizard_open;
+                    }
+
+                    if app.native_project.is_some() {
+                        if ui.button("Salvar KFV 2").clicked() {
+                            app.status_message = match app.save_config() {
+                                Ok(()) => "Marcas KFV 2 salvas".into(),
+                                Err(error) => format!("Falha ao salvar KFV 2: {error}"),
                             };
                         }
+                        if ui.button("Recarregar").clicked() {
+                            app.reload_current();
+                        }
+                        if ui.button("Desfazer").clicked() {
+                            let result = app.native_project.as_mut().unwrap().undo();
+                            app.status_message = match result {
+                                Ok(true) => {
+                                    app.load_selected_wav_samples();
+                                    "Edição desfeita".into()
+                                }
+                                Ok(false) => "Não há edição para desfazer".into(),
+                                Err(error) => format!("Falha ao desfazer: {error}"),
+                            };
+                        }
+                        if ui.button("Refazer").clicked() {
+                            let result = app.native_project.as_mut().unwrap().redo();
+                            app.status_message = match result {
+                                Ok(true) => {
+                                    app.load_selected_wav_samples();
+                                    "Edição refeita".into()
+                                }
+                                Ok(false) => "Não há edição para refazer".into(),
+                                Err(error) => format!("Falha ao refazer: {error}"),
+                            };
+                        }
+                        if ui.button("Importar WAV").clicked() {
+                            if let Some(source) = crate::dialogs::FileDialog::new()
+                                .add_filter("Áudio WAV (*.wav)", &["wav"])
+                                .pick_file()
+                            {
+                                let stem = source
+                                    .file_stem()
+                                    .and_then(|name| name.to_str())
+                                    .unwrap_or("take");
+                                let asset_id: String = stem
+                                    .chars()
+                                    .map(|ch| {
+                                        if ch.is_ascii_alphanumeric() || ch == '-' || ch == '_' {
+                                            ch
+                                        } else {
+                                            '-'
+                                        }
+                                    })
+                                    .collect();
+                                if let Err(error) = app.import_native_recording(source, &asset_id) {
+                                    app.status_message = error;
+                                }
+                            }
+                        }
+                        if ui.button("Ouvir unidade").clicked() {
+                            app.status_message = match app.preview_native_unit(audio_player) {
+                                Ok(()) => app.status_message.clone(),
+                                Err(error) => format!("Preview experimental: {error}"),
+                            };
+                        }
+                        if ui.button("Empacotar .kfv").clicked() {
+                            let default_name = app
+                                .native_project
+                                .as_ref()
+                                .map(|project| {
+                                    format!("{}.kfv", project.manifest.bank_id.replace('.', "_"))
+                                })
+                                .unwrap_or_else(|| "voicebank.kfv".into());
+                            if let Some(destination) = crate::dialogs::FileDialog::new()
+                                .set_file_name(&default_name)
+                                .add_filter("Kamafeu Voicebank (*.kfv)", &["kfv"])
+                                .save_file()
+                            {
+                                app.status_message = match app.package_native_draft(&destination) {
+                                    Ok(()) => format!(
+                                        "Rascunho KFV 2 verificado: {}",
+                                        destination.display()
+                                    ),
+                                    Err(error) => format!("Falha ao empacotar rascunho: {error}"),
+                                };
+                            }
+                        }
+                    } else if app.current_dir.is_some() {
+                        if ui.button("Salvar").clicked() {
+                            app.status_message = match app.save_config() {
+                                Ok(()) => "Configurações salvas!".to_string(),
+                                Err(err) => format!("Erro ao salvar: {err}"),
+                            };
+                        }
+
+                        if ui.button("Recarregar").clicked() {
+                            app.reload_current();
+                        }
+
+                        if ui.button("Compilar pacote .kfv").clicked() {
+                            let default_name = format!("{}.kfv", app.config.voicebank_name);
+                            if let Some(dest_file) = crate::dialogs::FileDialog::new()
+                                .set_file_name(&default_name)
+                                .add_filter("Kamafeu Voicebank (*.kfv)", &["kfv"])
+                                .save_file()
+                            {
+                                match app.compile_and_package_kfv(&dest_file) {
+                                    Ok(()) => {
+                                        app.status_message = format!(
+                                            "Compilado com sucesso: {}",
+                                            dest_file
+                                                .file_name()
+                                                .unwrap_or_default()
+                                                .to_string_lossy()
+                                        );
+                                    }
+                                    Err(err) => {
+                                        app.status_message = format!("Erro ao empacotar: {err}");
+                                    }
+                                }
+                            }
+                        }
+
+                        if ui.button("Converter para KFV 2").clicked() {
+                            if let Some(profile_path) = crate::dialogs::FileDialog::new()
+                                .add_filter("Perfil fonético KFV 2 (*.json)", &["json"])
+                                .pick_file()
+                            {
+                                let mapping_path = crate::dialogs::FileDialog::new()
+                                    .add_filter("Mapa JSON alias → fonemas (*.json)", &["json"])
+                                    .pick_file();
+                                if let Some(destination_parent) =
+                                    crate::dialogs::FileDialog::new().pick_folder()
+                                {
+                                    app.pending_classic_migration = None;
+                                    app.status_message = match app.prepare_classic_voicebank_migration(
+                                        profile_path,
+                                        mapping_path,
+                                        destination_parent,
+                                    ) {
+                                        Ok(()) => {
+                                            "Revise a prévia antes de criar o rascunho.".into()
+                                        }
+                                        Err(error) => {
+                                            format!("Falha na migração assistida: {error}")
+                                        }
+                                    };
+                                }
+                            }
+                        }
+
+                        if ui.button("Duplicar alias").clicked() {
+                            app.duplicate_selected_entry();
+                        }
+
+                        if app.selected_entry_index.is_some()
+                            && ui.button("Excluir alias").clicked()
+                        {
+                            app.delete_selected_entry();
+                        }
                     }
-                }
-                ui.small("Escolha um perfil fonético, um mapa JSON opcional no formato {\"alias\":[\"fone1\",\"fone2\"]} e uma pasta de destino fora do banco. Aliases sem mapa só são inferidos quando os tokens coincidirem com o perfil. Todas as unidades exigem revisão.");
 
-                ui.add_space(10.0);
-                if ui.button(RichText::new("Duplicar Alias").strong().color(Color32::WHITE)).clicked() {
-                    app.duplicate_selected_entry();
-                }
-
-                if app.selected_entry_index.is_some()
-                    && ui.button(RichText::new("Excluir Alias").strong().color(Color32::from_rgb(255, 100, 100))).clicked() {
-                        app.delete_selected_entry();
+                    if let Some(path) = &app.current_dir {
+                        ui.separator();
+                        let bank_name = app
+                            .native_project
+                            .as_ref()
+                            .map(|project| project.manifest.display_name.as_str())
+                            .unwrap_or(app.config.voicebank_name.as_str());
+                        let folder_name = path
+                            .file_name()
+                            .map(|name| name.to_string_lossy().into_owned())
+                            .unwrap_or_else(|| path.display().to_string());
+                        ui.vertical(|ui| {
+                            ui.add_sized(
+                                Vec2::new(240.0, 20.0),
+                                egui::Label::new(
+                                    RichText::new(bank_name)
+                                        .strong()
+                                        .color(visual_tokens::TEXT),
+                                )
+                                .truncate(),
+                            )
+                            .on_hover_text(bank_name);
+                            ui.add_sized(
+                                Vec2::new(240.0, 18.0),
+                                egui::Label::new(
+                                    RichText::new(folder_name)
+                                        .size(10.5)
+                                        .color(visual_tokens::MUTED),
+                                )
+                                .truncate(),
+                            )
+                            .on_hover_text(path.display().to_string());
+                        });
                     }
-            }
 
-            ui.add_space(15.0);
-            if let Some(ref dir) = app.current_dir {
-                ui.label(RichText::new(format!("Pasta: {}", dir.display())).size(11.0).color(Color32::from_rgb(180, 170, 210)));
-            } else {
-                ui.label(RichText::new("Nenhuma pasta aberta").size(11.0).color(Color32::from_rgb(150, 140, 170)));
-            }
+                    if !app.status_message.is_empty() {
+                        let status_color = if app.status_message.contains("Falha")
+                            || app.status_message.contains("Erro")
+                        {
+                            visual_tokens::ERROR
+                        } else {
+                            visual_tokens::SUCCESS
+                        };
+                        let summary: String = app
+                            .status_message
+                            .lines()
+                            .next()
+                            .unwrap_or_default()
+                            .chars()
+                            .take(100)
+                            .collect();
+                        ui.colored_label(status_color, summary)
+                            .on_hover_text(&app.status_message);
+                    }
+                });
+            });
 
-            if let Some(ref oto_path) = app.active_oto_path {
-                ui.label(RichText::new(format!("OTO ativo: {}", oto_path.display())).size(10.0).color(Color32::from_rgb(100, 210, 255)));
-            }
-
-            if !app.status_message.is_empty() {
-                ui.add_space(15.0);
-                ui.label(RichText::new(&app.status_message).size(11.0).color(Color32::from_rgb(180, 255, 0)));
-            }
-        });
-
-        ui.add_space(4.0);
+        ui.add_space(12.0);
         ui.separator();
-        ui.add_space(4.0);
+        ui.add_space(12.0);
 
         if app.current_dir.is_none() {
             ui.centered_and_justified(|ui| {
                 ui.vertical_centered(|ui| {
-                    ui.label(RichText::new("Bem-vindo ao Copaiba Voicebank Toolkit").size(18.0).strong().color(Color32::from_rgb(180, 255, 0)));
-                    ui.add_space(8.0);
-                    ui.label("Abra um banco clássico ou KFV 2, ou crie um novo rascunho nativo.");
-                    ui.add_space(12.0);
-                    if ui.button(RichText::new("Selecionar Pasta do Voicebank").size(14.0)).clicked() {
-                        if let Some(folder) = crate::dialogs::FileDialog::new().pick_folder() {
-                            app.open_dir(folder);
-                        }
-                    }
-                    if ui.button("Criar novo rascunho KFV 2...").clicked() {
-                        app.native_create_wizard_open = !app.native_create_wizard_open;
-                    }
+                    egui::Frame::none()
+                        .fill(visual_tokens::PANEL)
+                        .stroke(Stroke::new(1.0_f32, visual_tokens::BORDER))
+                        .rounding(Rounding::same(18.0))
+                        .inner_margin(egui::Margin::same(32.0))
+                        .show(ui, |ui| {
+                            ui.set_max_width(640.0);
+                            ui.vertical_centered(|ui| {
+                                ui.label(
+                                    RichText::new("STUDIO POMAR  /  KAMAFEU")
+                                        .strong()
+                                        .size(11.0)
+                                        .color(visual_tokens::ACCENT),
+                                );
+                                ui.add_space(14.0);
+                                ui.heading(
+                                    RichText::new("Seus voicebanks,\ncom espaço para respirar.")
+                                        .strong()
+                                        .size(30.0)
+                                        .color(visual_tokens::TEXT),
+                                );
+                                ui.add_space(10.0);
+                                ui.label(
+                                    RichText::new(
+                                        "Abra um banco UTAU, revise gravações ou crie um rascunho KFV 2.",
+                                    )
+                                    .size(14.0)
+                                    .color(visual_tokens::MUTED),
+                                );
+                                ui.add_space(24.0);
+                                if ui
+                                    .add_sized(
+                                        Vec2::new(280.0, 46.0),
+                                        egui::Button::new(
+                                            RichText::new("Abrir pasta de voicebank")
+                                                .strong()
+                                                .color(visual_tokens::BACKGROUND),
+                                        )
+                                        .fill(visual_tokens::ACCENT)
+                                        .stroke(Stroke::new(1.0_f32, visual_tokens::ACCENT_HOVER))
+                                        .rounding(Rounding::same(10.0)),
+                                    )
+                                    .clicked()
+                                {
+                                    if let Some(folder) =
+                                        crate::dialogs::FileDialog::new().pick_folder()
+                                    {
+                                        app.open_dir(folder);
+                                    }
+                                }
+                                ui.add_space(10.0);
+                                ui.horizontal_wrapped(|ui| {
+                                    if ui.button("Abrir pacote .kfv").clicked() {
+                                        if let Some(package) = crate::dialogs::FileDialog::new()
+                                            .add_filter("Kamafeu Voicebank (*.kfv)", &["kfv"])
+                                            .pick_file()
+                                        {
+                                            app.open_dir(package);
+                                        }
+                                    }
+                                    if ui.button("Criar banco KFV 2").clicked() {
+                                        app.native_create_wizard_open = true;
+                                    }
+                                });
+                                if !app.status_message.is_empty() {
+                                    ui.add_space(12.0);
+                                    ui.colored_label(visual_tokens::WARNING, &app.status_message);
+                                }
+                            });
+                        });
                     if app.native_create_wizard_open {
+                        ui.add_space(16.0);
                         draw_native_create_wizard(app, ui);
                     }
                 });
@@ -2016,7 +2385,7 @@ pub fn draw_copaiba_toolkit_ui(
                 ui.horizontal(|ui| {
                     let (avatar_rect, _) = ui.allocate_exact_size(Vec2::new(100.0, 100.0), Sense::hover());
                     let painter = ui.painter_at(avatar_rect);
-                    painter.rect_filled(avatar_rect, Rounding::ZERO, Color32::from_rgb(16, 16, 16));
+                    painter.rect_filled(avatar_rect, Rounding::same(8.0), visual_tokens::BACKGROUND);
                     painter.rect_stroke(avatar_rect, Rounding::ZERO, Stroke::new(2.0_f32, Color32::BLACK));
 
 
@@ -2049,7 +2418,7 @@ pub fn draw_copaiba_toolkit_ui(
 
                     ui.vertical(|ui| {
                         ui.horizontal(|ui| {
-                            ui.label(RichText::new("Nome do Voicebank:").size(11.0).strong().color(Color32::from_rgb(0, 255, 157)));
+                            ui.label(RichText::new("Nome do Voicebank:").size(11.0).strong().color(visual_tokens::ACCENT));
                             if ui.add(egui::TextEdit::singleline(&mut app.config.voicebank_name).desired_width(180.0)).changed() {
                                 if let Err(err) = app.save_config() {
                                     app.status_message = format!("Erro ao salvar: {err}");
@@ -2072,10 +2441,10 @@ pub fn draw_copaiba_toolkit_ui(
                                 RichText::new("Importar Foto / Avatar (100x100)...")
                                     .size(11.0)
                                     .strong()
-                                    .color(Color32::from_rgb(0, 255, 157)),
+                                    .color(visual_tokens::ACCENT),
                             )
                             .fill(Color32::from_rgb(10, 48, 30))
-                            .stroke(Stroke::new(1.0_f32, Color32::from_rgb(0, 255, 157)))
+                            .stroke(Stroke::new(1.0_f32, visual_tokens::ACCENT))
                             .rounding(Rounding::same(4.0));
 
                             if ui.add(import_btn).clicked() {
@@ -2128,7 +2497,7 @@ pub fn draw_copaiba_toolkit_ui(
                 ui.add_space(4.0);
 
                 ui.horizontal(|ui| {
-                    if ui.button(RichText::new("+ Duplicar").size(10.5).color(Color32::from_rgb(0, 255, 157))).clicked() {
+                    if ui.button(RichText::new("+ Duplicar").size(10.5).color(visual_tokens::ACCENT)).clicked() {
                         app.duplicate_selected_entry();
                     }
                     if ui.button(RichText::new("Excluir").size(10.5).color(Color32::from_rgb(255, 100, 100))).clicked() {
@@ -2163,7 +2532,7 @@ pub fn draw_copaiba_toolkit_ui(
                             };
 
                             let text_color = if is_sel {
-                                Color32::from_rgb(0, 255, 157)
+                                visual_tokens::ACCENT
                             } else {
                                 Color32::from_rgb(210, 200, 230)
                             };
@@ -2266,7 +2635,7 @@ pub fn draw_copaiba_toolkit_ui(
                                         for key in keys {
                                             let mut entry_removed = false;
                                             if let Some((pref, suff)) = app.config.prefix_map.get_mut(&key) {
-                                                ui.label(RichText::new(&key).strong().color(Color32::from_rgb(0, 255, 157)));
+                                                ui.label(RichText::new(&key).strong().color(visual_tokens::ACCENT));
 
                                                 if ui.add(egui::TextEdit::singleline(pref).desired_width(100.0)).changed() {
                                                     changed = true;
@@ -2309,7 +2678,7 @@ pub fn draw_copaiba_toolkit_ui(
                 let next_entry = app.config.entries.get(current_idx + 1).cloned();
 
                 ui.horizontal(|ui| {
-                    ui.label(RichText::new("Editor de Forma de Onda (Triplo Stack)").strong().size(12.0).color(Color32::from_rgb(0, 255, 157)));
+                    ui.label(RichText::new("Editor de Forma de Onda (Triplo Stack)").strong().size(12.0).color(visual_tokens::ACCENT));
                     ui.add_space(10.0);
 
                     if let Some((ref samples, sr)) = app.loaded_waveform {
@@ -2361,7 +2730,7 @@ pub fn draw_copaiba_toolkit_ui(
                 let (canvas_rect, canvas_resp) = ui.allocate_exact_size(Vec2::new(center_w, main_h.max(120.0)), Sense::click_and_drag());
                 let painter = ui.painter_at(canvas_rect);
 
-                painter.rect_filled(canvas_rect, Rounding::ZERO, Color32::from_rgb(16, 16, 16));
+                painter.rect_filled(canvas_rect, Rounding::same(6.0), visual_tokens::BACKGROUND);
                 painter.rect_stroke(canvas_rect, Rounding::ZERO, Stroke::new(2.5_f32, Color32::BLACK));
 
 
@@ -2451,14 +2820,14 @@ pub fn draw_copaiba_toolkit_ui(
                             painter.text(Pos2::new(xt + 3.0, wave_area_min_y + 4.0), egui::Align2::LEFT_TOP, "Cauda Final", egui::FontId::proportional(10.0), Color32::from_rgb(180, 60, 240));
                         }
 
-                        draw_waveform_peak_envelope(&painter, Rect::from_min_max(Pos2::new(canvas_rect.min.x, wave_area_min_y), canvas_rect.max), samples, Color32::from_rgb(0, 255, 160), zoom_y, app.zoom_x);
+                        draw_waveform_peak_envelope(&painter, Rect::from_min_max(Pos2::new(canvas_rect.min.x, wave_area_min_y), canvas_rect.max), samples, visual_tokens::ACCENT, zoom_y, app.zoom_x);
 
 
                         painter.line_segment([Pos2::new(x_offset, wave_area_min_y), Pos2::new(x_offset, canvas_rect.max.y)], Stroke::new(2.5_f32, Color32::from_rgb(0, 150, 255)));
                         painter.text(Pos2::new(x_offset + 3.0, wave_area_min_y + 4.0), egui::Align2::LEFT_TOP, "Corte Inicial", egui::FontId::proportional(10.0), Color32::from_rgb(0, 180, 255));
 
-                        painter.line_segment([Pos2::new(x_consonant, wave_area_min_y), Pos2::new(x_consonant, canvas_rect.max.y)], Stroke::new(2.5_f32, Color32::from_rgb(0, 255, 120)));
-                        painter.text(Pos2::new(x_consonant + 3.0, wave_area_min_y + 4.0), egui::Align2::LEFT_TOP, "Início Consoante", egui::FontId::proportional(10.0), Color32::from_rgb(0, 255, 120));
+                        painter.line_segment([Pos2::new(x_consonant, wave_area_min_y), Pos2::new(x_consonant, canvas_rect.max.y)], Stroke::new(2.0_f32, visual_tokens::SUCCESS));
+                        painter.text(Pos2::new(x_consonant + 3.0, wave_area_min_y + 4.0), egui::Align2::LEFT_TOP, "Início Consoante", egui::FontId::proportional(10.0), visual_tokens::SUCCESS);
 
                         painter.line_segment([Pos2::new(x_cutoff, wave_area_min_y), Pos2::new(x_cutoff, canvas_rect.max.y)], Stroke::new(2.5_f32, Color32::from_rgb(255, 60, 60)));
                         painter.text(Pos2::new(x_cutoff + 3.0, wave_area_min_y + 4.0), egui::Align2::LEFT_TOP, "Corte Final", egui::FontId::proportional(10.0), Color32::from_rgb(255, 80, 80));
@@ -2573,19 +2942,45 @@ pub fn draw_copaiba_toolkit_ui(
             ui.separator();
 
             ui.allocate_ui_with_layout(Vec2::new(260.0, full_avail_h), egui::Layout::top_down(egui::Align::LEFT), |ui| {
-                ui.label(RichText::new("Controles & Sliders").strong().size(12.0).color(Color32::from_rgb(0, 255, 157)));
+                ui.label(RichText::new("Controles & Sliders").strong().size(12.0).color(visual_tokens::ACCENT));
                 ui.add_space(6.0);
 
                 egui::ScrollArea::vertical()
                     .id_salt("copaiba_right_controls_scroll")
                     .max_height(ui.available_height())
                     .show(ui, |ui| {
-                        let sel_idx = app.selected_entry_index;
-                        let wav_duration_ms = app.loaded_waveform.as_ref().map(|(s, sr)| (s.len() as f64 / *sr as f64) * 1000.0);
+                        let selected_index = app
+                            .selected_entry_index
+                            .filter(|idx| *idx < app.config.entries.len());
+                        let wav_duration_ms = app
+                            .loaded_waveform
+                            .as_ref()
+                            .map(|(samples, sample_rate)| {
+                                (samples.len() as f64 / *sample_rate as f64) * 1000.0
+                            })
+                            .filter(|duration_ms| duration_ms.is_finite() && *duration_ms > 0.0);
 
-                        if let (Some(idx), Some(duration_ms)) = (sel_idx, wav_duration_ms) {
-                            if idx < app.config.entries.len() {
-                                let entry = &mut app.config.entries[idx];
+                        if let Some(idx) = selected_index {
+                            // Keep alias parameters editable even when the referenced WAV is
+                            // missing or unreadable. In that case use a temporary range based
+                            // on the stored values and clearly label it as an estimate.
+                            let has_waveform = wav_duration_ms.is_some();
+                            let duration_ms = wav_duration_ms.unwrap_or_else(|| {
+                                let entry = &app.config.entries[idx];
+                                [
+                                    entry.corte_inicial_ms.abs(),
+                                    entry.consoante_ms.abs(),
+                                    entry.corte_final_ms.abs(),
+                                    entry.preutterance_ms.abs(),
+                                    entry.overlap_ms.abs(),
+                                    entry.loop_inicio_ms.unwrap_or_default().abs(),
+                                    entry.loop_fim_ms.unwrap_or_default().abs(),
+                                    entry.cauda_final_ms.unwrap_or_default().abs(),
+                                ]
+                                .into_iter()
+                                .fold(1_000.0_f64, f64::max)
+                            });
+                            let entry = &mut app.config.entries[idx];
 
                                 ui.label(RichText::new("Nome do Alias:").size(11.0).color(Color32::from_rgb(200, 190, 230)));
                                 ui.add(egui::TextEdit::singleline(&mut entry.alias).desired_width(240.0));
@@ -2593,17 +2988,21 @@ pub fn draw_copaiba_toolkit_ui(
                                 ui.add_space(4.0);
                                 ui.label(RichText::new("Arquivo WAV:").size(10.0).color(Color32::from_rgb(160, 150, 180)));
                                 ui.label(RichText::new(&entry.wav_filename).size(11.0).color(Color32::WHITE));
+                                if !has_waveform {
+                                    ui.colored_label(
+                                        visual_tokens::WARNING,
+                                        "WAV indisponível; faixa dos sliders é provisória.",
+                                    )
+                                    .on_hover_text(
+                                        "Os parâmetros continuam editáveis. Reabra o WAV para ajustar os limites à duração real da gravação.",
+                                    );
+                                }
 
                                 ui.add_space(8.0);
                                 ui.separator();
                                 ui.add_space(6.0);
 
-                                ui.label(
-                                    RichText::new("Análise VENUS (.venus)")
-                                        .strong()
-                                        .size(12.0)
-                                        .color(Color32::from_rgb(80, 190, 255)),
-                                );
+                                ui.collapsing("Análise VENUS (.venus)", |ui| {
                                 let mut venus_changed = false;
                                 if let Some(analysis) = app.venus_analysis.as_mut() {
                                     let voiced = analysis.frames.iter().filter(|frame| frame.voiced).count();
@@ -2673,16 +3072,23 @@ pub fn draw_copaiba_toolkit_ui(
                                         let _ = crate::dsp::venus_analysis::save(path, analysis);
                                     }
                                 }
+                                });
 
                                 ui.add_space(8.0);
                                 ui.separator();
                                 ui.add_space(6.0);
 
+                                ui.label(
+                                    RichText::new("Parâmetros de oto.ini")
+                                        .strong()
+                                        .size(12.0)
+                                        .color(visual_tokens::ACCENT),
+                                );
                                 ui.label(RichText::new("Corte Inicial (ms):").size(11.0).color(Color32::from_rgb(0, 150, 255)));
                                 ui.add(egui::Slider::new(&mut entry.corte_inicial_ms, 0.0..=duration_ms).suffix(" ms"));
 
                                 ui.add_space(8.0);
-                                ui.label(RichText::new("Início Consoante (ms):").size(11.0).color(Color32::from_rgb(0, 255, 120)));
+                                ui.label(RichText::new("Início Consoante (ms):").size(11.0).color(visual_tokens::SUCCESS));
                                 ui.add(egui::Slider::new(&mut entry.consoante_ms, 0.0..=duration_ms).suffix(" ms"));
 
                                 ui.add_space(8.0);
@@ -2702,7 +3108,7 @@ pub fn draw_copaiba_toolkit_ui(
                                 ui.separator();
                                 ui.add_space(6.0);
 
-                                ui.label(RichText::new("Parte de Loop (Sustentação)").strong().size(11.0).color(Color32::YELLOW));
+                                ui.label(RichText::new("Parte de Loop (Sustentação)").strong().size(11.0).color(visual_tokens::WARNING));
                                 let mut has_loop = entry.loop_inicio_ms.is_some();
                                 if ui.checkbox(&mut has_loop, "Habilitar Loop").changed() {
                                     if has_loop {
@@ -2716,11 +3122,11 @@ pub fn draw_copaiba_toolkit_ui(
 
                                 if has_loop {
                                     let l_start = entry.loop_inicio_ms.get_or_insert(100.0);
-                                    ui.label(RichText::new("Loop Início:").size(10.0).color(Color32::YELLOW));
+                                    ui.label(RichText::new("Loop Início:").size(10.0).color(visual_tokens::WARNING));
                                     ui.add(egui::Slider::new(l_start, 0.0..=duration_ms).suffix(" ms"));
 
                                     let l_end = entry.loop_fim_ms.get_or_insert(300.0);
-                                    ui.label(RichText::new("Loop Fim:").size(10.0).color(Color32::YELLOW));
+                                    ui.label(RichText::new("Loop Fim:").size(10.0).color(visual_tokens::WARNING));
                                     ui.add(egui::Slider::new(l_end, 0.0..=duration_ms).suffix(" ms"));
                                 }
 
@@ -2743,15 +3149,64 @@ pub fn draw_copaiba_toolkit_ui(
                                     ui.label(RichText::new("Cauda Final:").size(10.0).color(Color32::from_rgb(180, 50, 255)));
                                     ui.add(egui::Slider::new(tail, 0.0..=duration_ms).suffix(" ms"));
                                 }
-                            }
+                        } else if app.config.entries.is_empty() {
+                            ui.label(
+                                RichText::new("Nenhum alias disponível neste voicebank.")
+                                    .size(11.0)
+                                    .color(visual_tokens::MUTED),
+                            );
                         } else {
-                            ui.label(RichText::new("Nenhum alias selecionado").size(11.0).color(Color32::from_rgb(150, 140, 170)));
+                            ui.label(
+                                RichText::new("Selecione um alias para editar seus parâmetros.")
+                                    .size(11.0)
+                                    .color(visual_tokens::MUTED),
+                            );
                         }
                     });
             });
         }
     });
 });
+
+if let Some(pending) = app.pending_classic_migration.as_ref() {
+    let preview = pending.preview.clone();
+    let mut open = true;
+    let mut confirm = false;
+    let mut cancel = false;
+    egui::Window::new("Prévia da migração para KFV 2")
+        .collapsible(false)
+        .resizable(false)
+        .open(&mut open)
+        .show(ui.ctx(), |ui| {
+            ui.label(format!("Entradas em oto.ini: {}", preview.total_entries));
+            ui.label(format!("Mapeamentos explícitos: {}", preview.explicit_mappings));
+            ui.label(format!("Aliases inferidos por tokens exatos: {}", preview.inferred_aliases));
+            ui.label(format!("Sem mapeamento: {}", preview.unmapped_aliases));
+            ui.label(format!("Mapeamentos inválidos: {}", preview.invalid_mappings));
+            ui.label(format!("Entradas em aliases duplicados: {}", preview.alias_collisions));
+            ui.strong(format!("Unidades potenciais antes de validar WAVs: {}", preview.potential_units));
+            ui.add_space(6.0);
+            for warning in &preview.warnings {
+                ui.label(RichText::new(warning).color(Color32::YELLOW));
+            }
+            ui.add_space(8.0);
+            ui.label("A conversão cria uma pasta editável de autoria e a abre no Copaíba. Depois da revisão, use ‘Empacotar rascunho KFV 2’ para gerar um pacote ZIP com extensão .kfv.");
+            ui.horizontal(|ui| {
+                if ui.button("Criar pasta de autoria").clicked() {
+                    confirm = true;
+                }
+                if ui.button("Cancelar").clicked() {
+                    cancel = true;
+                }
+            });
+        });
+    if confirm {
+        app.confirm_classic_voicebank_migration();
+    } else if cancel || !open {
+        app.pending_classic_migration = None;
+        app.status_message = "Migração cancelada; nenhum rascunho foi criado.".into();
+    }
+}
 }
 
 fn draw_native_create_wizard(app: &mut CopaibaToolkitApp, ui: &mut egui::Ui) {

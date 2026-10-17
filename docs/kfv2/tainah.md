@@ -2,15 +2,19 @@
 
 ## Português (Brasil)
 
-Tainah é o resampler nativo do Kamafeu baseado em WORLD. Ele analisa F0, envoltória espectral e aperiodicidade; o mapa temporal usa offset, cutoff e marcas OTO de sustain/cauda. Quando a análise ou a saída falha nos critérios técnicos, o render pode recorrer a SOLA ou resize preservando pitch. O caminho efetivo e a razão do fallback aparecem nos diagnósticos por fonema. Esses critérios detectam silêncio e cobertura insuficiente, não garantem qualidade perceptiva.
+Tainah é o resampler do Kamafeu baseado na biblioteca compartilhada WORLD do lessampler-ng (LGPL-3.0). Ele analisa F0, envoltória espectral e aperiodicidade; o mapa temporal usa offset, cutoff e marcas de `oto.ini` para sustain e cauda. Quando o carregamento, a análise ou a saída falha nos critérios técnicos, o render retorna erro com diagnóstico; não troca para SOLA ou resize. Os critérios detectam silêncio e cobertura insuficiente, mas não garantem qualidade perceptiva.
 
 ### Instalação e seleção
 
 Instale uma versão desktop compatível do Kamafeu. Na faixa, abra as opções de voz/resampler e selecione **Tainah**. **Straycat** continua como padrão desktop enquanto não houver avaliação auditiva controlada que aprove Tainah. O Kamafeu Web não oferece este resampler nativo.
 
-### Voicebank e OTO
+Para desenvolvimento local, execute `python3 native/tainah/build.py` e inicie o aplicativo; ele procura automaticamente a biblioteca em `target/tainah-package`. `TAINAH_LIBRARY_PATH` continua disponível para indicar outro caminho. O script fixa a revisão do lessampler-ng, compila a biblioteca e executa o teste de ABI. O cache de análise fica na pasta de cache do usuário, fora do voicebank.
 
-Use um voicebank com WAVs acessíveis e entradas válidas em `oto.ini`. Offset, consonant, cutoff, preutterance e overlap são dados de timing importantes; para esticar uma vogal, marcas de loop/sustain e tail permitem preservar o ataque e a cauda. Alias ausente, arquivo WAV ilegível, região útil menor que 64 amostras, análise sem frames ou saída silenciosa pode resultar em fallback ou silêncio. Consulte o diagnóstico do projeto para identificar a rota efetiva.
+O motor usa os detectores WORLD Harvest ou DIO. Quando as preferências globais estiverem em YIN ou pyIN, Tainah usa Harvest; ao escolher DIO, o motor usa DIO.
+
+### Voicebank e oto.ini
+
+Use um voicebank com WAVs acessíveis e entradas válidas em `oto.ini`. Offset, consonant, cutoff, preutterance e overlap são dados de timing importantes; para esticar uma vogal, marcas de loop/sustain e tail permitem preservar o ataque e a cauda. Alias ausente, arquivo WAV ilegível, região útil menor que 64 amostras, análise sem frames ou saída silenciosa pode impedir o render WORLD. Consulte o diagnóstico do projeto para identificar o erro.
 
 ### Flags
 
@@ -18,7 +22,7 @@ As flags são sensíveis a maiúsculas/minúsculas. Valores fora do intervalo s�
 
 ### Stretch e compatibilidade
 
-Em notas longas, Tainah mapeia os frames WORLD sobre a duração solicitada e tenta preservar ataque e cauda OTO. O fallback SOLA permanece disponível no caminho clássico. Outros resamplers podem interpretar flags de forma diferente.
+Em notas longas, Tainah mapeia os frames WORLD sobre a duração solicitada e tenta preservar as regiões de ataque e cauda definidas em `oto.ini`. SOLA continua disponível como driver clássico selecionado separadamente. Outros resamplers podem interpretar flags de forma diferente.
 
 ### Estado de avaliação
 
@@ -26,15 +30,19 @@ Não há benchmark público concluído nem resultado de escuta cega aprovado. O 
 
 ## English
 
-Tainah is Kamafeu's native WORLD based resampler. It analyzes F0, spectral envelope, and aperiodicity. Its time map uses offset, cutoff, and OTO sustain/tail markers. When analysis or output fails technical coverage checks, rendering may fall back to SOLA or pitch preserving resize. Per phoneme diagnostics record the effective path and fallback reason. These checks detect silence and insufficient coverage; they do not establish perceptual quality.
+Tainah uses the shared WORLD library from lessampler-ng (LGPL-3.0). It analyzes F0, spectral envelope, and aperiodicity. Its time map uses offset, cutoff, and `oto.ini` markers for sustain and tail regions. Library loading, analysis, or output failures return diagnostics; it does not switch to SOLA or resize. These checks detect silence and insufficient coverage; they do not establish perceptual quality.
 
 ### Installation and selection
 
 Install a compatible Kamafeu desktop build. In the track voice/resampler options, select **Tainah**. **Straycat** remains the desktop default until Tainah passes a controlled listening evaluation. The Kamafeu Web build does not provide this native resampler.
 
-### Voicebanks and OTO
+For local development, run `python3 native/tainah/build.py` and launch the app; it automatically searches `target/tainah-package`. `TAINAH_LIBRARY_PATH` is available to select another path. The script pins lessampler-ng, builds the library, and runs its ABI test. Analysis cache files live in the user's cache directory, outside the voicebank.
 
-Use a voicebank with readable WAV files and valid `oto.ini` entries. Offset, consonant, cutoff, preutterance, and overlap affect timing. For long vowels, loop/sustain and tail markers help preserve the attack and ending. Missing aliases, unreadable WAVs, useful regions shorter than 64 samples, failed analysis, or silent output can cause fallback or silence. Check project diagnostics to see the effective route.
+The engine uses WORLD Harvest or DIO. If the global preference is YIN or pyIN, Tainah uses Harvest; selecting DIO makes it use DIO.
+
+### Voicebanks and oto.ini
+
+Use a voicebank with readable WAV files and valid `oto.ini` entries. Offset, consonant, cutoff, preutterance, and overlap affect timing. For long vowels, loop/sustain and tail markers help preserve the attack and ending. Missing aliases, unreadable WAVs, useful regions shorter than 64 samples, failed analysis, or silent output can prevent a WORLD render. Check project diagnostics to see the error.
 
 ### Flags
 
@@ -42,7 +50,7 @@ Flags are case sensitive. Out of range values are clamped. `g` (−100 to +100) 
 
 ### Stretch and compatibility
 
-For long notes, Tainah maps WORLD frames to the requested duration and attempts to preserve OTO attack and tail regions. SOLA fallback remains available in the classic rendering path. Other resamplers may interpret flags differently.
+For long notes, Tainah maps WORLD frames to the requested duration and attempts to preserve attack and tail regions defined in `oto.ini`. SOLA remains available as a separately selected classic driver. Other resamplers may interpret flags differently.
 
 ### Evaluation status
 

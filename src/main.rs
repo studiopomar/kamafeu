@@ -73,7 +73,7 @@ enum Commands {
         path: PathBuf,
     },
 
-    /// Convert an OTO voicebank into a separate, reviewable KFV 2 draft
+    /// Convert an oto.ini voicebank into a separate, reviewable KFV 2 draft
     MigrateVoicebank {
         /// Path to the classic voicebank root folder
         path: PathBuf,
@@ -85,7 +85,7 @@ enum Commands {
         #[arg(long)]
         profile: PathBuf,
 
-        /// Optional JSON object mapping exact OTO aliases to phone arrays
+        /// Optional JSON object mapping exact oto.ini aliases to phone arrays
         #[arg(long)]
         mapping: Option<PathBuf>,
 
@@ -3636,7 +3636,7 @@ mod tests {
             "--midi",
             "62",
         ])
-        .expect("parse OTO migration command");
+        .expect("parse oto.ini migration command");
         assert!(matches!(
             cli.command,
             Some(Commands::MigrateVoicebank {

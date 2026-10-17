@@ -12,7 +12,7 @@ pub struct SingerInfo {
     pub voice_type: String,
     /// False for formats that can be catalogued but have no project render route.
     pub selectable: bool,
-    /// KFV 2 uses the native project binding path instead of the OTO loader.
+    /// KFV 2 uses the native project binding path instead of the oto.ini loader.
     pub is_native_kfv2: bool,
     pub diagnostic: Option<String>,
 }

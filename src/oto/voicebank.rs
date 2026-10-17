@@ -62,7 +62,7 @@ impl Voicebank {
 
         let native_config_path = real_root_path.join("kamafeu_voicebank.json");
         // KFV 2 has an explicit format discriminator. Never reinterpret a
-        // malformed or newer native manifest as a classic OTO voicebank.
+        // malformed or newer native manifest as a classic oto.ini voicebank.
         if native_config_path.is_file() {
             let content = fs::read_to_string(&native_config_path)?;
             let header: serde_json::Value = serde_json::from_str(&content).map_err(|e| {

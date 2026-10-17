@@ -552,10 +552,10 @@ pub struct BuiltInCapability {
 pub fn built_in_capabilities() -> Vec<BuiltInCapability> {
     let capabilities = vec![
         BuiltInCapability {
-            id: "org.kamafeu.world-rs",
+            id: "org.kamafeu.lessampler-tainah",
             name: "Tainah",
             kind: ExtensionKind::SynthesisEngine,
-            description: "Resampler nativo baseado em WORLD, com assinatura stretch nas sustentações e ataques/caudas preservados por marcas de voicebank. Os diagnósticos registram os estágios efetivos e fallbacks.",
+            description: "Resampler nativo baseado em WORLD, com stretch nas sustentações e ataques/caudas preservados por marcas de voicebank. Falhas de análise, síntese ou cobertura são retornadas como erros diagnosticados; Tainah não troca de backend.",
         },
         BuiltInCapability {
             id: "org.kamafeu.sola",
@@ -730,10 +730,10 @@ mod tests {
             .all(|capability| is_valid_extension_id(capability.id)));
         let world = capabilities
             .iter()
-            .find(|capability| capability.id == "org.kamafeu.world-rs")
+            .find(|capability| capability.id == "org.kamafeu.lessampler-tainah")
             .expect("native WORLD capability");
         assert_eq!(world.name, "Tainah");
-        assert!(world.description.contains("SOLA"));
+        assert!(world.description.contains("não troca de backend"));
         let sola = capabilities
             .iter()
             .find(|capability| capability.id == "org.kamafeu.sola")

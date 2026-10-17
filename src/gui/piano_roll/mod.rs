@@ -1293,7 +1293,7 @@ pub(crate) fn draw_piano_roll(
 
             let is_custom_pitch = !note.pitch_bend.points.is_empty();
             let show_pitch_anchors =
-                state.active_tool == EditTool::PitchDraw || state.active_tool == EditTool::Pointer;
+                state.active_tool == EditTool::PitchDraw;
             if show_pitch_anchors {
                 for (pt_idx, pt) in pitch_curve.iter().enumerate() {
                     let total_cents = pt.pitch_offset_cents + note.expressions.pitch_delta;
@@ -1336,8 +1336,7 @@ pub(crate) fn draw_piano_roll(
                 // Pitch anchors have exclusive pointer ownership. Mark the
                 // canvas as consumed before note selection/marquee handling
                 // runs in this frame.
-                let pitch_anchor_hit = (state.active_tool == EditTool::PitchDraw
-                    || state.active_tool == EditTool::Pointer)
+                let pitch_anchor_hit = state.active_tool == EditTool::PitchDraw
                     && pitch_curve.iter().any(|pt| {
                         let px_x = x_start + (pt.time_offset_ms * state.px_per_ms as f64) as f32;
                         let px_y = y_center
@@ -1458,8 +1457,7 @@ pub(crate) fn draw_piano_roll(
                             state.selected_note_indices.insert(idx);
                         }
 
-                        let is_over_pitch_anchor = (state.active_tool == EditTool::PitchDraw
-                            || state.active_tool == EditTool::Pointer)
+                        let is_over_pitch_anchor = state.active_tool == EditTool::PitchDraw
                             && (state.dragging_pitch_pt.is_some()
                                 || pitch_curve.iter().any(|pt| {
                                     let px_x = x_start
@@ -1551,7 +1549,7 @@ pub(crate) fn draw_piano_roll(
         // OPENUTAU-GRADE CANVAS-WIDE PITCH ENGINE & INTERACTION
         // ====================================================================
         let can_interact_pitch =
-            state.active_tool == EditTool::PitchDraw || state.active_tool == EditTool::Pointer;
+            state.active_tool == EditTool::PitchDraw;
 
         let is_alt = ui.input(|i| i.modifiers.alt);
         let is_shift = ui.input(|i| i.modifiers.shift);
@@ -2268,7 +2266,7 @@ pub(crate) fn draw_piano_roll(
 
         // 4. Render OpenUtau-Grade Interactive Pitch Control Handles
         let show_pitch_nodes =
-            state.active_tool == EditTool::PitchDraw || state.active_tool == EditTool::Pointer;
+            state.active_tool == EditTool::PitchDraw;
 
         if show_pitch_nodes {
             for (_h_idx, handle) in pending_pitch_handles.iter().enumerate() {

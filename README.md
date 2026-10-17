@@ -14,13 +14,13 @@
 [![Downloads](https://img.shields.io/github/downloads/studiopomar/kamafeu/total?style=for-the-badge&label=Downloads&logo=github&logoColor=white&color=2563eb)](https://github.com/studiopomar/kamafeu/releases)
 [![Stars](https://img.shields.io/github/stars/studiopomar/kamafeu?style=for-the-badge&label=Stars&logo=github&labelColor=444&color=DAAA3F)](https://star-history.com/#studiopomar/kamafeu&Date)
 
-<img src="assets/kamafeu_banner.png" alt="Kamafeu Studio — piano roll e síntese vocal" width="1000" />
+<img src="assets/kamafeu_banner.png" alt="Kamafeu Studio, piano roll e síntese vocal" width="1000" />
 
 **Programador:** xiao | **Direção de arte:** mori-p | **Bug reporter e QA (Linux):** makki | **Testador e QA (Windows e Linux):** zoneryth | **Testador e QA (macOS):** xiao
 
 [Downloads](https://github.com/studiopomar/kamafeu/releases) | [Primeiros passos](#primeiros-passos) | [Compilação](#instruções-de-compilação) | [Histórico de alterações](CHANGELOG.md)
 
-> **Estado atual:** `3.0` — codinome **Calafate**. Esta é a nova série principal do Kamafeu; o núcleo do editor e os formatos principais estão maduros, enquanto motores externos, voicebanks e drivers de áudio devem ser validados na máquina do usuário.
+> **Estado atual:** `3.0`, codinome **Calafate**. Esta é a nova série principal do Kamafeu. O núcleo do editor e os formatos principais estão maduros; motores externos, voicebanks e drivers de áudio ainda precisam ser validados na máquina do usuário.
 
 > **Codinome da série:** **Calafate**. O número `3.0` marca a nova linha de desenvolvimento; internamente, o pacote usa SemVer `3.0.0`.
 
@@ -201,7 +201,7 @@ A arquitetura do Kamafeu Studio foi projetada de ponta a ponta em Rust para gara
 │                   PIPELINE DE RENDERIZAÇÃO & SÍNTESE DSP                        │
 │  ├── Fila Concorrente (Thread Pool Rayon) & Cache de Amostras em Memória        │
 │  ├── Resampler (Modulação Tonal & Estiramento Temporal):                        │
-│  │   ├── Tainah: análise/ressíntese WORLD com stretch de sustentação e fallback SOLA │
+│  │   ├── Tainah: análise/ressíntese WORLD com stretch de sustentação e erro explícito │
 │  │   └── straycat-rs / Motores Externos via UTAU CLI Protocol                    │
 │  ├── Wavtool (Emenda, Splicing & Envelopamento):                                │
 │  │   ├── Andromeda: wavtool alternativo para envelopes UTAU                      │
@@ -217,7 +217,7 @@ A arquitetura do Kamafeu Studio foi projetada de ponta a ponta em Rust para gara
 1. **Estrutura de dados e eventos temporais:** O projeto decompõe composições em faixas e partes independentes. As notas musicais contêm posições e durações absolutas em milissegundos calculadas em função do andamento (BPM) e da métrica de compasso.
 2. **Resolução fonética e particionamento silábico:** O fonemizador converte as letras digitadas em cadeias de fonemas individuais (como ataques de início de frase, transições consoante-vogal e consoantes de término). Para cada fonema, o sistema consulta a tabela `oto.ini` do cantor ativo e determina a amostra WAV correspondente de acordo com o tom da nota (`prefix.map`).
 3. **Cálculo de temporização e sobreposição (*Timing Engine*):** A posição acústica de cada amostra é ajustada aplicando os valores de *preutterance* (para antecipar consoantes antes da batida musical) e *overlap* (definindo a zona de fusão com a nota precedente).
-4. **Resampling e transposição tonal:** O resampler selecionado processa o trecho definido por *offset* e *cutoff*. O caminho nativo disponível na interface usa WORLD em Rust e pode recorrer a SOLA quando a análise falha ou a saída não atende aos critérios internos de cobertura. A implementação SOLA também existe como driver separado, mas ainda é experimental.
+4. **Resampling e transposição tonal:** O resampler selecionado processa o trecho definido por *offset* e *cutoff*. Tainah usa WORLD para ajustar altura e duração e retorna um diagnóstico quando a biblioteca não carrega ou quando análise, síntese ou cobertura falham. SOLA é um motor separado e não substitui Tainah em caso de erro.
 5. **Emenda, envelopamento e splicing (*Wavtool & Mixing*):** O wavtool escolhido aplica o envelope e posiciona as amostras. Andromeda é uma alternativa que aplica o envelope UTAU com curva cosseno; Galapagos é o caminho nativo de alinhamento de fase. Seus papéis e critérios são distintos, e nenhum rótulo sozinho comprova qualidade acústica.
 6. **Streaming em tempo real e visualização:** O renderizador despacha tarefas em paralelo por blocos temporais (*progressive chunks*) através de um pool de threads gerenciado pelo Rayon. À medida que os blocos ficam prontos, eles são enviados diretamente para o dispositivo de áudio através de canais sincronizados sem bloqueio da interface gráfica, gerando simultaneamente a forma de onda de alta resolução exibida no fundo do piano roll.
 
@@ -242,7 +242,7 @@ O arquivo `.aps` é o formato nativo porque preserva esse modelo completo. O `.u
 
 ### 2. A fonemização acontece antes do áudio
 
-Ao importar ou editar uma letra, o Kamafeu não envia texto diretamente ao resampler. O dispatcher escolhe um modo fonético — japonês CV/VCV/CVVC, português BRAPA, português G2P, inglês VCCV, modo manual ou outro modo disponível — e transforma a nota em uma sequência de aliases.
+Ao importar ou editar uma letra, o Kamafeu não envia texto diretamente ao resampler. O dispatcher escolhe um modo fonético entre japonês CV/VCV/CVVC, português BRAPA ou G2P, inglês VCCV, modo manual e outros disponíveis. Depois, transforma a nota em uma sequência de aliases.
 
 O resultado é resolvido contra o voicebank ativo nesta ordem conceitual:
 
@@ -342,7 +342,7 @@ O catálogo de extensões separa descoberta, consentimento e execução. Um mani
 
 Extensões WASM passam por verificação de versão da API antes da ativação. O runtime valida assinatura de exports e limites do buffer invocado; a existência de um arquivo `.wasm` não significa que o módulo seja um fonemizador, resampler ou efeito funcional. A execução deve possuir contrato de entrada, saída, codificação fonética, pré-processamento e decodificação documentados.
 
-### 10. O que esta série garante — e o que ainda depende do ambiente
+### 10. O que esta série garante e o que ainda depende do ambiente
 
 Os testes automatizados cobrem modelo, formatos, fonemização, timing, drivers nativos, mixagem, cache, playback progressivo, contratos de extensão e interações importantes da UI. A release também publica artefatos por plataforma através do workflow de build.
 
@@ -381,7 +381,7 @@ ida e volta.
 O Kamafeu Studio permite alternar entre o pipeline nativo de processamento e ferramentas clássicas de linha de comando:
 
 ### Motores de afinação (Resamplers)
-- **Tainah:** Resampler nativo do Studio Pomar baseado em WORLD, com estiramento das sustentações vocálicas e preservação dos ataques e caudas definidos pelo voicebank. No caminho clássico, falhas de análise, saída silenciosa/inválida ou cobertura insuficiente podem acionar SOLA ou resize de recuperação. Os diagnósticos por fonema registram estágios efetivos e motivos de recuperação; consulte o [estado auditado dos motores](docs/kfv2/engine-audit.md).
+- **Tainah:** Resampler WORLD integrado ao Kamafeu por uma biblioteca compartilhada sob LGPL-3.0. Estende a sustentação e preserva ataques e caudas conforme os tempos de `oto.ini`, com suporte às flags `g`, `t`, `B` e `H`. Erros de carregamento, análise, síntese ou cobertura são informados sem troca automática para SOLA ou redimensionamento. A biblioteca Tainah 2.1.0 já acompanha os pacotes desktop, então não é preciso instalá-la à parte para usá-la no Kamafeu. O Tainah também pode ser baixado separadamente para testar em outros sintetizadores compatíveis com o protocolo de resampler UTAU. Veja o [repositório do Tainah](https://github.com/studiopomar/Tainah-rt/tree/main) e os [downloads](https://github.com/studiopomar/Tainah-rt/releases/latest). Consulte o [estado auditado dos motores](docs/kfv2/engine-audit.md).
 - **SOLA (Nativo · experimental):** Driver nativo independente e backend explicitamente usado pelo preview KFV 2 atual. A comparação auditiva necessária para escolher um backend de referência ainda não foi concluída.
 - **straycat-rs (UtaUtaUtau):** Motor padrão recomendado para máxima compatibilidade e clareza acústica.
 - **Motores externos:** Suporte transparente a executáveis da comunidade como `Hifisampler`, `macres`, `moresampler`, `OpenMoresampler`, `world4utau`, `TIPS` e `Organum`. Os artefatos de release compilam `straycat-rs` e Organum quando a plataforma permite; o `openmoresampler.exe` versionado do repositório é um artefato separado e só deve ser considerado incluído quando estiver presente no pacote baixado. No macOS e Linux, executáveis Windows dependem do Wine. Consulte os [avisos de terceiros](NOTICE.md).
@@ -451,7 +451,7 @@ instale o Wine antes de abrir o projeto.
 3. Instale o APK e conceda acesso aos arquivos quando solicitado.
 
 O APK é experimental. No Android, os caminhos disponíveis são os nativos
-WORLD (com fallback SOLA no resampler clássico) e Galapagos; resamplers externos
+WORLD e Galapagos; falhas de Tainah retornam erro sem trocar para SOLA. Resamplers externos
 e executáveis Windows não são suportados.
 
 ### iOS
@@ -492,7 +492,7 @@ Projetos recentes e voicebanks recentes são apenas referências de caminho; mov
 ou renomear esses arquivos pode exigir que sejam selecionados novamente no editor.
 
 Com autosave ativado, projetos com alterações pendentes recebem cópias APS
-recuperáveis no intervalo configurado (30–600 segundos). Para um projeto salvo,
+recuperáveis no intervalo configurado (30 a 600 segundos). Para um projeto salvo,
 elas ficam em `.kamafeu_snapshots` ao lado do arquivo; para um projeto ainda sem
 nome, ficam na pasta atual. Em **Arquivo → Recuperar Snapshot...**, escolha uma
 cópia por data e tamanho. Ela abre de forma segura como um projeto novo: use
@@ -508,7 +508,7 @@ O Kamafeu Studio conta com infraestrutura baseada em `winit` e `egui`, permitind
 1. **Impossibilidade de executar resamplers externos (Subprocessos CLI):**
    - Nos sistemas operacionais desktop (Windows, macOS, Linux), o Kamafeu pode invocar executáveis externos como `straycat-rs.exe` ou `hifisampler` através de processos filhos (`std::process::Command`) e Wine.
    - No Android e iOS, o isolamento rigoroso de processos (*sandbox*) e as políticas de segurança das lojas proíbem a criação de processos filhos arbitrários e a execução de binários Win32/x86.
-   - **Estado no Kamafeu:** Dispositivos móveis usam resampling nativo WORLD com fallback SOLA e o caminho nativo Galapagos para mistura/alinhamento. A disponibilidade do código não substitui testes de performance e áudio no aparelho.
+   - **Estado no Kamafeu:** Dispositivos móveis usam resampling nativo WORLD e o caminho nativo Galapagos para mistura/alinhamento. Falhas WORLD não recorrem a SOLA; a disponibilidade do código não substitui testes de performance e áudio no aparelho.
 
 2. **Sistema de arquivos e permissões de armazenamento (*Scoped Storage*):**
    - No Android moderno (API 30+) e iOS, o acesso direto a caminhos tradicionais como `/sdcard/` ou pastas compartilhadas é bloqueado. O carregamento de voicebanks e projetos exige integração com *Storage Access Framework* (SAF) ou empacotamento prévio em arquivos `.kfv` / `.zip`.
@@ -714,8 +714,14 @@ cargo run --release --bin kamafeu -- validate-voicebank "/caminho/do/voicebank"
 # Medir render frio e aquecido, verificando identidade do PCM entre iterações
 cargo run --release --bin render-benchmark -- projeto.aps "/caminho/do/voicebank" 9
 
+# Medir explicitamente o resampler WORLD/Tainah
+cargo run --release --bin render-benchmark -- projeto.aps "/caminho/do/voicebank" 9 --world
+
 # Usar projeto e voicebank sintéticos reproduzíveis para uma referência local
 cargo run --release --bin render-benchmark -- --synthetic 9
+
+# Medir WORLD/Tainah sem acertos de cache usando os fixtures sintéticos
+cargo run --release --bin render-benchmark -- --synthetic 9 --world --uncached
 
 # Comparar custo end-to-end sem acertos de cache entre iterações
 cargo run --release --bin render-benchmark -- --synthetic 9 --uncached

@@ -70,8 +70,8 @@ impl PaletteAction {
                 "Find notes and tracks that need attention",
             ),
             Self::VoicebankDiagnostics => lang.tr(
-                "Conferir OTO e arquivos do voicebank",
-                "Check OTO and voicebank files",
+                "Conferir oto.ini e arquivos do voicebank",
+                "Check oto.ini and voicebank files",
             ),
             Self::Autopitch => lang.tr(
                 "Preparar curvas de pitch para as notas",

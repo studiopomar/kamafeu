@@ -232,7 +232,9 @@ enum SchedulerCommand {
         final_chunk: bool,
     },
     SetSpeed(f32),
-    Stop,
+    Stop {
+        generation: u64,
+    },
     ProducerClosed {
         generation: u64,
         final_chunk_received: bool,
@@ -255,6 +257,13 @@ impl AudioPlayer {
     pub fn begin_progressive_generation(&mut self) -> u64 {
         self.playback_generation.fetch_add(1, Ordering::AcqRel) + 1
     }
+
+    /// Generation currently owned by the transport. Scheduler events can be
+    /// delivered to the UI after a newer Play request has already started.
+    pub fn current_playback_generation(&self) -> u64 {
+        self.playback_generation.load(Ordering::Acquire)
+    }
+
     pub fn set_flush_denormals_to_zero(&mut self, enabled: bool) {
         set_flush_denormals_to_zero(enabled);
     }
@@ -347,6 +356,9 @@ impl AudioPlayer {
                                 // rejected. Otherwise an invalid restart can
                                 // leave old audio playing while the scheduler
                                 // reports Stopped.
+                                if generation != worker_generation.load(Ordering::Acquire) {
+                                    continue;
+                                }
                                 if let Some(old) = sink.take() {
                                     old.stop();
                                 }
@@ -354,7 +366,8 @@ impl AudioPlayer {
                                     || channels == 0
                                     || !start_ms.is_finite()
                                     || !end_ms.is_finite()
-                                    || end_ms < start_ms
+                                    || end_ms <= start_ms
+                                    || samples.len() % usize::from(channels.max(1)) != 0
                                     || ((samples.len() as f64
                                         / channels.max(1) as f64
                                         * 1000.0
@@ -376,6 +389,14 @@ impl AudioPlayer {
                                         PlaybackSchedulerState::Stopped as u8,
                                         Ordering::Release,
                                     );
+                                    expected_sample_rate = None;
+                                    expected_channels = None;
+                                    active_generation = 0;
+                                    expected_index = 0;
+                                    expected_start_ms = 0.0;
+                                    timeline = PlaybackTimeline::default();
+                                    worker_position_ms.store(0, Ordering::Release);
+                                    worker_queued_until_ms.store(0, Ordering::Release);
                                     continue;
                                 }
                                 if timeline.start(TimelineChunk {
@@ -393,6 +414,18 @@ impl AudioPlayer {
                                             index,
                                             reason: "timeline validator rejected start".to_string(),
                                         },
+                                    );
+                                    expected_sample_rate = None;
+                                    expected_channels = None;
+                                    active_generation = 0;
+                                    expected_index = 0;
+                                    expected_start_ms = 0.0;
+                                    timeline = PlaybackTimeline::default();
+                                    worker_position_ms.store(0, Ordering::Release);
+                                    worker_queued_until_ms.store(0, Ordering::Release);
+                                    worker_state.store(
+                                        PlaybackSchedulerState::Stopped as u8,
+                                        Ordering::Release,
                                     );
                                     continue;
                                 }
@@ -445,7 +478,28 @@ impl AudioPlayer {
                                         );
                                     }
                                     Err(error) => {
-                                        crate::terminal_log::error("Audio", format!("could not create sink: {error}"));
+                                        crate::terminal_log::error(
+                                            "Audio",
+                                            format!("could not create sink: {error}"),
+                                        );
+                                        push_scheduler_event(
+                                            &worker_events,
+                                            PlaybackSchedulerEvent::ChunkRejected {
+                                                generation,
+                                                index,
+                                                reason: format!(
+                                                    "não foi possível abrir a saída de áudio: {error}"
+                                                ),
+                                            },
+                                        );
+                                        expected_sample_rate = None;
+                                        expected_channels = None;
+                                        active_generation = 0;
+                                        expected_index = 0;
+                                        expected_start_ms = 0.0;
+                                        timeline = PlaybackTimeline::default();
+                                        worker_position_ms.store(0, Ordering::Release);
+                                        worker_queued_until_ms.store(0, Ordering::Release);
                                         worker_state.store(
                                             PlaybackSchedulerState::Stopped as u8,
                                             Ordering::Release,
@@ -463,12 +517,20 @@ impl AudioPlayer {
                                 channels,
                                 final_chunk: is_final,
                             } => {
+                                if expected_sample_rate.is_none() {
+                                    // Start was rejected (or could not open an
+                                    // output sink). Keep its original error as
+                                    // the diagnosis instead of flooding the UI
+                                    // with misleading format mismatches.
+                                    continue;
+                                }
                                 if generation != active_generation
                                     || index != expected_index
                                     || (start_ms - expected_start_ms).abs() > 0.25
                                     || !start_ms.is_finite()
                                     || !end_ms.is_finite()
-                                    || end_ms < start_ms
+                                    || end_ms <= start_ms
+                                    || samples.len() % usize::from(channels.max(1)) != 0
                                     || ((samples.len() as f64
                                         / channels.max(1) as f64
                                         * 1000.0
@@ -584,7 +646,21 @@ impl AudioPlayer {
                                 // twice when the transport rate changes.
                                 last_clock_tick = std::time::Instant::now();
                             }
-                            SchedulerCommand::Stop => {
+                            SchedulerCommand::Stop { generation } => {
+                                if generation != worker_generation.load(Ordering::Acquire) {
+                                    continue;
+                                }
+                                let played_ms = timeline_position_ms;
+                                let had_active_playback = sink.is_some()
+                                    || active_generation != 0
+                                    || matches!(
+                                        PlaybackSchedulerState::from_raw(
+                                            worker_state.load(Ordering::Acquire),
+                                        ),
+                                        PlaybackSchedulerState::Running
+                                            | PlaybackSchedulerState::Waiting
+                                            | PlaybackSchedulerState::Underrun
+                                    );
                                 if let Some(active) = sink.take() {
                                     active.stop();
                                 }
@@ -595,13 +671,15 @@ impl AudioPlayer {
                                     PlaybackSchedulerState::Stopped as u8,
                                     Ordering::Release,
                                 );
-                                push_scheduler_event(
-                                    &worker_events,
-                                    PlaybackSchedulerEvent::PlaybackStopped {
-                                        generation: active_generation,
-                                        played_ms: timeline_position_ms,
-                                    },
-                                );
+                                if had_active_playback {
+                                    push_scheduler_event(
+                                        &worker_events,
+                                        PlaybackSchedulerEvent::PlaybackStopped {
+                                            generation,
+                                            played_ms,
+                                        },
+                                    );
+                                }
                                 final_chunk = false;
                                 expected_sample_rate = None;
                                 expected_channels = None;
@@ -869,11 +947,10 @@ impl AudioPlayer {
         // may still be unwinding and must not be able to enqueue audio after
         // an explicit pause/stop or a new playback generation.
         self.playback_generation.fetch_add(1, Ordering::AcqRel);
-        if self.scheduler_is_active() {
-            let Some(tx) = &self.scheduler_tx else {
-                return;
-            };
-            let _ = tx.send(SchedulerCommand::Stop);
+        if let Some(tx) = &self.scheduler_tx {
+            let _ = tx.send(SchedulerCommand::Stop {
+                generation: self.playback_generation.load(Ordering::Acquire),
+            });
         }
     }
 

@@ -1,4 +1,4 @@
-//! Assisted, non-destructive conversion from classic OTO data to a KFV 2 copy.
+//! Assisted, non-destructive conversion from classic oto.ini data to a KFV 2 copy.
 use crate::oto::{OtoEntry, Voicebank};
 use crate::voicebank::native::{
     safe_relative_path, Asset, Context, Defaults, EngineRequirement, Layer, Manifest, NativeBank,
@@ -23,7 +23,7 @@ pub struct LegacyMigrationOptions {
     pub style_display_name: String,
     pub layer_id: String,
     pub recorded_midi: u8,
-    /// Explicit mapping keyed by the exact alias stored in the source OTO.
+    /// Explicit mapping keyed by the exact alias stored in the source oto.ini.
     /// Unmapped aliases are only inferred when every whitespace token is an
     /// exact phone ID in `profile`; all such inferences remain unreviewed.
     pub phone_mappings: BTreeMap<String, Vec<String>>,
@@ -68,12 +68,124 @@ pub struct MigrationReport {
     pub warnings: Vec<String>,
 }
 
+/// Read-only estimate shown before the graphical migration writes a draft.
+/// WAV decoding and source-region validation still happen during migration,
+/// so `potential_units` is an upper bound rather than a promise.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LegacyMigrationPreview {
+    pub total_entries: usize,
+    pub explicit_mappings: usize,
+    pub inferred_aliases: usize,
+    pub unmapped_aliases: usize,
+    pub invalid_mappings: usize,
+    pub alias_collisions: usize,
+    pub potential_units: usize,
+    pub warnings: Vec<String>,
+}
+
 #[derive(Debug)]
 struct PreparedEntry {
     report: LegacyEntryMigration,
     asset_path: Option<String>,
     sample_rate_hz: Option<u32>,
     frame_count: Option<u64>,
+}
+
+/// Inspect mapping coverage without creating files or copying audio.
+pub fn preview_legacy_voicebank_migration(
+    source: &Voicebank,
+    profile: &PhoneticProfile,
+    phone_mappings: &BTreeMap<String, Vec<String>>,
+) -> Result<LegacyMigrationPreview, String> {
+    profile.validate()?;
+    let source_root = fs::canonicalize(&source.root_path)
+        .map_err(|error| format!("cannot resolve classic voicebank root: {error}"))?;
+    let (mut aliases, mut warnings) = read_legacy_oto_entries(&source_root, source)?;
+    aliases.sort_by(|left, right| {
+        left.alias
+            .cmp(&right.alias)
+            .then_with(|| left.wav_filename.cmp(&right.wav_filename))
+            .then_with(|| left.offset.total_cmp(&right.offset))
+    });
+    if aliases.is_empty() {
+        return Err("classic voicebank has no entries in oto.ini to migrate".into());
+    }
+
+    let phone_classes: HashMap<&str, &str> = profile
+        .symbols
+        .iter()
+        .map(|symbol| (symbol.id.as_str(), symbol.class.as_str()))
+        .collect();
+    let mut alias_counts = BTreeMap::<&str, usize>::new();
+    for entry in &aliases {
+        *alias_counts.entry(&entry.alias).or_default() += 1;
+    }
+    let mut preview = LegacyMigrationPreview {
+        total_entries: aliases.len(),
+        explicit_mappings: 0,
+        inferred_aliases: 0,
+        unmapped_aliases: 0,
+        invalid_mappings: 0,
+        alias_collisions: alias_counts.values().filter(|count| **count > 1).sum(),
+        potential_units: 0,
+        warnings: Vec::new(),
+    };
+    for entry in &aliases {
+        let mapping = if let Some(phones) = phone_mappings.get(&entry.alias) {
+            preview.explicit_mappings += 1;
+            Some(phones.clone())
+        } else {
+            let inferred: Vec<String> = entry
+                .alias
+                .split_whitespace()
+                .map(str::to_owned)
+                .collect();
+            if !inferred.is_empty()
+                && inferred
+                    .iter()
+                    .all(|phone| phone_classes.contains_key(phone.as_str()))
+            {
+                preview.inferred_aliases += 1;
+                Some(inferred)
+            } else {
+                preview.unmapped_aliases += 1;
+                None
+            }
+        };
+        if let Some(phones) = mapping {
+            if phones.is_empty()
+                || phones.len() > 2
+                || phones
+                    .iter()
+                    .any(|phone| !phone_classes.contains_key(phone.as_str()))
+                || (phones.len() == 1
+                    && !matches!(
+                        phone_classes.get(phones[0].as_str()).copied(),
+                        Some("vowel" | "breath" | "release")
+                    ))
+                || entry.alias.trim().is_empty()
+            {
+                preview.invalid_mappings += 1;
+            } else {
+                preview.potential_units += 1;
+            }
+        }
+    }
+    if preview.alias_collisions > 0 {
+        warnings.push(format!(
+            "{} entradas pertencem a aliases duplicados; elas serão mantidas como candidatas separadas.",
+            preview.alias_collisions
+        ));
+    }
+    warnings.push(
+        "A prévia não decodifica WAVs nem valida regiões de origem; a conversão pode ignorar mais entradas.".into(),
+    );
+    warnings.push(
+        "Mapas de prefixo, cores de voz, preutterance e licença não são transferidos integralmente."
+            .into(),
+    );
+    preview.warnings.extend(warnings);
+    Ok(preview)
 }
 
 /// Convert only entries with safe source WAVs and explicit or exact-token phone
@@ -122,7 +234,7 @@ pub fn migrate_legacy_voicebank_to_copy(
             .then_with(|| left.offset.total_cmp(&right.offset))
     });
     if aliases.is_empty() {
-        return Err("classic voicebank has no OTO entries to migrate".into());
+        return Err("classic voicebank has no entries in oto.ini to migrate".into());
     }
 
     let mut prepared = Vec::with_capacity(aliases.len());
@@ -178,7 +290,7 @@ pub fn migrate_legacy_voicebank_to_copy(
         };
         if alias_counts.get(&entry.alias).copied().unwrap_or(0) > 1 {
             report.warnings.push(
-                "Alias collision: another OTO entry has the same alias; this recording was retained as a separate candidate.".into(),
+                "Alias collision: another entry in oto.ini has the same alias; this recording was retained as a separate candidate.".into(),
             );
         }
         let mapping = if let Some(phones) = options.phone_mappings.get(&entry.alias) {
@@ -273,7 +385,7 @@ pub fn migrate_legacy_voicebank_to_copy(
         if !safe_relative_path(&entry.wav_filename) {
             report
                 .warnings
-                .push("Unsafe OTO WAV path; entry was omitted.".into());
+                .push("Unsafe WAV path referenced by oto.ini; entry was omitted.".into());
             prepared.push(PreparedEntry {
                 report,
                 asset_path: None,
@@ -331,7 +443,7 @@ pub fn migrate_legacy_voicebank_to_copy(
             Some(frame) if frame < frame_count => frame,
             _ => {
                 report.warnings.push(
-                    "OTO offset is non-finite or outside the source WAV; entry was omitted.".into(),
+                    "Offset in oto.ini is non-finite or outside the source WAV; entry was omitted.".into(),
                 );
                 prepared.push(PreparedEntry {
                     report,
@@ -346,7 +458,7 @@ pub fn migrate_legacy_voicebank_to_copy(
             Some(frame) if frame > start_frame => frame,
             _ => {
                 report.warnings.push(
-                    "OTO cutoff is invalid or leaves an empty source region; entry was omitted."
+                    "Cutoff in oto.ini is invalid or leaves an empty source region; entry was omitted."
                         .into(),
                 );
                 prepared.push(PreparedEntry {
@@ -364,7 +476,7 @@ pub fn migrate_legacy_voicebank_to_copy(
                 None => {
                     report
                         .warnings
-                        .push("OTO consonant mark is non-finite; entry was omitted.".into());
+                        .push("Consonant mark in oto.ini is non-finite; entry was omitted.".into());
                     prepared.push(PreparedEntry {
                         report,
                         asset_path: None,
@@ -377,7 +489,7 @@ pub fn migrate_legacy_voicebank_to_copy(
         let fixed_end_frame = match start_frame.checked_add(consonant_frames) {
             Some(frame) if frame < end_frame => frame,
             _ => {
-                report.warnings.push("OTO consonant mark reaches or exceeds the cropped source end; entry was omitted.".into());
+                report.warnings.push("Consonant mark in oto.ini reaches or exceeds the cropped source end; entry was omitted.".into());
                 prepared.push(PreparedEntry {
                     report,
                     asset_path: None,
@@ -466,14 +578,14 @@ pub fn migrate_legacy_voicebank_to_copy(
         let overlap = if entry.overlap.is_finite() {
             if entry.overlap < 0.0 {
                 report.warnings.push(
-                    "Negative OTO overlap has no equivalent native crossfade and was clamped to zero.".into(),
+                    "Negative overlap from oto.ini has no equivalent native crossfade and was clamped to zero.".into(),
                 );
             }
             entry.overlap.max(0.0)
         } else {
             report
                 .warnings
-                .push("Non-finite OTO overlap was replaced by a zero preferred crossfade.".into());
+                .push("Non-finite overlap from oto.ini was replaced by a zero preferred crossfade.".into());
             0.0
         };
         let duration_ms = (end_frame - start_frame) as f64 * 1000.0 / f64::from(spec.sample_rate);
@@ -512,7 +624,7 @@ pub fn migrate_legacy_voicebank_to_copy(
         unit_files.units.push(unit.clone());
         if entry.preutterance != 0.0 {
             report.warnings.push(
-                "OTO preutterance is not represented by KFV 2 source regions and was omitted."
+                "Preutterance from oto.ini is not represented by KFV 2 source regions and was omitted."
                     .into(),
             );
         }
@@ -532,7 +644,7 @@ pub fn migrate_legacy_voicebank_to_copy(
 
     if unit_files.units.is_empty() {
         return Err(
-            "no OTO entries had a valid phone mapping and migratable mono source WAV".into(),
+            "no entries in oto.ini had a valid phone mapping and migratable mono source WAV".into(),
         );
     }
     let mut asset_id_by_path = BTreeMap::new();
@@ -822,7 +934,7 @@ fn parse_migration_oto_line(line: &str) -> Result<OtoEntry, String> {
     crate::oto::OtoParser::parse_str(line)?
         .into_values()
         .next()
-        .ok_or_else(|| "empty OTO line".to_string())
+        .ok_or_else(|| "empty line in oto.ini".to_string())
 }
 
 fn milliseconds_to_frames(milliseconds: f64, sample_rate_hz: u32) -> Option<u64> {
@@ -830,7 +942,7 @@ fn milliseconds_to_frames(milliseconds: f64, sample_rate_hz: u32) -> Option<u64>
         return None;
     }
     let frames = milliseconds * f64::from(sample_rate_hz) / 1_000.0;
-    // OTO rendering converts millisecond marks to sample indices by truncation.
+    // Rendering from oto.ini converts millisecond marks to sample indices by truncation.
     // Keep that rule for converted boundaries to avoid moving a mark by a frame.
     frames.is_finite().then(|| frames as u64)
 }
@@ -977,6 +1089,30 @@ mod tests {
             prefix_map: PrefixMap::default(),
             temp_dir: None,
         }
+    }
+
+    #[test]
+    fn migration_preview_reports_mapping_coverage_without_writing_files() {
+        let temp = tempfile::tempdir().unwrap();
+        let source = source_bank(temp.path());
+        let mut options = options();
+        options.phone_mappings.insert("ka".into(), vec!["missing".into()]);
+
+        let preview = preview_legacy_voicebank_migration(
+            &source,
+            &options.profile,
+            &options.phone_mappings,
+        )
+        .unwrap();
+
+        assert_eq!(preview.total_entries, 3);
+        assert_eq!(preview.explicit_mappings, 1);
+        assert_eq!(preview.invalid_mappings, 1);
+        assert_eq!(preview.inferred_aliases, 1);
+        assert_eq!(preview.unmapped_aliases, 1);
+        assert_eq!(preview.potential_units, 1);
+        assert_eq!(preview.alias_collisions, 0);
+        assert!(std::fs::read_dir(temp.path()).unwrap().next().is_none());
     }
 
     fn write_source_wav(path: &Path) {

@@ -1,12 +1,12 @@
 //! Repeatable end-to-end renderer benchmark for an APS project and voicebank.
 //!
 //! Usage: cargo run --release --bin render-benchmark -- project.aps voicebank [iterations]
-//! Optional external paths: --resampler PATH --wavtool PATH
+//! Optional backends: --world, --resampler PATH, --wavtool PATH
 
 use kamafeu::{
     ApsFormat, ExternalResamplerDriver, ExternalWavtoolDriver, GalapagosWavtoolDriver,
-    NativeResamplerDriver, RenderOptions, ResamplerDriver, TrackRenderer, UNote, UProject,
-    Voicebank, WavtoolDriver,
+    NativeResamplerDriver, NativeWorldResamplerDriver, RenderOptions, ResamplerDriver,
+    TrackRenderer, UNote, UProject, Voicebank, WavtoolDriver,
 };
 use sha2::{Digest, Sha256};
 use std::time::{Duration, Instant};
@@ -33,10 +33,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut iterations = 7usize;
     let mut resampler_path = None;
     let mut wavtool_path = None;
+    let mut world = false;
     let mut uncached = false;
     let mut index = if synthetic { 2 } else { 3 };
     while index < args.len() {
         match args[index].to_string_lossy().as_ref() {
+            "--world" => {
+                world = true;
+                index += 1;
+            }
             "--resampler" if index + 1 < args.len() => {
                 resampler_path = Some(args[index + 1].clone());
                 index += 2;
@@ -59,6 +64,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 )
             }
         }
+    }
+    if world && resampler_path.is_some() {
+        return Err("--world e --resampler são opções mutuamente exclusivas".into());
     }
     let iterations = iterations.clamp(2, 100);
     let mut synthetic_fixture = None;
@@ -111,6 +119,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     ));
     let resampler: Box<dyn ResamplerDriver> = match resampler_path {
         Some(path) => Box::new(ExternalResamplerDriver::new(path)),
+        None if world => Box::new(NativeWorldResamplerDriver),
         None => Box::new(NativeResamplerDriver),
     };
     let wavtool: Box<dyn WavtoolDriver> = match wavtool_path {

@@ -29,9 +29,13 @@ jobs:
         with:
           toolchain: 1.99.1
           components: rustfmt, clippy
+      - name: Build Tainah WORLD library and run ABI test
+        run: python3 native/tainah/build.py
       - name: Check formatting
         run: cargo fmt --all -- --check
       - name: Run tests
+        env:
+          TAINAH_LIBRARY_PATH: target/tainah-package/liblessampler_tainah.so.1
         run: cargo test --all-targets --all-features --locked
       - name: Run Clippy
         # O CI principal executa Clippy sem promover avisos legados a erros.
@@ -144,6 +148,12 @@ jobs:
           toolchain: 1.99.1
           targets: ${{ matrix.job.target }}
 
+      - name: Build Tainah WORLD library and run ABI test
+        if: matrix.job.use_cross == false
+        env:
+          TAINAH_WINDOWS_ARCH: ${{ matrix.job.target == 'aarch64-pc-windows-msvc' && 'ARM64' || matrix.job.target == 'i686-pc-windows-msvc' && 'Win32' || 'x64' }}
+        run: python3 native/tainah/build.py
+
       - name: Build Binary (Native)
         if: matrix.job.use_cross == false
         run: cargo build --release --bins --target ${{ matrix.job.target }} --locked
@@ -177,6 +187,8 @@ jobs:
           Copy-Item $bin_path -Destination "package_root/kamafeu.exe"
           Copy-Item $toolkit_path -Destination "package_root/copaiba.exe"
           Copy-Item "README.md", "LICENSE", "NOTICE.md" -Destination "package_root/"
+          Copy-Item "target/tainah-package/lessampler_tainah.dll" -Destination "package_root/"
+          Copy-Item "target/tainah-package/lessampler-ng-LGPL-3.0.txt" -Destination "package_root/"
 
           # Recent `ort` builds may statically link ONNX Runtime. If a build
           # selects the dynamic variant, keep its DLL beside the executable;
@@ -212,7 +224,7 @@ jobs:
           Compress-Archive -Path "package_root/*" -DestinationPath "${{ matrix.job.archive }}" -Force
 
       - name: Prepare Artifacts (Unix / Linux / macOS)
-        if: matrix.job.os != 'windows-latest'
+        if: matrix.job.os != 'windows-latest' && matrix.job.use_cross == false
         run: |
           BIN_PATH="target/${{ matrix.job.target }}/release/${{ matrix.job.binary }}"
           TOOLKIT_PATH="target/${{ matrix.job.target }}/release/${{ matrix.job.toolkit_binary }}"
@@ -243,6 +255,14 @@ jobs:
             cp "$TOOLKIT_PATH" package_root/copaiba
           fi
           cp README.md LICENSE NOTICE.md package_root/
+          if [[ "${{ matrix.job.os }}" == *"macos"* ]]; then
+            mkdir -p package_root/Kamafeu.app/Contents/Frameworks
+            cp target/tainah-package/liblessampler_tainah.dylib package_root/Kamafeu.app/Contents/Frameworks/
+            cp target/tainah-package/liblessampler_tainah.dylib package_root/
+          else
+            cp target/tainah-package/liblessampler_tainah.so.1 package_root/
+          fi
+          cp target/tainah-package/lessampler-ng-LGPL-3.0.txt package_root/
 
           # Include compiled resamplers
           if [ -d "resamplers_dist/bin" ]; then
@@ -276,6 +296,7 @@ jobs:
           fi
 
       - name: Upload Artifact
+        if: matrix.job.use_cross == false
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.job.archive }}

@@ -5,9 +5,9 @@ use kamafeu::copaiba::gui::{draw_copaiba_toolkit_ui, CopaibaToolkitApp};
 fn main() -> eframe::Result<()> {
     let icon_data = kamafeu::gui::window_icon::load_window_icon().ok();
     let mut viewport = egui::ViewportBuilder::default()
-        .with_title("Copaiba Voicebank Toolkit - Kamafeu Synthesizer")
-        .with_inner_size([1100.0, 680.0])
-        .with_min_inner_size([850.0, 500.0]);
+        .with_title("Copaíba · Voicebank Studio")
+        .with_inner_size([1240.0, 780.0])
+        .with_min_inner_size([920.0, 620.0]);
 
     if let Some(icon) = icon_data {
         viewport = viewport.with_icon(icon);
@@ -30,9 +30,13 @@ fn main() -> eframe::Result<()> {
     };
 
     eframe::run_native(
-        "Copaiba Voicebank Toolkit",
+        "Copaíba · Voicebank Studio",
         options,
-        Box::new(|_cc| Ok(Box::new(CopaibaStandaloneApp::default()))),
+        Box::new(|cc| {
+            kamafeu::gui::fonts::setup_custom_fonts(&cc.egui_ctx);
+            kamafeu::copaiba::gui::configure_copaiba_theme(&cc.egui_ctx);
+            Ok(Box::new(CopaibaStandaloneApp::default()))
+        }),
     )
 }
 
@@ -44,11 +48,6 @@ pub struct CopaibaStandaloneApp {
 
 impl eframe::App for CopaibaStandaloneApp {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        let mut visuals = egui::Visuals::dark();
-        visuals.panel_fill = egui::Color32::from_rgb(22, 16, 32);
-        visuals.window_fill = egui::Color32::from_rgb(22, 16, 32);
-        ctx.set_visuals(visuals);
-
         egui::CentralPanel::default().show(ctx, |ui| {
             draw_copaiba_toolkit_ui(&mut self.app, &mut self.audio_player, ui);
         });

@@ -63,7 +63,7 @@ pub fn oto_path_for_alias(root: &Path, alias: &str) -> std::io::Result<PathBuf> 
     })
 }
 
-/// Rewrites only one OTO record, preserving comments, malformed lines,
+/// Rewrites only one oto.ini record, preserving comments, malformed lines,
 /// ordering, line endings and the source encoding of the file.
 pub fn update_oto_entry(
     oto_path: &Path,
