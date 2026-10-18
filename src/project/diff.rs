@@ -253,8 +253,10 @@ mod tests {
 
     #[test]
     fn selective_note_restore_preserves_current_arrangement_and_is_non_mutating() {
-        let mut current = UProject::default();
-        current.name = "current".into();
+        let mut current = UProject {
+            name: "current".into(),
+            ..Default::default()
+        };
         current.parts[0]
             .notes
             .push(UNote::new("la", "C4", 0.0, 400.0));

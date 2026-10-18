@@ -316,22 +316,22 @@ fn adjacent_notes_crossfade_smoothly_without_discontinuities() {
     let sample_rate = 44_100;
     let mut track = vec![0.0f32; 1_000];
     // Note 1: 0..600ms, fades out from 400..600ms (samples 400..600)
-    for i in 0..600 {
+    for (i, sample) in track.iter_mut().take(600).enumerate() {
         let gain = if i < 400 {
             1.0
         } else {
             (600 - i) as f32 / 200.0
         };
         let carrier = (i as f32 * std::f32::consts::TAU * 220.0 / sample_rate as f32).sin();
-        track[i] = carrier * gain;
+        *sample = carrier * gain;
     }
 
     // Note 2: 500..1000ms with 100ms preutterance and 50ms overlap (starts at sample 400, fades in 400..600)
     let mut note2 = vec![0.0f32; 600];
-    for i in 0..600 {
+    for (i, sample) in note2.iter_mut().enumerate() {
         let gain = if i < 200 { i as f32 / 200.0 } else { 1.0 };
         let carrier = (i as f32 * std::f32::consts::TAU * 220.0 / sample_rate as f32).sin();
-        note2[i] = carrier * gain;
+        *sample = carrier * gain;
     }
 
     TrackRenderer::mix_phase_aligned(&mut track, &note2, 400, 600, 200, 220.0, sample_rate);
@@ -514,7 +514,7 @@ fn world_full_track_fixture_has_no_internal_phoneme_cut() {
     let source: Vec<f32> = (0..sample_rate * 2)
         .map(|i| {
             let phase = i as f32 * std::f32::consts::TAU * 220.0 / sample_rate as f32;
-            (phase.sin() * 0.30 + (phase * 2.0).sin() * 0.12) as f32
+            phase.sin() * 0.30 + (phase * 2.0).sin() * 0.12
         })
         .collect();
     TrackRenderer::save_wav_samples(directory.path().join("a.wav"), &source, sample_rate).unwrap();

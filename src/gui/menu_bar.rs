@@ -318,7 +318,7 @@ impl KamafeuStudioApp {
         let lang = self.config.language;
         let theme = &self.config.theme;
 
-        let drawer_width = ctx.screen_rect().width().min(360.0).max(220.0);
+        let drawer_width = ctx.screen_rect().width().clamp(220.0, 360.0);
         let drawer_height = (ctx.screen_rect().height() - 52.0).max(180.0);
 
         egui::Window::new(lang.tr("Menu Principal", "Main Menu"))

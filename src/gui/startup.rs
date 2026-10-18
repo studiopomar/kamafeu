@@ -432,9 +432,11 @@ mod tests {
 
     #[test]
     fn export_defaults_choose_matching_output_format() {
-        let mut config = ExportDefaultsConfig::default();
-        config.format = "FLAC (Lossless)".to_string();
-        config.bit_depth = 24;
+        let mut config = ExportDefaultsConfig {
+            format: "FLAC (Lossless)".to_string(),
+            bit_depth: 24,
+            ..Default::default()
+        };
         assert_eq!(configured_export_format(&config), AudioExportFormat::Flac24);
         config.format = "WAV (Lossless PCM)".to_string();
         config.bit_depth = 32;

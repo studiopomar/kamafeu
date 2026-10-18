@@ -25,6 +25,7 @@ impl ChunkedRenderer {
     }
 
     /// Render priority playhead chunk first (<50ms) for instant audio playback
+    #[allow(clippy::too_many_arguments)]
     pub fn render_playhead_chunk(
         notes: &[UNote],
         voicebank: &Voicebank,
@@ -72,6 +73,7 @@ impl ChunkedRenderer {
     }
 
     /// Spawn background thread to synthesize full track and update progress atomic (0..100)
+    #[allow(clippy::too_many_arguments)]
     pub fn spawn_background_rendering(
         notes: Vec<UNote>,
         voicebank: Voicebank,

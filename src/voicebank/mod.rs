@@ -9,6 +9,8 @@ pub mod render;
 use std::path::Path;
 
 #[derive(Debug, Clone)]
+// Boxing a variant would change the public enum's construction and pattern API.
+#[allow(clippy::large_enum_variant)]
 pub enum VoicebankHandle {
     Classic(crate::oto::Voicebank),
     NativeV2(native::NativeBank),

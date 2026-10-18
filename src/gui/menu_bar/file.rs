@@ -30,11 +30,7 @@ impl KamafeuStudioApp {
                 ))
                 .clicked()
             {
-                if self.is_dirty && self.config.workflow.confirm_on_exit_dirty {
-                    self.open_project_dialog();
-                } else {
-                    self.open_project_dialog();
-                }
+                self.open_project_dialog();
                 ui.close_menu();
             }
 

@@ -473,49 +473,6 @@ impl KamafeuStudioApp {
                                                 selected_new_mode = Some(mode);
                                             }
                                         }
-                                        return;
-                                        ui.label(egui::RichText::new(lang.tr("🇯🇵 Japonês:", "🇯🇵 Japanese:")).strong().size(10.0).color(border_color));
-                                        ui.horizontal_wrapped(|ui| {
-                                            for (mode, label) in [
-                                                (crate::phonemizer::PhonemizerMode::BasicCV, "JA: Basic CV"),
-                                                (crate::phonemizer::PhonemizerMode::VCV, "JA: VCV"),
-                                                (crate::phonemizer::PhonemizerMode::CVVC, "JA: Japanese CVVC"),
-                                            ] {
-                                                if ui.small_button(egui::RichText::new(label).strong().color(ui.visuals().text_color())).clicked() {
-                                                    selected_new_mode = Some(mode);
-                                                }
-                                            }
-                                        });
-
-                                        ui.add_space(4.0);
-                                        ui.label(egui::RichText::new(lang.tr("🇧🇷 Português:", "🇧🇷 Portuguese:")).strong().size(10.0).color(border_color));
-                                        ui.horizontal_wrapped(|ui| {
-                                            for (mode, label) in [
-                                                (crate::phonemizer::PhonemizerMode::PortugueseBrapaVCCV, "PT: VCCV BRAPA (3.7)"),
-                                                (crate::phonemizer::PhonemizerMode::PortugueseBrapaCVC, "PT: BRAPA CVC"),
-                                                (crate::phonemizer::PhonemizerMode::PortugueseCVVC, "PT: CVVC"),
-                                                (crate::phonemizer::PhonemizerMode::PortugueseVCV, "PT: VCV"),
-                                                (crate::phonemizer::PhonemizerMode::PortugueseG2P, "PT: G2P"),
-                                            ] {
-                                                if ui.small_button(egui::RichText::new(label).strong().color(ui.visuals().text_color())).clicked() {
-                                                    selected_new_mode = Some(mode);
-                                                }
-                                            }
-                                        });
-
-                                        ui.add_space(4.0);
-                                        ui.label(egui::RichText::new(lang.tr("🇺🇸 Inglês:", "🇺🇸 English:")).strong().size(10.0).color(border_color));
-                                        ui.horizontal_wrapped(|ui| {
-                                            for (mode, label) in [
-                                                (crate::phonemizer::PhonemizerMode::EnglishArpasing, "EN: Arpasing"),
-                                                (crate::phonemizer::PhonemizerMode::EnglishVCCV, "EN: English VCCV"),
-                                                (crate::phonemizer::PhonemizerMode::EnglishG2P, "EN: G2P (Words)"),
-                                            ] {
-                                                if ui.small_button(egui::RichText::new(label).strong().color(ui.visuals().text_color())).clicked() {
-                                                    selected_new_mode = Some(mode);
-                                                }
-                                            }
-                                        });
                                     });
 
                                 ui.add_space(6.0);

@@ -12,6 +12,15 @@ fn finite_or_zero(value: f64) -> f64 {
     }
 }
 
+fn clamp_zoom(value: f64, min: f64, max: f64) -> f64 {
+    if value.is_nan() {
+        min
+    } else {
+        value.clamp(min, max)
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
 pub fn draw_phoneme_ruler(
     ui: &mut egui::Ui,
     theme: &ThemeConfig,
@@ -138,7 +147,7 @@ pub fn draw_phoneme_ruler(
                 // being resized or a trackpad gesture is committed. Keep the
                 // ruler interactive without allowing invalid screen geometry
                 // to leak into note handles or bar positions.
-                let px_per_ms = f64::from(state.px_per_ms).max(0.001).min(100.0);
+                let px_per_ms = clamp_zoom(f64::from(state.px_per_ms), 0.001, 100.0);
 
                 let safe_bpm = if bpm.is_finite() {
                     bpm.clamp(1.0, 1_000.0)
@@ -166,7 +175,10 @@ pub fn draw_phoneme_ruler(
                                 Pos2::new(x, strip_rect.min.y),
                                 Pos2::new(x, strip_rect.max.y),
                             ],
-                            Stroke::new(1.0_f32, ui.visuals().hyperlink_color.linear_multiply(140.0 / 255.0)),
+                            Stroke::new(
+                                1.0_f32,
+                                ui.visuals().hyperlink_color.linear_multiply(140.0 / 255.0),
+                            ),
                         );
                         painter.text(
                             Pos2::new(x + 4.0, strip_rect.max.y - 4.0),
@@ -191,12 +203,18 @@ pub fn draw_phoneme_ruler(
                 for (level, color, width) in [
                     (
                         0.0_f32,
-                        ui.visuals().text_color().linear_multiply(0.72).linear_multiply(90.0 / 255.0),
+                        ui.visuals()
+                            .text_color()
+                            .linear_multiply(0.72)
+                            .linear_multiply(90.0 / 255.0),
                         1.0_f32,
                     ),
                     (
                         0.5_f32,
-                        ui.visuals().text_color().linear_multiply(0.72).linear_multiply(95.0 / 255.0),
+                        ui.visuals()
+                            .text_color()
+                            .linear_multiply(0.72)
+                            .linear_multiply(95.0 / 255.0),
                         1.0_f32,
                     ),
                     (
@@ -1016,11 +1034,7 @@ pub fn draw_phoneme_ruler(
                             } else {
                                 ui.visuals().hyperlink_color.linear_multiply(105.0 / 255.0)
                             };
-                            let lane_stroke = if is_selected {
-                                ui.visuals().hyperlink_color
-                            } else {
-                                ui.visuals().hyperlink_color
-                            };
+                            let lane_stroke = ui.visuals().hyperlink_color;
                             // `convex_polygon` cannot represent an envelope
                             // with valleys: egui triangulates it as a fan,
                             // producing the broken blue triangles seen in the
@@ -1119,11 +1133,7 @@ pub fn draw_phoneme_ruler(
                                     painter.circle_filled(
                                         point_pos,
                                         if hovered || dragging { 4.5 } else { 3.2 },
-                                        if hovered || dragging {
-                                            ui.visuals().hyperlink_color
-                                        } else {
-                                            ui.visuals().hyperlink_color
-                                        },
+                                        ui.visuals().hyperlink_color,
                                     );
                                     if editable && (hovered || dragging) {
                                         ui.ctx().set_cursor_icon(egui::CursorIcon::Grab);
@@ -1480,7 +1490,7 @@ pub fn draw_phoneme_ruler(
                                 }
 
                                 if is_editing_this {
-                                    let edit_w = (pill_rect.width().max(65.0)).min(160.0);
+                                    let edit_w = pill_rect.width().clamp(65.0, 160.0);
                                     let edit_rect = Rect::from_center_size(
                                         Pos2::new(badge_x, badge_y),
                                         Vec2::new(edit_w, 18.0),
@@ -1890,7 +1900,7 @@ pub fn draw_phoneme_ruler(
                         }
 
                         if is_editing_this {
-                            let edit_w = (pill_rect.width().max(65.0)).min(160.0);
+                            let edit_w = pill_rect.width().clamp(65.0, 160.0);
                             let edit_rect = Rect::from_center_size(
                                 Pos2::new(badge_x, badge_y),
                                 Vec2::new(edit_w, 18.0),
@@ -1957,11 +1967,7 @@ pub fn draw_phoneme_ruler(
                             painter.rect_filled(
                                 pill_rect,
                                 Rounding::same(4.0),
-                                if is_selected {
-                                    ui.visuals().panel_fill
-                                } else {
-                                    ui.visuals().panel_fill
-                                },
+                                ui.visuals().panel_fill,
                             );
                             painter.rect_stroke(
                                 pill_rect,

@@ -471,8 +471,10 @@ mod tests {
 
     #[test]
     fn provenance_roundtrips_as_human_readable_json() {
-        let mut options = RenderOptions::default();
-        options.flags = "P86g-5".to_string();
+        let options = RenderOptions {
+            flags: "P86g-5".to_string(),
+            ..Default::default()
+        };
         let value = RenderProvenance::new("p", "v", "resampler", "wavtool", 44_100, 2, options)
             .with_extensions(["org.example.engine", "org.example.engine"])
             .with_import_context(

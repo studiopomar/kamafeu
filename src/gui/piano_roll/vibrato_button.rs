@@ -1,91 +1,12 @@
 use super::*;
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn popup_applies_preset_after_snapshot_and_can_remove_vibrato() {
-        let ctx = egui::Context::default();
-        let mut note = UNote::new("ka", "C4", 0.0, 500.0);
-        let mut before = 0;
-        let mut changed = 0;
-        let mut time = 0.0;
-        let icon = Rect::from_min_size(Pos2::new(100.0, 100.0), Vec2::new(18.0, 14.0));
-        let mut frame = |note: &mut UNote, events: Vec<egui::Event>| {
-            time += 0.05;
-            ctx.run(
-                egui::RawInput {
-                    screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(800.0, 600.0))),
-                    time: Some(time),
-                    events,
-                    ..Default::default()
-                },
-                |ctx| {
-                    egui::CentralPanel::default().show(ctx, |ui| {
-                        draw(
-                            ui,
-                            note,
-                            0,
-                            icon,
-                            &ThemeConfig::default(),
-                            crate::config::AppLanguage::PtBr,
-                            &mut || before += 1,
-                            &mut || changed += 1,
-                        );
-                    });
-                },
-            )
-        };
-        let click = |pos, pressed| {
-            vec![
-                egui::Event::PointerMoved(pos),
-                egui::Event::PointerButton {
-                    pos,
-                    button: egui::PointerButton::Primary,
-                    pressed,
-                    modifiers: egui::Modifiers::default(),
-                },
-            ]
-        };
-        frame(&mut note, vec![]);
-        for label in ["Pop suave", "Remover vibrato"] {
-            // Click to open popup
-            frame(&mut note, click(icon.center(), true));
-            frame(&mut note, click(icon.center(), false));
-            let output = frame(&mut note, vec![]);
-            let pos = output
-                .shapes
-                .iter()
-                .find_map(|shape| {
-                    if let egui::epaint::Shape::Text(text) = &shape.shape {
-                        if text.galley.text().contains(label) {
-                            return Some(text.pos + text.galley.size() * 0.5);
-                        }
-                    }
-                    None
-                })
-                .expect("preset menu is visible");
-            frame(&mut note, click(pos, true));
-            frame(&mut note, click(pos, false));
-            assert_eq!(
-                note.vibrato.length_pct,
-                if label == "Pop suave" { 65.0 } else { 0.0 }
-            );
-            assert_eq!(note.position_ms, 0.0);
-            assert_eq!(note.duration_ms, 500.0);
-        }
-        assert_eq!(before, 2);
-        assert_eq!(changed, 2);
-    }
-}
-
 pub(super) fn rect(note: &UNote, state: &PianoRollState, origin: Pos2) -> Rect {
     let x = origin.x + ((note.position_ms + note.duration_ms) * state.px_per_ms as f64) as f32;
     let y = origin.y + f32::from(state.max_midi.saturating_sub(note.midi_key())) * state.row_height;
     Rect::from_min_size(Pos2::new(x - 18.0, y - 15.0), Vec2::new(18.0, 14.0))
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(super) fn draw(
     ui: &mut egui::Ui,
     note: &mut UNote,
@@ -265,4 +186,84 @@ pub(super) fn draw(
             }
         },
     );
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn popup_applies_preset_after_snapshot_and_can_remove_vibrato() {
+        let ctx = egui::Context::default();
+        let mut note = UNote::new("ka", "C4", 0.0, 500.0);
+        let mut before = 0;
+        let mut changed = 0;
+        let mut time = 0.0;
+        let icon = Rect::from_min_size(Pos2::new(100.0, 100.0), Vec2::new(18.0, 14.0));
+        let mut frame = |note: &mut UNote, events: Vec<egui::Event>| {
+            time += 0.05;
+            ctx.run(
+                egui::RawInput {
+                    screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(800.0, 600.0))),
+                    time: Some(time),
+                    events,
+                    ..Default::default()
+                },
+                |ctx| {
+                    egui::CentralPanel::default().show(ctx, |ui| {
+                        draw(
+                            ui,
+                            note,
+                            0,
+                            icon,
+                            &ThemeConfig::default(),
+                            crate::config::AppLanguage::PtBr,
+                            &mut || before += 1,
+                            &mut || changed += 1,
+                        );
+                    });
+                },
+            )
+        };
+        let click = |pos, pressed| {
+            vec![
+                egui::Event::PointerMoved(pos),
+                egui::Event::PointerButton {
+                    pos,
+                    button: egui::PointerButton::Primary,
+                    pressed,
+                    modifiers: egui::Modifiers::default(),
+                },
+            ]
+        };
+        frame(&mut note, vec![]);
+        for label in ["Pop suave", "Remover vibrato"] {
+            // Click to open popup
+            frame(&mut note, click(icon.center(), true));
+            frame(&mut note, click(icon.center(), false));
+            let output = frame(&mut note, vec![]);
+            let pos = output
+                .shapes
+                .iter()
+                .find_map(|shape| {
+                    if let egui::epaint::Shape::Text(text) = &shape.shape {
+                        if text.galley.text().contains(label) {
+                            return Some(text.pos + text.galley.size() * 0.5);
+                        }
+                    }
+                    None
+                })
+                .expect("preset menu is visible");
+            frame(&mut note, click(pos, true));
+            frame(&mut note, click(pos, false));
+            assert_eq!(
+                note.vibrato.length_pct,
+                if label == "Pop suave" { 65.0 } else { 0.0 }
+            );
+            assert_eq!(note.position_ms, 0.0);
+            assert_eq!(note.duration_ms, 500.0);
+        }
+        assert_eq!(before, 2);
+        assert_eq!(changed, 2);
+    }
 }

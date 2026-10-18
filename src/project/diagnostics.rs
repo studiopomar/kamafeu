@@ -391,8 +391,10 @@ mod tests {
 
     #[test]
     fn reports_import_problems_without_normalizing_them_away() {
-        let mut project = UProject::default();
-        project.bpm = f64::NAN;
+        let mut project = UProject {
+            bpm: f64::NAN,
+            ..Default::default()
+        };
         project.parts[0].track_index = 9;
         project.parts[0]
             .notes

@@ -221,6 +221,7 @@ fn rpc_worker_loop(rx: Receiver<RpcMessage>) {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn activity_presentation(
     is_rendering: bool,
     is_playing: bool,

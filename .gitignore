@@ -18,6 +18,7 @@
 /docs/
 !/docs/
 /docs/*
+!/docs/architecture.md
 !/docs/kfv2/
 !/docs/kfv2/**
 

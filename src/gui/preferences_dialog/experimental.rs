@@ -374,13 +374,13 @@ impl KamafeuStudioApp {
                             self.persist_config();
                         }
                     }
-                    if self.config.dsp.custom_wine_path.is_some() {
-                        if ui.button(lang.tr("Limpar", "Clear")).clicked() {
-                            self.config.dsp.custom_wine_path = None;
-                            crate::drivers::process::set_custom_wine_path(None);
-                            crate::drivers::process::rescan_wine_executable();
-                            self.persist_config();
-                        }
+                    if self.config.dsp.custom_wine_path.is_some()
+                        && ui.button(lang.tr("Limpar", "Clear")).clicked()
+                    {
+                        self.config.dsp.custom_wine_path = None;
+                        crate::drivers::process::set_custom_wine_path(None);
+                        crate::drivers::process::rescan_wine_executable();
+                        self.persist_config();
                     }
                 });
 

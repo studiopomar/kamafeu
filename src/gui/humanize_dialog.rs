@@ -135,20 +135,18 @@ pub fn apply_smart_vibrato(
     params: &AutoVibratoParams,
 ) {
     for &idx in target_indices {
-        if idx < notes.len() {
-            if notes[idx].duration_ms >= params.min_duration_ms {
-                notes[idx].vibrato = VibratoParam {
-                    length_pct: params.length_pct,
-                    period_ms: params.period_ms,
-                    depth_cents: params.depth_cents,
-                    fade_in_ms: 0.0,
-                    fade_in_pct: params.fade_in_pct,
-                    fade_out_pct: 10.0,
-                    shift_pct: 0.0,
-                    drift_pct: 0.0,
-                    volume_link_pct: 0.0,
-                };
-            }
+        if idx < notes.len() && notes[idx].duration_ms >= params.min_duration_ms {
+            notes[idx].vibrato = VibratoParam {
+                length_pct: params.length_pct,
+                period_ms: params.period_ms,
+                depth_cents: params.depth_cents,
+                fade_in_ms: 0.0,
+                fade_in_pct: params.fade_in_pct,
+                fade_out_pct: 10.0,
+                shift_pct: 0.0,
+                drift_pct: 0.0,
+                volume_link_pct: 0.0,
+            };
         }
     }
 }

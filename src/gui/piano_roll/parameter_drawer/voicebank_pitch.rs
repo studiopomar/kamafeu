@@ -1,5 +1,6 @@
 use super::*;
 
+#[allow(clippy::too_many_arguments)]
 pub(super) fn draw(
     ui: &mut egui::Ui,
     notes: &mut [UNote],

@@ -422,9 +422,11 @@ mod tests {
 
     #[test]
     fn test_ufdata_roundtrip() {
-        let mut proj = UProject::default();
-        proj.name = "Test Utaformatix".to_string();
-        proj.bpm = 130.0;
+        let mut proj = UProject {
+            name: "Test Utaformatix".to_string(),
+            bpm: 130.0,
+            ..Default::default()
+        };
         let note1 = UNote::new("ka", "C4", 0.0, 480.0);
         let note2 = UNote::new("ma", "D4", 480.0, 480.0);
         proj.parts[0].notes.push(note1);

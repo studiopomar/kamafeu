@@ -89,8 +89,6 @@ impl KamafeuStudioApp {
                         let pct = (self.export_progress * 100.0).clamp(0.0, 100.0);
                         let bar_color = if has_error {
                             ui.visuals().error_fg_color
-                        } else if export_finished {
-                            ui.visuals().hyperlink_color
                         } else {
                             ui.visuals().hyperlink_color
                         };
@@ -142,10 +140,7 @@ impl KamafeuStudioApp {
                             egui::Frame::none()
                                 .fill(ui.visuals().panel_fill)
                                 .rounding(egui::Rounding::same(6.0))
-                                .stroke(egui::Stroke::new(
-                                    1.0_f32,
-                                    ui.visuals().hyperlink_color,
-                                ))
+                                .stroke(egui::Stroke::new(1.0_f32, ui.visuals().hyperlink_color))
                                 .inner_margin(egui::Margin::same(8.0))
                                 .show(ui, |ui| {
                                     ui.horizontal(|ui| {
@@ -238,13 +233,10 @@ impl KamafeuStudioApp {
                                     };
 
                                     let close_btn = egui::Button::new(
-                                        egui::RichText::new(btn_label).strong().size(12.0).color(
-                                            if export_finished && !has_error {
-                                                ui.visuals().text_color()
-                                            } else {
-                                                ui.visuals().text_color()
-                                            },
-                                        ),
+                                        egui::RichText::new(btn_label)
+                                            .strong()
+                                            .size(12.0)
+                                            .color(ui.visuals().text_color()),
                                     )
                                     .fill(if export_finished && !has_error {
                                         self.config.theme.success_c32()

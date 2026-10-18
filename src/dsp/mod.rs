@@ -165,6 +165,17 @@ pub(crate) fn oto_source_bounds(
     (start, end)
 }
 
+pub use autopitch::{AutoPitchEngine, AutoPitchOptions, AutoPitchPreset, AutoPitchScope};
+pub use envelope::UtauEnvelope;
+pub use lpc::LpcExtractor;
+pub use pitch::{midi_to_freq, midi_to_note_name, note_name_to_midi, PitchBendPoint, VibratoParam};
+pub use pitch_bend::PitchBendSolver;
+pub use pitch_encoder::encode_pitch_bend_string;
+pub use pyin::{PitchExtractor, PitchResult};
+pub use resampler::Resampler;
+pub use sola::{SolaResampler, SolaStretchMode};
+pub use windowed_sinc::WindowedSincResampler;
+
 #[cfg(test)]
 mod oto_bounds_tests {
     use super::oto_source_bounds;
@@ -185,14 +196,3 @@ mod oto_bounds_tests {
         );
     }
 }
-
-pub use autopitch::{AutoPitchEngine, AutoPitchOptions, AutoPitchPreset, AutoPitchScope};
-pub use envelope::UtauEnvelope;
-pub use lpc::LpcExtractor;
-pub use pitch::{midi_to_freq, midi_to_note_name, note_name_to_midi, PitchBendPoint, VibratoParam};
-pub use pitch_bend::PitchBendSolver;
-pub use pitch_encoder::encode_pitch_bend_string;
-pub use pyin::{PitchExtractor, PitchResult};
-pub use resampler::Resampler;
-pub use sola::{SolaResampler, SolaStretchMode};
-pub use windowed_sinc::WindowedSincResampler;

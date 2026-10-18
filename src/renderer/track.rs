@@ -1,10 +1,11 @@
 use crate::dsp::midi_to_freq;
+mod merge;
 mod mixing;
 mod phone_result;
 mod phrase_pitch;
+mod preload;
 mod slots;
 mod wav_io;
-use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, OnceLock, RwLock};
 use std::time::Instant;
@@ -21,7 +22,7 @@ use crate::oto::Voicebank;
 use crate::phonemizer::RenderPhone;
 use crate::project::model::UNote;
 use crate::renderer::timing::resolve_phoneme_timings;
-use crate::renderer::RenderOptions;
+use crate::renderer::{RenderOptions, RenderProgressCallback};
 
 pub struct TrackRenderer;
 
@@ -109,6 +110,7 @@ impl TrackRenderer {
     }
 
     /// Render track with optional real-time progress & log reporting callback: on_progress(progress_0_to_1, log_line)
+    #[allow(clippy::too_many_arguments)]
     pub fn render_track_with_progress(
         notes: &[UNote],
         voicebank: &Voicebank,
@@ -117,7 +119,7 @@ impl TrackRenderer {
         resampler_driver: &dyn ResamplerDriver,
         wavtool_driver: &dyn WavtoolDriver,
         vocal_mode: Option<&RenderOptions>,
-        on_progress: Option<&(dyn Fn(f32, &str) + Send + Sync)>,
+        on_progress: Option<&RenderProgressCallback<'_>>,
     ) -> Vec<f32> {
         Self::render_track_with_progress_cancellable(
             notes,
@@ -141,7 +143,7 @@ impl TrackRenderer {
         resampler_driver: &dyn ResamplerDriver,
         wavtool_driver: &dyn WavtoolDriver,
         vocal_mode: Option<&RenderOptions>,
-        on_progress: Option<&(dyn Fn(f32, &str) + Send + Sync)>,
+        on_progress: Option<&RenderProgressCallback<'_>>,
         cancel: Option<&AtomicBool>,
     ) -> Vec<f32> {
         match Self::try_render_track_with_progress_cancellable(
@@ -166,6 +168,7 @@ impl TrackRenderer {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn try_render_track_with_progress_cancellable(
         notes: &[UNote],
         voicebank: &Voicebank,
@@ -174,7 +177,7 @@ impl TrackRenderer {
         resampler_driver: &dyn ResamplerDriver,
         wavtool_driver: &dyn WavtoolDriver,
         vocal_mode: Option<&RenderOptions>,
-        on_progress: Option<&(dyn Fn(f32, &str) + Send + Sync)>,
+        on_progress: Option<&RenderProgressCallback<'_>>,
         cancel: Option<&AtomicBool>,
     ) -> Result<Vec<f32>, String> {
         Self::try_render_track_with_callbacks(
@@ -200,7 +203,7 @@ impl TrackRenderer {
         resampler_driver: &dyn ResamplerDriver,
         wavtool_driver: &dyn WavtoolDriver,
         vocal_mode: Option<&RenderOptions>,
-        on_progress: Option<&(dyn Fn(f32, &str) + Send + Sync)>,
+        on_progress: Option<&RenderProgressCallback<'_>>,
         on_progress_event: Option<&(dyn Fn(crate::renderer::RenderProgressEvent) + Send + Sync)>,
         cancel: Option<&AtomicBool>,
     ) -> Result<Vec<f32>, String> {
@@ -227,7 +230,7 @@ impl TrackRenderer {
         resampler_driver: &dyn ResamplerDriver,
         wavtool_driver: &dyn WavtoolDriver,
         vocal_mode: Option<&RenderOptions>,
-        on_progress: Option<&(dyn Fn(f32, &str) + Send + Sync)>,
+        on_progress: Option<&RenderProgressCallback<'_>>,
         on_progress_event: Option<&(dyn Fn(crate::renderer::RenderProgressEvent) + Send + Sync)>,
         cancel: Option<&AtomicBool>,
     ) -> Result<Vec<f32>, String> {
@@ -278,8 +281,7 @@ impl TrackRenderer {
 
         let total_samples =
             ((max_end_ms / 1000.0) * sample_rate as f64) as usize + sample_rate as usize;
-        let mut track_buffer = vec![0.0f32; total_samples];
-        let mut previous_phone_end_sample = 0usize;
+        let track_buffer = vec![0.0f32; total_samples];
 
         let temp_dir = tempfile::Builder::new()
             .prefix("kamafeu-render-")
@@ -385,147 +387,8 @@ impl TrackRenderer {
         }
         let pitch_notes = Self::phrase_pitch_notes(notes);
 
-        // ------------------------------------------------------------------
-        // Phase 0: Pre-load all unique WAV files into a shared in-memory
-        // cache.  This eliminates repeated disk reads for voicebanks where
-        // many notes share the same sample file (e.g. all 'あ' notes use the
-        // same あ.wav).  The load itself is also parallelised with rayon.
-        // ------------------------------------------------------------------
-        let unique_wav_paths: std::collections::HashSet<std::path::PathBuf> = phones
-            .iter()
-            .filter_map(|phone| {
-                phone
-                    .find_entry(voicebank)
-                    .map(|entry| voicebank.root_path.join(&entry.wav_filename))
-            })
-            .collect();
+        let wav_cache = preload::prepare_voicebank_audio(notes, &mut phones, voicebank, &log);
 
-        // Collect paths into a Vec so rayon can index them.
-        let wav_paths_vec: Vec<std::path::PathBuf> = if LAZY_WAV_LOADING.load(Ordering::Relaxed) {
-            Vec::new()
-        } else {
-            unique_wav_paths.into_iter().collect()
-        };
-        #[cfg(not(target_arch = "wasm32"))]
-        let io_threads = io_thread_count().read().map(|value| *value).unwrap_or(4);
-        #[cfg(target_arch = "wasm32")]
-        let io_threads = 1;
-        #[cfg(not(target_arch = "wasm32"))]
-        let wav_cache: HashMap<std::path::PathBuf, Arc<(Vec<f32>, u32)>> =
-            if wav_paths_vec.is_empty() {
-                HashMap::new()
-            } else {
-                let load_wavs = || {
-                    wav_paths_vec
-                        .into_par_iter()
-                        .filter_map(|path| {
-                            Self::load_wav_samples(&path)
-                                .ok()
-                                .map(|(samples, rate)| (path, Arc::new((samples, rate))))
-                        })
-                        .collect()
-                };
-                match crate::renderer::worker_pool::get(io_threads) {
-                    Ok(pool) => pool.install(load_wavs),
-                    Err(_) => load_wavs(),
-                }
-            };
-        #[cfg(target_arch = "wasm32")]
-        let wav_cache: HashMap<std::path::PathBuf, Arc<(Vec<f32>, u32)>> = wav_paths_vec
-            .into_iter()
-            .filter_map(|path| {
-                Self::load_wav_samples(&path)
-                    .ok()
-                    .map(|(samples, rate)| (path, Arc::new((samples, rate))))
-            })
-            .collect();
-        // Never substitute a missing phoneme with generated audio. Keep its
-        // time slot silent and resolve transitions only between available phones.
-        let unavailable = phones
-            .iter()
-            .map(|phone| {
-                phone.find_entry(voicebank).is_none_or(|entry| {
-                    let path = voicebank.root_path.join(&entry.wav_filename);
-                    if LAZY_WAV_LOADING.load(Ordering::Relaxed) {
-                        !path.is_file()
-                    } else {
-                        wav_cache.get(&path).is_none_or(|audio| audio.0.is_empty())
-                    }
-                })
-            })
-            .collect::<Vec<_>>();
-        let missing_inside_phrase = unavailable.iter().enumerate().any(|(index, missing)| {
-            if !missing {
-                return false;
-            }
-            let phone = &phones[index];
-            let touches_previous = index > 0
-                && (phones[index - 1].position_ms + phones[index - 1].duration_ms
-                    - phone.position_ms)
-                    .abs()
-                    <= 0.001;
-            let touches_next = phones.get(index + 1).is_some_and(|next| {
-                (phone.position_ms + phone.duration_ms - next.position_ms).abs() <= 0.001
-            });
-            touches_previous || touches_next
-        });
-        phones.retain(|phone| {
-            let reason = match phone.find_entry(voicebank) {
-                None => Some("alias ausente no voicebank".to_string()),
-                Some(entry) => {
-                    let path = voicebank.root_path.join(&entry.wav_filename);
-                    let available = if LAZY_WAV_LOADING.load(Ordering::Relaxed) {
-                        path.is_file()
-                    } else {
-                        wav_cache
-                            .get(&path)
-                            .is_some_and(|audio| !audio.0.is_empty())
-                    };
-                    (!available).then(|| {
-                        format!("amostra WAV ausente, vazia ou ilegível: {}", path.display())
-                    })
-                }
-            };
-            if let Some(reason) = reason {
-                log(
-                    0.0,
-                    &format!(
-                        "[Warning] Fonema '{}' ({}) em {:.0}ms silenciado: {reason}",
-                        phone.lyric, phone.pitch, phone.position_ms
-                    ),
-                );
-                false
-            } else {
-                true
-            }
-        });
-        if missing_inside_phrase {
-            // The phonemizer has already shortened the preceding vowel to make
-            // room for the missing bridge. Restore continuity up to the next
-            // available phone instead of leaving a hole or aborting unrelated
-            // phrases. The warning above still exposes the voicebank defect.
-            for index in 0..phones.len().saturating_sub(1) {
-                let current_note = phones[index].note_index;
-                let next_note = phones[index + 1].note_index;
-                let same_phrase = current_note == next_note
-                    || notes
-                        .get(current_note)
-                        .zip(notes.get(next_note))
-                        .is_some_and(|(current, next)| {
-                            (current.position_ms + current.duration_ms - next.position_ms).abs()
-                                <= 0.001
-                        });
-                let next_position = phones[index + 1].position_ms;
-                let current_end = phones[index].position_ms + phones[index].duration_ms;
-                if same_phrase && next_position > current_end + 0.001 {
-                    phones[index].duration_ms = next_position - phones[index].position_ms;
-                }
-            }
-            log(
-                0.0,
-                "[Warning] A geometria da frase foi recomposta ao redor de aliases ausentes; a vogal anterior foi preservada até o próximo fonema disponível.",
-            );
-        }
         if phones.is_empty() {
             log(
                 1.0,
@@ -1118,191 +981,19 @@ impl TrackRenderer {
         let phone_results: Result<Vec<PhoneResult>, String> =
             render_order.into_iter().map(render_phone_fn).collect();
 
-        // ------------------------------------------------------------------
-        // Phase 2: Sequential merge.
-        //
-        // Convergence is order-dependent: each correction contributes to the
-        // phase used by the following phone, so this must run in idx order.
-        // ------------------------------------------------------------------
-        if cancel.is_some_and(|t| t.load(Ordering::Relaxed)) {
-            log(1.0, "[Render] Cancelled");
-            return Err("Renderização cancelada".to_string());
-        }
-
-        let mut phone_results = phone_results?;
-        phone_results.sort_unstable_by_key(|r| r.idx);
-
-        if let Some(executable) = wavtool_driver.phrase_executable() {
-            let mut begin = 0;
-            while begin < phone_results.len() {
-                let mut end = begin + 1;
-                while end < phone_results.len() && phone_results[end].adjacent {
-                    end += 1;
-                }
-                let group = &phone_results[begin..end];
-                let args: Vec<_> = group.iter().map(|r| r.wav_args.clone()).collect();
-                let output = temp_dir_path.join(format!("phrase-{begin}.wav"));
-                let rendered = crate::drivers::wavtool_driver::concatenate_external(
-                    &executable,
-                    &args,
-                    &output,
-                    sample_rate,
-                    cancel,
-                )?;
-                let origin =
-                    timing_inputs[group[0].idx].position_ms - timings[group[0].idx].preutter_ms;
-                let skip = ((-origin).max(0.0) * sample_rate as f64 / 1000.0).round() as usize;
-                let start = (origin.max(0.0) * sample_rate as f64 / 1000.0).round() as usize;
-                Self::mix_phase_aligned(
-                    &mut track_buffer,
-                    rendered.get(skip..).unwrap_or(&[]),
-                    start,
-                    0,
-                    0,
-                    0.0,
-                    sample_rate,
-                );
-                for item in group {
-                    for (p, message) in &item.logs {
-                        log(*p, message);
-                    }
-                }
-                begin = end;
-            }
-            return Ok(track_buffer);
-        }
-
-        let mut previous_phase_tail = None;
-        let mut previous_phase_correction = 0isize;
-        let mut previous_lyric: Option<String> = None;
-        for result in phone_results {
-            // Replay per-phone log messages in-order now that we are sequential.
-            for (progress, msg) in result.logs {
-                log(progress, &msg);
-            }
-
-            let source_skip_samples =
-                ((result.source_skip_ms / 1000.0) * sample_rate as f64).round() as usize;
-            let audible_samples = result
-                .note_rendered
-                .get(source_skip_samples.min(result.note_rendered.len())..)
-                .unwrap_or(&[]);
-            let start_sample_idx =
-                ((result.actual_start_ms / 1000.0) * sample_rate as f64).round() as usize;
-            // The wavtool envelope is the authority for transition energy.
-            // Do not apply RMS matching here: even a synthetic safety overlap
-            // can otherwise raise a consonant by up to 1.5x and make it sound
-            // like a separate, overly loud phoneme.
-            match mix_strategy {
-                WavtoolMixStrategy::OpenUtauConvergence => {
-                    if !result.adjacent {
-                        previous_phase_correction = 0;
-                    }
-                    let correction = if result.adjacent {
-                        crate::renderer::phase::openutau_convergence_correction(
-                            previous_phase_tail,
-                            result.phase_metadata.head,
-                            previous_phase_correction,
-                            sample_rate,
-                        )
-                    } else {
-                        0
-                    };
-                    let mixed = Self::mix_with_resolved_correction(
-                        &mut track_buffer,
-                        audible_samples,
-                        start_sample_idx,
-                        previous_phone_end_sample,
-                        correction,
-                    );
-                    previous_phone_end_sample = mixed.end_sample;
-                    let head = result.phase_metadata.head;
-                    let tail = previous_phase_tail;
-                    log(
-                        result.idx as f32 / total_phones as f32,
-                        &format!(
-                            "  [Transition] strategy=OpenUtauConvergence from='{}' to='{}' adjacent={} tail_valid={} head_valid={} head_window={} tail_window={} correction_samples={} correction_ms={:.3} source_trim_samples={} envelope=linear-openutau",
-                            previous_lyric.as_deref().unwrap_or("<none>"),
-                            result.lyric,
-                            result.adjacent,
-                            tail.is_some(),
-                            head.is_some(),
-                            head.map_or_else(|| "none".to_string(), |signature| format!(
-                                "{}+{}@{:.3}Hz",
-                                signature.window_start, signature.window_len, signature.frequency
-                            )),
-                            tail.map_or_else(|| "none".to_string(), |signature| format!(
-                                "{}+{}@{:.3}Hz",
-                                signature.window_start, signature.window_len, signature.frequency
-                            )),
-                            mixed.correction_samples,
-                            mixed.correction_samples as f64 * 1000.0 / sample_rate.max(1) as f64,
-                            mixed.source_trim_samples,
-                        ),
-                    );
-                    previous_phase_correction = correction;
-                }
-                WavtoolMixStrategy::LegacyPhaseAligned => {
-                    let crossfade_samples =
-                        ((result.crossfade_ms / 1000.0) * sample_rate as f64).round() as usize;
-                    previous_phone_end_sample = Self::mix_phase_aligned(
-                        &mut track_buffer,
-                        audible_samples,
-                        start_sample_idx,
-                        previous_phone_end_sample,
-                        crossfade_samples,
-                        result.pitch_freq,
-                        sample_rate,
-                    );
-                }
-                WavtoolMixStrategy::Plain => {
-                    previous_phone_end_sample = Self::mix_with_resolved_correction(
-                        &mut track_buffer,
-                        audible_samples,
-                        start_sample_idx,
-                        previous_phone_end_sample,
-                        0,
-                    )
-                    .end_sample;
-                }
-            }
-            previous_phase_tail = result.phase_metadata.tail;
-            previous_lyric = Some(result.lyric);
-        }
-
-        if let Some(target_peak) = crate::renderer::project::configured_render_limiter_peak() {
-            Self::apply_soft_limiter(&mut track_buffer, target_peak);
-        }
-
-        let diagnostics = crate::renderer::diagnostics::AudioDiagnostics::analyze(&track_buffer, 1);
-        log(0.95, &diagnostics.render_log_line("Final track_buffer"));
-
-        if let Some(last_nonzero) = track_buffer.iter().rposition(|&s| s.abs() > 1e-4) {
-            track_buffer.truncate(last_nonzero + 1);
-            log(
-                1.0,
-                &format!(
-                    "[Render] Truncated to {} non-silent samples",
-                    track_buffer.len()
-                ),
-            );
-        } else {
-            log(1.0, "[Render] WARNING: Entire track buffer is silent!");
-        }
-
-        let final_diagnostics =
-            crate::renderer::diagnostics::AudioDiagnostics::analyze(&track_buffer, 1);
-        log(
-            1.0,
-            &format!(
-                "[Render][Complete] output_samples={} output_duration_ms={:.3} {}",
-                track_buffer.len(),
-                track_buffer.len() as f64 * 1000.0 / sample_rate.max(1) as f64,
-                final_diagnostics.render_log_line("final output"),
-            ),
-        );
-
-        Ok(track_buffer)
+        merge::merge_track_results(merge::TrackMergeContext {
+            track_buffer,
+            phone_results,
+            timing_inputs: &timing_inputs,
+            timings: &timings,
+            wavtool_driver,
+            temp_dir_path: &temp_dir_path,
+            sample_rate,
+            cancel,
+            mix_strategy,
+            total_phones,
+            log: &log,
+        })
     }
 
     /// Render track using default native Rust drivers and tempo 120.0

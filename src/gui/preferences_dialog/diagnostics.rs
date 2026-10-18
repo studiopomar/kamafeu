@@ -32,7 +32,7 @@ impl KamafeuStudioApp {
                     let white = ((rng_seed as f32 / u32::MAX as f32) * 2.0 - 1.0) * 0.3;
                     b0 = 0.99886 * b0 + white * 0.0555179;
                     b1 = 0.99332 * b1 + white * 0.0750759;
-                    b2 = 0.96900 * b2 + white * 0.1538520;
+                    b2 = 0.96900 * b2 + white * 0.153_852;
                     let pink = b0 + b1 + b2 + white * 0.5362;
                     samples.push(pink * 0.15);
                 }

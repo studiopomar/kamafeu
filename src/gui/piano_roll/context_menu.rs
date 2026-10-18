@@ -149,7 +149,7 @@ pub(super) fn draw(
                                     );
                                 } else {
                                     let header = if sel_count > 0 {
-                                        format!("Piano Roll ({} {})", sel_count, lang.tr(if sel_count > 1 { "selecionadas" } else { "selecionada" }, if sel_count > 1 { "selected" } else { "selected" }))
+                                        format!("Piano Roll ({} {})", sel_count, lang.tr(if sel_count > 1 { "selecionadas" } else { "selecionada" }, "selected"))
                                     } else {
                                         lang.tr("Piano Roll — Menu de Edição", "Piano Roll — Edit Menu").to_string()
                                     };

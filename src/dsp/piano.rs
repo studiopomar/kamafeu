@@ -68,7 +68,7 @@ pub fn render_piano_tone(freq: f64, duration_ms: f64, sample_rate: u32, velocity
     let attack_samples = (attack_time * sr).max(1.0) as usize;
 
     // Synthesize partials
-    for i in 0..total_samples {
+    for (i, sample) in samples.iter_mut().enumerate() {
         let t = i as f64 / sr;
 
         // Attack envelope
@@ -110,7 +110,7 @@ pub fn render_piano_tone(freq: f64, duration_ms: f64, sample_rate: u32, velocity
             sample_sum += click * hammer_env;
         }
 
-        samples[i] = sample_sum * env_mod * 0.28 * vel;
+        *sample = sample_sum * env_mod * 0.28 * vel;
     }
 
     samples

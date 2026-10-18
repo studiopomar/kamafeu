@@ -12,6 +12,7 @@ use std::sync::OnceLock;
 /// The Lanczos window is defined as:
 ///   sinc(x) * sinc(x/a) for -a < x < a, 0 otherwise
 /// where a is the order of the Lanczos window (typically 3).
+#[derive(Default)]
 pub struct WindowedSincResampler;
 
 const PITCH_FACTOR_MIN_CENTS: f64 = -4_800.0;
@@ -120,6 +121,7 @@ impl WindowedSincResampler {
     /// # Returns
     ///
     /// A vector containing the resampled audio samples
+    #[allow(clippy::too_many_arguments)]
     pub fn render_sample_with_pitch_bend(
         input_samples: &[f32],
         sample_rate: u32,
@@ -195,8 +197,7 @@ impl WindowedSincResampler {
                 effective_output_rate,
                 target_pitch_freq,
                 pitch_points,
-                (consonant_ms.min(target_consonant_samples as f64 * 1000.0 / sample_rate as f64))
-                    as f64,
+                consonant_ms.min(target_consonant_samples as f64 * 1000.0 / sample_rate as f64),
             );
 
             output.extend(vowel_output);

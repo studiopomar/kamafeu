@@ -104,6 +104,7 @@ fn draw_vu_meter(
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn draw_unified_toolbar(
     ui: &mut egui::Ui,
     theme: &ThemeConfig,
@@ -1049,7 +1050,7 @@ pub fn draw_unified_toolbar(
                 if !state.voicebank_name.is_empty() {
                     ui.add_space(4.0);
                     ui.label(
-                        RichText::new(format!("🎤 {}", &state.voicebank_name))
+                        RichText::new(format!("🎤 {}", state.voicebank_name))
                             .size(9.5)
                             .color(theme.text_muted_c32()),
                     )

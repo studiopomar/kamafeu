@@ -87,7 +87,8 @@ impl KamafeuStudioApp {
                     || self.selected_resampler.contains("hifisampler")
                 {
                     "Hifisampler"
-                } else if crate::drivers::is_native_world_resampler_label(&self.selected_resampler) {
+                } else if crate::drivers::is_native_world_resampler_label(&self.selected_resampler)
+                {
                     crate::drivers::TAINAH_RESAMPLER_LABEL
                 } else if self.selected_resampler.contains("Organum")
                     || self.selected_resampler.contains("organum")
@@ -96,7 +97,7 @@ impl KamafeuStudioApp {
                 } else {
                     self.selected_resampler
                         .split(&['/', '\\'][..])
-                        .last()
+                        .next_back()
                         .unwrap_or(&self.selected_resampler)
                 };
 
@@ -249,7 +250,7 @@ impl KamafeuStudioApp {
                 ui.add_space(4.0);
 
                 let (progress_fraction, progress_color, pct_text) = if is_rendering {
-                    let p = self.render_progress.clamp(0.0, 1.0) as f32;
+                    let p = self.render_progress.clamp(0.0, 1.0);
                     (p, theme.accent_c32(), format!("{:.0}%", p * 100.0))
                 } else if is_playing {
                     let total_ms = self

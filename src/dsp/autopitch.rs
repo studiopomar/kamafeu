@@ -441,8 +441,7 @@ impl AutoPitchEngine {
             portamento_ms_base
         };
 
-        if is_prev_adjacent && prev_midi.is_some() {
-            let pm = prev_midi.unwrap();
+        if let Some(pm) = prev_midi.filter(|_| is_prev_adjacent) {
             let delta_semitones = current_midi as f64 - pm as f64;
             let portamento_start = -(actual_portamento_len * 0.5);
 

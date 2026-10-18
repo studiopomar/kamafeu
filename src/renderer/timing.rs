@@ -147,9 +147,9 @@ pub fn plan_inputs_with_mode(
                     - (phones[index - 1].position_ms + phones[index - 1].duration_ms))
                     .abs()
                     <= 0.001;
-            let manual_overlap = if phone.expressions.presamp_no_crossfade {
-                None
-            } else if compatibility_mode == CompatibilityMode::UtauLegacy {
+            let manual_overlap = if phone.expressions.presamp_no_crossfade
+                || compatibility_mode == CompatibilityMode::UtauLegacy
+            {
                 None
             } else if phone.envelope.crossfade_ms > 0.0 {
                 Some(phone.envelope.crossfade_ms)
@@ -342,8 +342,10 @@ mod tests {
     use super::*;
 
     fn phone(position_ms: f64, duration_ms: f64, velocity: f64) -> crate::phonemizer::RenderPhone {
-        let mut expressions = crate::project::model::UExpressions::default();
-        expressions.consonant_velocity = velocity;
+        let expressions = crate::project::model::UExpressions {
+            consonant_velocity: velocity,
+            ..Default::default()
+        };
         crate::phonemizer::RenderPhone {
             note_index: 0,
             lyric: "a".to_string(),

@@ -202,7 +202,7 @@ impl KamafeuStudioApp {
                                 &format!(
                                     "[Stem] Renderizando faixa {}: {}...",
                                     t_idx + 1,
-                                    &track.name
+                                    track.name
                                 ),
                             );
                             report_render_progress(crate::renderer::RenderProgressEvent::units(

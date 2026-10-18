@@ -1,5 +1,5 @@
 //! Assisted, non-destructive conversion from classic oto.ini data to a KFV 2 copy.
-use crate::oto::{OtoEntry, Voicebank};
+use crate::oto::Voicebank;
 use crate::voicebank::native::{
     safe_relative_path, Asset, Context, Defaults, EngineRequirement, Layer, Manifest, NativeBank,
     PhoneticProfile, Quality, RenderTuning, SourceRegion, Style, Unit, UnitFile, UnitTiming,
@@ -10,6 +10,11 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 const MIGRATION_MAX_ASSET_FRAMES: u64 = 64 * 1024 * 1024;
+
+mod source;
+#[cfg(test)]
+use source::parse_migration_oto_line;
+use source::{milliseconds_to_frames, oto_end_frame, oto_start_frame, read_legacy_oto_entries};
 
 #[derive(Debug, Clone)]
 pub struct LegacyMigrationOptions {
@@ -135,11 +140,7 @@ pub fn preview_legacy_voicebank_migration(
             preview.explicit_mappings += 1;
             Some(phones.clone())
         } else {
-            let inferred: Vec<String> = entry
-                .alias
-                .split_whitespace()
-                .map(str::to_owned)
-                .collect();
+            let inferred: Vec<String> = entry.alias.split_whitespace().map(str::to_owned).collect();
             if !inferred.is_empty()
                 && inferred
                     .iter()
@@ -258,7 +259,7 @@ pub fn migrate_legacy_voicebank_to_copy(
     for entry in &aliases {
         *alias_counts.entry(entry.alias.clone()).or_default() += 1;
     }
-    if source.prefix_map.len() > 0 {
+    if !source.prefix_map.is_empty() {
         warnings.push(format!(
             "{} pitch prefix/suffix mappings were flattened into the single MIDI {} layer.",
             source.prefix_map.len(),
@@ -443,7 +444,8 @@ pub fn migrate_legacy_voicebank_to_copy(
             Some(frame) if frame < frame_count => frame,
             _ => {
                 report.warnings.push(
-                    "Offset in oto.ini is non-finite or outside the source WAV; entry was omitted.".into(),
+                    "Offset in oto.ini is non-finite or outside the source WAV; entry was omitted."
+                        .into(),
                 );
                 prepared.push(PreparedEntry {
                     report,
@@ -583,9 +585,10 @@ pub fn migrate_legacy_voicebank_to_copy(
             }
             entry.overlap.max(0.0)
         } else {
-            report
-                .warnings
-                .push("Non-finite overlap from oto.ini was replaced by a zero preferred crossfade.".into());
+            report.warnings.push(
+                "Non-finite overlap from oto.ini was replaced by a zero preferred crossfade."
+                    .into(),
+            );
             0.0
         };
         let duration_ms = (end_frame - start_frame) as f64 * 1000.0 / f64::from(spec.sample_rate);
@@ -811,174 +814,6 @@ fn migration_manifest(source: &Voicebank, options: &LegacyMigrationOptions) -> M
     }
 }
 
-fn read_legacy_oto_entries(
-    source_root: &Path,
-    source: &Voicebank,
-) -> Result<(Vec<OtoEntry>, Vec<String>), String> {
-    fn scan(
-        root: &Path,
-        directory: &Path,
-        entries: &mut Vec<OtoEntry>,
-        warnings: &mut Vec<String>,
-        found_oto: &mut bool,
-    ) -> Result<(), String> {
-        let mut children = fs::read_dir(directory)
-            .map_err(|error| {
-                format!(
-                    "cannot scan classic bank '{}': {error}",
-                    directory.display()
-                )
-            })?
-            .map(|entry| entry.map_err(|error| error.to_string()))
-            .collect::<Result<Vec<_>, _>>()
-            .map_err(|error| {
-                format!(
-                    "cannot list classic bank '{}': {error}",
-                    directory.display()
-                )
-            })?;
-        children.sort_by_key(|entry| entry.file_name());
-        for child in children {
-            let path = child.path();
-            let metadata = fs::symlink_metadata(&path).map_err(|error| {
-                format!(
-                    "cannot inspect classic bank entry '{}': {error}",
-                    path.display()
-                )
-            })?;
-            if metadata.file_type().is_symlink() {
-                warnings.push(format!(
-                    "Skipped symlink in classic source tree: {}",
-                    path.strip_prefix(root).unwrap_or(&path).display()
-                ));
-                continue;
-            }
-            if metadata.is_dir() {
-                scan(root, &path, entries, warnings, found_oto)?;
-                continue;
-            }
-            if !metadata.is_file()
-                || !child
-                    .file_name()
-                    .to_str()
-                    .is_some_and(|name| name.eq_ignore_ascii_case("oto.ini"))
-            {
-                continue;
-            }
-            *found_oto = true;
-            let relative_oto = path.strip_prefix(root).unwrap_or(&path);
-            let bytes = fs::read(&path)
-                .map_err(|error| format!("cannot read '{}': {error}", relative_oto.display()))?;
-            let text = match std::str::from_utf8(&bytes) {
-                Ok(text) => text.to_owned(),
-                Err(_) => encoding_rs::SHIFT_JIS.decode(&bytes).0.into_owned(),
-            };
-            let relative_directory = relative_oto.parent().unwrap_or_else(|| Path::new(""));
-            for (line_number, line) in text.trim_start_matches('\u{feff}').lines().enumerate() {
-                if line.trim().is_empty()
-                    || line.trim_start().starts_with(';')
-                    || line.trim_start().starts_with('#')
-                {
-                    continue;
-                }
-                match parse_migration_oto_line(line) {
-                    Ok(mut entry) => {
-                        if !relative_directory.as_os_str().is_empty() {
-                            entry.wav_filename = relative_directory
-                                .join(&entry.wav_filename)
-                                .to_string_lossy()
-                                .into_owned();
-                        }
-                        entries.push(entry);
-                    }
-                    Err(reason) => warnings.push(format!(
-                        "{}:{}: {reason}",
-                        relative_oto.display(),
-                        line_number + 1
-                    )),
-                }
-            }
-        }
-        Ok(())
-    }
-
-    let mut entries = Vec::new();
-    let mut warnings = Vec::new();
-    let mut found_oto = false;
-    scan(
-        source_root,
-        source_root,
-        &mut entries,
-        &mut warnings,
-        &mut found_oto,
-    )?;
-    if !found_oto {
-        entries.extend(source.entries.values().cloned());
-        entries.sort_by(|left, right| {
-            left.alias
-                .cmp(&right.alias)
-                .then_with(|| left.wav_filename.cmp(&right.wav_filename))
-        });
-        warnings.push(
-            "No oto.ini was found; migration used the classic loader's indexed entries, which may already collapse duplicate aliases.".into(),
-        );
-    }
-    Ok((entries, warnings))
-}
-
-/// Migration only uses the first three timing marks. It still validates all
-/// five numeric columns against classic oto.ini rules so malformed or absent
-/// values are reported consistently; present blank columns parse as zero. The
-/// original file remains untouched and the report identifies timing losses.
-fn parse_migration_oto_line(line: &str) -> Result<OtoEntry, String> {
-    crate::oto::OtoParser::parse_str(line)?
-        .into_values()
-        .next()
-        .ok_or_else(|| "empty line in oto.ini".to_string())
-}
-
-fn milliseconds_to_frames(milliseconds: f64, sample_rate_hz: u32) -> Option<u64> {
-    if !milliseconds.is_finite() || milliseconds < 0.0 || sample_rate_hz == 0 {
-        return None;
-    }
-    let frames = milliseconds * f64::from(sample_rate_hz) / 1_000.0;
-    // Rendering from oto.ini converts millisecond marks to sample indices by truncation.
-    // Keep that rule for converted boundaries to avoid moving a mark by a frame.
-    frames.is_finite().then(|| frames as u64)
-}
-
-fn oto_start_frame(offset_ms: f64, sample_rate_hz: u32, frame_count: u64) -> Option<u64> {
-    if !offset_ms.is_finite() {
-        return None;
-    }
-    milliseconds_to_frames(offset_ms.max(0.0), sample_rate_hz).map(|frame| frame.min(frame_count))
-}
-
-fn oto_end_frame(
-    entry: &OtoEntry,
-    start_frame: u64,
-    frame_count: u64,
-    sample_rate_hz: u32,
-) -> Option<u64> {
-    if !entry.cutoff.is_finite() {
-        return None;
-    }
-    if entry.cutoff > 0.0 {
-        let tail = milliseconds_to_frames(entry.cutoff, sample_rate_hz)?;
-        Some(
-            frame_count
-                .saturating_sub(tail)
-                .max(start_frame)
-                .min(frame_count),
-        )
-    } else if entry.cutoff < 0.0 {
-        let source_length = milliseconds_to_frames(-entry.cutoff, sample_rate_hz)?;
-        Some(start_frame.saturating_add(source_length).min(frame_count))
-    } else {
-        Some(frame_count)
-    }
-}
-
 fn write_json(path: &Path, value: &impl Serialize) -> Result<(), String> {
     let bytes = serde_json::to_vec_pretty(value)
         .map_err(|error| format!("cannot serialize KFV 2 migration file: {error}"))?;
@@ -988,6 +823,7 @@ fn write_json(path: &Path, value: &impl Serialize) -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::oto::OtoEntry;
 
     #[test]
     fn migration_parser_matches_classic_oto_empty_and_invalid_field_rules() {
@@ -1096,14 +932,13 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let source = source_bank(temp.path());
         let mut options = options();
-        options.phone_mappings.insert("ka".into(), vec!["missing".into()]);
+        options
+            .phone_mappings
+            .insert("ka".into(), vec!["missing".into()]);
 
-        let preview = preview_legacy_voicebank_migration(
-            &source,
-            &options.profile,
-            &options.phone_mappings,
-        )
-        .unwrap();
+        let preview =
+            preview_legacy_voicebank_migration(&source, &options.profile, &options.phone_mappings)
+                .unwrap();
 
         assert_eq!(preview.total_entries, 3);
         assert_eq!(preview.explicit_mappings, 1);

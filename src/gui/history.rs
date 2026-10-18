@@ -111,8 +111,10 @@ mod tests {
     fn reducing_history_limit_evicts_old_snapshots_immediately() {
         let mut history = UndoManager::new(10);
         for idx in 0..4 {
-            let mut state = UProject::default();
-            state.name = format!("state {idx}");
+            let state = UProject {
+                name: format!("state {idx}"),
+                ..Default::default()
+            };
             history.push_state(state);
         }
         history.set_max_history(2);

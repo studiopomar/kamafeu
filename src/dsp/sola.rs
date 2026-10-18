@@ -855,35 +855,35 @@ impl SolaResampler {
                 periodicity: 0.0,
             },
             None => {
-                return Ok(crate::dsp::resize_preserving_pitch_cancellable(
+                return crate::dsp::resize_preserving_pitch_cancellable(
                     vowel,
                     target_samples,
                     sample_rate,
                     cancel,
-                )?);
+                );
             }
         };
 
         // PSOLA makes noise periodic. Route genuinely unvoiced/breathy regions
         // through WSOLA, which preserves their stochastic texture and timing.
         if estimate.periodicity < 0.15 && !force_absolute_pitch {
-            return Ok(crate::dsp::resize_preserving_pitch_cancellable(
+            return crate::dsp::resize_preserving_pitch_cancellable(
                 vowel,
                 target_samples,
                 sample_rate,
                 cancel,
-            )?);
+            );
         }
 
         let base_period = estimate.period.round().max(8.0) as usize;
         let pitch_marks = Self::find_pitch_marks_cancellable(vowel, base_period, cancel)?;
         if pitch_marks.len() < 2 && !force_absolute_pitch {
-            return Ok(crate::dsp::resize_preserving_pitch_cancellable(
+            return crate::dsp::resize_preserving_pitch_cancellable(
                 vowel,
                 target_samples,
                 sample_rate,
                 cancel,
-            )?);
+            );
         }
         let pitch_marks = if pitch_marks.len() < 2 {
             // The segment can contain only a partial glottal cycle. Regular

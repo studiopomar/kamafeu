@@ -18,6 +18,7 @@ impl Default for PhonemePaletteState {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn draw_phoneme_palette(
     ui: &mut egui::Ui,
     theme: &ThemeConfig,

@@ -1,3 +1,7 @@
+#[path = "english/phonemize.rs"]
+mod phonemize;
+pub(crate) use phonemize::{apply, apply_arpasing};
+
 use std::collections::HashMap;
 
 pub struct EnglishPhonemizer;
@@ -21,7 +25,7 @@ impl EnglishPhonemizer {
         }
         if clean.contains(' ') || clean.contains('-') {
             return clean
-                .split(|c| c == ' ' || c == '-')
+                .split([' ', '-'])
                 .filter(|s| !s.is_empty())
                 .map(|s| s.to_string())
                 .collect();
@@ -37,7 +41,7 @@ impl EnglishPhonemizer {
 
         if clean.contains(' ') || clean.contains('-') {
             return clean
-                .split(|c| c == ' ' || c == '-')
+                .split([' ', '-'])
                 .filter(|s| !s.is_empty())
                 .map(|s| s.to_string())
                 .collect();

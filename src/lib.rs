@@ -1,14 +1,3 @@
-#![allow(
-    clippy::too_many_arguments,
-    clippy::type_complexity,
-    clippy::unnecessary_map_or,
-    clippy::collapsible_if,
-    dependency_on_unit_never_type_fallback,
-    bindings_with_variant_name,
-    unreachable_code
-)]
-#![allow(unknown_lints)]
-#![allow(clippy::all)]
 // Shared modules retain desktop-only branches in the WASM crate so project
 // files and UI state remain compatible. Their inactive process/disk/window
 // branches are intentionally not reachable on this target.

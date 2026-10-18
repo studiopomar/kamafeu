@@ -2,15 +2,9 @@ use crate::config::AppLanguage;
 use crate::gui::theme::{ThemeConfig, ThemePreset};
 use eframe::egui::{self, Frame, RichText, Window};
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone, Copy, Default)]
 pub struct ThemeEditorDialogState {
     pub is_open: bool,
-}
-
-impl Default for ThemeEditorDialogState {
-    fn default() -> Self {
-        Self { is_open: false }
-    }
 }
 
 pub fn draw_theme_editor_dialog(

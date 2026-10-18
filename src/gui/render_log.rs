@@ -232,11 +232,10 @@ impl KamafeuStudioApp {
                                 .hint_text(lang.tr("Buscar mensagem ou nota...", "Search message or note..."))
                                 .desired_width(160.0),
                         );
-                        if !self.render_log_search_query.is_empty() {
-                            if ui.small_button(lang.tr("Limpar", "Clear")).on_hover_text(lang.tr("Limpar busca", "Clear search")).clicked() {
+                        if !self.render_log_search_query.is_empty()
+                            && ui.small_button(lang.tr("Limpar", "Clear")).on_hover_text(lang.tr("Limpar busca", "Clear search")).clicked() {
                                 self.render_log_search_query.clear();
                             }
-                        }
                     });
 
                     ui.add_space(4.0);
@@ -372,15 +371,13 @@ impl KamafeuStudioApp {
                                                     );
 
                                                     // Text Body with Syntax Coloring
-                                                    let text_color = if is_err {
+                                                    let text_color = if is_err || is_warn {
                                                         ui.visuals().warn_fg_color
-                                                    } else if is_warn {
-                                                        ui.visuals().warn_fg_color
-                                                    } else if is_dsp {
-                                                        ui.visuals().hyperlink_color
-                                                    } else if is_wav {
-                                                        ui.visuals().hyperlink_color
-                                                    } else if msg.contains("Concluído") || msg.contains("Pronto") {
+                                                    } else if is_dsp
+                                                        || is_wav
+                                                        || msg.contains("Concluído")
+                                                        || msg.contains("Pronto")
+                                                    {
                                                         ui.visuals().hyperlink_color
                                                     } else {
                                                         ui.visuals().text_color()

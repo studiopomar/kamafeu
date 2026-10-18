@@ -2,6 +2,7 @@ use super::*;
 use crate::gui::theme::ThemeConfig;
 use eframe::egui::{self, Id, Pos2, Rect, Sense, Stroke};
 
+#[allow(clippy::too_many_arguments)]
 pub(super) fn draw(
     ui: &mut egui::Ui,
     state: &mut PianoRollState,

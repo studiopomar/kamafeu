@@ -12,6 +12,7 @@ pub use crate::renderer::RenderOptions as VocalModeParams;
 use eframe::egui::{self, Frame, Pos2, Rect, RichText, Rounding, Stroke, Vec2};
 use std::path::PathBuf;
 
+#[allow(clippy::too_many_arguments)]
 pub fn draw_unified_panel(
     ui: &mut egui::Ui,
     theme: &ThemeConfig,
@@ -182,6 +183,7 @@ pub fn draw_unified_panel(
     });
 }
 
+#[allow(clippy::too_many_arguments)]
 fn draw_context_header(
     ui: &mut egui::Ui,
     theme: &ThemeConfig,

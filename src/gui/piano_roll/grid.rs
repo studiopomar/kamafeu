@@ -30,6 +30,83 @@ fn keyboard_text_color(
     egui::Color32::from_rgb(foreground[0], foreground[1], foreground[2])
 }
 
+pub(super) struct PitchRowLayer<'a> {
+    pub(super) state: &'a PianoRollState,
+    pub(super) theme: &'a ThemeConfig,
+    pub(super) rect: Rect,
+    pub(super) grid_start_y: f32,
+    pub(super) first_visible_key: usize,
+    pub(super) last_visible_key: usize,
+    pub(super) keyboard_width: f32,
+}
+
+/// Draw the pitch rows and scale shading behind note content.
+pub(super) fn draw_pitch_rows(painter: &Painter, layer: PitchRowLayer<'_>) {
+    let PitchRowLayer {
+        state,
+        theme,
+        rect,
+        grid_start_y,
+        first_visible_key,
+        last_visible_key,
+        keyboard_width,
+    } = layer;
+
+    for key_idx in first_visible_key..last_visible_key {
+        let midi = state.max_midi - key_idx as u8;
+        let y_top = grid_start_y + key_idx as f32 * state.row_height;
+        let y_bottom = y_top + state.row_height;
+
+        let is_black_key = matches!(midi % 12, 1 | 3 | 6 | 8 | 10);
+        let in_scale = state.active_scale.is_in_scale(state.scale_root_key, midi);
+        let is_tonic = state.active_scale != crate::gui::piano_roll::state::MusicalScale::Chromatic
+            && state.active_scale.is_tonic(state.scale_root_key, midi);
+
+        let row_color = if is_black_key {
+            theme.bg_row_black_key_c32()
+        } else {
+            theme.bg_row_white_key_c32()
+        };
+
+        let row_x_min = rect.min.x + keyboard_width;
+        let row_x_max = rect.max.x;
+
+        if row_x_min >= row_x_max {
+            continue;
+        }
+
+        let row_rect =
+            Rect::from_min_max(Pos2::new(row_x_min, y_top), Pos2::new(row_x_max, y_bottom));
+        painter.rect_filled(row_rect, Rounding::ZERO, row_color);
+
+        if state.active_scale != crate::gui::piano_roll::state::MusicalScale::Chromatic {
+            if !in_scale {
+                painter.rect_filled(row_rect, Rounding::ZERO, theme.scale_out_of_key_tint());
+            } else if is_tonic {
+                painter.rect_filled(row_rect, Rounding::ZERO, theme.scale_tonic_tint());
+            } else {
+                painter.rect_filled(row_rect, Rounding::ZERO, theme.scale_in_key_tint());
+            }
+        }
+
+        painter.line_segment(
+            [
+                Pos2::new(row_x_min, y_bottom),
+                Pos2::new(row_x_max, y_bottom),
+            ],
+            Stroke::new(
+                if is_tonic { 1.0_f32 } else { 0.5_f32 },
+                if is_tonic {
+                    theme.accent_c32()
+                } else {
+                    theme.grid_line_sub_c32()
+                },
+            ),
+        );
+    }
+}
+
+#[allow(clippy::too_many_arguments)]
 pub fn draw_piano_keys(
     painter: &Painter,
     ui: &egui::Ui,
@@ -180,6 +257,7 @@ pub fn draw_piano_keys(
     );
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn draw_timeline_grid(
     painter: &Painter,
     state: &PianoRollState,

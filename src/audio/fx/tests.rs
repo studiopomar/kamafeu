@@ -64,8 +64,10 @@ fn test_fx_rack_bypass() {
 
 #[test]
 fn test_fx_rack_processing_does_not_panic() {
-    let mut config = FxRackConfig::default();
-    config.master_enabled = true;
+    let mut config = FxRackConfig {
+        master_enabled: true,
+        ..Default::default()
+    };
     config.eq.enabled = true;
     config.compressor.enabled = true;
     config.delay.enabled = true;
@@ -86,8 +88,10 @@ fn test_fx_rack_processing_does_not_panic() {
 
 #[test]
 fn limiter_enforces_configured_ceiling() {
-    let mut config = FxRackConfig::default();
-    config.master_enabled = true;
+    let mut config = FxRackConfig {
+        master_enabled: true,
+        ..Default::default()
+    };
     config.limiter.enabled = true;
     config.limiter.ceiling_db = -6.0;
     let mut processor = FxRackProcessor::new(config, 44_100);

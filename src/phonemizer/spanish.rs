@@ -98,11 +98,7 @@ pub fn apply(notes: &[UNote], vb: &Voicebank, mode: PhonemizerMode) -> Vec<Rende
             aliases.push(candidate);
         } else {
             let consonants = onset.join("");
-            let cv = if no_space {
-                format!("{consonants}{vowel}")
-            } else {
-                format!("{consonants}{vowel}")
-            };
+            let cv = format!("{consonants}{vowel}");
             let start_cv = if no_space {
                 format!("-{cv}")
             } else {

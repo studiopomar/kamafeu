@@ -20,25 +20,6 @@ fn is_recovery_snapshot_path(path: &Path) -> bool {
             .and_then(|name| name.to_str())
             .is_some_and(|name| name.contains("_recovery_"))
 }
-
-#[cfg(test)]
-mod tests {
-    use super::is_recovery_snapshot_path;
-    use std::path::Path;
-
-    #[test]
-    fn recognizes_only_snapshots_inside_the_recovery_directory() {
-        assert!(is_recovery_snapshot_path(Path::new(
-            "/tmp/.kamafeu_snapshots/song_recovery_123.aps"
-        )));
-        assert!(!is_recovery_snapshot_path(Path::new(
-            "/tmp/song_recovery_123.aps"
-        )));
-        assert!(!is_recovery_snapshot_path(Path::new(
-            "/tmp/.kamafeu_snapshots/song.aps"
-        )));
-    }
-}
 #[cfg(target_arch = "wasm32")]
 static WEB_FILE_QUEUE: std::sync::OnceLock<std::sync::Mutex<Vec<(String, Vec<u8>)>>> =
     std::sync::OnceLock::new();
@@ -1075,5 +1056,24 @@ impl KamafeuStudioApp {
                 }
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::is_recovery_snapshot_path;
+    use std::path::Path;
+
+    #[test]
+    fn recognizes_only_snapshots_inside_the_recovery_directory() {
+        assert!(is_recovery_snapshot_path(Path::new(
+            "/tmp/.kamafeu_snapshots/song_recovery_123.aps"
+        )));
+        assert!(!is_recovery_snapshot_path(Path::new(
+            "/tmp/song_recovery_123.aps"
+        )));
+        assert!(!is_recovery_snapshot_path(Path::new(
+            "/tmp/.kamafeu_snapshots/song.aps"
+        )));
     }
 }

@@ -196,9 +196,14 @@ impl WorldF0Extractor {
 
             let mut max_corr = 0.0f32;
             let mut best_lag = 0;
-            for lag in search_min..=search_max {
-                if nacf[lag] > max_corr {
-                    max_corr = nacf[lag];
+            for (lag, correlation) in nacf
+                .iter()
+                .enumerate()
+                .take(search_max + 1)
+                .skip(search_min)
+            {
+                if *correlation > max_corr {
+                    max_corr = *correlation;
                     best_lag = lag;
                 }
             }

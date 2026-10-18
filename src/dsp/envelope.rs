@@ -241,6 +241,7 @@ impl UtauEnvelope {
     /// Five-point phoneme envelope following standard UTAU and OpenUtau geometry.
     /// Times are relative to the musical phoneme start (0.0 ms), so preutterance
     /// points lie at negative offsets.
+    #[allow(clippy::too_many_arguments)]
     pub fn phoneme_points(
         &self,
         preutter_ms: f64,

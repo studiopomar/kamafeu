@@ -1,10 +1,26 @@
-use crate::gui::types::{AutoScrollMode, EditTool, GridSnapOption, PitchSubTool};
-use crate::project::model::{UNote, UPitchBendPoint};
+pub use super::lyric::{active_phoneme_query, replace_active_phoneme, PHONEME_SEPARATORS};
+pub use super::pitch_data::{canonical_pitch_shape, insert_pitch_point, smooth_pitch_points};
+use crate::gui::types::{AutoScrollMode, EditTool, PitchSubTool};
+#[cfg(test)]
+use crate::project::model::UNote;
 use eframe::egui::{Pos2, Rect};
 use std::collections::HashSet;
-use std::sync::{OnceLock, RwLock};
 
-pub const PHONEME_SEPARATORS: [char; 5] = ['.', ',', ';', '|', '/'];
+#[path = "state/quantize.rs"]
+mod quantize;
+pub use quantize::{apply_snap, apply_snap_with_zoom};
+
+#[path = "state/scale.rs"]
+mod scale;
+pub use scale::{MusicalScale, ROOT_NOTE_NAMES};
+
+#[path = "state/autopitch.rs"]
+mod autopitch;
+pub use autopitch::{apply_autopitch_to_selection, AutoPitchStyle};
+
+#[path = "state/waveform.rs"]
+mod waveform;
+pub use waveform::set_waveform_cache_resolution;
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct ArrangementMeterState {
@@ -30,38 +46,6 @@ pub struct CachedPhoneme {
     pub auto_preutter_ms: f64,
     pub auto_overlap_ms: f64,
     pub consonant_velocity: f64,
-}
-
-pub fn active_phoneme_query(lyric: &str) -> &str {
-    lyric
-        .rsplit_once(PHONEME_SEPARATORS)
-        .map_or(lyric, |(_, active)| active)
-        .trim()
-}
-
-pub fn replace_active_phoneme(lyric: &str, alias: &str) -> String {
-    let Some((separator_index, separator)) = lyric
-        .char_indices()
-        .rev()
-        .find(|(_, character)| PHONEME_SEPARATORS.contains(character))
-    else {
-        return alias.to_string();
-    };
-
-    let active_start = separator_index + separator.len_utf8();
-    let active = &lyric[active_start..];
-    let whitespace_bytes = active.len() - active.trim_start().len();
-    format!(
-        "{}{}{}",
-        &lyric[..active_start],
-        &active[..whitespace_bytes],
-        alias
-    )
-}
-
-fn waveform_bucket_index(time_ms: f64) -> i64 {
-    let bucket_ms = f64::from(waveform_cache_resolution());
-    (time_ms / bucket_ms).floor() as i64
 }
 
 /// Maps an absolute project time to a screen coordinate.  All horizontally
@@ -102,127 +86,6 @@ pub(crate) fn timeline_visible_time_range(
 pub(crate) fn timeline_content_left(ruler_left: f32, keyboard_width: f32) -> f32 {
     ruler_left + keyboard_width
 }
-
-fn waveform_bucket_time(bucket: i64) -> f32 {
-    (bucket as f64 * f64::from(waveform_cache_resolution())) as f32
-}
-
-/// Builds peaks on the global timeline.  The start of a progressive chunk is
-/// only an offset into that timeline; it is never the origin of a new mip
-/// grid.  This is also used by complete previews so both paths have identical
-/// bucket boundaries.
-fn waveform_buckets(
-    samples: &[f32],
-    sample_rate: u32,
-    channels: u16,
-    start_offset_ms: f64,
-) -> Vec<(f32, f32, f32)> {
-    if samples.is_empty() || sample_rate == 0 || channels == 0 || !start_offset_ms.is_finite() {
-        return Vec::new();
-    }
-
-    let ch = usize::from(channels);
-    let total_frames = samples.len() / ch;
-    if total_frames == 0 {
-        return Vec::new();
-    }
-
-    let ms_per_frame = 1000.0 / sample_rate as f64;
-    let mut buckets = std::collections::BTreeMap::<i64, (f32, f32)>::new();
-    for (frame_index, frame) in samples.chunks(ch).take(total_frames).enumerate() {
-        let time_ms = start_offset_ms + frame_index as f64 * ms_per_frame;
-        let bucket = waveform_bucket_index(time_ms);
-        for &sample in frame {
-            if !sample.is_finite() {
-                continue;
-            }
-            let entry = buckets.entry(bucket).or_insert((sample, sample));
-            entry.0 = entry.0.min(sample);
-            entry.1 = entry.1.max(sample);
-        }
-    }
-
-    buckets
-        .into_iter()
-        .map(|(bucket, (min, max))| (waveform_bucket_time(bucket), min, max))
-        .collect()
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
-pub enum MusicalScale {
-    #[default]
-    Chromatic,
-    Major,
-    NaturalMinor,
-    HarmonicMinor,
-    MelodicMinor,
-    PentatonicMajor,
-    PentatonicMinor,
-    Blues,
-    Dorian,
-    Mixolydian,
-}
-
-impl MusicalScale {
-    pub const ALL: [MusicalScale; 10] = [
-        MusicalScale::Chromatic,
-        MusicalScale::Major,
-        MusicalScale::NaturalMinor,
-        MusicalScale::HarmonicMinor,
-        MusicalScale::MelodicMinor,
-        MusicalScale::PentatonicMajor,
-        MusicalScale::PentatonicMinor,
-        MusicalScale::Blues,
-        MusicalScale::Dorian,
-        MusicalScale::Mixolydian,
-    ];
-
-    pub fn display_name(&self) -> &'static str {
-        match self {
-            MusicalScale::Chromatic => "Cromática (Livre)",
-            MusicalScale::Major => "Maior (Jônio)",
-            MusicalScale::NaturalMinor => "Menor Natural (Eólio)",
-            MusicalScale::HarmonicMinor => "Menor Harmônica",
-            MusicalScale::MelodicMinor => "Menor Melódica",
-            MusicalScale::PentatonicMajor => "Pentatônica Maior",
-            MusicalScale::PentatonicMinor => "Pentatônica Menor",
-            MusicalScale::Blues => "Blues",
-            MusicalScale::Dorian => "Dórico",
-            MusicalScale::Mixolydian => "Mixolídio",
-        }
-    }
-
-    pub fn intervals(&self) -> &'static [u8] {
-        match self {
-            MusicalScale::Chromatic => &[0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11],
-            MusicalScale::Major => &[0, 2, 4, 5, 7, 9, 11],
-            MusicalScale::NaturalMinor => &[0, 2, 3, 5, 7, 8, 10],
-            MusicalScale::HarmonicMinor => &[0, 2, 3, 5, 7, 8, 11],
-            MusicalScale::MelodicMinor => &[0, 2, 3, 5, 7, 9, 11],
-            MusicalScale::PentatonicMajor => &[0, 2, 4, 7, 9],
-            MusicalScale::PentatonicMinor => &[0, 3, 5, 7, 10],
-            MusicalScale::Blues => &[0, 3, 5, 6, 7, 10],
-            MusicalScale::Dorian => &[0, 2, 3, 5, 7, 9, 10],
-            MusicalScale::Mixolydian => &[0, 2, 4, 5, 7, 9, 10],
-        }
-    }
-
-    pub fn is_in_scale(&self, root_key: u8, midi: u8) -> bool {
-        if *self == MusicalScale::Chromatic {
-            return true;
-        }
-        let note_semitone = (midi as i32 - root_key as i32).rem_euclid(12) as u8;
-        self.intervals().contains(&note_semitone)
-    }
-
-    pub fn is_tonic(&self, root_key: u8, midi: u8) -> bool {
-        (midi as i32 - root_key as i32).rem_euclid(12) == 0
-    }
-}
-
-pub const ROOT_NOTE_NAMES: [&str; 12] = [
-    "C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B",
-];
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum ParameterTab {
@@ -402,133 +265,6 @@ pub struct PianoRollState {
     pub auto_cut: bool,
 }
 
-pub fn smooth_pitch_points(raw_points: &[(f64, f64)]) -> Vec<UPitchBendPoint> {
-    if raw_points.is_empty() {
-        return Vec::new();
-    }
-
-    // Pointer samples are not guaranteed to arrive in chronological order:
-    // the user may draw from right to left.  Smoothing an unsorted stroke can
-    // create a large backward segment and an apparent loop in the curve.
-    let mut normalized = raw_points.to_vec();
-    normalized.sort_by(|a, b| a.0.partial_cmp(&b.0).unwrap_or(std::cmp::Ordering::Equal));
-    let mut ordered: Vec<(f64, f64)> = Vec::with_capacity(normalized.len());
-    for (time, cents) in normalized {
-        let cents = cents.clamp(-2400.0, 2400.0);
-        if let Some(last) = ordered.last_mut() {
-            if (last.0 - time).abs() < 0.001 {
-                last.1 = (last.1 + cents) * 0.5;
-                continue;
-            }
-        }
-        ordered.push((time, cents));
-    }
-
-    if ordered.is_empty() {
-        return Vec::new();
-    }
-    if ordered.len() <= 2 {
-        return ordered
-            .iter()
-            .map(|&(t, c)| UPitchBendPoint {
-                time_offset_ms: t,
-                pitch_offset_cents: c,
-                shape: "s".to_string(),
-            })
-            .collect();
-    }
-
-    let n = ordered.len();
-    let mut smoothed = Vec::with_capacity(n);
-    let kernel = [0.06136, 0.24477, 0.38774, 0.24477, 0.06136]; // 5-tap Gaussian kernel
-
-    for i in 0..n {
-        let t_center = ordered[i].0;
-        let mut weighted_cents = 0.0;
-        let mut weight_sum = 0.0;
-
-        for (k_idx, &weight) in kernel.iter().enumerate() {
-            let offset = k_idx as isize - 2;
-            let sample_idx = (i as isize + offset).clamp(0, n as isize - 1) as usize;
-            weighted_cents += ordered[sample_idx].1 * weight;
-            weight_sum += weight;
-        }
-
-        let smoothed_cents = if weight_sum > 0.0 {
-            weighted_cents / weight_sum
-        } else {
-            raw_points[i].1
-        };
-
-        smoothed.push((t_center, smoothed_cents));
-    }
-
-    let mut relaxed = Vec::with_capacity(n);
-    for i in 0..n {
-        let prev = smoothed[i.saturating_sub(1)].1;
-        let curr = smoothed[i].1;
-        let next = smoothed[(i + 1).min(n - 1)].1;
-        relaxed.push((smoothed[i].0, (prev + curr * 2.0 + next) * 0.25));
-    }
-
-    let mut result: Vec<UPitchBendPoint> = Vec::new();
-    let min_spacing_ms = 18.0;
-
-    for (t, c) in relaxed {
-        if let Some(last) = result.last() {
-            if (t - last.time_offset_ms).abs() < min_spacing_ms {
-                continue;
-            }
-        }
-        result.push(UPitchBendPoint {
-            time_offset_ms: t,
-            pitch_offset_cents: c,
-            shape: "s".to_string(),
-        });
-    }
-
-    result
-}
-
-/// Canonical pitch point shapes used by the OpenUtau-style point editor.
-/// Keep the persisted representation as strings so existing Kamafeu projects
-/// and exporters remain compatible.
-pub fn canonical_pitch_shape(shape: &str) -> &'static str {
-    match shape.to_ascii_lowercase().as_str() {
-        "l" | "linear" => "l",
-        "i" | "j" | "easein" | "ease-in" => "i",
-        "o" | "r" | "easeout" | "ease-out" => "o",
-        "sp" | "spline" | "h" | "hermite" | "cubic" => "sp",
-        _ => "io",
-    }
-}
-
-/// Insert one explicit point and return its sorted index.
-///
-/// OpenUtau edits the curve as a sequence of explicit points instead of
-/// storing a sampled brush stroke. This helper deliberately does no smoothing
-/// or simplification: the point the user created is the point we persist.
-pub fn insert_pitch_point(note: &mut UNote, time_offset_ms: f64, pitch_offset_cents: f64) -> usize {
-    note.pitch_bend.points.push(UPitchBendPoint {
-        time_offset_ms,
-        pitch_offset_cents: pitch_offset_cents.clamp(-2400.0, 2400.0),
-        shape: "io".to_string(),
-    });
-    note.pitch_bend.points.sort_by(|left, right| {
-        left.time_offset_ms
-            .partial_cmp(&right.time_offset_ms)
-            .unwrap_or(std::cmp::Ordering::Equal)
-    });
-    note.pitch_bend
-        .points
-        .iter()
-        .position(|point| {
-            (point.time_offset_ms - time_offset_ms).abs() < 1e-6
-                && (point.pitch_offset_cents - pitch_offset_cents).abs() < 1e-6
-        })
-        .unwrap_or_else(|| note.pitch_bend.points.len().saturating_sub(1))
-}
-
 impl PianoRollState {
     pub fn update_arrangement_meter(&mut self, track_count: usize, track_index: usize, level: f32) {
         self.arrangement_track_meters
@@ -547,156 +283,6 @@ impl PianoRollState {
             meter.level = (meter.level - 0.06).max(0.0);
             meter.peak = (meter.peak - 0.018).max(meter.level).max(0.0);
         }
-    }
-
-    pub fn update_rendered_waveform(
-        &mut self,
-        samples: &[f32],
-        sample_rate: u32,
-        channels: u16,
-        start_offset_ms: f64,
-    ) {
-        self.rendered_waveform_peaks =
-            waveform_buckets(samples, sample_rate, channels, start_offset_ms);
-        self.rendered_waveform_peaks.shrink_to_fit();
-    }
-
-    pub fn merge_rendered_waveform(
-        &mut self,
-        samples: &[f32],
-        sample_rate: u32,
-        channels: u16,
-        start_offset_ms: f64,
-    ) {
-        let chunk_peaks = waveform_buckets(samples, sample_rate, channels, start_offset_ms);
-        if chunk_peaks.is_empty() {
-            return;
-        }
-
-        // Chunks may start and end in the middle of a bucket. Merge by the
-        // absolute bucket timestamp instead of replacing a timestamp range.
-        // This keeps one stable grid across page boundaries and preserves the
-        // strongest peak when a bucket is delivered in multiple chunks.
-        let mut merged = std::collections::BTreeMap::<i64, (f32, f32)>::new();
-        for &(time, min, max) in &self.rendered_waveform_peaks {
-            let bucket = waveform_bucket_index(time as f64);
-            merged.insert(bucket, (min, max));
-        }
-        for &(time, min, max) in &chunk_peaks {
-            let bucket = waveform_bucket_index(time as f64);
-            let entry = merged.entry(bucket).or_insert((min, max));
-            entry.0 = entry.0.min(min);
-            entry.1 = entry.1.max(max);
-        }
-        self.rendered_waveform_peaks = merged
-            .into_iter()
-            .map(|(bucket, (min, max))| (waveform_bucket_time(bucket), min, max))
-            .collect();
-    }
-
-    pub fn append_rendered_waveform(
-        &mut self,
-        samples: &[f32],
-        sample_rate: u32,
-        channels: u16,
-        start_offset_ms: f64,
-    ) {
-        self.merge_rendered_waveform(samples, sample_rate, channels, start_offset_ms);
-    }
-
-    pub fn waveform_min_max_at(&self, time_ms: f32) -> Option<(f32, f32)> {
-        let first = self.rendered_waveform_peaks.first()?.0;
-        let last = self.rendered_waveform_peaks.last()?.0;
-        if time_ms < first || time_ms > last {
-            return None;
-        }
-        let index = match self
-            .rendered_waveform_peaks
-            .binary_search_by(|(time, _, _)| {
-                time.partial_cmp(&time_ms)
-                    .unwrap_or(std::cmp::Ordering::Equal)
-            }) {
-            Ok(index) => index,
-            Err(index) => index,
-        };
-        if index == 0 {
-            let p = self.rendered_waveform_peaks[0];
-            return Some((p.1, p.2));
-        }
-        if index >= self.rendered_waveform_peaks.len() {
-            return self
-                .rendered_waveform_peaks
-                .last()
-                .map(|(_, min_v, max_v)| (*min_v, *max_v));
-        }
-        let (t0, min0, max0) = self.rendered_waveform_peaks[index - 1];
-        let (t1, min1, max1) = self.rendered_waveform_peaks[index];
-        if (t1 - t0).abs() < f32::EPSILON {
-            return Some((min0, max0));
-        }
-        let frac = ((time_ms - t0) / (t1 - t0)).clamp(0.0, 1.0);
-        let min_v = min0 + frac * (min1 - min0);
-        let max_v = max0 + frac * (max1 - max0);
-        Some((min_v, max_v))
-    }
-
-    /// Peak envelope covering the complete time interval represented by one
-    /// screen pixel. Sampling only the center point loses transients whenever
-    /// the timeline is zoomed out.
-    pub fn waveform_min_max_between(&self, start_ms: f32, end_ms: f32) -> Option<(f32, f32)> {
-        if self.rendered_waveform_peaks.is_empty() || end_ms < start_ms {
-            return None;
-        }
-        let waveform_start = self.rendered_waveform_peaks.first()?.0;
-        let waveform_end = self.rendered_waveform_peaks.last()?.0;
-        if end_ms < waveform_start || start_ms > waveform_end {
-            return None;
-        }
-        let first = self
-            .rendered_waveform_peaks
-            .partition_point(|(time, _, _)| *time < start_ms)
-            .saturating_sub(1);
-        let end = self
-            .rendered_waveform_peaks
-            .partition_point(|(time, _, _)| *time <= end_ms)
-            .max(first + 1)
-            .min(self.rendered_waveform_peaks.len());
-        let (mut min_value, mut max_value) = (1.0f32, -1.0f32);
-        for &(_, min, max) in &self.rendered_waveform_peaks[first..end] {
-            min_value = min_value.min(min);
-            max_value = max_value.max(max);
-        }
-        (max_value >= min_value).then_some((min_value, max_value))
-    }
-
-    pub fn waveform_display_peak(&self) -> f32 {
-        self.rendered_waveform_peaks
-            .iter()
-            .map(|(_, min, max)| min.abs().max(max.abs()))
-            .fold(0.0f32, f32::max)
-    }
-
-    pub fn waveform_amplitude_at(&self, time_ms: f32) -> Option<f32> {
-        self.waveform_min_max_at(time_ms)
-            .map(|(min_v, max_v)| min_v.abs().max(max_v.abs()))
-    }
-}
-
-fn waveform_cache_resolution_cell() -> &'static RwLock<u32> {
-    static RESOLUTION: OnceLock<RwLock<u32>> = OnceLock::new();
-    RESOLUTION.get_or_init(|| RwLock::new(2))
-}
-
-fn waveform_cache_resolution() -> u32 {
-    waveform_cache_resolution_cell()
-        .read()
-        .map(|value| (*value).clamp(1, 8))
-        .unwrap_or(2)
-}
-
-pub fn set_waveform_cache_resolution(resolution: u32) {
-    if let Ok(mut value) = waveform_cache_resolution_cell().write() {
-        *value = resolution.clamp(1, 8);
     }
 }
 
@@ -809,7 +395,6 @@ impl Default for PianoRollState {
             context_menu_category_anchor: None,
             context_menu_flyout_rect: None,
             dragging_envelope_pt: None,
-            dragging_phoneme_envelope_pt: None,
             dragging_pitch_pt: None,
             continuous_edit_dirty: false,
             rendered_waveform_peaks: Vec::new(),
@@ -822,6 +407,7 @@ impl Default for PianoRollState {
             oto_overlap_cache: Vec::new(),
             phoneme_cache_hash: 0,
             pitch_brush_raw_stroke: Vec::new(),
+            dragging_phoneme_envelope_pt: None,
             pitch_smooth_intensity: 0.30,
             dragging_phoneme_handle: None,
             dragging_subphoneme_boundary: None,
@@ -836,121 +422,10 @@ impl Default for PianoRollState {
     }
 }
 
-pub fn apply_snap(val_ms: f64, snap: GridSnapOption, bpm: f64) -> f64 {
-    apply_snap_with_zoom(val_ms, snap, bpm, 0.25)
-}
-
-pub fn apply_snap_with_zoom(val_ms: f64, snap: GridSnapOption, bpm: f64, px_per_ms: f32) -> f64 {
-    if let Some(step) = snap.step_ms_with_zoom(bpm, px_per_ms) {
-        (val_ms / step).round() * step
-    } else {
-        val_ms
-    }
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-pub enum AutoPitchStyle {
-    Natural,
-    Expressive,
-    SmoothPop,
-    RockPower,
-    RnBSoul,
-    HardTune,
-    AcousticFolk,
-    LyricalOpera,
-}
-
-pub fn apply_autopitch_to_selection(
-    notes: &mut [UNote],
-    selection: &HashSet<usize>,
-    style: AutoPitchStyle,
-) {
-    if notes.is_empty() {
-        return;
-    }
-
-    let (preset, dyn_shaping, breath, cvel, atk_dec) = match style {
-        AutoPitchStyle::Natural => (
-            crate::dsp::AutoPitchPreset::NaturalPop,
-            false,
-            false,
-            false,
-            false,
-        ),
-        AutoPitchStyle::Expressive => (
-            crate::dsp::AutoPitchPreset::BalladExpressive,
-            true,
-            true,
-            false,
-            true,
-        ),
-        AutoPitchStyle::SmoothPop => (
-            crate::dsp::AutoPitchPreset::JPopAnime,
-            true,
-            false,
-            true,
-            true,
-        ),
-        AutoPitchStyle::RockPower => (
-            crate::dsp::AutoPitchPreset::RockPower,
-            true,
-            false,
-            true,
-            true,
-        ),
-        AutoPitchStyle::RnBSoul => (crate::dsp::AutoPitchPreset::RnBSoul, true, true, true, true),
-        AutoPitchStyle::HardTune => (
-            crate::dsp::AutoPitchPreset::HardTuneModern,
-            true,
-            false,
-            true,
-            true,
-        ),
-        AutoPitchStyle::AcousticFolk => (
-            crate::dsp::AutoPitchPreset::FolkAcoustic,
-            true,
-            true,
-            false,
-            true,
-        ),
-        AutoPitchStyle::LyricalOpera => (
-            crate::dsp::AutoPitchPreset::LyricalOpera,
-            true,
-            false,
-            false,
-            true,
-        ),
-    };
-
-    let options = crate::dsp::AutoPitchOptions {
-        preset,
-        intensity: 1.0,
-        enable_attack_scoop: true,
-        enable_overshoot: true,
-        enable_release_drop: true,
-        enable_vibrato: true,
-        enable_dynamics_shaping: dyn_shaping,
-        enable_breathiness: breath,
-        enable_consonant_velocity: cvel,
-        enable_attack_decay: atk_dec,
-        portamento_speed_ms: 0.0,
-        vibrato_depth_mult: 1.0,
-        vibrato_period_mult: 1.0,
-        expression_amount: 1.0,
-    };
-
-    let sel_vec: Option<Vec<usize>> = if selection.is_empty() {
-        None
-    } else {
-        Some(selection.iter().copied().collect())
-    };
-
-    crate::dsp::AutoPitchEngine::apply_to_notes(notes, sel_vec.as_deref(), &options);
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::project::model::UPitchBendPoint;
 
     #[test]
     fn autocomplete_uses_and_replaces_only_the_phoneme_after_a_separator() {

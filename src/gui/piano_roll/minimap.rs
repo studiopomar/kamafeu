@@ -35,6 +35,7 @@ impl Default for TimelinePlaybackStatus<'static> {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(super) fn draw(
     ui: &mut egui::Ui,
     notes: &[UNote],
@@ -142,7 +143,7 @@ pub(super) fn draw(
         );
         let is_vp_hovered = minimap_resp
             .hover_pos()
-            .map_or(false, |pos| vp_rect.contains(pos));
+            .is_some_and(|pos| vp_rect.contains(pos));
 
         if is_vp_hovered {
             if minimap_resp.dragged() {

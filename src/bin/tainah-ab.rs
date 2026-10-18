@@ -437,6 +437,12 @@ fn write_wav(path: &Path, samples: &[f32], channels: u16) -> Result<(), String> 
     TrackRenderer::save_wav_samples_with_channels(path, samples, OUTPUT_RATE, channels)
 }
 
+fn sha256_file(path: &Path) -> Result<String, String> {
+    let bytes =
+        fs::read(path).map_err(|error| format!("cannot hash {}: {error}", path.display()))?;
+    Ok(format!("{:x}", Sha256::digest(bytes)))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -457,7 +463,7 @@ mod tests {
         let make = |sample: f32| Rendered {
             audio: vec![sample; 16],
             channels: 1,
-            report: audio_metrics(&vec![sample; 16], 48_000, 1, 1.0),
+            report: audio_metrics(&[sample; 16], 48_000, 1, 1.0),
         };
         let quiet = make(0.1);
         let loud = make(0.8);
@@ -468,10 +474,4 @@ mod tests {
         assert!(gain_db(quiet_gain).abs() <= 12.0);
         assert!(gain_db(loud_gain).abs() <= 12.0);
     }
-}
-
-fn sha256_file(path: &Path) -> Result<String, String> {
-    let bytes =
-        fs::read(path).map_err(|error| format!("cannot hash {}: {error}", path.display()))?;
-    Ok(format!("{:x}", Sha256::digest(bytes)))
 }

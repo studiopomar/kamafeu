@@ -1,12 +1,20 @@
 use crate::drivers::{ResamplerArgs, ResamplerDriver, ResamplerExecutionInfo};
-use sha2::{Digest, Sha256};
 use std::collections::{HashMap, VecDeque};
-use std::hash::{DefaultHasher, Hash, Hasher};
-use std::io::Write;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Condvar, Mutex, OnceLock, RwLock};
 use std::time::Duration;
+
+#[path = "resampler_cache/key.rs"]
+mod key;
+use key::cache_key;
+#[path = "resampler_cache/persistent.rs"]
+mod persistent;
+use persistent::{load_persistent, store_persistent};
+#[cfg(test)]
+use persistent::{
+    load_persistent_in, persistent_cache_path_in, persistent_execution_path_in, store_persistent_in,
+};
 
 // v5 stores effective backend/fallback metadata beside each persistent render.
 const CACHE_SCHEMA: u32 = 5;
@@ -207,10 +215,8 @@ pub fn clear_disk_cache() -> Result<usize, std::io::Error> {
     for entry in std::fs::read_dir(&dir)? {
         let entry = entry?;
         let path = entry.path();
-        if path.is_file() {
-            if std::fs::remove_file(path).is_ok() {
-                deleted += 1;
-            }
+        if path.is_file() && std::fs::remove_file(path).is_ok() {
+            deleted += 1;
         }
     }
     Ok(deleted)
@@ -229,298 +235,6 @@ pub fn get_memory_cache_stats() -> (usize, usize) {
     let (lock, _) = cache();
     let state = lock.lock().unwrap();
     (state.entries.len(), state.total_samples)
-}
-
-fn persistent_cache_path_in(directory: &std::path::Path, key: u64) -> std::path::PathBuf {
-    directory.join(format!("res-{key:016x}.wav"))
-}
-
-fn persistent_execution_path_in(directory: &std::path::Path, key: u64) -> std::path::PathBuf {
-    directory.join(format!("res-{key:016x}.json"))
-}
-
-#[derive(serde::Serialize, serde::Deserialize)]
-struct PersistentExecution {
-    schema: u32,
-    cache_key: u64,
-    sample_rate: u32,
-    sample_count: usize,
-    audio_sha256: String,
-    execution: ResamplerExecutionInfo,
-}
-
-fn cached_audio_sha256(samples: &[f32]) -> String {
-    let mut hasher = Sha256::new();
-    for sample in samples {
-        hasher.update(sample.to_le_bytes());
-    }
-    format!("{:x}", hasher.finalize())
-}
-
-fn load_persistent(key: u64, sample_rate: u32) -> Option<(Vec<f32>, ResamplerExecutionInfo)> {
-    load_persistent_in(&persistent_cache_dir(), key, sample_rate)
-}
-
-fn load_persistent_in(
-    directory: &std::path::Path,
-    key: u64,
-    sample_rate: u32,
-) -> Option<(Vec<f32>, ResamplerExecutionInfo)> {
-    #[cfg(target_arch = "wasm32")]
-    {
-        let _ = (directory, key, sample_rate);
-        None
-    }
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        let path = persistent_cache_path_in(directory, key);
-        let execution_path = persistent_execution_path_in(directory, key);
-        let execution = std::fs::read(&execution_path)
-            .ok()
-            .and_then(|bytes| serde_json::from_slice::<PersistentExecution>(&bytes).ok())
-            .filter(|value| {
-                value.schema == CACHE_SCHEMA
-                    && value.cache_key == key
-                    && value.sample_rate == sample_rate
-            });
-        let loaded = crate::renderer::TrackRenderer::load_wav_samples(&path);
-        match loaded {
-            Ok((samples, cached_rate))
-                if !samples.is_empty()
-                    && cached_rate == sample_rate
-                    && execution.as_ref().is_some_and(|metadata| {
-                        metadata.sample_count == samples.len()
-                            && metadata.audio_sha256 == cached_audio_sha256(&samples)
-                    }) =>
-            {
-                Some((samples, execution.unwrap().execution))
-            }
-            Ok(_) | Err(_) => {
-                if path.is_file() {
-                    let _ = std::fs::remove_file(path);
-                }
-                let _ = std::fs::remove_file(execution_path);
-                None
-            }
-        }
-    }
-}
-
-fn store_persistent(
-    key: u64,
-    samples: &[f32],
-    sample_rate: u32,
-    execution: &ResamplerExecutionInfo,
-) {
-    store_persistent_in(
-        &persistent_cache_dir(),
-        key,
-        samples,
-        sample_rate,
-        execution,
-    )
-}
-
-fn store_persistent_in(
-    directory: &std::path::Path,
-    key: u64,
-    samples: &[f32],
-    sample_rate: u32,
-    execution: &ResamplerExecutionInfo,
-) {
-    #[cfg(target_arch = "wasm32")]
-    {
-        let _ = (directory, key, samples, sample_rate, execution);
-    }
-    #[cfg(not(target_arch = "wasm32"))]
-    {
-        if samples.is_empty() {
-            return;
-        }
-        if std::fs::create_dir_all(directory).is_err() {
-            return;
-        }
-        let destination = persistent_cache_path_in(directory, key);
-        let Ok(temporary) = tempfile::Builder::new()
-            .prefix("res-")
-            .suffix(".wav")
-            .tempfile_in(&directory)
-        else {
-            return;
-        };
-        let temporary = temporary.into_temp_path();
-        let spec = hound::WavSpec {
-            channels: 1,
-            sample_rate,
-            bits_per_sample: 32,
-            sample_format: hound::SampleFormat::Float,
-        };
-        let stored = hound::WavWriter::create(&temporary, spec).and_then(|mut writer| {
-            for &sample in samples {
-                writer.write_sample(sample)?;
-            }
-            writer.finalize()
-        });
-        if stored.is_ok() {
-            let _ = temporary.persist(destination);
-            let metadata = PersistentExecution {
-                schema: CACHE_SCHEMA,
-                cache_key: key,
-                sample_rate,
-                sample_count: samples.len(),
-                audio_sha256: cached_audio_sha256(samples),
-                execution: execution.clone(),
-            };
-            if let Ok(bytes) = serde_json::to_vec(&metadata) {
-                if let Ok(mut file) = tempfile::Builder::new()
-                    .prefix("res-meta-")
-                    .suffix(".json")
-                    .tempfile_in(directory)
-                {
-                    if file.write_all(&bytes).is_ok() {
-                        let _ = file.persist(persistent_execution_path_in(directory, key));
-                    }
-                }
-            }
-            prune_persistent_cache(directory);
-        }
-    }
-}
-
-fn prune_persistent_cache(directory: &std::path::Path) {
-    let limit = cache_limits()
-        .read()
-        .map(|limits| limits.max_disk_bytes)
-        .unwrap_or_else(|_| CacheLimits::default().max_disk_bytes);
-    let Ok(entries) = std::fs::read_dir(directory) else {
-        return;
-    };
-    let mut files: Vec<(std::path::PathBuf, u64, std::time::SystemTime)> = entries
-        .flatten()
-        .filter_map(|entry| {
-            let metadata = entry.metadata().ok()?;
-            metadata.is_file().then(|| {
-                (
-                    entry.path(),
-                    metadata.len(),
-                    metadata
-                        .modified()
-                        .unwrap_or(std::time::SystemTime::UNIX_EPOCH),
-                )
-            })
-        })
-        .collect();
-    let mut total: u64 = files.iter().map(|(_, bytes, _)| *bytes).sum();
-    files.sort_by_key(|(_, _, modified)| *modified);
-    for (path, bytes, _) in files {
-        if total <= limit {
-            break;
-        }
-        if std::fs::remove_file(path).is_ok() {
-            total = total.saturating_sub(bytes);
-        }
-    }
-}
-
-fn hash_f64(value: f64, hasher: &mut impl Hasher) {
-    value.to_bits().hash(hasher);
-}
-
-fn hash_optional_f64(value: Option<f64>, hasher: &mut impl Hasher) {
-    value.map(f64::to_bits).hash(hasher);
-}
-
-fn file_fingerprint(path: &std::path::Path, hasher: &mut impl Hasher) {
-    path.hash(hasher);
-    if let Ok(metadata) = std::fs::metadata(path) {
-        metadata.len().hash(hasher);
-        if let Ok(modified) = metadata.modified() {
-            if let Ok(duration) = modified.duration_since(std::time::UNIX_EPOCH) {
-                duration.as_nanos().hash(hasher);
-            }
-        }
-    }
-}
-
-fn source_fingerprint(args: &ResamplerArgs, raw_samples: &[f32], hasher: &mut impl Hasher) {
-    let input = &args.input_wav;
-    file_fingerprint(input, hasher);
-    if !input.is_file() {
-        // Some preview paths provide synthesized source samples without a
-        // persistent WAV. Include those samples so a reused temporary path
-        // cannot return audio from a previous voicebank/alias.
-        raw_samples.len().hash(hasher);
-        for sample in raw_samples {
-            sample.to_bits().hash(hasher);
-        }
-    }
-
-    let extension = input
-        .extension()
-        .and_then(|value| value.to_str())
-        .unwrap_or("");
-    let stem = input
-        .file_stem()
-        .and_then(|value| value.to_str())
-        .unwrap_or("");
-    let without_extension = input.with_extension("");
-    let mut sidecars = vec![
-        input.with_file_name(format!("{stem}_{extension}.frq")),
-        input.with_extension(format!("{extension}.llsm")),
-        input.with_extension(format!("{extension}.uspec")),
-        input.with_extension(format!("{extension}.dio")),
-        input.with_extension(format!("{extension}.star")),
-        input.with_extension(format!("{extension}.platinum")),
-        input.with_extension(format!("{extension}.frc")),
-        input.with_extension(format!("{extension}.pmk")),
-        input.with_extension(format!("{extension}.vs4ufrq")),
-        without_extension.with_extension("venus"),
-        without_extension.with_extension("rudb"),
-        without_extension.with_extension("sc.npz"),
-        without_extension.with_extension("sc"),
-        without_extension.with_extension("hifi.npz"),
-    ];
-    if let Some(parent) = input.parent() {
-        sidecars.push(parent.join("desc.mrq"));
-    }
-    for sidecar in sidecars.into_iter().filter(|path| path.is_file()) {
-        file_fingerprint(&sidecar, hasher);
-    }
-}
-
-fn cache_key(
-    driver: &dyn ResamplerDriver,
-    sample_rate: u32,
-    args: &ResamplerArgs,
-    raw_samples: &[f32],
-) -> u64 {
-    let mut hasher = DefaultHasher::new();
-    CACHE_SCHEMA.hash(&mut hasher);
-    driver.cache_identity().hash(&mut hasher);
-    sample_rate.hash(&mut hasher);
-    source_fingerprint(args, raw_samples, &mut hasher);
-    args.pitch_name.hash(&mut hasher);
-    hash_f64(args.pitch_freq, &mut hasher);
-    hash_f64(args.velocity, &mut hasher);
-    args.flags.hash(&mut hasher);
-    hash_f64(args.offset_ms, &mut hasher);
-    hash_f64(args.duration_ms, &mut hasher);
-    hash_f64(args.source_consonant_ms, &mut hasher);
-    hash_f64(args.consonant_ms, &mut hasher);
-    hash_f64(args.cutoff_ms, &mut hasher);
-    hash_f64(args.volume, &mut hasher);
-    hash_f64(args.modulation, &mut hasher);
-    hash_f64(args.tempo, &mut hasher);
-    args.pitch_bend_str.hash(&mut hasher);
-    for point in &args.pitch_points {
-        hash_f64(point.time_offset_ms, &mut hasher);
-        hash_f64(point.pitch_offset_cents, &mut hasher);
-        point.shape.hash(&mut hasher);
-    }
-    hash_optional_f64(args.loop_start_ms, &mut hasher);
-    hash_optional_f64(args.loop_end_ms, &mut hasher);
-    hash_optional_f64(args.tail_start_ms, &mut hasher);
-    hasher.finish()
 }
 
 fn insert_ready(
@@ -783,7 +497,7 @@ mod tests {
         assert_eq!(loaded.1, execution);
 
         crate::renderer::TrackRenderer::save_wav_samples(
-            &persistent_cache_path_in(directory.path(), 0x1234),
+            persistent_cache_path_in(directory.path(), 0x1234),
             &[0.5, -0.25],
             44_100,
         )

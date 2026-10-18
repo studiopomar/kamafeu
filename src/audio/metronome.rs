@@ -85,7 +85,7 @@ mod tests {
             "Downbeat click should be present at 0ms"
         );
 
-        let beat2_idx = (22050 * channels as usize) as usize;
+        let beat2_idx = 22050 * channels as usize;
         let has_click_at_beat2 = samples[beat2_idx..beat2_idx + 100]
             .iter()
             .any(|&s| s.abs() > 0.05);

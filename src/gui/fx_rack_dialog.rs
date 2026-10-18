@@ -50,21 +50,11 @@ fn fx_knob(
     response.on_hover_text("Arraste verticalmente para ajustar")
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub struct FxRackDialogState {
     pub is_open: bool,
     pub target_track: Option<usize>, // None = Master FX, Some(idx) = Track FX
     pub selected_module: u8,
-}
-
-impl Default for FxRackDialogState {
-    fn default() -> Self {
-        Self {
-            is_open: false,
-            target_track: None,
-            selected_module: 0,
-        }
-    }
 }
 
 pub fn draw_fx_rack_dialog(

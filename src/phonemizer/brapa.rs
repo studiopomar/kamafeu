@@ -93,7 +93,7 @@ impl VccvBrapaPhonemizer {
         if clean.contains(' ') {
             return clean
                 .split_whitespace()
-                .map(|s| Self::replace_single_symbol(s))
+                .map(Self::replace_single_symbol)
                 .collect();
         }
 
@@ -408,43 +408,43 @@ impl VccvBrapaPhonemizer {
             for i in 0..cc.len().saturating_sub(1) {
                 let text10 = cc[i].as_str();
                 let text11 = cc[i + 1].as_str();
-                if text10 != "-" && text11 != "-" {
-                    if text10 != "r"
+                if text10 != "-"
+                    && text11 != "-"
+                    && (text10 != "r"
                         || vb
                             .find_mapped_entry(&format!("{pv} {text10}"), pitch)
                             .is_some()
-                        || vb.find_mapped_entry(&format!("{pv} rh-"), pitch).is_none()
+                        || vb.find_mapped_entry(&format!("{pv} rh-"), pitch).is_none())
+                {
+                    let text12 = Self::resolve_cluster_alias(vb, pitch, text10, text11);
+                    if vb.find_mapped_entry(&text12, pitch).is_some() {
+                        list.push(text12);
+                    } else if text10 == "w"
+                        && vb
+                            .find_mapped_entry(&format!("u {text11}"), pitch)
+                            .is_some()
                     {
-                        let text12 = Self::resolve_cluster_alias(vb, pitch, text10, text11);
-                        if vb.find_mapped_entry(&text12, pitch).is_some() {
-                            list.push(text12);
-                        } else if text10 == "w"
-                            && vb
-                                .find_mapped_entry(&format!("u {text11}"), pitch)
-                                .is_some()
-                        {
-                            list.push(format!("u {text11}"));
-                        } else if text10 == "w"
-                            && vb
-                                .find_mapped_entry(&format!("u {text11}-"), pitch)
-                                .is_some()
-                        {
-                            list.push(format!("u {text11}-"));
-                        } else if text10 == "y"
-                            && vb
-                                .find_mapped_entry(&format!("i {text11}"), pitch)
-                                .is_some()
-                        {
-                            list.push(format!("i {text11}"));
-                        } else if text10 == "y"
-                            && vb
-                                .find_mapped_entry(&format!("i {text11}-"), pitch)
-                                .is_some()
-                        {
-                            list.push(format!("i {text11}-"));
-                        } else {
-                            list.push(text12);
-                        }
+                        list.push(format!("u {text11}"));
+                    } else if text10 == "w"
+                        && vb
+                            .find_mapped_entry(&format!("u {text11}-"), pitch)
+                            .is_some()
+                    {
+                        list.push(format!("u {text11}-"));
+                    } else if text10 == "y"
+                        && vb
+                            .find_mapped_entry(&format!("i {text11}"), pitch)
+                            .is_some()
+                    {
+                        list.push(format!("i {text11}"));
+                    } else if text10 == "y"
+                        && vb
+                            .find_mapped_entry(&format!("i {text11}-"), pitch)
+                            .is_some()
+                    {
+                        list.push(format!("i {text11}-"));
+                    } else {
+                        list.push(text12);
                     }
                 }
             }

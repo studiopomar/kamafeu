@@ -115,6 +115,7 @@ impl FxModule {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(crate) fn render_fx_rack_ui(
     ui: &mut egui::Ui,
     lang: AppLanguage,

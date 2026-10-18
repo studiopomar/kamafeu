@@ -63,6 +63,8 @@ use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 use web_time::Instant;
 
+type PreviewWaveformFrame = (u64, Vec<(f32, f32, f32)>);
+
 /// Whether the current target should use touch-sized controls. A narrow native
 /// desktop window remains a compact desktop layout; only Android and narrow
 /// browser viewports opt into touch-first spacing/navigation.
@@ -257,7 +259,7 @@ pub struct KamafeuStudioApp {
     pub phonemizer_warning_dismissed: bool,
     pub phonemizer_warning_expanded: bool,
     preview_waveform_cache_hash: u64,
-    preview_waveform_rx: Option<std::sync::mpsc::Receiver<(u64, Vec<(f32, f32, f32)>)>>,
+    preview_waveform_rx: Option<std::sync::mpsc::Receiver<PreviewWaveformFrame>>,
     preview_waveform_cancel: Option<Arc<AtomicBool>>,
     workspace_snap_rect: Option<(workspace::WorkspacePane, eframe::egui::Rect)>,
     pub active_mobile_tab: types::MobileViewTab,

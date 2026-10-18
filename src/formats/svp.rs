@@ -468,9 +468,11 @@ mod tests {
 
     #[test]
     fn test_svp_roundtrip() {
-        let mut proj = UProject::default();
-        proj.name = "Test Svp".to_string();
-        proj.bpm = 128.0;
+        let mut proj = UProject {
+            name: "Test Svp".to_string(),
+            bpm: 128.0,
+            ..Default::default()
+        };
         let note1 = UNote::new("ka", "C4", 0.0, 500.0);
         let note2 = UNote::new("ma", "D4", 500.0, 500.0);
         proj.parts[0].notes.push(note1);

@@ -53,6 +53,7 @@ impl Resampler {
         )
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn render_sample_with_pitch_bend(
         input_samples: &[f32],
         sample_rate: u32,

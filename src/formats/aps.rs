@@ -123,11 +123,13 @@ mod tests {
 
     #[test]
     fn test_aps_roundtrip() {
-        let mut proj = UProject::default();
-        proj.name = "Saturno Song".to_string();
-        proj.bpm = 140.0;
-        proj.voicebank = Some("Standard Voicebank".to_string());
-        proj.voicebank_path = Some("/path/to/voicebank".to_string());
+        let mut proj = UProject {
+            name: "Saturno Song".to_string(),
+            bpm: 140.0,
+            voicebank: Some("Standard Voicebank".to_string()),
+            voicebank_path: Some("/path/to/voicebank".to_string()),
+            ..Default::default()
+        };
         proj.tracks[0].native_voicebank = Some(NativeVoicebankReference {
             bank_id: "com.example.iris.natural".into(),
             bank_version: "1.2.3".into(),

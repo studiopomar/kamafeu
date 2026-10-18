@@ -177,6 +177,33 @@ fn selecting_note_keeps_scroll_and_double_click_edits_lyric() {
 }
 
 #[test]
+fn only_pitch_draw_edits_pitch_points() {
+    let ctx = egui::Context::default();
+    let mut state = PianoRollState {
+        active_tool: EditTool::Pointer,
+        min_midi: 60,
+        max_midi: 60,
+        row_height: 30.0,
+        px_per_ms: 0.5,
+        initial_scrolled: true,
+        ..Default::default()
+    };
+    let mut notes = vec![UNote::new("a", "C4", 0.0, 1_000.0)];
+    frame(&ctx, &mut state, &mut notes, 0.0, vec![]);
+    frame(&ctx, &mut state, &mut notes, 0.02, vec![]);
+
+    let point = Pos2::new(120.0, 130.0);
+    frame(&ctx, &mut state, &mut notes, 0.1, button(point, true));
+    frame(&ctx, &mut state, &mut notes, 0.2, button(point, false));
+    assert!(notes[0].pitch_bend.points.is_empty());
+
+    state.active_tool = EditTool::PitchDraw;
+    frame(&ctx, &mut state, &mut notes, 0.3, button(point, true));
+    frame(&ctx, &mut state, &mut notes, 0.4, button(point, false));
+    assert!(!notes[0].pitch_bend.points.is_empty());
+}
+
+#[test]
 fn radar_click_scrubs_the_shared_playhead_while_playing() {
     let ctx = egui::Context::default();
     let mut state = PianoRollState {

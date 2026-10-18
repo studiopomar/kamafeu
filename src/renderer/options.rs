@@ -3,18 +3,13 @@ use crate::phonemizer::PhonemizerMode;
 /// Selects how closely rendering follows the original UTAU processing model.
 /// The legacy mode keeps oto.ini authoritative and leaves crossfading to the
 /// wavtool boundary rather than inventing a handoff in the renderer.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize, Default)]
 pub enum CompatibilityMode {
     #[serde(rename = "utau_legacy")]
+    #[default]
     UtauLegacy,
     #[serde(rename = "kamafeu_extended")]
     KamafeuExtended,
-}
-
-impl Default for CompatibilityMode {
-    fn default() -> Self {
-        Self::UtauLegacy
-    }
 }
 
 /// Estilos globais de renderização. Eles não alteram o fonemizador nem as

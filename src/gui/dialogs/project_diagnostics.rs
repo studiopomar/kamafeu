@@ -41,8 +41,8 @@ impl KamafeuStudioApp {
                     ui.label(egui::RichText::new(&self.project.name).strong());
                     ui.label(
                         egui::RichText::new(format!(
-                            "{} · {} {} · {} {} · {} {} · {} {}",
-                            format!("{:.2} BPM", self.project.bpm),
+                            "{:.2} BPM · {} {} · {} {} · {} {} · {} {}",
+                            self.project.bpm,
                             report.track_count,
                             lang.tr("faixas", "tracks"),
                             report.note_count,

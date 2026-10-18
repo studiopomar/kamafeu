@@ -5,6 +5,7 @@ fn row_at(rect: Rect, count: usize, y: f32) -> usize {
         .min(count.saturating_sub(1))
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(super) fn draw(
     ui: &mut egui::Ui,
     notes: &mut [UNote],
@@ -154,56 +155,61 @@ mod tests {
             UNote::new("a", "C4", 100.0, 100.0),
             UNote::new("a", "C4", 300.0, 100.0),
         ];
-        let mut state = PianoRollState::default();
-        state.px_per_ms = 1.0;
+        let mut state = PianoRollState {
+            px_per_ms: 1.0,
+            ..Default::default()
+        };
         state.selected_note_indices.insert(0);
         let mut begins = 0;
         let mut commits = 0;
-        let mut frame = |events| {
-            let _ = ctx.run(
-                egui::RawInput {
-                    screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(800.0, 300.0))),
-                    events,
-                    ..Default::default()
-                },
-                |ctx| {
-                    egui::CentralPanel::default().show(ctx, |ui| {
-                        let (rect, response) = ui
-                            .allocate_exact_size(Vec2::new(600.0, 120.0), Sense::click_and_drag());
-                        draw(
-                            ui,
-                            &mut notes,
-                            &mut state,
-                            rect,
-                            &response,
-                            rect.left(),
-                            Some(&bank),
-                            &ThemeConfig::default(),
-                            crate::config::AppLanguage::PtBr,
-                            &mut || begins += 1,
-                            &mut || commits += 1,
-                        );
-                    });
-                },
-            );
-        };
-        let button = |pos, pressed, button| egui::Event::PointerButton {
-            pos,
-            button,
-            pressed,
-            modifiers: egui::Modifiers::default(),
-        };
-        let start = Pos2::new(130.0, 28.0);
-        frame(vec![]);
-        frame(vec![egui::Event::PointerMoved(start)]);
-        frame(vec![button(start, true, egui::PointerButton::Primary)]);
-        frame(vec![egui::Event::PointerMoved(Pos2::new(330.0, 28.0))]);
-        let outside = Pos2::new(700.0, 220.0);
-        frame(vec![
-            egui::Event::PointerMoved(outside),
-            button(outside, false, egui::PointerButton::Primary),
-        ]);
-        drop(frame);
+        {
+            let mut frame = |events| {
+                let _ = ctx.run(
+                    egui::RawInput {
+                        screen_rect: Some(Rect::from_min_size(Pos2::ZERO, Vec2::new(800.0, 300.0))),
+                        events,
+                        ..Default::default()
+                    },
+                    |ctx| {
+                        egui::CentralPanel::default().show(ctx, |ui| {
+                            let (rect, response) = ui.allocate_exact_size(
+                                Vec2::new(600.0, 120.0),
+                                Sense::click_and_drag(),
+                            );
+                            draw(
+                                ui,
+                                &mut notes,
+                                &mut state,
+                                rect,
+                                &response,
+                                rect.left(),
+                                Some(&bank),
+                                &ThemeConfig::default(),
+                                crate::config::AppLanguage::PtBr,
+                                &mut || begins += 1,
+                                &mut || commits += 1,
+                            );
+                        });
+                    },
+                );
+            };
+            let button = |pos, pressed, button| egui::Event::PointerButton {
+                pos,
+                button,
+                pressed,
+                modifiers: egui::Modifiers::default(),
+            };
+            let start = Pos2::new(130.0, 28.0);
+            frame(vec![]);
+            frame(vec![egui::Event::PointerMoved(start)]);
+            frame(vec![button(start, true, egui::PointerButton::Primary)]);
+            frame(vec![egui::Event::PointerMoved(Pos2::new(330.0, 28.0))]);
+            let outside = Pos2::new(700.0, 220.0);
+            frame(vec![
+                egui::Event::PointerMoved(outside),
+                button(outside, false, egui::PointerButton::Primary),
+            ]);
+        }
         assert_eq!((begins, commits), (1, 1));
         assert_eq!(notes[0].timbre.as_deref(), Some("Soft"));
         assert_eq!(notes[1].timbre, None);

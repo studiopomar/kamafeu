@@ -10,7 +10,10 @@ fn color_row(ui: &mut egui::Ui, label: &str, color: &mut [u8; 3]) -> bool {
 
 fn unique_theme_name(base: &str, themes: &[crate::gui::theme::SavedTheme]) -> String {
     let base = base.trim();
-    if !themes.iter().any(|entry| entry.name.eq_ignore_ascii_case(base)) {
+    if !themes
+        .iter()
+        .any(|entry| entry.name.eq_ignore_ascii_case(base))
+    {
         return base.to_string();
     }
     for suffix in 2..=999 {

@@ -1,294 +1,121 @@
+use crate::oto::Voicebank;
+use crate::phonemizer::{consonant_velocity_time_scale, PhonemizerMode, RenderPhone};
+use crate::project::model::UNote;
+
 pub struct PortuguesePhonemizer;
 
-impl PortuguesePhonemizer {
-    pub fn phonetic_tokens(input: &str) -> Vec<String> {
-        let clean = input.trim().to_lowercase();
-        if clean.is_empty() {
-            return Vec::new();
-        }
-        if clean.contains(' ') || clean.contains('-') {
-            return clean
-                .split(|c| c == ' ' || c == '-')
-                .filter(|s| !s.is_empty())
-                .map(|s| s.to_string())
-                .collect();
-        }
-        vec![clean]
-    }
+mod g2p;
 
-    pub fn word_to_phonemes(word: &str) -> Vec<String> {
-        let clean = word.trim().to_lowercase();
-        if clean.is_empty() {
-            return Vec::new();
-        }
+pub fn apply(notes: &[UNote], vb: &Voicebank, mode: PhonemizerMode) -> Vec<RenderPhone> {
+    let mut phones: Vec<RenderPhone> = Vec::new();
+    let mut prev_vowel: Option<String> = None;
+    let mut prev_note_end_ms: Option<f64> = None;
 
-        if clean.contains(' ') || clean.contains('-') {
-            return clean
-                .split(|c| c == ' ' || c == '-')
-                .filter(|s| !s.is_empty())
-                .map(|s| s.to_string())
-                .collect();
+    for (note_index, note) in notes.iter().enumerate() {
+        if note.lyric.trim().is_empty() || note.lyric.trim() == "R" {
+            prev_vowel = None;
+            prev_note_end_ms = None;
+            continue;
+        }
+        let is_phrase_start = match prev_note_end_ms {
+            Some(end_ms) => note.position_ms > end_ms + 0.001,
+            None => true,
+        };
+
+        if is_phrase_start {
+            prev_vowel = None;
         }
 
-        let mut tokens = Vec::new();
-        let chars: Vec<char> = clean.chars().collect();
-        let len = chars.len();
-        let mut i = 0;
+        let syllables = match mode {
+            PhonemizerMode::PortugueseG2P => PortuguesePhonemizer::word_to_phonemes(&note.lyric),
+            _ => PortuguesePhonemizer::phonetic_tokens(&note.lyric),
+        };
+        if syllables.is_empty() {
+            continue;
+        }
 
-        while i < len {
-            let c = chars[i];
-            let next = if i + 1 < len {
-                Some(chars[i + 1])
-            } else {
-                None
-            };
-            let next2 = if i + 2 < len {
-                Some(chars[i + 2])
-            } else {
-                None
-            };
+        let sub_dur = note.duration_ms / syllables.len() as f64;
+        for (idx, syl) in syllables.iter().enumerate() {
+            let sub_pos = note.position_ms + (idx as f64 * sub_dur);
+            let mut alias = syl.clone();
 
-            if c == 'c' && next == Some('h') {
-                if let Some(v) = next2.and_then(Self::char_to_vowel) {
-                    tokens.push(format!("x{}", v));
-                    i += 3;
-                    continue;
-                } else {
-                    tokens.push("x".to_string());
-                    i += 2;
-                    continue;
+            if is_phrase_start && idx == 0 {
+                let head_try = format!("- {}", syl);
+                if let Some(entry) = vb.find_mapped_entry(&head_try, &note.pitch) {
+                    alias = entry.alias.clone();
                 }
-            } else if c == 'n' && next == Some('h') {
-                if let Some(v) = next2.and_then(Self::char_to_vowel) {
-                    tokens.push(format!("nh{}", v));
-                    i += 3;
-                    continue;
-                } else {
-                    tokens.push("nh".to_string());
-                    i += 2;
-                    continue;
-                }
-            } else if c == 'l' && next == Some('h') {
-                if let Some(v) = next2.and_then(Self::char_to_vowel) {
-                    tokens.push(format!("lh{}", v));
-                    i += 3;
-                    continue;
-                } else {
-                    tokens.push("lh".to_string());
-                    i += 2;
-                    continue;
-                }
-            } else if c == 'r' && next == Some('r') {
-                if let Some(v) = next2.and_then(Self::char_to_vowel) {
-                    tokens.push(format!("rr{}", v));
-                    i += 3;
-                    continue;
-                } else {
-                    tokens.push("rr".to_string());
-                    i += 2;
-                    continue;
-                }
-            } else if c == 's' && next == Some('s') {
-                if let Some(v) = next2.and_then(Self::char_to_vowel) {
-                    tokens.push(format!("s{}", v));
-                    i += 3;
-                    continue;
-                } else {
-                    tokens.push("s".to_string());
-                    i += 2;
-                    continue;
-                }
-            } else if (c == 'q' || c == 'g') && next == Some('u') {
-                if let Some(v) = next2.and_then(Self::char_to_vowel) {
-                    if c == 'q' {
-                        if v == 'e' || v == 'i' {
-                            tokens.push(format!("k{}", v));
-                        } else {
-                            tokens.push(format!("ku{}", v));
-                        }
-                    } else {
-                        if v == 'e' || v == 'i' {
-                            tokens.push(format!("g{}", v));
-                        } else {
-                            tokens.push(format!("gu{}", v));
-                        }
+            } else if mode == PhonemizerMode::PortugueseVCV {
+                if let Some(ref pv) = prev_vowel {
+                    let vcv_try = format!("{} {}", pv, syl);
+                    if let Some(entry) = vb.find_mapped_entry(&vcv_try, &note.pitch) {
+                        alias = entry.alias.clone();
                     }
-                    i += 3;
-                    continue;
                 }
-            }
-
-            if !Self::is_vowel_char(c) {
-                if let Some(v) = next.and_then(Self::char_to_vowel) {
-                    let mapped_c = match c {
-                        'c' => {
-                            if v == 'e' || v == 'i' {
-                                "s"
-                            } else {
-                                "k"
+            } else if mode == PhonemizerMode::PortugueseCVVC {
+                if let (Some(ref pv), Some(cc)) = (
+                    prev_vowel.as_ref(),
+                    PortuguesePhonemizer::extract_consonant(syl),
+                ) {
+                    let vc_try = format!("{} {}", pv, cc);
+                    if let Some(entry) = vb.find_mapped_entry(&vc_try, &note.pitch) {
+                        let stretch =
+                            consonant_velocity_time_scale(note.expressions.consonant_velocity);
+                        let authored = if entry.overlap < 0.0 {
+                            entry.preutterance - entry.overlap
+                        } else {
+                            entry.preutterance
+                        } * stretch;
+                        let vc_dur = authored.max(5.0).min((sub_dur * 0.5).max(5.0));
+                        if let Some(last) = phones.last_mut() {
+                            let borrow = vc_dur.min((last.duration_ms - 20.0).max(0.0));
+                            if borrow > 0.0 {
+                                last.duration_ms -= borrow;
+                                phones.push(RenderPhone {
+                                    note_index,
+                                    lyric: entry.alias.clone(),
+                                    pitch: note.pitch.clone(),
+                                    position_ms: sub_pos - borrow,
+                                    duration_ms: borrow,
+                                    envelope: crate::dsp::envelope::UtauEnvelope::default(),
+                                    expressions: note.expressions.clone(),
+                                    pitch_bend: crate::project::model::UPitchBend::default(),
+                                    vibrato: crate::dsp::pitch::VibratoParam::default(),
+                                    flags: note.flags.clone(),
+                                    resolved_alias: None,
+                                    resolved_timbre: None,
+                                });
                             }
                         }
-                        'ç' => "s",
-                        'k' => "k",
-                        'g' => {
-                            if v == 'e' || v == 'i' {
-                                "j"
-                            } else {
-                                "g"
-                            }
-                        }
-                        'j' => "j",
-                        'x' => "x",
-                        _ => match c {
-                            'b' => "b",
-                            'd' => "d",
-                            'f' => "f",
-                            'h' => "",
-                            'l' => "l",
-                            'm' => "m",
-                            'n' => "n",
-                            'p' => "p",
-                            'r' => "r",
-                            's' => "s",
-                            't' => "t",
-                            'v' => "v",
-                            'z' => "z",
-                            _ => "",
-                        },
-                    };
-
-                    if mapped_c.is_empty() {
-                        tokens.push(v.to_string());
-                    } else {
-                        tokens.push(format!("{}{}", mapped_c, v));
                     }
-                    i += 2;
-                    continue;
-                } else {
-                    let coda = match c {
-                        's' | 'z' | 'x' => "s",
-                        'r' => "r",
-                        'l' => "w", // No PT-BR 'l' final vira 'w' (ex: sol -> sow)
-                        'm' | 'n' => "n",
-                        'p' => "p",
-                        't' => "t",
-                        'k' | 'c' => "k",
-                        _ => "s",
-                    };
-                    tokens.push(coda.to_string());
-                    i += 1;
-                    continue;
                 }
             }
 
-            if let Some(v) = Self::char_to_vowel(c) {
-                tokens.push(v.to_string());
+            if let Some(v) = PortuguesePhonemizer::extract_vowel(syl) {
+                prev_vowel = Some(v.to_string());
             }
-            i += 1;
+
+            if let Some(entry) = vb.find_mapped_entry(&alias, &note.pitch) {
+                alias = entry.alias.clone();
+            }
+
+            phones.push(RenderPhone {
+                note_index,
+                lyric: alias,
+                pitch: note.pitch.clone(),
+                position_ms: sub_pos,
+                duration_ms: sub_dur,
+                envelope: note.envelope.clone(),
+                expressions: note.expressions.clone(),
+                pitch_bend: note.pitch_bend.clone(),
+                vibrato: note.vibrato.clone(),
+                flags: note.flags.clone(),
+                resolved_alias: None,
+                resolved_timbre: None,
+            });
         }
 
-        if tokens.is_empty() {
-            vec![clean]
-        } else {
-            tokens
-        }
+        prev_note_end_ms = Some(note.position_ms + note.duration_ms);
     }
 
-    pub fn is_vowel_char(c: char) -> bool {
-        matches!(
-            c,
-            'a' | 'e'
-                | 'i'
-                | 'o'
-                | 'u'
-                | 'á'
-                | 'é'
-                | 'í'
-                | 'ó'
-                | 'ú'
-                | 'â'
-                | 'ê'
-                | 'î'
-                | 'ô'
-                | 'û'
-                | 'ã'
-                | 'õ'
-                | 'à'
-                | 'è'
-                | 'ì'
-                | 'ò'
-                | 'ù'
-        )
-    }
-
-    pub fn char_to_vowel(c: char) -> Option<char> {
-        match c {
-            'a' | 'á' | 'â' | 'à' => Some('a'),
-            'e' | 'é' | 'ê' | 'è' => Some('e'),
-            'i' | 'í' | 'î' | 'ì' => Some('i'),
-            'o' | 'ó' | 'ô' | 'ò' => Some('o'),
-            'u' | 'ú' | 'û' | 'ù' => Some('u'),
-            'ã' => Some('a'),
-            'õ' => Some('o'),
-            _ => None,
-        }
-    }
-
-    pub fn extract_vowel(token: &str) -> Option<&'static str> {
-        let t = token.trim();
-        if t.ends_with('a') {
-            Some("a")
-        } else if t.ends_with('e') {
-            Some("e")
-        } else if t.ends_with('i') {
-            Some("i")
-        } else if t.ends_with('o') {
-            Some("o")
-        } else if t.ends_with('u') || t.ends_with('w') {
-            Some("u")
-        } else {
-            None
-        }
-    }
-
-    pub fn extract_consonant(token: &str) -> Option<&'static str> {
-        let t = token.trim();
-        if t.starts_with("ch") || t.starts_with("sh") || t.starts_with('x') {
-            Some("sh")
-        } else if t.starts_with("nh") || t.starts_with("ny") {
-            Some("nh")
-        } else if t.starts_with("lh") || t.starts_with("ly") {
-            Some("lh")
-        } else if t.starts_with("rr") {
-            Some("rr")
-        } else if t.starts_with('k') || t.starts_with('c') {
-            Some("k")
-        } else if t.starts_with('s') || t.starts_with('z') {
-            Some("s")
-        } else if t.starts_with('t') {
-            Some("t")
-        } else if t.starts_with('d') {
-            Some("d")
-        } else if t.starts_with('p') {
-            Some("p")
-        } else if t.starts_with('b') {
-            Some("b")
-        } else if t.starts_with('f') {
-            Some("f")
-        } else if t.starts_with('v') {
-            Some("v")
-        } else if t.starts_with('m') {
-            Some("m")
-        } else if t.starts_with('n') {
-            Some("n")
-        } else if t.starts_with('l') {
-            Some("l")
-        } else if t.starts_with('r') {
-            Some("r")
-        } else if t.starts_with('j') || t.starts_with('g') {
-            Some("j")
-        } else {
-            None
-        }
-    }
+    phones
 }

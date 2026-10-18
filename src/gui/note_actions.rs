@@ -67,11 +67,9 @@ impl KamafeuStudioApp {
         let selected: Option<Vec<usize>> = match self.autopitch_scope {
             crate::dsp::AutoPitchScope::SelectedOnly => {
                 if self.piano_roll_state.selected_note_indices.is_empty() {
-                    if let Some(idx) = self.piano_roll_state.selected_note_index {
-                        Some(vec![idx])
-                    } else {
-                        None
-                    }
+                    self.piano_roll_state
+                        .selected_note_index
+                        .map(|idx| vec![idx])
                 } else {
                     Some(
                         self.piano_roll_state
@@ -144,7 +142,7 @@ impl KamafeuStudioApp {
 
     pub fn push_history(&mut self) {
         self.undo_manager
-            .set_max_history(self.config.workflow.max_undo_steps as usize);
+            .set_max_history(self.config.workflow.max_undo_steps);
         self.undo_manager.push_state(self.project.clone());
         self.is_dirty = true;
     }

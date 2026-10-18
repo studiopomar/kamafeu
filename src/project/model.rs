@@ -2,250 +2,23 @@ use crate::dsp::envelope::UtauEnvelope;
 use crate::dsp::pitch::{midi_to_note_name, note_name_to_midi, VibratoParam};
 use serde::{Deserialize, Serialize};
 
+#[path = "model/expression.rs"]
+mod expression;
+pub use expression::{UExpressionPoint, UExpressions, UPitchBend, UPitchBendPoint};
+#[path = "model/parts.rs"]
+mod parts;
+pub use parts::{UTrack, UVoicePart, UWavePart};
+#[path = "model/operations.rs"]
+mod operations;
+
 /// Controls how explicit phonetic data from an imported project is treated.
 /// Preserve is intentionally the compatibility default: imported aliases are
 /// authored data, not a hint to silently rewrite the whole phrase.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum ImportedPhonemePolicy {
+    #[default]
     Preserve,
     Recalculate,
-}
-
-impl Default for ImportedPhonemePolicy {
-    fn default() -> Self {
-        Self::Preserve
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct UPitchBendPoint {
-    pub time_offset_ms: f64,
-    pub pitch_offset_cents: f64,
-    pub shape: String, // "", "s" (linear), "j" (exp), "r" (log)
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct UExpressionPoint {
-    pub time_offset_ms: f64,
-    pub value: f64,
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-#[serde(default)]
-pub struct UPitchBend {
-    pub points: Vec<UPitchBendPoint>,
-    pub snap_first: bool,
-    pub portamento_start_ms: f64,
-    pub portamento_length_ms: f64,
-    pub portamento_shape: String,
-}
-
-impl Default for UPitchBend {
-    fn default() -> Self {
-        Self {
-            points: Vec::new(),
-            snap_first: true,
-            portamento_start_ms: -40.0,
-            portamento_length_ms: 80.0,
-            portamento_shape: "io".to_string(),
-        }
-    }
-}
-
-impl UPitchBend {
-    /// Materializes the default portamento so newly created notes and adjacent
-    /// notes behave identically in the editor, renderer and exported formats.
-    pub fn ensure_portamento(
-        &mut self,
-        previous_midi: Option<u8>,
-        current_midi: u8,
-        adjacent: bool,
-    ) {
-        if self.points.is_empty() {
-            let start = self.portamento_start_ms.clamp(-2000.0, 2000.0);
-            let length = self.portamento_length_ms.clamp(1.0, 2000.0);
-            let first_offset = if self.snap_first && adjacent {
-                previous_midi
-                    .map(|previous| (f64::from(previous) - f64::from(current_midi)) * 100.0)
-                    .unwrap_or(0.0)
-            } else {
-                0.0
-            };
-            self.points = vec![
-                UPitchBendPoint {
-                    time_offset_ms: start,
-                    pitch_offset_cents: first_offset,
-                    shape: self.portamento_shape.clone(),
-                },
-                UPitchBendPoint {
-                    time_offset_ms: start + length,
-                    pitch_offset_cents: 0.0,
-                    shape: self.portamento_shape.clone(),
-                },
-            ];
-        }
-    }
-
-    pub fn effective_points(
-        &self,
-        previous_midi: Option<u8>,
-        current_midi: u8,
-        adjacent: bool,
-    ) -> Vec<UPitchBendPoint> {
-        let start = self.portamento_start_ms.clamp(-2000.0, 2000.0);
-        let length = self.portamento_length_ms.clamp(1.0, 2000.0);
-        let automatic_portamento = || {
-            vec![
-                UPitchBendPoint {
-                    time_offset_ms: start,
-                    pitch_offset_cents: 0.0,
-                    shape: self.portamento_shape.clone(),
-                },
-                UPitchBendPoint {
-                    time_offset_ms: start + length,
-                    pitch_offset_cents: 0.0,
-                    shape: self.portamento_shape.clone(),
-                },
-            ]
-        };
-
-        if self.points.is_empty() {
-            let mut points = automatic_portamento();
-            if self.snap_first && adjacent {
-                if let (Some(previous), Some(first)) = (previous_midi, points.first_mut()) {
-                    first.pitch_offset_cents =
-                        (f64::from(previous) - f64::from(current_midi)) * 100.0;
-                }
-            }
-            points
-        } else {
-            let mut points = self.points.clone();
-            points.sort_by(|left, right| {
-                left.time_offset_ms
-                    .partial_cmp(&right.time_offset_ms)
-                    .unwrap_or(std::cmp::Ordering::Equal)
-            });
-
-            if self.snap_first
-                && adjacent
-                && points
-                    .first()
-                    .is_some_and(|first| first.time_offset_ms > 0.0)
-            {
-                let mut auto = automatic_portamento();
-                if let (Some(previous), Some(first)) = (previous_midi, auto.first_mut()) {
-                    first.pitch_offset_cents =
-                        (f64::from(previous) - f64::from(current_midi)) * 100.0;
-                }
-                points.extend(auto);
-                points.sort_by(|left, right| {
-                    left.time_offset_ms
-                        .partial_cmp(&right.time_offset_ms)
-                        .unwrap_or(std::cmp::Ordering::Equal)
-                });
-            } else if self.snap_first && adjacent {
-                if let (Some(previous), Some(first)) = (previous_midi, points.first_mut()) {
-                    first.pitch_offset_cents =
-                        (f64::from(previous) - f64::from(current_midi)) * 100.0;
-                }
-            }
-            points
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct UExpressions {
-    pub dynamics: f64, // DYN (-240 to +120, in 0.1 dB units)
-    #[serde(default)]
-    pub dynamics_curve: Vec<UExpressionPoint>,
-    pub pitch_delta: f64, // PITD (-1200 to +1200 cents, default 0)
-    pub gender: f64,      // GEN (-100 to +100, default 0)
-    #[serde(default = "default_velocity")]
-    pub velocity: f64, // VEL (0 to 200, default 100)
-    pub breathiness: f64, // BRE (-100 to +100, default 0)
-    #[serde(default = "default_consonant_velocity")]
-    pub consonant_velocity: f64, // (0 to 200, default 100)
-    #[serde(default = "default_modulation")]
-    pub modulation: f64, // MOD (0 to 200, default 0)
-    #[serde(default = "default_expression_percent")]
-    pub volume: f64, // VOL (0 to 200, default 100)
-    #[serde(default = "default_expression_percent")]
-    pub attack: f64, // ATK (0 to 200, default 100)
-    #[serde(default)]
-    pub decay: f64, // DEC (0 to 100, default 0)
-    #[serde(default)]
-    pub consonant_timing_offset_ms: f64, // Consoante/Vogal timing shift (-500ms to +500ms)
-    #[serde(default)]
-    pub preutter_offset_ms: f64, // Pré-emissão / Início de transição timing shift (-500ms to +500ms)
-    #[serde(default)]
-    pub overlap_offset_ms: f64, // Overlap / Crossfade timing shift (-500ms to +500ms)
-    /// OpenUtau per-phoneme attack-handle delta. This is timing, not ATK.
-    #[serde(default)]
-    pub attack_time_delta_ms: f64,
-    /// OpenUtau per-phoneme release-handle delta. This is timing, not DEC.
-    #[serde(default)]
-    pub release_time_delta_ms: f64,
-    /// Presamp marks this consonant as incompatible with VC/CV crossfading.
-    /// It is an internal phonemizer decision, not an UTAU resampler flag.
-    #[serde(default)]
-    pub presamp_no_crossfade: bool,
-    /// OpenUtau's per-phoneme NORM expression. `None` preserves the
-    /// renderer's native behavior; Presamp may set it for generated pre-C
-    /// consonants through `[CFLAGS]`.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub presamp_normalization: Option<f64>,
-    /// Absolute legacy UST values. Kept separate from editable deltas so an
-    /// imported project reproduces its original timing against any oto.ini entry.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub preutter_override_ms: Option<f64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub overlap_override_ms: Option<f64>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub start_point_ms: Option<f64>,
-}
-
-fn default_expression_percent() -> f64 {
-    100.0
-}
-
-fn default_modulation() -> f64 {
-    0.0
-}
-fn default_consonant_velocity() -> f64 {
-    100.0
-}
-
-fn default_velocity() -> f64 {
-    100.0
-}
-
-impl Default for UExpressions {
-    fn default() -> Self {
-        Self {
-            dynamics: 0.0,
-            dynamics_curve: Vec::new(),
-            pitch_delta: 0.0,
-            gender: 0.0,
-            velocity: 100.0,
-            breathiness: 0.0,
-            consonant_velocity: 100.0,
-            modulation: 0.0,
-            volume: 100.0,
-            attack: 100.0,
-            decay: 0.0,
-            consonant_timing_offset_ms: 0.0,
-            preutter_offset_ms: 0.0,
-            overlap_offset_ms: 0.0,
-            attack_time_delta_ms: 0.0,
-            release_time_delta_ms: 0.0,
-            presamp_no_crossfade: false,
-            presamp_normalization: None,
-            preutter_override_ms: None,
-            overlap_override_ms: None,
-            start_point_ms: None,
-        }
-    }
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
@@ -318,19 +91,20 @@ impl UPhonemeOverride {
                 0.0
             };
         }
-        for value in [
+        for delta in [
             &mut self.preutter_delta_ms,
             &mut self.overlap_delta_ms,
             &mut self.attack_time_delta_ms,
             &mut self.release_time_delta_ms,
-        ] {
-            if let Some(delta) = value {
-                *delta = if delta.is_finite() {
-                    delta.clamp(-2_000.0, 2_000.0)
-                } else {
-                    0.0
-                };
-            }
+        ]
+        .into_iter()
+        .flatten()
+        {
+            *delta = if delta.is_finite() {
+                delta.clamp(-2_000.0, 2_000.0)
+            } else {
+                0.0
+            };
         }
         if let Some(envelope) = &mut self.envelope {
             envelope.normalize(note_duration_ms);
@@ -500,106 +274,6 @@ impl UNote {
 
     pub fn set_midi_key(&mut self, key: u8) {
         self.pitch = midi_to_note_name(key);
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct UTrack {
-    pub name: String,
-    pub singer: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub voicebank_path: Option<String>,
-    /// Stable KFV 2 identity for this track. The legacy path above remains a
-    /// location hint so older projects and imports remain readable.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub native_voicebank: Option<NativeVoicebankReference>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub phonemizer: Option<crate::phonemizer::PhonemizerMode>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub resampler: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub wavtool: Option<String>,
-    /// Flags inherited by notes on this track. Unknown UTAU flags are kept
-    /// verbatim and merged by `EffectiveFlags` at render time.
-    #[serde(default, skip_serializing_if = "String::is_empty")]
-    pub flags: String,
-    pub volume_db: f64,
-    pub pan: f64,
-    pub mute: bool,
-    pub solo: bool,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub fx_rack: Option<crate::audio::FxRackConfig>,
-}
-
-impl Default for UTrack {
-    fn default() -> Self {
-        Self {
-            name: "Track 1".to_string(),
-            singer: "Default Singer".to_string(),
-            voicebank_path: None,
-            native_voicebank: None,
-            phonemizer: None,
-            resampler: None,
-            wavtool: None,
-            flags: String::new(),
-            volume_db: 0.0,
-            pan: 0.0,
-            mute: false,
-            solo: false,
-            fx_rack: None,
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct UVoicePart {
-    pub name: String,
-    pub track_index: usize,
-    pub position_ms: f64,
-    pub notes: Vec<UNote>,
-}
-
-impl UVoicePart {
-    pub fn new(name: impl Into<String>, track_index: usize) -> Self {
-        Self {
-            name: name.into(),
-            track_index,
-            position_ms: 0.0,
-            notes: Vec::new(),
-        }
-    }
-}
-
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
-pub struct UWavePart {
-    pub name: String,
-    pub file_path: String,
-    pub track_index: usize,
-    pub position_ms: f64,
-    #[serde(default)]
-    pub file_offset_ms: f64,
-    #[serde(default)]
-    pub volume_db: f64,
-    #[serde(default)]
-    pub duration_ms: f64,
-}
-
-impl UWavePart {
-    pub fn new(name: impl Into<String>, file_path: impl Into<String>, track_index: usize) -> Self {
-        let file_path_str = file_path.into();
-        let duration_ms = crate::audio::probe_audio_file(&file_path_str)
-            .map(|info| info.duration_ms)
-            .unwrap_or(0.0);
-
-        Self {
-            name: name.into(),
-            file_path: file_path_str,
-            track_index,
-            position_ms: 0.0,
-            file_offset_ms: 0.0,
-            volume_db: 0.0,
-            duration_ms,
-        }
     }
 }
 
@@ -817,303 +491,6 @@ impl Default for UProject {
     }
 }
 
-impl UProject {
-    /// Drop imported phonetic decisions when the user explicitly requests a
-    /// full recalculation. Musical timing, expressions and flags are kept.
-    pub fn recalculate_imported_phonemes(&mut self) {
-        for part in &mut self.parts {
-            for note in &mut part.notes {
-                note.phonetic_hint = None;
-                note.phoneme_overrides.clear();
-                note.phoneme_durations_ms.clear();
-            }
-        }
-    }
-
-    /// Change the project tempo while keeping every event on the same musical beat.
-    ///
-    /// Timeline values are stored in milliseconds, so changing only `bpm` would
-    /// leave playback speed unchanged. Rescaling positions and durations by the
-    /// inverse tempo ratio preserves their beat positions and makes the tempo
-    /// change audible.
-    pub fn set_bpm_preserving_beats(&mut self, new_bpm: f64) -> Option<f64> {
-        if !new_bpm.is_finite() || new_bpm <= 0.0 {
-            return None;
-        }
-
-        let old_bpm = if self.bpm.is_finite() && self.bpm > 0.0 {
-            self.bpm
-        } else {
-            120.0
-        };
-        let new_bpm = new_bpm.clamp(20.0, 999.0);
-        let time_scale = old_bpm / new_bpm;
-
-        if (old_bpm - new_bpm).abs() <= f64::EPSILON {
-            self.bpm = new_bpm;
-            return Some(1.0);
-        }
-
-        for part in &mut self.parts {
-            part.position_ms *= time_scale;
-            for note in &mut part.notes {
-                note.position_ms *= time_scale;
-                note.duration_ms *= time_scale;
-                for point in &mut note.pitch_bend.points {
-                    point.time_offset_ms *= time_scale;
-                }
-            }
-        }
-        for wave in &mut self.wave_parts {
-            wave.position_ms *= time_scale;
-        }
-        for marker in &mut self.markers {
-            marker.position_ms *= time_scale;
-        }
-        for section in &mut self.sections {
-            section.start_ms *= time_scale;
-            section.end_ms *= time_scale;
-        }
-
-        self.bpm = new_bpm;
-        Some(time_scale)
-    }
-
-    /// Restore invariants after loading permissive third-party project files.
-    pub fn normalize(&mut self) {
-        if self.schema_version == 0 {
-            self.schema_version = CURRENT_PROJECT_SCHEMA_VERSION;
-        }
-        // Future documents may be opened read-only by older hosts. The APS
-        // writer rejects them instead of silently downgrading their schema.
-        if !self.bpm.is_finite() || self.bpm <= 0.0 {
-            self.bpm = 120.0;
-        }
-        self.bpm = self.bpm.clamp(20.0, 999.0);
-        self.time_signature_numerator = self.time_signature_numerator.clamp(1, 32);
-        self.time_signature_denominator = match self.time_signature_denominator {
-            1 | 2 | 4 | 8 | 16 | 32 => self.time_signature_denominator,
-            _ => 4,
-        };
-
-        for extension in &mut self.extensions {
-            extension.id = extension.id.trim().to_string();
-            extension.version = extension.version.trim().to_string();
-            extension.origin = extension.origin.trim().to_string();
-            extension.manifest_fingerprint = extension.manifest_fingerprint.trim().to_string();
-        }
-        self.extensions.sort_by(|left, right| {
-            left.id
-                .cmp(&right.id)
-                .then_with(|| left.version.cmp(&right.version))
-                .then_with(|| left.origin.cmp(&right.origin))
-                .then_with(|| left.manifest_fingerprint.cmp(&right.manifest_fingerprint))
-        });
-        self.extensions.dedup();
-
-        let max_part_track = self
-            .parts
-            .iter()
-            .map(|part| part.track_index.saturating_add(1))
-            .max()
-            .unwrap_or(1);
-        let max_wave_track = self
-            .wave_parts
-            .iter()
-            .map(|wave| wave.track_index.saturating_add(1))
-            .max()
-            .unwrap_or(1);
-        let required_tracks = max_part_track.max(max_wave_track).max(1);
-
-        while self.tracks.len() < required_tracks {
-            self.tracks.push(UTrack {
-                name: format!("Track {}", self.tracks.len() + 1),
-                ..UTrack::default()
-            });
-        }
-        if self.parts.is_empty() {
-            self.parts.push(UVoicePart::new("Parte Vocal 1", 0));
-        }
-
-        for wave in &mut self.wave_parts {
-            if !wave.position_ms.is_finite() {
-                wave.position_ms = 0.0;
-            }
-            wave.position_ms = wave.position_ms.max(0.0);
-            if !wave.volume_db.is_finite() {
-                wave.volume_db = 0.0;
-            }
-            wave.volume_db = wave.volume_db.clamp(-60.0, 12.0);
-        }
-
-        for (index, marker) in self.markers.iter_mut().enumerate() {
-            if !marker.position_ms.is_finite() {
-                marker.position_ms = 0.0;
-            }
-            marker.position_ms = marker.position_ms.max(0.0);
-            if marker.name.trim().is_empty() {
-                marker.name = format!("Marcador {}", index + 1);
-            }
-            marker.name = marker.name.trim().chars().take(120).collect();
-            marker.color = marker.color.take().filter(|color| {
-                let color = color.trim();
-                color.len() == 7
-                    && color.starts_with('#')
-                    && color.as_bytes()[1..].iter().all(u8::is_ascii_hexdigit)
-            });
-        }
-        self.markers.sort_by(|left, right| {
-            left.position_ms
-                .partial_cmp(&right.position_ms)
-                .unwrap_or(std::cmp::Ordering::Equal)
-                .then_with(|| left.name.cmp(&right.name))
-        });
-
-        for (index, section) in self.sections.iter_mut().enumerate() {
-            if !section.start_ms.is_finite() {
-                section.start_ms = 0.0;
-            }
-            if !section.end_ms.is_finite() {
-                section.end_ms = section.start_ms;
-            }
-            section.start_ms = section.start_ms.max(0.0);
-            section.end_ms = section.end_ms.max(section.start_ms);
-            if section.name.trim().is_empty() {
-                section.name = format!("Seção {}", index + 1);
-            }
-            section.name = section.name.trim().chars().take(120).collect();
-            section.color = section.color.take().filter(|color| {
-                let color = color.trim();
-                color.len() == 7
-                    && color.starts_with('#')
-                    && color.as_bytes()[1..].iter().all(u8::is_ascii_hexdigit)
-            });
-        }
-        self.sections.sort_by(|left, right| {
-            left.start_ms
-                .partial_cmp(&right.start_ms)
-                .unwrap_or(std::cmp::Ordering::Equal)
-                .then_with(|| left.name.cmp(&right.name))
-        });
-
-        for track in &mut self.tracks {
-            if !track.volume_db.is_finite() {
-                track.volume_db = 0.0;
-            }
-            if !track.pan.is_finite() {
-                track.pan = 0.0;
-            }
-            track.volume_db = track.volume_db.clamp(-60.0, 12.0);
-            track.pan = track.pan.clamp(-1.0, 1.0);
-        }
-
-        for part in &mut self.parts {
-            if !part.position_ms.is_finite() {
-                part.position_ms = 0.0;
-            }
-            part.position_ms = part.position_ms.max(0.0);
-            for note in &mut part.notes {
-                if !note.position_ms.is_finite() {
-                    note.position_ms = 0.0;
-                }
-                if !note.duration_ms.is_finite() {
-                    note.duration_ms = 1.0;
-                }
-                note.position_ms = note.position_ms.max(0.0);
-                note.duration_ms = note.duration_ms.max(1.0);
-                for phoneme_override in &mut note.phoneme_overrides {
-                    phoneme_override.normalize(note.duration_ms);
-                }
-                note.envelope.normalize(note.duration_ms);
-                if !note.envelope.crossfade_ms.is_finite() {
-                    note.envelope.crossfade_ms = 0.0;
-                }
-                note.envelope.crossfade_ms = note.envelope.crossfade_ms.clamp(0.0, 500.0);
-                note.envelope.p2 = if note.envelope.p2.is_finite() {
-                    note.envelope.p2.clamp(0.0, 500.0)
-                } else {
-                    5.0
-                };
-                note.envelope.p5 = if note.envelope.p5.is_finite() {
-                    note.envelope.p5.clamp(0.0, 500.0)
-                } else {
-                    35.0
-                };
-                if note
-                    .phoneme_durations_ms
-                    .iter()
-                    .any(|duration| !duration.is_finite() || *duration <= 0.0)
-                {
-                    note.phoneme_durations_ms.clear();
-                }
-                if !note.expressions.consonant_velocity.is_finite() {
-                    note.expressions.consonant_velocity = 100.0;
-                }
-                note.expressions.consonant_velocity =
-                    note.expressions.consonant_velocity.clamp(-100.0, 200.0);
-                if !note.expressions.velocity.is_finite() {
-                    note.expressions.velocity = 100.0;
-                }
-                if !note.expressions.dynamics.is_finite() {
-                    note.expressions.dynamics = 0.0;
-                }
-                if !note.expressions.pitch_delta.is_finite() {
-                    note.expressions.pitch_delta = 0.0;
-                }
-                if !note.expressions.gender.is_finite() {
-                    note.expressions.gender = 0.0;
-                }
-                if !note.expressions.breathiness.is_finite() {
-                    note.expressions.breathiness = 0.0;
-                }
-                if !note.expressions.modulation.is_finite() {
-                    note.expressions.modulation = 0.0;
-                }
-                if !note.expressions.volume.is_finite() {
-                    note.expressions.volume = 100.0;
-                }
-                if !note.expressions.attack.is_finite() {
-                    note.expressions.attack = 100.0;
-                }
-                if !note.expressions.decay.is_finite() {
-                    note.expressions.decay = 0.0;
-                }
-                note.expressions.velocity = note.expressions.velocity.clamp(0.0, 200.0);
-                note.expressions.dynamics = note.expressions.dynamics.clamp(-240.0, 120.0);
-                note.expressions.pitch_delta = note.expressions.pitch_delta.clamp(-1200.0, 1200.0);
-                note.expressions.gender = note.expressions.gender.clamp(-100.0, 100.0);
-                note.expressions.breathiness = note.expressions.breathiness.clamp(0.0, 100.0);
-                note.expressions.modulation = note.expressions.modulation.clamp(0.0, 100.0);
-                note.expressions.volume = note.expressions.volume.clamp(0.0, 200.0);
-                note.expressions.attack = note.expressions.attack.clamp(0.0, 200.0);
-                note.expressions.decay = note.expressions.decay.clamp(0.0, 100.0);
-                note.vibrato.normalize();
-                if !note.pitch_bend.portamento_start_ms.is_finite() {
-                    note.pitch_bend.portamento_start_ms = -40.0;
-                }
-                if !note.pitch_bend.portamento_length_ms.is_finite() {
-                    note.pitch_bend.portamento_length_ms = 80.0;
-                }
-                note.pitch_bend.portamento_start_ms =
-                    note.pitch_bend.portamento_start_ms.clamp(-2000.0, 2000.0);
-                note.pitch_bend.portamento_length_ms =
-                    note.pitch_bend.portamento_length_ms.clamp(1.0, 2000.0);
-                if note.pitch_bend.portamento_shape.is_empty() {
-                    note.pitch_bend.portamento_shape = "io".to_string();
-                }
-                note.pitch_bend.points.retain(|point| {
-                    point.time_offset_ms.is_finite() && point.pitch_offset_cents.is_finite()
-                });
-                note.pitch_bend.points.sort_by(|left, right| {
-                    left.time_offset_ms
-                        .partial_cmp(&right.time_offset_ms)
-                        .unwrap_or(std::cmp::Ordering::Equal)
-                });
-            }
-        }
-    }
-}
-
 pub fn create_astro_boy_1980_project() -> UProject {
     let mut project = UProject {
         name: "Astro Boy (1980) - Tetsuwan Atom Theme".to_string(),
@@ -1254,9 +631,11 @@ mod project_tests {
 
     #[test]
     fn normalize_restores_a_safe_time_signature() {
-        let mut project = UProject::default();
-        project.time_signature_numerator = 0;
-        project.time_signature_denominator = 3;
+        let mut project = UProject {
+            time_signature_numerator: 0,
+            time_signature_denominator: 3,
+            ..Default::default()
+        };
         project.normalize();
 
         assert_eq!(project.time_signature_numerator, 1);
@@ -1265,27 +644,29 @@ mod project_tests {
 
     #[test]
     fn normalize_deduplicates_and_orders_project_extensions() {
-        let mut project = UProject::default();
-        project.extensions = vec![
-            UProjectExtension {
-                id: " org.example.b ".into(),
-                version: "1".into(),
-                origin: "b".into(),
-                manifest_fingerprint: "2".into(),
-            },
-            UProjectExtension {
-                id: "org.example.a".into(),
-                version: "1".into(),
-                origin: "a".into(),
-                manifest_fingerprint: "1".into(),
-            },
-            UProjectExtension {
-                id: "org.example.b".into(),
-                version: "1".into(),
-                origin: "b".into(),
-                manifest_fingerprint: "2".into(),
-            },
-        ];
+        let mut project = UProject {
+            extensions: vec![
+                UProjectExtension {
+                    id: " org.example.b ".into(),
+                    version: "1".into(),
+                    origin: "b".into(),
+                    manifest_fingerprint: "2".into(),
+                },
+                UProjectExtension {
+                    id: "org.example.a".into(),
+                    version: "1".into(),
+                    origin: "a".into(),
+                    manifest_fingerprint: "1".into(),
+                },
+                UProjectExtension {
+                    id: "org.example.b".into(),
+                    version: "1".into(),
+                    origin: "b".into(),
+                    manifest_fingerprint: "2".into(),
+                },
+            ],
+            ..Default::default()
+        };
         project.normalize();
 
         assert_eq!(project.extensions.len(), 2);
@@ -1333,19 +714,21 @@ mod project_tests {
 
     #[test]
     fn markers_normalize_sort_and_follow_tempo_changes() {
-        let mut project = UProject::default();
-        project.markers = vec![
-            UProjectMarker {
-                name: "  Chorus  ".to_string(),
-                position_ms: 2_000.0,
-                color: Some("#00ffaa".to_string()),
-            },
-            UProjectMarker {
-                name: " ".to_string(),
-                position_ms: f64::NAN,
-                color: Some("not-a-color".to_string()),
-            },
-        ];
+        let mut project = UProject {
+            markers: vec![
+                UProjectMarker {
+                    name: "  Chorus  ".to_string(),
+                    position_ms: 2_000.0,
+                    color: Some("#00ffaa".to_string()),
+                },
+                UProjectMarker {
+                    name: " ".to_string(),
+                    position_ms: f64::NAN,
+                    color: Some("not-a-color".to_string()),
+                },
+            ],
+            ..Default::default()
+        };
         project.normalize();
         assert_eq!(project.markers[0].name, "Marcador 2");
         assert_eq!(project.markers[0].position_ms, 0.0);
@@ -1359,16 +742,18 @@ mod project_tests {
 
     #[test]
     fn sections_normalize_and_follow_tempo_changes() {
-        let mut project = UProject::default();
-        project.sections = vec![
-            UProjectSection::new("  Chorus  ", 2_000.0, 1_000.0),
-            UProjectSection {
-                name: " ".to_string(),
-                start_ms: f64::NAN,
-                end_ms: f64::NAN,
-                color: Some("bad".to_string()),
-            },
-        ];
+        let mut project = UProject {
+            sections: vec![
+                UProjectSection::new("  Chorus  ", 2_000.0, 1_000.0),
+                UProjectSection {
+                    name: " ".to_string(),
+                    start_ms: f64::NAN,
+                    end_ms: f64::NAN,
+                    color: Some("bad".to_string()),
+                },
+            ],
+            ..Default::default()
+        };
         project.normalize();
         assert_eq!(project.sections[0].name, "Seção 2");
         assert_eq!(project.sections[0].start_ms, 0.0);

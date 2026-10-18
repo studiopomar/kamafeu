@@ -8,6 +8,7 @@ pub(super) enum NoteInspectorSection {
     Envelope,
 }
 
+#[allow(clippy::too_many_arguments)]
 pub(super) fn draw(
     ui: &mut egui::Ui,
     page: NoteInspectorSection,

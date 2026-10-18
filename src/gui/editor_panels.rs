@@ -11,6 +11,9 @@ use eframe::egui::SidePanel;
 use eframe::egui::TopBottomPanel;
 
 impl KamafeuStudioApp {
+    // Explicitly ends the closure's mutable borrow of `self` before the
+    // workspace snap result is applied below.
+    #[allow(clippy::drop_non_drop)]
     pub(super) fn update_editor_panels(&mut self, ctx: &egui::Context) {
         self.render_menu_bar(ctx);
 

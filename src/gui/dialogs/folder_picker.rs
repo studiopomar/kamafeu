@@ -43,11 +43,10 @@ impl KamafeuStudioApp {
                                 (lang.tr("Início", "Home"), "."),
                             ] {
                                 let p = std::path::PathBuf::from(path_str);
-                                if p.exists() {
-                                    if ui.small_button(label).clicked() {
+                                if p.exists()
+                                    && ui.small_button(label).clicked() {
                                         self.folder_picker_current_dir = p;
                                     }
-                                }
                             }
                         });
                         ui.separator();

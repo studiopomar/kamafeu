@@ -310,6 +310,7 @@ fn syllabify_portuguese(word: &str) -> Vec<String> {
     }
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn draw_lyrics_dialog(
     ctx: &egui::Context,
     lang: AppLanguage,

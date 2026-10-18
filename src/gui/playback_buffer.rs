@@ -68,10 +68,7 @@ impl PlaybackChunkBuffer {
         self.pending.insert(chunk.chunk_index, chunk);
 
         let mut ready = Vec::new();
-        loop {
-            let Some((&index, candidate)) = self.pending.iter().next() else {
-                break;
-            };
+        while let Some((&index, candidate)) = self.pending.iter().next() {
             let expected = self.expected_start_ms.unwrap_or(0.0);
             if (candidate.chunk_start_ms - expected).abs() > EPSILON_MS {
                 if candidate.chunk_start_ms > expected {
