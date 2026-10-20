@@ -60,13 +60,13 @@ dependências diretas usadas nesta versão incluem `clap`, `encoding_rs`,
 Web declaradas em `Cargo.toml`. As dependências transitivas são fixadas por
 `Cargo.lock` e mantêm os avisos de licença publicados por cada crate.
 
-## Tainah / lessampler-ng
+## Tainah / tainah-engine
 
 O Tainah desktop carrega uma biblioteca compartilhada derivada de
-`dorayakito/lessampler-ng`, licenciada sob LGPL-3.0. O código fonte do
-adaptador ABI fica em `native/tainah/` e o restante do código lessampler-ng
-pode ser obtido na revisão indicada em `native/tainah/build.py`. Os pacotes
-incluem `lessampler-ng-LGPL-3.0.txt` junto da biblioteca. Modificações nessa
+uma base externa licenciada sob LGPL-3.0. O código fonte do adaptador ABI
+fica em `native/tainah/`; a revisão e a origem da base estão registradas em
+`native/tainah/build.py`. Os pacotes incluem a licença dessa base junto da
+biblioteca. Modificações nessa
 biblioteca permanecem sob LGPL-3.0; a licença MIT do aplicativo não as altera.
 
 Para uma distribuição jurídica completa, gere o inventário de licenças a

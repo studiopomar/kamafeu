@@ -531,6 +531,40 @@ mod tests {
     }
 
     #[test]
+    fn waveform_queries_follow_absolute_time_when_scrolling_both_directions() {
+        let mut state = PianoRollState::default();
+        state.merge_rendered_waveform(&vec![0.4; 1_000], 1_000, 1, 0.0);
+        state.merge_rendered_waveform(&vec![0.8; 1_000], 1_000, 1, 1_000.0);
+        let left = 76.0;
+        let zoom = 0.25;
+        for scroll in [0.0, 125.0, 250.0, 125.0, 0.0] {
+            let timestamp = 1_200.0;
+            let x = timeline_time_to_screen_x(left, timestamp, zoom, scroll);
+            let recovered = ((x - left + scroll) / zoom) as f32;
+            assert!((recovered - timestamp as f32).abs() < 0.01);
+            assert_eq!(
+                state.waveform_min_max_between(recovered, recovered + 1.0),
+                Some((0.8, 0.8))
+            );
+        }
+    }
+
+    #[test]
+    fn waveform_does_not_draw_buckets_across_silent_or_unrendered_gaps() {
+        let mut state = PianoRollState::default();
+        state.merge_rendered_waveform(&[0.6; 4], 1_000, 1, 0.0);
+        state.merge_rendered_waveform(&[0.9; 4], 1_000, 1, 100.0);
+
+        assert_eq!(state.waveform_min_max_between(0.0, 4.0), Some((0.6, 0.6)));
+        assert_eq!(state.waveform_min_max_between(40.0, 60.0), None);
+        assert_eq!(state.waveform_min_max_between(0.0, 104.0), None);
+        assert_eq!(
+            state.waveform_min_max_between(100.0, 104.0),
+            Some((0.9, 0.9))
+        );
+    }
+
+    #[test]
     fn duplicate_progressive_chunk_does_not_duplicate_buckets() {
         let mut state = PianoRollState::default();
         state.merge_rendered_waveform(&[0.5; 4], 1_000, 1, 0.0);

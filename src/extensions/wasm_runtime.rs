@@ -230,6 +230,103 @@ pub fn invoke_wasm_bytes(
     Ok(output)
 }
 
+/// Runs a JSON-aware ABI v2 export. The extension allocates a buffer with
+/// `kamafeu_extension_alloc`, receives the input pointer and length, and
+/// returns a pointer/length pair packed into an i64. The module still has no
+/// imports and receives no implicit access to host resources.
+#[cfg(not(target_arch = "wasm32"))]
+pub fn invoke_wasm_json(
+    extension: &DiscoveredExtension,
+    policy: &ExtensionPermissionPolicy,
+    export_name: &str,
+    input: &serde_json::Value,
+    parameters: &serde_json::Map<String, serde_json::Value>,
+) -> Result<serde_json::Value, String> {
+    use wasmi::{Config, Engine, Linker, Module};
+
+    policy.check(&extension.manifest)?;
+    ensure_platform_compatible(&extension.manifest)?;
+    extension.manifest.validate_parameter_values(parameters)?;
+    let abi_min = extension
+        .manifest
+        .abi_min_version
+        .unwrap_or(extension.manifest.api_version);
+    let abi_max = extension
+        .manifest
+        .abi_max_version
+        .unwrap_or(extension.manifest.api_version);
+    if abi_min > 2 || abi_max < 2 {
+        return Err(format!(
+            "a extensão '{}' não declara suporte à ABI JSON v2",
+            extension.manifest.id
+        ));
+    }
+    let input =
+        serde_json::to_vec(input).map_err(|error| format!("JSON de entrada inválido: {error}"))?;
+    if input.len() > WASM_OUTPUT_LIMIT_BYTES {
+        return Err("entrada JSON excede o limite de 1 MiB".into());
+    }
+    let entrypoint = resolve_entrypoint(&extension.manifest_path, &extension.manifest)?;
+    let bytes = std::fs::read(&entrypoint)
+        .map_err(|error| format!("não foi possível ler {}: {error}", entrypoint.display()))?;
+    let mut config = Config::default();
+    config.consume_fuel(true);
+    let engine = Engine::new(&config);
+    let module = Module::new(&engine, &mut bytes.as_slice())
+        .map_err(|error| format!("módulo WASM inválido: {error}"))?;
+    let mut store = sandbox_store(&engine)?;
+    let linker = Linker::<SandboxState>::new(&engine);
+    let instance = linker
+        .instantiate(&mut store, &module)
+        .map_err(|error| format!("imports WASM não permitidos: {error}"))?
+        .start(&mut store)
+        .map_err(|error| format!("falha ao iniciar extensão WASM: {error}"))?;
+    let api_version = instance
+        .get_typed_func::<(), i32>(&store, "kamafeu_extension_api_version")
+        .map_err(|_| "extensão não exporta a versão da ABI".to_string())?
+        .call(&mut store, ())
+        .map_err(|error| format!("falha ao consultar ABI: {error}"))?;
+    if api_version != EXTENSION_API_VERSION as i32 {
+        return Err(format!(
+            "extensão declara API {api_version}, host requer {EXTENSION_API_VERSION}"
+        ));
+    }
+    let memory = instance
+        .get_memory(&store, "memory")
+        .ok_or_else(|| "extensão não exporta memória linear 'memory'".to_string())?;
+    let alloc = instance
+        .get_typed_func::<i32, i32>(&store, "kamafeu_extension_alloc")
+        .map_err(|_| {
+            "extensão JSON v2 não exporta kamafeu_extension_alloc(i32) -> i32".to_string()
+        })?;
+    let input_pointer = alloc
+        .call(&mut store, input.len() as i32)
+        .map_err(|error| format!("falha ao alocar entrada para extensão: {error}"))?;
+    if input_pointer < 0 {
+        return Err("extensão retornou ponteiro negativo para a entrada".into());
+    }
+    memory
+        .write(&mut store, input_pointer as usize, &input)
+        .map_err(|error| format!("área de entrada fora da memória WASM: {error}"))?;
+    let packed = instance
+        .get_typed_func::<(i32, i32), i64>(&store, export_name)
+        .map_err(|_| format!("extensão não exporta {export_name}(i32, i32) -> i64"))?
+        .call(&mut store, (input_pointer, input.len() as i32))
+        .map_err(|error| format!("falha ao executar {export_name}: {error}"))?
+        as u64;
+    let output_pointer = (packed >> 32) as usize;
+    let output_length = (packed & u64::from(u32::MAX)) as usize;
+    if output_length > WASM_OUTPUT_LIMIT_BYTES {
+        return Err("saída JSON excede o limite de 1 MiB".into());
+    }
+    let mut output = vec![0_u8; output_length];
+    memory
+        .read(&store, output_pointer, &mut output)
+        .map_err(|error| format!("buffer de saída fora da memória WASM: {error}"))?;
+    serde_json::from_slice(&output)
+        .map_err(|error| format!("a extensão retornou JSON inválido: {error}"))
+}
+
 #[cfg(not(target_arch = "wasm32"))]
 fn ensure_platform_compatible(manifest: &ExtensionManifest) -> Result<(), String> {
     let platform = super::current_platform();
@@ -288,6 +385,17 @@ pub fn invoke_wasm_bytes(
     _parameters: &serde_json::Map<String, serde_json::Value>,
 ) -> Result<Vec<u8>, String> {
     Err("o host de extensões WASM ainda não está disponível na compilação web".to_string())
+}
+
+#[cfg(target_arch = "wasm32")]
+pub fn invoke_wasm_json(
+    _extension: &DiscoveredExtension,
+    _policy: &ExtensionPermissionPolicy,
+    _export_name: &str,
+    _input: &serde_json::Value,
+    _parameters: &serde_json::Map<String, serde_json::Value>,
+) -> Result<serde_json::Value, String> {
+    Err("o host de extensões WASM ainda não está disponível na compilação web".into())
 }
 
 #[cfg(not(target_arch = "wasm32"))]

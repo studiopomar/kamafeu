@@ -87,6 +87,7 @@ pub(super) fn cache_key(
     hash_f64(args.duration_ms, &mut hasher);
     hash_f64(args.source_consonant_ms, &mut hasher);
     hash_f64(args.consonant_ms, &mut hasher);
+    hash_optional_f64(args.world_target_consonant_ms, &mut hasher);
     hash_f64(args.cutoff_ms, &mut hasher);
     hash_f64(args.volume, &mut hasher);
     hash_f64(args.modulation, &mut hasher);

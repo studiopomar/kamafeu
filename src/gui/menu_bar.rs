@@ -89,6 +89,10 @@ impl KamafeuStudioApp {
                                 self.packages_window_open = true;
                                 ui.close_menu();
                             }
+                            if ui.button("Plugins").clicked() {
+                                self.plugins_window_open = true;
+                                ui.close_menu();
+                            }
                             self.menu_help(ui);
                     // ==========================================
                     // DIREITA: BADGE DO PROJETO
@@ -398,6 +402,11 @@ impl KamafeuStudioApp {
                             .clicked()
                         {
                             self.packages_window_open = true;
+                            self.mobile_menu_open = false;
+                        }
+
+                        if ui.button("🧩 Plugins").clicked() {
+                            self.plugins_window_open = true;
                             self.mobile_menu_open = false;
                         }
 

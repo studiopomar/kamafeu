@@ -1,0 +1,30 @@
+{
+  "id": "org.kamafeu.example-basic-preset",
+  "name": "Preset básico de voz",
+  "version": "0.1.0",
+  "api_version": 1,
+  "abi_min_version": 1,
+  "abi_max_version": 1,
+  "kind": "preset",
+  "capabilities": ["preset.voice.example"],
+  "formats": [],
+  "phonemizers": [],
+  "permissions": [],
+  "platforms": ["desktop", "android", "wasm"],
+  "limitations": ["exemplo declarativo; o editor ainda não aplica presets de extensão"],
+  "parameters": {
+    "brightness": {
+      "kind": "number",
+      "default": 0.5,
+      "minimum": 0.0,
+      "maximum": 1.0
+    },
+    "breathiness": {
+      "kind": "number",
+      "default": 0.2,
+      "minimum": 0.0,
+      "maximum": 1.0
+    }
+  },
+  "description": "Exemplo de preset de voz com parâmetros tipados e sem permissões."
+}

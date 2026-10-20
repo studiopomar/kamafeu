@@ -41,7 +41,7 @@ impl PreviewBackend {
     fn engine_id(self) -> &'static str {
         match self {
             Self::Sola => "kamafeu.sola",
-            Self::World => "kamafeu.lessampler-tainah",
+            Self::World => "kamafeu.tainah-motor",
         }
     }
 }
@@ -529,6 +529,7 @@ fn render_unit(
         duration_ms: planned.target_duration_ms,
         source_consonant_ms,
         consonant_ms: source_consonant_ms,
+        world_target_consonant_ms: None,
         cutoff_ms,
         volume: 100.0,
         modulation: 0.0,

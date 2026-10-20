@@ -553,6 +553,10 @@ impl TrackRenderer {
                 duration_ms: dur_required,
                 source_consonant_ms: consonant_ms.max(0.0),
                 consonant_ms: active_consonant_ms,
+                // Keep WORLD's fixed consonant region at its velocity-scaled
+                // duration. Clamping it to pitch_leading_ms shortens every
+                // attack whose oto consonant is longer than its preutterance.
+                world_target_consonant_ms: Some(active_consonant_ms),
                 cutoff_ms,
                 volume: phone.expressions.volume,
                 modulation: phone.expressions.modulation,
@@ -711,7 +715,10 @@ impl TrackRenderer {
             // applying either the amplitude envelope or post-wavtool dynamics.
             // Only two short windows are analyzed; the raw segment is not
             // cloned into the ordered merge result.
-            let phase_metadata = if mix_strategy == WavtoolMixStrategy::OpenUtauConvergence {
+            let phase_metadata = if matches!(
+                mix_strategy,
+                WavtoolMixStrategy::OpenUtauConvergence | WavtoolMixStrategy::Wavtool4Vcv
+            ) {
                 let (nominal_start_ms, nominal_skip_ms) = segment_placement(
                     phone.position_ms,
                     timing.preutter_ms,
@@ -818,6 +825,7 @@ impl TrackRenderer {
                 resampler_duration_ms: res_args.duration_ms,
                 source_consonant_ms: res_args.source_consonant_ms,
                 consonant_ms: res_args.consonant_ms,
+                world_target_consonant_ms: res_args.world_target_consonant_ms,
                 cutoff_ms: res_args.cutoff_ms,
                 skip_over_ms: wav_args.skip_over_ms,
                 overlap_ms: wav_args.overlap_ms,

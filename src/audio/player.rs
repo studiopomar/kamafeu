@@ -9,7 +9,7 @@ mod scheduler;
 #[cfg(not(target_arch = "wasm32"))]
 pub use desktop::AudioPlayer;
 #[cfg(not(target_arch = "wasm32"))]
-use scheduler::{push_scheduler_event, SchedulerCommand};
+use scheduler::{chunk_peak_metrics, push_scheduler_event, SchedulerCommand};
 #[cfg(target_arch = "wasm32")]
 #[path = "player/web_audio.rs"]
 mod web_audio;

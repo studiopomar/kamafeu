@@ -99,6 +99,8 @@ pub struct PhonemeRenderDiagnostic {
     pub resampler_duration_ms: f64,
     pub source_consonant_ms: f64,
     pub consonant_ms: f64,
+    #[serde(default)]
+    pub world_target_consonant_ms: Option<f64>,
     pub cutoff_ms: f64,
     pub skip_over_ms: f64,
     pub overlap_ms: f64,

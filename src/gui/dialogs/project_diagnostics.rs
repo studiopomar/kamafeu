@@ -23,14 +23,18 @@ impl KamafeuStudioApp {
                 .with_min_inner_size([460.0, 300.0]),
             |ctx, _class| {
                 egui::CentralPanel::default().show(ctx, |ui| {
+                    super::visual::header(
+                        ui,
+                        super::visual::Art::Diagnostics,
+                        lang.tr("Validação do Projeto", "Project Validation"),
+                        lang.tr(
+                            "Integridade, saúde vocal e ações de correção.",
+                            "Project integrity, vocal health, and repair actions.",
+                        ),
+                        self.config.theme.success_c32(),
+                    );
+                    ui.add_space(8.0);
                     ui.horizontal(|ui| {
-                        ui.heading(
-                            egui::RichText::new(
-                                lang.tr("Validação do Projeto", "Project Validation"),
-                            )
-                            .strong()
-                            .color(self.config.theme.success_c32()),
-                        );
                         ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                             if ui.button(lang.tr("Fechar", "Close")).clicked() {
                                 is_open = false;
@@ -114,7 +118,7 @@ impl KamafeuStudioApp {
                                     ui.visuals().warn_fg_color
                                 }
                             };
-                            ui.group(|ui| {
+                            super::visual::card(ui, |ui| {
                                 ui.horizontal(|ui| {
                                     ui.label(
                                         egui::RichText::new(format!(

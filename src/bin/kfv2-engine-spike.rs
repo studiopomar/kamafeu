@@ -286,7 +286,7 @@ fn run_case(
         normalization: "none; identical output rate, phrase plan and gain; loudness is not normalized".into(),
         phrase_plan: plan,
         sola: report_engine("kamafeu.sola", &sola.phrase, &sola.latencies_ms, &sola_path),
-        world: report_engine("kamafeu.lessampler-tainah", &world.phrase, &world.latencies_ms, &world_path),
+        world: report_engine("kamafeu.tainah-motor", &world.phrase, &world.latencies_ms, &world_path),
         interpretation_limit: "Technical paired render only. Latency is the median of five sequential renders per backend; scheduling and thermal state can still affect it. Buffer bytes estimate only the returned mono f32 phrase, not peak process memory. Migration marks may be unreviewed and the source license may be undefined. This report does not establish intelligibility, naturalness, authorization, or a public product backend.".into(),
     };
     let report_path = output_dir.join("report.json");

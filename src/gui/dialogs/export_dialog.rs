@@ -49,6 +49,13 @@ impl KamafeuStudioApp {
                             .unwrap_or_else(|| "output.wav".to_string());
 
                         ui.horizontal(|ui| {
+                            ui.add(
+                                egui::Image::from_bytes(
+                                    "bytes://kamafeu-dialog-export-progress.svg",
+                                    include_bytes!("../../../assets/dialogs/export.svg"),
+                                )
+                                .fit_to_exact_size(egui::vec2(62.0, 44.0)),
+                            );
                             let status_badge = if export_finished {
                                 if has_error {
                                     lang.tr("[ERRO]", "[ERROR]")

@@ -158,6 +158,44 @@ pub(super) fn merge_track_results(context: TrackMergeContext<'_>) -> Result<Vec<
             );
                 previous_phase_correction = correction;
             }
+            WavtoolMixStrategy::Wavtool4Vcv => {
+                let head = result.phase_metadata.head;
+                let tail = previous_phase_tail;
+                let overlap_end = previous_phone_end_sample.min(track_buffer.len());
+                let correction = if result.adjacent && head.is_some() && tail.is_some() {
+                    let overlap_start = start_sample_idx.min(overlap_end);
+                    let previous_overlap = &track_buffer[overlap_start..overlap_end];
+                    crate::renderer::phase::wavtool4vcv_correction(
+                        previous_overlap,
+                        audible_samples,
+                        sample_rate,
+                        head.expect("checked above").frequency,
+                    )
+                } else {
+                    0
+                };
+                let mixed = TrackRenderer::mix_with_resolved_correction(
+                    &mut track_buffer,
+                    audible_samples,
+                    start_sample_idx,
+                    previous_phone_end_sample,
+                    correction,
+                );
+                previous_phone_end_sample = mixed.end_sample;
+                log(
+                    result.idx as f32 / total_phones as f32,
+                    &format!(
+                        "  [Transition] strategy=Wavtool4Vcv from='{}' to='{}' adjacent={} voiced_windows={} correction_samples={} correction_ms={:.3} source_trim_samples={} envelope=linear-openutau",
+                        previous_lyric.as_deref().unwrap_or("<none>"),
+                        result.lyric,
+                        result.adjacent,
+                        head.is_some() && tail.is_some(),
+                        mixed.correction_samples,
+                        mixed.correction_samples as f64 * 1000.0 / sample_rate.max(1) as f64,
+                        mixed.source_trim_samples,
+                    ),
+                );
+            }
             WavtoolMixStrategy::LegacyPhaseAligned => {
                 let crossfade_samples =
                     ((result.crossfade_ms / 1000.0) * sample_rate as f64).round() as usize;

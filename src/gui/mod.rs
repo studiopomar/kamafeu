@@ -193,6 +193,9 @@ pub struct KamafeuStudioApp {
     copaiba_app: crate::copaiba::gui::CopaibaToolkitApp,
     copaiba_window_open: bool,
     pub packages_window_open: bool,
+    pub plugins_window_open: bool,
+    pub plugins_status: Option<String>,
+    pub game_transcription: GameTranscriptionDialogState,
     pub packages_target_os: usize,
     pub packages_search: String,
     pub preferences_window_open: bool,
@@ -211,6 +214,10 @@ pub struct KamafeuStudioApp {
     pub autopitch_window_open: bool,
     pub autopitch_options: crate::dsp::AutoPitchOptions,
     pub autopitch_scope: crate::dsp::AutoPitchScope,
+    pub autopitch_use_audio_reference: bool,
+    pub autopitch_reference_path: Option<std::path::PathBuf>,
+    pub autopitch_reference: Option<crate::dsp::autopitch_audio::PitchReference>,
+    pub autopitch_reference_status: Option<String>,
     pub batch_lyrics_open: bool,
     pub batch_lyrics_buffer: String,
     last_window_title: String,
@@ -264,6 +271,37 @@ pub struct KamafeuStudioApp {
     workspace_snap_rect: Option<(workspace::WorkspacePane, eframe::egui::Rect)>,
     pub active_mobile_tab: types::MobileViewTab,
     pub mobile_menu_open: bool,
+}
+
+pub struct GameTranscriptionDialogState {
+    pub open: bool,
+    pub audio_path: Option<std::path::PathBuf>,
+    pub command: String,
+    pub model: String,
+    pub language: String,
+    pub lyric: String,
+    pub pitch_shift_semitones: i32,
+    pub notes: Option<Vec<crate::transcription::GameNote>>,
+    pub receiver:
+        Option<std::sync::mpsc::Receiver<Result<Vec<crate::transcription::GameNote>, String>>>,
+    pub status: Option<String>,
+}
+
+impl Default for GameTranscriptionDialogState {
+    fn default() -> Self {
+        Self {
+            open: false,
+            audio_path: None,
+            command: "mvt".into(),
+            model: "game-large".into(),
+            language: String::new(),
+            lyric: "a".into(),
+            pitch_shift_semitones: 0,
+            notes: None,
+            receiver: None,
+            status: None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

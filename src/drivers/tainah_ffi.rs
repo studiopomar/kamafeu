@@ -1,4 +1,4 @@
-//! Versioned lessampler-ng WORLD ABI. The library lives beside the executable
+//! Versioned tainah-engine WORLD ABI. The library lives beside the executable
 //! in desktop packages; TAINAH_LIBRARY_PATH is useful for local development.
 use super::resampler_driver::{parse_utau_flags, ResamplerArgs};
 use std::ffi::{c_char, c_int, c_void, CStr};
@@ -43,6 +43,8 @@ struct Options {
     tail_start_ms: f64,
     cancel: Option<unsafe extern "C" fn(*mut c_void) -> c_int>,
     cancel_user_data: *mut c_void,
+    formant_shift: f64,
+    consonant_adjustment: f64,
 }
 #[repr(C)]
 struct Pcm {
@@ -62,11 +64,11 @@ pub fn library_path() -> Option<PathBuf> {
         return Some(path.into());
     }
     let name = if cfg!(target_os = "windows") {
-        "lessampler_tainah.dll"
+        "tainah_motor.dll"
     } else if cfg!(target_os = "macos") {
-        "liblessampler_tainah.dylib"
+        "libtainah_motor.dylib"
     } else {
-        "liblessampler_tainah.so.1"
+        "libtainah_motor.so.1"
     };
     let executable = std::env::current_exe().ok()?;
     let dir = executable.parent()?;
@@ -75,7 +77,7 @@ pub fn library_path() -> Option<PathBuf> {
         dir.join("../Frameworks").join(name),
         dir.join("../lib").join(name),
         dir.join("../lib/kamafeu").join(name),
-        // The local lessampler-ng builder writes its artifact to
+        // The local tainah-engine builder writes its artifact to
         // target/tainah-package, while Cargo executables live in target/debug
         // (or target/debug/deps for tests).
         dir.join("../tainah-package").join(name),
@@ -99,7 +101,7 @@ pub fn cache_identity() -> String {
         })
         .unwrap_or_else(|| "missing".to_string());
     format!(
-        "lessampler-tainah:abi2:{fingerprint}:{}",
+        "tainah-motor:abi2:{fingerprint}:{}",
         crate::dsp::world_resampler::cache_identity()
     )
 }
@@ -111,12 +113,12 @@ fn world_detector_method(configured: &str) -> Result<u32, String> {
     } else if detector.contains("dio") {
         Ok(2)
     } else if detector.contains("yin") {
-        // lessampler-ng exposes WORLD Harvest and DIO. The app-wide YIN/pyIN
+        // tainah-engine exposes WORLD Harvest and DIO. The app-wide YIN/pyIN
         // preference is used by analysis tools, so use Harvest for Tainah.
         Ok(1)
     } else {
         Err(format!(
-            "WORLD detector '{}' is unsupported by lessampler-ng (use Harvest or DIO)",
+            "WORLD detector '{}' is unsupported by tainah-engine (use Harvest or DIO)",
             configured
         ))
     }
@@ -169,6 +171,8 @@ pub fn render(
         let mut pitch_cents = 0.0_f64;
         let mut breathiness = 0.0_f64;
         let mut high = 0.0_f64;
+        let mut formant_shift = 0.0_f64;
+        let mut consonant_adjustment = 0.0_f64;
         for flag in parse_utau_flags(&args.flags) {
             let value = flag.num_val.unwrap_or(0.0);
             match flag.key.as_str() {
@@ -176,6 +180,8 @@ pub fn render(
                 "t" => pitch_cents = value.clamp(-100.0, 100.0) * 10.0,
                 "B" => breathiness = value.clamp(0.0, 100.0),
                 "H" => high = value.clamp(0.0, 99.0),
+                "P" => formant_shift = value.clamp(-100.0, 100.0),
+                "C" => consonant_adjustment = value.clamp(-100.0, 100.0),
                 _ => {}
             }
         }
@@ -214,6 +220,8 @@ pub fn render(
             cancel_user_data: cancel.map_or(std::ptr::null_mut(), |flag| {
                 flag as *const AtomicBool as *mut c_void
             }),
+            formant_shift,
+            consonant_adjustment,
         };
         let mut pcm = Pcm {
             struct_size: std::mem::size_of::<Pcm>() as u32,

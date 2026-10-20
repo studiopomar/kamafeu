@@ -35,7 +35,7 @@ jobs:
         run: cargo fmt --all -- --check
       - name: Run tests
         env:
-          TAINAH_LIBRARY_PATH: target/tainah-package/liblessampler_tainah.so.1
+          TAINAH_LIBRARY_PATH: target/tainah-package/libtainah_motor.so.1
         run: cargo test --all-targets --all-features --locked
       - name: Run Clippy
         # O CI principal executa Clippy sem promover avisos legados a erros.
@@ -83,22 +83,6 @@ jobs:
             archive: kamafeu-${{ github.ref_name }}-windows-x86.zip
             use_cross: false
             smoke_test: true
-
-          - name: macOS Apple Silicon (ARM64)
-            os: macos-15
-            target: aarch64-apple-darwin
-            binary: kamafeu
-            toolkit_binary: copaiba
-            archive: kamafeu-${{ github.ref_name }}-macos-arm64.dmg
-            use_cross: false
-
-          - name: macOS Intel (x86_64)
-            os: macos-15-intel
-            target: x86_64-apple-darwin
-            binary: kamafeu
-            toolkit_binary: copaiba
-            archive: kamafeu-${{ github.ref_name }}-macos-x86_64.dmg
-            use_cross: false
 
           - name: Linux x64
             os: ubuntu-latest
@@ -187,8 +171,8 @@ jobs:
           Copy-Item $bin_path -Destination "package_root/kamafeu.exe"
           Copy-Item $toolkit_path -Destination "package_root/copaiba.exe"
           Copy-Item "README.md", "LICENSE", "NOTICE.md" -Destination "package_root/"
-          Copy-Item "target/tainah-package/lessampler_tainah.dll" -Destination "package_root/"
-          Copy-Item "target/tainah-package/lessampler-ng-LGPL-3.0.txt" -Destination "package_root/"
+          Copy-Item "target/tainah-package/tainah_motor.dll" -Destination "package_root/"
+          Copy-Item "target/tainah-package/tainah-engine-LGPL-3.0.txt" -Destination "package_root/"
 
           # Recent `ort` builds may statically link ONNX Runtime. If a build
           # selects the dynamic variant, keep its DLL beside the executable;
@@ -223,7 +207,7 @@ jobs:
 
           Compress-Archive -Path "package_root/*" -DestinationPath "${{ matrix.job.archive }}" -Force
 
-      - name: Prepare Artifacts (Unix / Linux / macOS)
+      - name: Prepare Artifacts (Linux)
         if: matrix.job.os != 'windows-latest' && matrix.job.use_cross == false
         run: |
           BIN_PATH="target/${{ matrix.job.target }}/release/${{ matrix.job.binary }}"
@@ -257,12 +241,12 @@ jobs:
           cp README.md LICENSE NOTICE.md package_root/
           if [[ "${{ matrix.job.os }}" == *"macos"* ]]; then
             mkdir -p package_root/Kamafeu.app/Contents/Frameworks
-            cp target/tainah-package/liblessampler_tainah.dylib package_root/Kamafeu.app/Contents/Frameworks/
-            cp target/tainah-package/liblessampler_tainah.dylib package_root/
+            cp target/tainah-package/libtainah_motor.dylib package_root/Kamafeu.app/Contents/Frameworks/
+            cp target/tainah-package/libtainah_motor.dylib package_root/
           else
-            cp target/tainah-package/liblessampler_tainah.so.1 package_root/
+            cp target/tainah-package/libtainah_motor.so.1 package_root/
           fi
-          cp target/tainah-package/lessampler-ng-LGPL-3.0.txt package_root/
+          cp target/tainah-package/tainah-engine-LGPL-3.0.txt package_root/
 
           # Include compiled resamplers
           if [ -d "resamplers_dist/bin" ]; then
@@ -327,13 +311,9 @@ jobs:
           ls -la
 
           VERSION="${GITHUB_REF_NAME#v}"
-          MAC_ARM="kamafeu-${GITHUB_REF_NAME}-macos-arm64.dmg"
-          MAC_INTEL="kamafeu-${GITHUB_REF_NAME}-macos-x86_64.dmg"
           LINUX_X64="kamafeu-${GITHUB_REF_NAME}-linux-x64.tar.gz"
           WINDOWS_X64="kamafeu-${GITHUB_REF_NAME}-windows-x64.zip"
-          test -f "$MAC_ARM" -a -f "$MAC_INTEL" -a -f "$LINUX_X64" -a -f "$WINDOWS_X64"
-          MAC_ARM_SHA=$(sha256sum "$MAC_ARM" | awk '{print $1}')
-          MAC_INTEL_SHA=$(sha256sum "$MAC_INTEL" | awk '{print $1}')
+          test -f "$LINUX_X64" -a -f "$WINDOWS_X64"
           LINUX_X64_SHA=$(sha256sum "$LINUX_X64" | awk '{print $1}')
           WINDOWS_X64_SHA=$(sha256sum "$WINDOWS_X64" | awk '{print $1}')
 
@@ -343,15 +323,6 @@ jobs:
             homepage "https://github.com/studiopomar/kamafeu"
             version "$VERSION"
             license "MIT"
-            on_macos do
-              if Hardware::CPU.arm?
-                url "https://github.com/studiopomar/kamafeu/releases/download/${GITHUB_REF_NAME}/$MAC_ARM"
-                sha256 "$MAC_ARM_SHA"
-              else
-                url "https://github.com/studiopomar/kamafeu/releases/download/${GITHUB_REF_NAME}/$MAC_INTEL"
-                sha256 "$MAC_INTEL_SHA"
-              end
-            end
             on_linux do
               url "https://github.com/studiopomar/kamafeu/releases/download/${GITHUB_REF_NAME}/$LINUX_X64"
               sha256 "$LINUX_X64_SHA"
@@ -390,7 +361,7 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: ./release_assets/*
-          name: Kamafeu Pre-release ${{ github.ref_name }}
+          name: Kamafeu Pre-release v3.0.0 DEV-MODE
           tag_name: ${{ github.ref_name }}
           draft: false
           prerelease: true
@@ -415,14 +386,14 @@ jobs:
           fi
 
           PAYLOAD=$(jq -n \
-            --arg title "🚀 Kamafeu $TAG_NAME Publicado no GitHub Releases!" \
+            --arg title "🚀 Kamafeu Pre-release v3.0.0 DEV-MODE disponível" \
             --arg url "$RELEASE_URL" \
             --arg download_url "$RELEASE_URL" \
-            --arg desc "Todos os binários oficiais foram compilados e estão disponíveis para download direto!" \
+            --arg desc "Versão de testes do Studio Pomar. Usuários comuns podem encontrar instabilidades." \
             --arg username "Bidu" \
             '{
               username: $username,
-              content: "🐶 **Bidu avisa: Binários Oficiais do Kamafeu Publicados no GitHub Releases!**",
+              content: "🐶 **Bidu avisa: Kamafeu Pre-release v3.0.0 DEV-MODE disponível!**",
               embeds: [{
                 title: $title,
                 url: $url,
@@ -431,8 +402,6 @@ jobs:
                 fields: [
                   { name: "💻 Windows x64", value: ("[Download .zip](" + $download_url + ")"), inline: true },
                   { name: "💻 Windows x86 (32-bit)", value: ("[Download .zip](" + $download_url + ")"), inline: true },
-                  { name: "🍏 macOS Apple Silicon", value: ("[Download .dmg](" + $download_url + ")"), inline: true },
-                  { name: "🍎 macOS Intel", value: ("[Download .dmg](" + $download_url + ")"), inline: true },
                   { name: "🐧 Linux x64", value: ("[Download .tar.gz](" + $download_url + ")"), inline: true }
                 ],
                 footer: { text: "studiopomar/kamafeu • Releases Oficial" },

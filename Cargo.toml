@@ -63,8 +63,8 @@ assets = [
   ["README.md", "usr/share/doc/kamafeu/README.md", "644"],
   ["LICENSE", "usr/share/doc/kamafeu/LICENSE", "644"],
   ["NOTICE.md", "usr/share/doc/kamafeu/NOTICE.md", "644"],
-  ["target/tainah-package/liblessampler_tainah.so.1", "usr/lib/kamafeu/liblessampler_tainah.so.1", "755"],
-  ["target/tainah-package/lessampler-ng-LGPL-3.0.txt", "usr/share/doc/kamafeu/lessampler-ng-LGPL-3.0.txt", "644"],
+  ["target/tainah-package/libtainah_motor.so.1", "usr/lib/kamafeu/libtainah_motor.so.1", "755"],
+  ["target/tainah-package/licenca-da-base-LGPL-3.0.txt", "usr/share/doc/kamafeu/licenca-da-base-LGPL-3.0.txt", "644"],
 ]
 
 [package.metadata.generate-rpm]
@@ -75,8 +75,8 @@ assets = [
   { source = "README.md", dest = "/usr/share/doc/kamafeu/README.md", mode = "644" },
   { source = "LICENSE", dest = "/usr/share/licenses/kamafeu/LICENSE", mode = "644" },
   { source = "NOTICE.md", dest = "/usr/share/licenses/kamafeu/NOTICE.md", mode = "644" },
-  { source = "target/tainah-package/liblessampler_tainah.so.1", dest = "/usr/lib/kamafeu/liblessampler_tainah.so.1", mode = "755" },
-  { source = "target/tainah-package/lessampler-ng-LGPL-3.0.txt", dest = "/usr/share/licenses/kamafeu/lessampler-ng-LGPL-3.0.txt", mode = "644" },
+  { source = "target/tainah-package/libtainah_motor.so.1", dest = "/usr/lib/kamafeu/libtainah_motor.so.1", mode = "755" },
+  { source = "target/tainah-package/licenca-da-base-LGPL-3.0.txt", dest = "/usr/share/licenses/kamafeu/licenca-da-base-LGPL-3.0.txt", mode = "644" },
 ]
 
 # Release signing is supplied through CARGO_APK_RELEASE_KEYSTORE and

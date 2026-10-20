@@ -28,6 +28,7 @@ pub enum WavtoolMixStrategy {
     Plain,
     LegacyPhaseAligned,
     OpenUtauConvergence,
+    Wavtool4Vcv,
 }
 
 #[derive(Debug, Clone)]
@@ -250,10 +251,7 @@ mod tests {
         let driver = GalapagosWavtoolDriver;
         assert_eq!(driver.name(), "Galapagos Convergence (Nativo)");
         assert!(driver.phase_alignment());
-        assert_eq!(
-            driver.mix_strategy(),
-            WavtoolMixStrategy::OpenUtauConvergence
-        );
+        assert_eq!(driver.mix_strategy(), WavtoolMixStrategy::Wavtool4Vcv);
         assert_eq!(driver.envelope_curve_name(), "linear-openutau");
         assert!(!driver.consumes_skip_over());
         assert!(driver.phrase_executable().is_none());
@@ -294,9 +292,6 @@ mod tests {
     fn phase_aligned_wavtool_has_a_distinct_stable_identity() {
         let driver = GalapagosWavtoolDriver;
         assert_eq!(driver.engine_id(), "kamafeu.galapagos");
-        assert_eq!(
-            driver.mix_strategy(),
-            WavtoolMixStrategy::OpenUtauConvergence
-        );
+        assert_eq!(driver.mix_strategy(), WavtoolMixStrategy::Wavtool4Vcv);
     }
 }

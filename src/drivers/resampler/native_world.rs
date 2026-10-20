@@ -17,7 +17,7 @@ pub fn is_native_world_resampler_label(label: &str) -> bool {
             | "world"
             | "world-rs"
             | "kamafeu.world-rs"
-            | "kamafeu.lessampler-tainah"
+            | "kamafeu.tainah-motor"
             | "world (nativo)"
             | "world (native)"
     ) || normalized.contains("venus")
@@ -36,7 +36,7 @@ impl ResamplerDriver for NativeWorldResamplerDriver {
         TAINAH_RESAMPLER_LABEL
     }
     fn engine_id(&self) -> &'static str {
-        "kamafeu.lessampler-tainah"
+        "kamafeu.tainah-motor"
     }
     fn cache_identity(&self) -> String {
         #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
@@ -45,7 +45,7 @@ impl ResamplerDriver for NativeWorldResamplerDriver {
         }
         #[cfg(any(target_os = "android", target_arch = "wasm32"))]
         {
-            "lessampler-tainah:unsupported-platform".to_string()
+            "tainah-motor:unsupported-platform".to_string()
         }
     }
     fn render_sample(

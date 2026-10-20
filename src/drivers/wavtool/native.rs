@@ -21,7 +21,7 @@ impl WavtoolDriver for GalapagosWavtoolDriver {
     }
 
     fn mix_strategy(&self) -> WavtoolMixStrategy {
-        WavtoolMixStrategy::OpenUtauConvergence
+        WavtoolMixStrategy::Wavtool4Vcv
     }
 
     fn envelope_curve_name(&self) -> &'static str {

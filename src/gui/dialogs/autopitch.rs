@@ -25,28 +25,81 @@ impl KamafeuStudioApp {
                             .show(ui, |ui| {
                                 ui.spacing_mut().item_spacing = egui::vec2(8.0, 8.0);
 
-                                ui.horizontal(|ui| {
-                                    ui.heading(
-                                        egui::RichText::new("Pre-tunning")
-                                            .strong()
-                                            .size(18.0)
-                                            .color(self.config.theme.success_c32()),
-                                    );
-                                });
-                                ui.label(
-                                    egui::RichText::new(
-                                        lang.tr(
-                                            "Modelagem de curvas de afinação orgânicas, vibrato humano e parâmetros de expressão vocal.",
-                                            "Organic pitch curve modeling, human vibrato, and vocal expression parameters."
-                                        ),
-                                    )
-                                    .size(11.0)
-                                    .color(ui.visuals().text_color()),
+                                super::visual::header(
+                                    ui,
+                                    super::visual::Art::Pitch,
+                                    "Pre-tunning",
+                                    lang.tr(
+                                        "Curvas de afinação, vibrato e expressão vocal.",
+                                        "Pitch curves, vibrato, and vocal expression.",
+                                    ),
+                                    self.config.theme.success_c32(),
                                 );
 
                                 ui.add_space(2.0);
                                 ui.separator();
                                 ui.add_space(2.0);
+
+                                egui::Frame::group(ui.style())
+                                    .fill(ui.visuals().extreme_bg_color)
+                                    .rounding(egui::Rounding::same(10.0))
+                                    .inner_margin(egui::Margin::same(10.0))
+                                    .show(ui, |ui| {
+                                        ui.horizontal(|ui| {
+                                            ui.selectable_value(
+                                                &mut self.autopitch_use_audio_reference,
+                                                false,
+                                                lang.tr("Análise musical", "Musical analysis"),
+                                            );
+                                            ui.selectable_value(
+                                                &mut self.autopitch_use_audio_reference,
+                                                true,
+                                                lang.tr("Referência vocal", "Vocal reference"),
+                                            );
+                                        });
+                                        if self.autopitch_use_audio_reference {
+                                            ui.horizontal_wrapped(|ui| {
+                                                if ui.button(lang.tr("Escolher WAV…", "Choose WAV…")).clicked() {
+                                                    if let Some(path) = crate::dialogs::FileDialog::new().pick_file() {
+                                                        self.autopitch_reference_path = Some(path);
+                                                        self.autopitch_reference = None;
+                                                        self.autopitch_reference_status = None;
+                                                    }
+                                                }
+                                                if let Some(path) = &self.autopitch_reference_path {
+                                                    ui.label(path.file_name().and_then(|name| name.to_str()).unwrap_or("WAV"));
+                                                    if ui.button(lang.tr("Analisar", "Analyze")).clicked() {
+                                                        let result = crate::dsp::autopitch_audio::PitchReference::analyze_wav(path);
+                                                        match result {
+                                                            Ok(reference) => {
+                                                                self.autopitch_reference_status = Some(format!("{} quadros vozeados detectados.", reference.voiced_frames));
+                                                                self.autopitch_reference = Some(reference);
+                                                            }
+                                                            Err(error) => {
+                                                                self.autopitch_reference = None;
+                                                                self.autopitch_reference_status = Some(error);
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            });
+                                            ui.label(lang.tr(
+                                                "A curva é alinhada pelo tempo do projeto. Áudio com ruído pode exigir revisão manual.",
+                                                "The curve follows project time. Noisy audio may need manual review.",
+                                            ));
+                                            if let Some(status) = &self.autopitch_reference_status {
+                                                ui.label(status);
+                                            }
+                                        } else {
+                                            ui.label(lang.tr(
+                                                "A análise considera frase, intervalos, duração e pausas.",
+                                                "Analysis considers phrases, intervals, duration, and gaps.",
+                                            ));
+                                        }
+                                        draw_pitch_preview(ui, self.autopitch_reference.as_ref(), &self.autopitch_options);
+                                    });
+
+                                ui.add_space(4.0);
 
                                 // --- PRESETS & ESTILO ---
                                 ui.label(
@@ -332,9 +385,8 @@ impl KamafeuStudioApp {
                                         .rounding(egui::Rounding::same(4.0))
                                         .min_size(egui::vec2(160.0, 30.0));
 
-                                        if ui.add(apply_btn).clicked() {
+                                        if ui.add_enabled(!self.autopitch_use_audio_reference || self.autopitch_reference.is_some(), apply_btn).clicked() {
                                             trigger_apply = true;
-                                            trigger_close = true;
                                         }
                                     });
                                 });
@@ -346,15 +398,109 @@ impl KamafeuStudioApp {
                 },
             );
 
+            if trigger_apply {
+                if self.apply_autopitch() {
+                    is_open = false;
+                }
+            }
+
             if trigger_close {
                 is_open = false;
             }
 
-            if trigger_apply {
-                self.apply_autopitch();
-            }
-
             self.autopitch_window_open = is_open;
+        }
+    }
+}
+
+fn draw_pitch_preview(
+    ui: &mut egui::Ui,
+    reference: Option<&crate::dsp::autopitch_audio::PitchReference>,
+    options: &crate::dsp::AutoPitchOptions,
+) {
+    let (rect, _) = ui.allocate_exact_size(
+        egui::vec2(ui.available_width().max(240.0), 74.0),
+        egui::Sense::hover(),
+    );
+    let painter = ui.painter_at(rect);
+    let visuals = ui.visuals();
+    painter.rect_filled(rect, 6.0, visuals.panel_fill);
+    let center_y = rect.center().y;
+    painter.line_segment(
+        [
+            egui::pos2(rect.left() + 8.0, center_y),
+            egui::pos2(rect.right() - 8.0, center_y),
+        ],
+        egui::Stroke::new(1.0_f32, visuals.widgets.noninteractive.bg_stroke.color),
+    );
+    let segments: Vec<Vec<(f64, f64)>> = if let Some(reference) = reference {
+        let valid: Vec<f32> = reference
+            .f0_hz
+            .iter()
+            .copied()
+            .filter(|f0| f0.is_finite() && *f0 > 0.0)
+            .collect();
+        let mut sorted = valid.clone();
+        sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let baseline = sorted
+            .get(sorted.len() / 2)
+            .copied()
+            .unwrap_or(220.0)
+            .max(1.0);
+        let mut segments = Vec::<Vec<(f64, f64)>>::new();
+        let mut segment = Vec::new();
+        for (i, f0) in reference.f0_hz.iter().enumerate() {
+            if *f0 > 0.0 && f0.is_finite() {
+                segment.push((
+                    i as f64 * reference.frame_period_ms,
+                    1200.0 * (*f0 as f64 / baseline as f64).log2(),
+                ));
+            } else if !segment.is_empty() {
+                segments.push(std::mem::take(&mut segment));
+            }
+        }
+        if !segment.is_empty() {
+            segments.push(segment);
+        }
+        segments
+    } else {
+        let (bend, _) = crate::dsp::AutoPitchEngine::generate_pitch_for_note(
+            60, 650.0, None, false, false, options,
+        );
+        vec![bend
+            .points
+            .iter()
+            .map(|point| (point.time_offset_ms, point.pitch_offset_cents))
+            .collect()]
+    };
+    if segments.iter().any(|segment| segment.len() > 1) {
+        let max_x = segments
+            .iter()
+            .filter_map(|segment| segment.last().map(|point| point.0))
+            .fold(1.0, f64::max);
+        let max_y = segments
+            .iter()
+            .flatten()
+            .map(|point| point.1.abs())
+            .fold(100.0, f64::max)
+            .clamp(100.0, 900.0);
+        for segment in segments.iter().filter(|segment| segment.len() > 1) {
+            let points: Vec<egui::Pos2> = segment
+                .iter()
+                .map(|(x, y)| {
+                    egui::pos2(
+                        egui::lerp(
+                            (rect.left() + 8.0)..=(rect.right() - 8.0),
+                            (*x / max_x) as f32,
+                        ),
+                        center_y - (*y as f32 / max_y as f32) * (rect.height() * 0.42),
+                    )
+                })
+                .collect();
+            painter.add(egui::Shape::line(
+                points,
+                egui::Stroke::new(2.0_f32, visuals.hyperlink_color),
+            ));
         }
     }
 }

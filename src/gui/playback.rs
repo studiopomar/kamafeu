@@ -28,11 +28,24 @@ fn progressive_chunk_ms(lookahead_ms: f32, render_chunk_bars: u32, bpm: f64) -> 
 
 const PROGRESSIVE_STARTUP_BUFFER_MS: f64 = 3_000.0;
 
+#[cfg(test)]
 pub(super) fn progressive_startup_ready(buffered_ms: f64, current_is_final: bool) -> bool {
     // A single page can be consumed before the next page finishes, especially
     // when external resamplers are busy. Prime three seconds of contiguous
     // audio before opening the sink to avoid starting playback on a thin runway.
-    buffered_ms >= PROGRESSIVE_STARTUP_BUFFER_MS || current_is_final
+    progressive_startup_ready_with_threshold(
+        buffered_ms,
+        current_is_final,
+        PROGRESSIVE_STARTUP_BUFFER_MS,
+    )
+}
+
+fn progressive_startup_ready_with_threshold(
+    buffered_ms: f64,
+    current_is_final: bool,
+    startup_buffer_ms: f64,
+) -> bool {
+    buffered_ms >= startup_buffer_ms || current_is_final
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -42,6 +55,7 @@ fn spawn_progressive_audio_bridge(
     playback: Option<ProgressivePlaybackHandle>,
     metronome_enabled: bool,
     bpm: f64,
+    startup_buffer_ms: f64,
 ) {
     std::thread::Builder::new()
         .name("kamafeu-progressive-audio-bridge".to_string())
@@ -84,7 +98,11 @@ fn spawn_progressive_audio_bridge(
                         .iter()
                         .map(|(_, start_ms, end_ms, _, _, _, _)| (end_ms - start_ms).max(0.0))
                         .sum();
-                    if !progressive_startup_ready(buffered_ms, final_chunk) {
+                    if !progressive_startup_ready_with_threshold(
+                        buffered_ms,
+                        final_chunk,
+                        startup_buffer_ms,
+                    ) {
                         continue;
                     }
                     let mut queued = startup.drain(..);
@@ -195,6 +213,7 @@ impl KamafeuStudioApp {
                 self.audio_player.progressive_handle(),
                 self.transport_state.metronome_enabled,
                 self.project.bpm,
+                PROGRESSIVE_STARTUP_BUFFER_MS,
             );
 
             let resampler_driver = self.create_resampler_driver();
@@ -415,6 +434,7 @@ impl KamafeuStudioApp {
                 self.audio_player.progressive_handle(),
                 self.transport_state.metronome_enabled,
                 project.bpm,
+                PROGRESSIVE_STARTUP_BUFFER_MS,
             );
             std::thread::spawn(move || {
                 let report_progress = move |progress, message: &str| {
@@ -737,6 +757,8 @@ impl KamafeuStudioApp {
 
 #[cfg(test)]
 mod tests {
+    #[cfg(not(target_arch = "wasm32"))]
+    use super::PROGRESSIVE_STARTUP_BUFFER_MS;
     use super::{progressive_chunk_ms, progressive_startup_ready};
 
     #[cfg(not(target_arch = "wasm32"))]
@@ -746,7 +768,14 @@ mod tests {
         use crate::renderer::{ProgressiveChunk, RenderedAudio};
         let (audio_tx, audio_rx) = std::sync::mpsc::channel();
         let (ui_tx, ui_rx) = std::sync::mpsc::channel();
-        spawn_progressive_audio_bridge(audio_rx, ui_tx, None, false, 120.0);
+        spawn_progressive_audio_bridge(
+            audio_rx,
+            ui_tx,
+            None,
+            false,
+            120.0,
+            PROGRESSIVE_STARTUP_BUFFER_MS,
+        );
         audio_tx
             .send(ProgressiveChunk {
                 audio: RenderedAudio::failed(48_000, "WORLD failed".into()),

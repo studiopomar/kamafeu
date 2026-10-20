@@ -1,4 +1,5 @@
 pub mod autopitch;
+pub mod autopitch_audio;
 pub mod envelope;
 pub mod lpc;
 pub mod native;

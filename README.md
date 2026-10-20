@@ -22,6 +22,8 @@
 
 > **Estado atual:** `3.0`, codinome **Calafate**. Esta é a nova série principal do Kamafeu. O núcleo do editor e os formatos principais estão maduros; motores externos, voicebanks e drivers de áudio ainda precisam ser validados na máquina do usuário.
 
+> **Pre-release v3.0.0 DEV-MODE:** versão de testes destinada aos integrantes do Studio Pomar. Usuários comuns podem encontrar instabilidades e comportamentos inesperados; use esta versão considerando que ainda está em validação.
+
 > **Codinome da série:** **Calafate**. O número `3.0` marca a nova linha de desenvolvimento; internamente, o pacote usa SemVer `3.0.0`.
 
 <details>

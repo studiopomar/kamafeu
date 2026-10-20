@@ -49,6 +49,9 @@ pub struct ResamplerArgs {
     pub duration_ms: f64,
     pub source_consonant_ms: f64,
     pub consonant_ms: f64,
+    /// Optional WORLD-only target boundary aligned to the resolved note onset.
+    /// Classic resamplers continue to use `consonant_ms` unchanged.
+    pub world_target_consonant_ms: Option<f64>,
     pub cutoff_ms: f64,
     pub volume: f64,
     pub modulation: f64,
@@ -156,7 +159,7 @@ mod tests {
         assert_eq!(NativeWorldResamplerDriver.name(), "Tainah");
         assert_eq!(
             NativeWorldResamplerDriver.engine_id(),
-            "kamafeu.lessampler-tainah"
+            "kamafeu.tainah-motor"
         );
     }
 
@@ -184,6 +187,7 @@ mod tests {
             duration_ms: 500.0,
             source_consonant_ms: 80.0,
             consonant_ms: 64.0,
+            world_target_consonant_ms: None,
             cutoff_ms: -20.0,
             volume: 90.0,
             modulation: 5.0,
@@ -247,7 +251,7 @@ mod tests {
             .execution
             .stages
             .iter()
-            .all(|stage| stage.contains("lessampler-tainah")));
+            .all(|stage| stage.contains("tainah-motor")));
     }
 
     #[test]

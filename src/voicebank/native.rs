@@ -850,9 +850,9 @@ mod tests {
         assert!(rendered.samples.iter().all(|sample| sample.is_finite()));
 
         let world = crate::voicebank::render::render_phrase_world(&bank, &plan, 48_000).unwrap();
-        assert_eq!(world.engine_id, "kamafeu.lessampler-tainah");
-        assert_eq!(world.units[0].requested_engine, "kamafeu.lessampler-tainah");
-        assert_eq!(world.units[0].effective_engine, "kamafeu.lessampler-tainah");
+        assert_eq!(world.engine_id, "kamafeu.tainah-motor");
+        assert_eq!(world.units[0].requested_engine, "kamafeu.tainah-motor");
+        assert_eq!(world.units[0].effective_engine, "kamafeu.tainah-motor");
         assert!(world.units[0].fallback_reasons.is_empty());
         assert!(!world.units[0].stages.is_empty());
         assert!(!world.samples.is_empty());

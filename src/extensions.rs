@@ -15,14 +15,14 @@ pub use project_formats::{
     default_project_format_registry, ProjectFormatAdapter, ProjectFormatRegistry,
 };
 pub use wasm_runtime::{
-    invoke_wasm_bytes, invoke_wasm_i32, invoke_wasm_i32_with_parameters, verify_wasm_extension,
-    verify_wasm_extension_with_policy, WasmExtensionInfo,
+    invoke_wasm_bytes, invoke_wasm_i32, invoke_wasm_i32_with_parameters, invoke_wasm_json,
+    verify_wasm_extension, verify_wasm_extension_with_policy, WasmExtensionInfo,
 };
 
 pub const EXTENSION_MANIFEST_FILE: &str = "kamafeu-extension.json";
 pub const EXTENSION_API_VERSION: u32 = 1;
 pub const EXTENSION_ABI_MIN_VERSION: u32 = 1;
-pub const EXTENSION_ABI_MAX_VERSION: u32 = 1;
+pub const EXTENSION_ABI_MAX_VERSION: u32 = 2;
 
 /// Host-side consent state. Discovery may list requested permissions, but an
 /// extension is only eligible for activation when every request is present in
@@ -552,7 +552,7 @@ pub struct BuiltInCapability {
 pub fn built_in_capabilities() -> Vec<BuiltInCapability> {
     let capabilities = vec![
         BuiltInCapability {
-            id: "org.kamafeu.lessampler-tainah",
+            id: "org.kamafeu.tainah-motor",
             name: "Tainah",
             kind: ExtensionKind::SynthesisEngine,
             description: "Resampler nativo baseado em WORLD, com stretch nas sustentações e ataques/caudas preservados por marcas de voicebank. Falhas de análise, síntese ou cobertura são retornadas como erros diagnosticados; Tainah não troca de backend.",
@@ -730,7 +730,7 @@ mod tests {
             .all(|capability| is_valid_extension_id(capability.id)));
         let world = capabilities
             .iter()
-            .find(|capability| capability.id == "org.kamafeu.lessampler-tainah")
+            .find(|capability| capability.id == "org.kamafeu.tainah-motor")
             .expect("native WORLD capability");
         assert_eq!(world.name, "Tainah");
         assert!(world.description.contains("não troca de backend"));

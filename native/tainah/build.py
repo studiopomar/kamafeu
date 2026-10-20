@@ -6,11 +6,10 @@ import sys
 
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
-REVISION = "8cba8a316947819639d2ad5ecfe679999a98ce4d"
+REVISION = "13385ed68c0d5f4fa84229b76278c70b0f3ad5a7"
 URL = "https://github.com/studiopomar/Tainah-rt.git"
-SOURCE = pathlib.Path(
-    os.environ.get("TAINAH_RT_SOURCE", ROOT / "target" / "tainah-rt-source")
-).resolve()
+SOURCE_OVERRIDE = os.environ.get("TAINAH_RT_SOURCE")
+SOURCE = pathlib.Path(SOURCE_OVERRIDE or ROOT / "target" / "tainah-rt-source").resolve()
 PACKAGE = ROOT / "target" / "tainah-package"
 
 
@@ -27,6 +26,20 @@ else:
         ["git", "rev-parse", "HEAD"], cwd=SOURCE, text=True
     ).strip()
     if current != REVISION:
-        raise SystemExit(f"Tainah-rt revision mismatch: {current}; expected {REVISION}")
+        dirty = subprocess.check_output(
+            ["git", "status", "--porcelain"], cwd=SOURCE, text=True
+        ).strip()
+        if dirty:
+            raise SystemExit(
+                f"Tainah-rt source has local changes at {current}; expected {REVISION}"
+            )
+        if SOURCE_OVERRIDE:
+            raise SystemExit(
+                f"TAINAH_RT_SOURCE revision mismatch: {current}; expected {REVISION}"
+            )
+        run(["git", "fetch", "origin", REVISION], cwd=SOURCE)
+        run(["git", "checkout", "--detach", REVISION], cwd=SOURCE)
+
+run(["git", "submodule", "update", "--init", "--recursive"], cwd=SOURCE)
 
 run([sys.executable, str(SOURCE / "build.py"), "--output", str(PACKAGE)])

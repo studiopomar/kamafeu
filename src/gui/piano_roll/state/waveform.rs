@@ -155,15 +155,35 @@ impl PianoRollState {
         if end_ms < waveform_start || start_ms > waveform_end {
             return None;
         }
+        // A peak belongs to its whole absolute-time bucket. Select buckets
+        // that overlap this pixel interval, without pulling in a neighboring
+        // bucket or interpolating across a gap in the rendered audio.
+        let first_bucket = waveform_bucket_index(start_ms as f64);
+        let last_bucket = waveform_bucket_index(if end_ms > start_ms {
+            (end_ms as f64 - 0.000_001).max(start_ms as f64)
+        } else {
+            end_ms as f64
+        });
+        let first_time = waveform_bucket_time(first_bucket);
+        let last_time = waveform_bucket_time(last_bucket);
         let first = self
             .rendered_waveform_peaks
-            .partition_point(|(time, _, _)| *time < start_ms)
-            .saturating_sub(1);
+            .partition_point(|(time, _, _)| *time < first_time);
         let end = self
             .rendered_waveform_peaks
-            .partition_point(|(time, _, _)| *time <= end_ms)
-            .max(first + 1)
-            .min(self.rendered_waveform_peaks.len());
+            .partition_point(|(time, _, _)| *time <= last_time);
+        if first >= end {
+            return None;
+        }
+        if self.rendered_waveform_peaks[first..end]
+            .windows(2)
+            .any(|pair| {
+                waveform_bucket_index(pair[1].0 as f64) - waveform_bucket_index(pair[0].0 as f64)
+                    > 1
+            })
+        {
+            return None;
+        }
         let (mut min_value, mut max_value) = (1.0f32, -1.0f32);
         for &(_, min, max) in &self.rendered_waveform_peaks[first..end] {
             min_value = min_value.min(min);

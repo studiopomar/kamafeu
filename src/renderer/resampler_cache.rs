@@ -427,6 +427,7 @@ mod tests {
             duration_ms: 500.0,
             source_consonant_ms: 100.0,
             consonant_ms: 100.0,
+            world_target_consonant_ms: None,
             cutoff_ms: 0.0,
             volume: 100.0,
             modulation: 0.0,

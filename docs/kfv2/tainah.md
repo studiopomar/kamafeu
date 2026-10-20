@@ -2,13 +2,13 @@
 
 ## Português (Brasil)
 
-Tainah é o resampler do Kamafeu baseado na biblioteca compartilhada WORLD do lessampler-ng (LGPL-3.0). Ele analisa F0, envoltória espectral e aperiodicidade; o mapa temporal usa offset, cutoff e marcas de `oto.ini` para sustain e cauda. Quando o carregamento, a análise ou a saída falha nos critérios técnicos, o render retorna erro com diagnóstico; não troca para SOLA ou resize. Os critérios detectam silêncio e cobertura insuficiente, mas não garantem qualidade perceptiva.
+Tainah é o resampler do Kamafeu baseado na biblioteca compartilhada WORLD do tainah-engine (LGPL-3.0). Ele analisa F0, envoltória espectral e aperiodicidade; o mapa temporal usa offset, cutoff e marcas de `oto.ini` para sustain e cauda. Quando o carregamento, a análise ou a saída falha nos critérios técnicos, o render retorna erro com diagnóstico; não troca para SOLA ou resize. Os critérios detectam silêncio e cobertura insuficiente, mas não garantem qualidade perceptiva.
 
 ### Instalação e seleção
 
 Instale uma versão desktop compatível do Kamafeu. Na faixa, abra as opções de voz/resampler e selecione **Tainah**. **Straycat** continua como padrão desktop enquanto não houver avaliação auditiva controlada que aprove Tainah. O Kamafeu Web não oferece este resampler nativo.
 
-Para desenvolvimento local, execute `python3 native/tainah/build.py` e inicie o aplicativo; ele procura automaticamente a biblioteca em `target/tainah-package`. `TAINAH_LIBRARY_PATH` continua disponível para indicar outro caminho. O script fixa a revisão do lessampler-ng, compila a biblioteca e executa o teste de ABI. O cache de análise fica na pasta de cache do usuário, fora do voicebank.
+Para desenvolvimento local, execute `python3 native/tainah/build.py` e inicie o aplicativo; ele procura automaticamente a biblioteca em `target/tainah-package`. `TAINAH_LIBRARY_PATH` continua disponível para indicar outro caminho. O script fixa a revisão do tainah-engine, compila a biblioteca e executa o teste de ABI. O cache de análise fica na pasta de cache do usuário, fora do voicebank.
 
 O motor usa os detectores WORLD Harvest ou DIO. Quando as preferências globais estiverem em YIN ou pyIN, Tainah usa Harvest; ao escolher DIO, o motor usa DIO.
 
@@ -30,13 +30,13 @@ Não há benchmark público concluído nem resultado de escuta cega aprovado. O 
 
 ## English
 
-Tainah uses the shared WORLD library from lessampler-ng (LGPL-3.0). It analyzes F0, spectral envelope, and aperiodicity. Its time map uses offset, cutoff, and `oto.ini` markers for sustain and tail regions. Library loading, analysis, or output failures return diagnostics; it does not switch to SOLA or resize. These checks detect silence and insufficient coverage; they do not establish perceptual quality.
+Tainah uses the shared WORLD library from tainah-engine (LGPL-3.0). It analyzes F0, spectral envelope, and aperiodicity. Its time map uses offset, cutoff, and `oto.ini` markers for sustain and tail regions. Library loading, analysis, or output failures return diagnostics; it does not switch to SOLA or resize. These checks detect silence and insufficient coverage; they do not establish perceptual quality.
 
 ### Installation and selection
 
 Install a compatible Kamafeu desktop build. In the track voice/resampler options, select **Tainah**. **Straycat** remains the desktop default until Tainah passes a controlled listening evaluation. The Kamafeu Web build does not provide this native resampler.
 
-For local development, run `python3 native/tainah/build.py` and launch the app; it automatically searches `target/tainah-package`. `TAINAH_LIBRARY_PATH` is available to select another path. The script pins lessampler-ng, builds the library, and runs its ABI test. Analysis cache files live in the user's cache directory, outside the voicebank.
+For local development, run `python3 native/tainah/build.py` and launch the app; it automatically searches `target/tainah-package`. `TAINAH_LIBRARY_PATH` is available to select another path. The script pins tainah-engine, builds the library, and runs its ABI test. Analysis cache files live in the user's cache directory, outside the voicebank.
 
 The engine uses WORLD Harvest or DIO. If the global preference is YIN or pyIN, Tainah uses Harvest; selecting DIO makes it use DIO.
 

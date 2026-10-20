@@ -61,9 +61,7 @@ impl KamafeuStudioApp {
         resolve_monophonic_overlaps(self.current_notes_mut());
     }
 
-    pub fn apply_autopitch(&mut self) {
-        self.push_history();
-
+    pub fn apply_autopitch(&mut self) -> bool {
         let selected: Option<Vec<usize>> = match self.autopitch_scope {
             crate::dsp::AutoPitchScope::SelectedOnly => {
                 if self.piano_roll_state.selected_note_indices.is_empty() {
@@ -83,6 +81,32 @@ impl KamafeuStudioApp {
             crate::dsp::AutoPitchScope::AllNotes => None,
         };
 
+        if self.autopitch_use_audio_reference {
+            let Some(reference) = self.autopitch_reference.clone() else {
+                self.autopitch_reference_status =
+                    Some("Analise um WAV antes de aplicar a referência.".into());
+                return false;
+            };
+            let mut candidate = self.current_notes().to_vec();
+            let applied = reference.apply_to_notes(&mut candidate, selected.as_deref());
+            if applied == 0 {
+                self.autopitch_reference_status =
+                    Some("Não há notas selecionadas com pitch detectável no intervalo.".into());
+                return false;
+            }
+            self.push_history();
+            self.current_notes_mut().clone_from(&candidate);
+            self.piano_roll_state.continuous_edit_dirty = true;
+            self.is_dirty = true;
+            self.transport_state.status_message =
+                format!("Referência de áudio aplicada a {applied} notas");
+            self.autopitch_reference_status =
+                Some(format!("Curva transferida para {applied} notas."));
+            return true;
+        }
+
+        self.push_history();
+
         let options = self.autopitch_options.clone();
         let notes = self.current_notes_mut();
         crate::dsp::AutoPitchEngine::apply_to_notes(notes, selected.as_deref(), &options);
@@ -95,6 +119,7 @@ impl KamafeuStudioApp {
                 .tr("aplicado com sucesso", "applied successfully"),
             options.preset.display_name(self.config.language)
         );
+        true
     }
 
     pub fn current_notes_mut(&mut self) -> &mut Vec<UNote> {

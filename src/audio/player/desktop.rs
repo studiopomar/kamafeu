@@ -1,5 +1,5 @@
 use super::{
-    push_scheduler_event, set_flush_denormals_to_zero, PlaybackSchedulerEvent,
+    chunk_peak_metrics, push_scheduler_event, set_flush_denormals_to_zero, PlaybackSchedulerEvent,
     PlaybackSchedulerState, ProgressivePlaybackHandle, SchedulerCommand, FLUSH_DENORMALS_TO_ZERO,
 };
 use crate::audio::playback_timeline::{PlaybackTimeline, TimelineChunk, TimelineDecision};
@@ -214,6 +214,7 @@ impl AudioPlayer {
                                 }
                                 match Sink::try_new(&worker_handle) {
                                     Ok(next) => {
+                                        let (peak, over_limit_samples) = chunk_peak_metrics(&samples);
                                         next.append(SamplesBuffer::new(
                                             channels.max(1),
                                             sample_rate,
@@ -257,6 +258,8 @@ impl AudioPlayer {
                                                 index,
                                                 start_ms,
                                                 end_ms,
+                                                peak,
+                                                over_limit_samples,
                                             },
                                         );
                                     }
@@ -370,6 +373,7 @@ impl AudioPlayer {
                                         PlaybackSchedulerState::Waiting
                                             | PlaybackSchedulerState::Underrun
                                     );
+                                    let (peak, over_limit_samples) = chunk_peak_metrics(&samples);
                                     active.append(SamplesBuffer::new(
                                         channels.max(1),
                                         sample_rate,
@@ -413,6 +417,8 @@ impl AudioPlayer {
                                             index,
                                             start_ms,
                                             end_ms,
+                                            peak,
+                                            over_limit_samples,
                                         },
                                     );
                                 } else {

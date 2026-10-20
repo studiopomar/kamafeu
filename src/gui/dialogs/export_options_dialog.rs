@@ -18,20 +18,15 @@ impl KamafeuStudioApp {
                 |ctx, _class| {
                     egui::CentralPanel::default().show(ctx, |ui| {
                         egui::ScrollArea::vertical().show(ui, |ui| {
-                        ui.add_space(4.0);
-                        ui.heading(
-                            egui::RichText::new(lang.tr("Opções e Configurações de Exportação", "Export Options & Settings"))
-                                .strong()
-                                .size(15.0)
-                                .color(ui.visuals().hyperlink_color),
-                        );
-                        ui.label(
-                            egui::RichText::new(lang.tr(
+                        super::visual::header(
+                            ui,
+                            super::visual::Art::Export,
+                            lang.tr("Exportação de áudio", "Audio export"),
+                            lang.tr(
                                 "Escolha o escopo de áudio, formato e qualidade desejados para a exportação:",
                                 "Choose the audio scope, format, and quality desired for export:",
-                            ))
-                            .size(11.0)
-                            .color(ui.visuals().text_color()),
+                            ),
+                            self.config.theme.success_c32(),
                         );
 
                         ui.add_space(8.0);

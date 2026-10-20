@@ -7,13 +7,13 @@ implementados no checkout; não é uma comparação de qualidade sonora.
 
 | Seleção/uso | Identidade estável | Caminho executado | Estado |
 | --- | --- | --- | --- |
-| `Tainah` no desktop | `kamafeu.lessampler-tainah` | `NativeWorldResamplerDriver` chama a ABI C++ WORLD do lessampler-ng; ataque, sustentação e cauda são definidos pelas marcas de `oto.ini` no mapa temporal dos frames. Falhas de carregamento, análise, cobertura ou síntese retornam erro. | O nome visível e os aliases salvos continuam aceitos. A superioridade auditiva sobre straycat-rs ainda depende da comparação pareada com voicebank autorizado. |
-| Aliases antigos `WORLD (Nativo)`, `WORLD (Native)` ou `VENUS` | `kamafeu.lessampler-tainah` | `create_resampler_driver` reconhece os rótulos salvos e instancia `NativeWorldResamplerDriver`. | Compatibilidade de configuração; esses aliases não indicam outro motor. |
+| `Tainah` no desktop | `kamafeu.tainah-motor` | `NativeWorldResamplerDriver` chama a ABI C++ WORLD do tainah-engine; ataque, sustentação e cauda são definidos pelas marcas de `oto.ini` no mapa temporal dos frames. Falhas de carregamento, análise, cobertura ou síntese retornam erro. | O nome visível e os aliases salvos continuam aceitos. A superioridade auditiva sobre straycat-rs ainda depende da comparação pareada com voicebank autorizado. |
+| Aliases antigos `WORLD (Nativo)`, `WORLD (Native)` ou `VENUS` | `kamafeu.tainah-motor` | `create_resampler_driver` reconhece os rótulos salvos e instancia `NativeWorldResamplerDriver`. | Compatibilidade de configuração; esses aliases não indicam outro motor. |
 | Driver SOLA clássico | `kamafeu.sola` | `NativeResamplerDriver` chama `SolaResampler` diretamente. | Implementado, mas não escolhido como referência de produto. |
 | Preview padrão e exportação KFV 2 | `kamafeu.sola` | `render_phrase_sola` chama SOLA explicitamente e não troca para WORLD. | Protótipo experimental; backend de referência pendente. |
 | Preview comparativo do Copaíba | SOLA ou WORLD solicitado | O operador escolhe um backend para a mesma unidade/frase; WORLD passa pelo driver nativo. Erros de WORLD interrompem o preview em vez de mudar de backend. | Ferramenta de spike experimental; não altera exportação nem seleciona backend de produto. |
 | Andromeda | `kamafeu.andromeda` | `NativeWavtoolDriver` aplica o envelope UTAU com curva cosseno. | Wavtool alternativo, sem alinhamento de fase. |
-| Galapagos | `kamafeu.galapagos` | `GalapagosWavtoolDriver` usa curva linear de compatibilidade OpenUtau e estratégia `OpenUtauConvergence`. | Caminho nativo de alinhamento/mixagem; não é resampler. |
+| Galapagos | `kamafeu.galapagos` | `GalapagosWavtoolDriver` usa envelope linear compatível com OpenUtau e otimiza a posição da emenda pela energia do crossfade, inspirada na semântica de alinhamento automático do wavtool4vcv. | Caminho nativo de mixagem; o ajuste fica limitado ao menor valor entre meio período, 5 ms e a região de overlap, e depende de janelas vocais periódicas confiáveis. A qualidade auditiva ainda requer comparação com wavtool4vcv. |
 
 Os perfis externos conhecidos também têm IDs separados dos rótulos, sob o
 namespace `external.resampler.*`; caminhos de executável personalizados sem um
@@ -31,7 +31,7 @@ cache persistente; um WAV sem metadados correspondentes é rejeitado e refeito.
 
 ## Tratamento de falhas WORLD
 
-O lessampler-ng devolve um código e uma mensagem para entrada inválida, região
+O tainah-engine devolve um código e uma mensagem para entrada inválida, região
 sem cobertura, cancelamento, falha WORLD ou saída silenciosa. O driver Rust
 rejeita também duração, taxa e cobertura incompatíveis; não substitui o
 resultado por SOLA nem por resize.

@@ -9,6 +9,7 @@ mod fx_rack_dialog;
 mod humanize_dialog;
 mod lyrics_dialog;
 mod markers;
+mod plugins;
 mod project;
 mod project_diagnostics;
 mod recovery_snapshots;
@@ -16,6 +17,8 @@ mod shortcuts_guide;
 mod singers_gallery;
 mod templates;
 mod theme_customizer;
+mod transcription;
+mod visual;
 mod voicebank;
 
 use super::KamafeuStudioApp;
@@ -38,6 +41,8 @@ impl KamafeuStudioApp {
         self.show_humanize_dialog(ctx);
         self.show_copaiba(ctx);
         self.show_packages_window(ctx);
+        self.show_plugins_window(ctx);
+        self.show_game_transcription(ctx);
         self.show_shortcuts_guide(ctx);
         self.show_batch_lyrics(ctx);
         self.show_singers_gallery(ctx);

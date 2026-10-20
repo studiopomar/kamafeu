@@ -236,6 +236,64 @@ pub(crate) fn openutau_convergence_correction(
     correction.clamp(-half_period, half_period)
 }
 
+/// Find the small sample shift that maximizes the combined energy in the
+/// existing overlap. This mirrors wavtool4vcv's automatic crossfade
+/// optimization: adjust the splice position to avoid phase cancellation,
+/// while leaving the authored envelope and the rest of the phrase intact.
+pub(crate) fn wavtool4vcv_correction(
+    previous_overlap: &[f32],
+    incoming: &[f32],
+    sample_rate: u32,
+    frequency: f64,
+) -> isize {
+    if sample_rate == 0 || !frequency.is_finite() || frequency <= 0.0 {
+        return 0;
+    }
+    let common_len = previous_overlap.len().min(incoming.len());
+    let period = (sample_rate as f64 / frequency).round() as isize;
+    if common_len < 8 || period < 2 {
+        return 0;
+    }
+    let max_shift = (period / 2)
+        .min((sample_rate as isize * 5 / 1000).max(1))
+        .min((common_len as isize - 1) / 4);
+    if max_shift <= 0 {
+        return 0;
+    }
+
+    // Score the same interior samples for every candidate. The guard region
+    // keeps both source slices in bounds as the incoming segment shifts.
+    let range_start = max_shift as usize;
+    let range_end = common_len.saturating_sub(max_shift as usize);
+    if range_end <= range_start {
+        return 0;
+    }
+
+    let mut best_shift = 0isize;
+    let mut best_energy = f64::NEG_INFINITY;
+    for shift in -max_shift..=max_shift {
+        let mut energy = 0.0f64;
+        for destination_index in range_start..range_end {
+            let source_index = (destination_index as isize - shift) as usize;
+            let mixed =
+                f64::from(previous_overlap[destination_index]) + f64::from(incoming[source_index]);
+            energy += mixed * mixed;
+        }
+        if energy > best_energy + 1e-12
+            || ((energy - best_energy).abs() <= 1e-12
+                && shift.unsigned_abs() < best_shift.unsigned_abs())
+        {
+            best_energy = energy;
+            best_shift = shift;
+        }
+    }
+    if !best_energy.is_finite() || best_energy <= 1e-12 {
+        0
+    } else {
+        best_shift
+    }
+}
+
 /// Align only confidently periodic material. The caller has already applied
 /// complementary envelopes; no additional crossfade or gain is introduced.
 ///
@@ -337,6 +395,42 @@ pub fn correction(previous: &[f32], incoming: &[f32], frequency: f64, rate: u32)
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn wavtool4vcv_search_reduces_cancellation_in_the_overlap() {
+        let period = 20.0f64;
+        let previous = (0..400)
+            .map(|index| (std::f64::consts::TAU * index as f64 / period).sin() as f32)
+            .collect::<Vec<_>>();
+        let incoming = (0..400)
+            .map(|index| (std::f64::consts::TAU * (index as f64 + 3.0) / period).sin() as f32)
+            .collect::<Vec<_>>();
+        let shift = wavtool4vcv_correction(&previous, &incoming, 1_000, 50.0);
+        let window = 5..395;
+        let before = window
+            .clone()
+            .map(|index| (previous[index] + incoming[index]).powi(2))
+            .sum::<f32>();
+        let after = window
+            .map(|index| (previous[index] + incoming[(index as isize - shift) as usize]).powi(2))
+            .sum::<f32>();
+
+        assert_ne!(shift, 0);
+        assert!(after > before * 1.2);
+        assert!(shift.abs() <= 5);
+    }
+
+    #[test]
+    fn wavtool4vcv_search_is_bounded_and_leaves_silence_unshifted() {
+        assert_eq!(
+            wavtool4vcv_correction(&[0.0; 100], &[0.0; 100], 1_000, 100.0),
+            0
+        );
+        assert_eq!(
+            wavtool4vcv_correction(&[0.5; 100], &[0.5; 100], 0, 100.0),
+            0
+        );
+    }
 
     fn sine(rate: u32, frequency: f64, count: usize, phase: f64) -> Vec<f32> {
         (0..count)

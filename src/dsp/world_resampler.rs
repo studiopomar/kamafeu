@@ -1,4 +1,4 @@
-//! Runtime WORLD settings shared by the desktop UI and the lessampler-ng adapter.
+//! Runtime WORLD settings shared by the desktop UI and the tainah-engine adapter.
 use std::sync::{OnceLock, RwLock};
 
 #[derive(Debug, Clone)]

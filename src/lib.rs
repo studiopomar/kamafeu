@@ -19,6 +19,7 @@ pub mod phonemizer;
 pub mod project;
 pub mod renderer;
 pub mod terminal_log;
+pub mod transcription;
 pub mod updater;
 pub mod voicebank;
 

@@ -1254,6 +1254,7 @@ pub(super) fn draw(
                                 duration_ms: dur_ms,
                                 source_consonant_ms: 0.0,
                                 consonant_ms: consonant_timing,
+                                world_target_consonant_ms: None,
                                 cutoff_ms: 0.0,
                                 volume,
                                 modulation,

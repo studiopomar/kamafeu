@@ -14,6 +14,8 @@ pub enum PlaybackSchedulerEvent {
         index: usize,
         start_ms: f64,
         end_ms: f64,
+        peak: f32,
+        over_limit_samples: usize,
     },
     ChunkRejected {
         generation: u64,
@@ -45,6 +47,18 @@ pub enum PlaybackSchedulerEvent {
         final_chunk_received: bool,
         played_ms: f64,
     },
+}
+
+pub(super) fn chunk_peak_metrics(samples: &[f32]) -> (f32, usize) {
+    samples.iter().filter(|sample| sample.is_finite()).fold(
+        (0.0f32, 0usize),
+        |(peak, over_limit), sample| {
+            (
+                peak.max(sample.abs()),
+                over_limit + usize::from(sample.abs() > 1.0),
+            )
+        },
+    )
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -174,6 +188,65 @@ pub(super) fn push_scheduler_event(
         while queue.len() > 512 {
             queue.pop_front();
         }
+    }
+}
+
+#[cfg(test)]
+mod peak_tests {
+    use super::{chunk_peak_metrics, push_scheduler_event, PlaybackSchedulerEvent};
+    use std::collections::VecDeque;
+    use std::sync::{Arc, Mutex};
+
+    #[test]
+    fn measures_peak_and_samples_over_full_scale_per_chunk() {
+        assert_eq!(chunk_peak_metrics(&[0.2, -0.5, 0.0]), (0.5, 0));
+        assert_eq!(chunk_peak_metrics(&[1.0, -1.0]), (1.0, 0));
+        assert_eq!(chunk_peak_metrics(&[1.2, -1.5, 0.7]), (1.5, 2));
+    }
+
+    #[test]
+    fn scheduler_queue_keeps_chunk_delivery_and_underrun_events_distinct() {
+        let events = Arc::new(Mutex::new(VecDeque::new()));
+        for event in [
+            PlaybackSchedulerEvent::ChunkAccepted {
+                generation: 3,
+                index: 0,
+                start_ms: 0.0,
+                end_ms: 20.0,
+                peak: 1.2,
+                over_limit_samples: 4,
+            },
+            PlaybackSchedulerEvent::ChunkRejected {
+                generation: 3,
+                index: 1,
+                reason: "invalid format".to_string(),
+            },
+            PlaybackSchedulerEvent::WaitingForChunk {
+                generation: 3,
+                played_ms: 20.0,
+            },
+            PlaybackSchedulerEvent::Underrun {
+                generation: 3,
+                played_ms: 20.0,
+            },
+        ] {
+            push_scheduler_event(&events, event);
+        }
+
+        let events = events.lock().unwrap();
+        assert!(
+            matches!(events[0], PlaybackSchedulerEvent::ChunkAccepted { peak, over_limit_samples: 4, .. } if peak == 1.2)
+        );
+        assert!(matches!(
+            events[1],
+            PlaybackSchedulerEvent::ChunkRejected { index: 1, .. }
+        ));
+        assert!(
+            matches!(events[2], PlaybackSchedulerEvent::WaitingForChunk { played_ms, .. } if played_ms == 20.0)
+        );
+        assert!(
+            matches!(events[3], PlaybackSchedulerEvent::Underrun { played_ms, .. } if played_ms == 20.0)
+        );
     }
 }
 

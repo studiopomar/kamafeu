@@ -205,6 +205,7 @@ impl AutoPitchEngine {
             .map(|n| (n.midi_key(), n.position_ms, n.duration_ms))
             .collect();
 
+        let phrase_context = Self::analyze_phrases(&note_context);
         for idx in 0..note_count {
             if !should_process(idx) {
                 continue;
@@ -227,13 +228,40 @@ impl AutoPitchEngine {
                 false
             };
 
+            let context = phrase_context[idx];
+            let mut contextual_options = options.clone();
+            let leap = context
+                .previous_interval
+                .abs()
+                .max(context.next_interval.abs());
+            let leap_factor = 1.0 + (leap as f64 / 24.0).clamp(0.0, 0.35);
+            let duration_factor = if dur_ms < 120.0 {
+                0.72
+            } else if dur_ms < 220.0 {
+                0.88
+            } else {
+                1.0
+            };
+            let phrase_onset_factor = if context.phrase_start { 1.12 } else { 1.0 };
+            contextual_options.intensity =
+                (options.intensity * leap_factor * duration_factor * phrase_onset_factor)
+                    .clamp(0.0, 2.5);
+            if contextual_options.preset != AutoPitchPreset::HardTuneModern
+                && contextual_options.portamento_speed_ms == 0.0
+                && context.previous_interval.abs() > 0
+            {
+                contextual_options.portamento_speed_ms = (dur_ms
+                    * (0.10 + context.previous_interval.abs() as f64 * 0.012))
+                    .clamp(25.0, 150.0);
+            }
+
             let (new_pitch_bend, new_vibrato) = Self::generate_pitch_for_note(
                 current_midi,
                 dur_ms,
                 prev_midi,
                 is_prev_adjacent,
                 is_next_adjacent,
-                options,
+                &contextual_options,
             );
 
             notes[idx].pitch_bend = new_pitch_bend;
@@ -251,6 +279,35 @@ impl AutoPitchEngine {
                 options,
             );
         }
+    }
+
+    fn analyze_phrases(notes: &[(u8, f64, f64)]) -> Vec<PhraseContext> {
+        notes
+            .iter()
+            .enumerate()
+            .map(|(idx, &(midi, pos, duration))| {
+                let previous = idx
+                    .checked_sub(1)
+                    .and_then(|i| {
+                        let (prev_midi, prev_pos, prev_duration) = notes[i];
+                        ((pos - (prev_pos + prev_duration)) <= 60.0)
+                            .then_some(midi as i16 - prev_midi as i16)
+                    })
+                    .unwrap_or(0);
+                let next = notes
+                    .get(idx + 1)
+                    .and_then(|&(next_midi, next_pos, _)| {
+                        ((next_pos - (pos + duration)) <= 60.0)
+                            .then_some(next_midi as i16 - midi as i16)
+                    })
+                    .unwrap_or(0);
+                PhraseContext {
+                    phrase_start: idx == 0 || notes[idx - 1].1 + notes[idx - 1].2 + 60.0 < pos,
+                    previous_interval: previous,
+                    next_interval: next,
+                }
+            })
+            .collect()
     }
 
     pub fn apply_expressions_to_note(
@@ -676,6 +733,13 @@ impl AutoPitchEngine {
     }
 }
 
+#[derive(Clone, Copy, Default)]
+struct PhraseContext {
+    phrase_start: bool,
+    previous_interval: i16,
+    next_interval: i16,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -736,6 +800,27 @@ mod tests {
             has_positive_overshoot,
             "Salto ascendente C4 -> G4 deve gerar overshoot positivo, pontos: {:?}",
             note_g4.pitch_bend.points
+        );
+    }
+
+    #[test]
+    fn contextual_analysis_scales_portamento_with_melodic_leap() {
+        let options = AutoPitchOptions {
+            enable_vibrato: false,
+            ..Default::default()
+        };
+        let mut step = vec![
+            UNote::new("a", "C4", 0.0, 400.0),
+            UNote::new("d", "D4", 400.0, 400.0),
+        ];
+        let mut octave = vec![
+            UNote::new("a", "C4", 0.0, 400.0),
+            UNote::new("c", "C5", 400.0, 400.0),
+        ];
+        AutoPitchEngine::apply_to_notes(&mut step, None, &options);
+        AutoPitchEngine::apply_to_notes(&mut octave, None, &options);
+        assert!(
+            octave[1].pitch_bend.portamento_length_ms > step[1].pitch_bend.portamento_length_ms
         );
     }
 
