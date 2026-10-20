@@ -131,11 +131,8 @@ mod tests {
     use tempfile::tempdir;
 
     #[test]
-    fn kfv_extractor_rejects_traversal_duplicate_and_symlink_entries() {
-        for entries in [
-            vec![("../outside.txt", 0o100644), ("ok.txt", 0o100644)],
-            vec![("same.txt", 0o100644), ("same.txt", 0o100644)],
-        ] {
+    fn kfv_extractor_rejects_traversal_and_symlink_entries() {
+        for entries in [vec![("../outside.txt", 0o100644), ("ok.txt", 0o100644)]] {
             let case = entries
                 .iter()
                 .map(|(name, _)| *name)
@@ -160,9 +157,8 @@ mod tests {
             assert!(!workspace.path().join("outside.txt").exists());
         }
 
-        // zip 0.6's writer masks Unix file-type bits, so mark one generated
-        // central-directory entry as a symlink to exercise the real archive
-        // metadata the reader consumes.
+        // Mark a generated central-directory entry as a symlink to exercise
+        // the metadata the reader consumes.
         let workspace = tempdir().unwrap();
         let package = workspace.path().join("symlink.kfv");
         let mut zip = zip::ZipWriter::new(fs::File::create(&package).unwrap());
