@@ -56,7 +56,7 @@ jobs:
           cp target/release/kamafeu AppDir/usr/bin/
           cp target/release/copaiba AppDir/usr/bin/
           cp target/tainah-package/libtainah_motor.so.1 AppDir/usr/lib/kamafeu/
-          cp target/tainah-package/tainah-engine-LGPL-3.0.txt AppDir/usr/share/licenses/kamafeu/
+          cp target/tainah-package/licenca-da-base-LGPL-3.0.txt AppDir/usr/share/licenses/kamafeu/
           cp packaging/kamafeu.desktop AppDir/usr/share/applications/
           cp assets/icon.png AppDir/usr/share/icons/hicolor/256x256/apps/kamafeu.png
           cp assets/icon.png AppDir/kamafeu.png

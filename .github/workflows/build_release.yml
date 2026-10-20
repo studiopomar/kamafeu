@@ -172,7 +172,7 @@ jobs:
           Copy-Item $toolkit_path -Destination "package_root/copaiba.exe"
           Copy-Item "README.md", "LICENSE", "NOTICE.md" -Destination "package_root/"
           Copy-Item "target/tainah-package/tainah_motor.dll" -Destination "package_root/"
-          Copy-Item "target/tainah-package/tainah-engine-LGPL-3.0.txt" -Destination "package_root/"
+          Copy-Item "target/tainah-package/licenca-da-base-LGPL-3.0.txt" -Destination "package_root/"
 
           # Recent `ort` builds may statically link ONNX Runtime. If a build
           # selects the dynamic variant, keep its DLL beside the executable;
@@ -246,7 +246,7 @@ jobs:
           else
             cp target/tainah-package/libtainah_motor.so.1 package_root/
           fi
-          cp target/tainah-package/tainah-engine-LGPL-3.0.txt package_root/
+          cp target/tainah-package/licenca-da-base-LGPL-3.0.txt package_root/
 
           # Include compiled resamplers
           if [ -d "resamplers_dist/bin" ]; then
