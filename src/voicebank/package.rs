@@ -189,7 +189,7 @@ mod tests {
             "kamafeu_voicebank.json",
             zip::write::SimpleFileOptions::default(),
         )
-            .unwrap();
+        .unwrap();
         zip.write_all(br#"{"format":"kamafeu.voicebank","schema_version":"2.0.0"}"#)
             .unwrap();
         zip.finish().unwrap();

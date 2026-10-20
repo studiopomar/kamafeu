@@ -205,9 +205,8 @@ impl CopaibaToolkitApp {
             .map_err(|e| format!("Falha ao criar arquivo .kfv: {}", e))?;
         let mut zip = zip::ZipWriter::new(file);
 
-        let options =
-            zip::write::SimpleFileOptions::default()
-                .compression_method(zip::CompressionMethod::Deflated);
+        let options = zip::write::SimpleFileOptions::default()
+            .compression_method(zip::CompressionMethod::Deflated);
 
         fn walk_rec(
             src_dir: &std::path::Path,
