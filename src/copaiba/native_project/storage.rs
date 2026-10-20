@@ -92,7 +92,7 @@ impl CopaibaNativeProject {
             if !metadata.is_file() || metadata.file_type().is_symlink() {
                 return Err(format!("package asset is not a regular file: {}", relative));
             }
-            let options = zip::write::FileOptions::default()
+            let options = zip::write::SimpleFileOptions::default()
                 .compression_method(zip::CompressionMethod::Deflated);
             zip.start_file(&relative, options)
                 .map_err(|e| format!("cannot add {relative} to KFV: {e}"))?;

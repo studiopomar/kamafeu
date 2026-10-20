@@ -145,7 +145,7 @@ mod tests {
             let package = workspace.path().join("bad.kfv");
             let mut zip = zip::ZipWriter::new(fs::File::create(&package).unwrap());
             for (name, mode) in entries {
-                let options = zip::write::FileOptions::default().unix_permissions(mode);
+                let options = zip::write::SimpleFileOptions::default().unix_permissions(mode);
                 zip.start_file(name, options).unwrap();
                 zip.write_all(b"payload").unwrap();
             }
@@ -166,7 +166,7 @@ mod tests {
         let workspace = tempdir().unwrap();
         let package = workspace.path().join("symlink.kfv");
         let mut zip = zip::ZipWriter::new(fs::File::create(&package).unwrap());
-        zip.start_file("link", zip::write::FileOptions::default())
+        zip.start_file("link", zip::write::SimpleFileOptions::default())
             .unwrap();
         zip.write_all(b"target").unwrap();
         zip.finish().unwrap();

@@ -54,7 +54,10 @@ pub fn inspect_package_metadata(path: &Path) -> Result<Kfv2PackageSummary, Strin
         {
             return Err("KFV packages cannot contain symbolic links".into());
         }
-        let name = entry.name();
+        let name = entry
+            .name()
+            .map_err(|error| format!("invalid KFV entry name: {error}"))?
+            .into_owned();
         if name.contains('\\') || name.contains('\0') {
             return Err("KFV package contains an unsafe entry path".into());
         }
@@ -182,7 +185,10 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let package = temp.path().join("invalid.kfv");
         let mut zip = zip::ZipWriter::new(fs::File::create(&package).unwrap());
-        zip.start_file("kamafeu_voicebank.json", zip::write::FileOptions::default())
+        zip.start_file(
+            "kamafeu_voicebank.json",
+            zip::write::SimpleFileOptions::default(),
+        )
             .unwrap();
         zip.write_all(br#"{"format":"kamafeu.voicebank","schema_version":"2.0.0"}"#)
             .unwrap();

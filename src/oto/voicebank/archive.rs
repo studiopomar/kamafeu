@@ -27,19 +27,23 @@ pub(crate) fn extract_kfv(zip_path: &Path, dest_dir: &Path) -> Result<(), std::i
         let mut file = archive
             .by_index(i)
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+        let entry_name = file
+            .name()
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?
+            .into_owned();
         if file
             .unix_mode()
             .is_some_and(|mode| mode & 0o170000 == 0o120000)
         {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
-                format!("links are not allowed in KFV packages: {}", file.name()),
+                format!("links are not allowed in KFV packages: {entry_name}"),
             ));
         }
         if file.size() > MAX_FILE_SIZE {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
-                format!("entrada KFV excede o limite de tamanho: {}", file.name()),
+                format!("entrada KFV excede o limite de tamanho: {entry_name}"),
             ));
         }
         if file.size() > 10 * 1024 * 1024
@@ -48,7 +52,7 @@ pub(crate) fn extract_kfv(zip_path: &Path, dest_dir: &Path) -> Result<(), std::i
         {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
-                format!("entrada KFV possui compressão suspeita: {}", file.name()),
+                format!("entrada KFV possui compressão suspeita: {entry_name}"),
             ));
         }
         total_size = total_size.checked_add(file.size()).ok_or_else(|| {
@@ -60,7 +64,6 @@ pub(crate) fn extract_kfv(zip_path: &Path, dest_dir: &Path) -> Result<(), std::i
                 "conteúdo descompactado do KFV excede o limite permitido",
             ));
         }
-        let entry_name = file.name().to_string();
         if entry_name.contains('\\') || entry_name.contains('\0') {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
@@ -92,7 +95,7 @@ pub(crate) fn extract_kfv(zip_path: &Path, dest_dir: &Path) -> Result<(), std::i
         }
         let outpath = dest_dir.join(enclosed);
 
-        if (*file.name()).ends_with('/') {
+        if entry_name.ends_with('/') {
             fs::create_dir_all(&outpath)?;
         } else {
             if let Some(p) = outpath.parent() {

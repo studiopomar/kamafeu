@@ -844,7 +844,7 @@ mod tests {
         assert!(reopened.layers[0].1.units[0].quality.reviewed);
         let mut archive = zip::ZipArchive::new(fs::File::open(package).unwrap()).unwrap();
         let names = (0..archive.len())
-            .map(|i| archive.by_index(i).unwrap().name().to_string())
+            .map(|i| archive.by_index(i).unwrap().name().unwrap().into_owned())
             .collect::<BTreeSet<_>>();
         assert!(!names.contains("unused-notes.txt"));
         assert!(names.contains("audio/take1.wav"));

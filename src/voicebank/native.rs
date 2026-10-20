@@ -341,7 +341,7 @@ mod tests {
         let folder_bank = NativeBank::load_dir(root.path()).unwrap();
         let package = root.path().join("fixture.kfv");
         let mut zip = zip::ZipWriter::new(std::fs::File::create(&package).unwrap());
-        let options = zip::write::FileOptions::default();
+        let options = zip::write::SimpleFileOptions::default();
         for (path, name) in [
             (
                 root.path().join("kamafeu_voicebank.json"),
