@@ -43,6 +43,7 @@ mod visual_tokens {
 }
 
 pub fn configure_copaiba_theme(ctx: &egui::Context) {
+    egui_extras::install_image_loaders(ctx);
     let mut style = (*ctx.style()).clone();
     let mut visuals = egui::Visuals::dark();
     let border = Stroke::new(1.0_f32, visual_tokens::BORDER);
@@ -146,6 +147,7 @@ pub struct CopaibaToolkitApp {
     pub kamuse_selected_tone: Option<String>,
     pub kamuse_selected_recording: Option<String>,
     pub kamuse_prompt_filter: String,
+    pub kamuse_active_view: String,
     pub kamuse_waveform: Option<(PathBuf, Vec<f32>, f64)>,
     pub kamuse_drag_mark: Option<usize>,
     pub kamuse_marks_dirty: bool,
@@ -211,6 +213,7 @@ impl Default for CopaibaToolkitApp {
             kamuse_selected_tone: None,
             kamuse_selected_recording: None,
             kamuse_prompt_filter: String::new(),
+            kamuse_active_view: "Editor".into(),
             kamuse_waveform: None,
             kamuse_drag_mark: None,
             kamuse_marks_dirty: false,

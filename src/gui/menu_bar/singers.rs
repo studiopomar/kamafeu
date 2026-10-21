@@ -150,7 +150,7 @@ impl KamafeuStudioApp {
                 .button("KAMUSE · Kamafeu Autoria e Modelagem de Unidades Sonoras Editáveis")
                 .clicked()
             {
-                self.copaiba_window_open = true;
+                self.open_kamuse_for_current_context();
                 ui.close_menu();
             }
         });

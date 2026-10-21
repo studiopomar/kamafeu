@@ -515,13 +515,22 @@ fn render_unit(
         .sustain
         .as_ref()
         .map(|r| (r.start_frame, r.end_frame));
+    let expression_flags = format!(
+        "g{:.0}B{:.0}",
+        planned.expressions.gender.clamp(-100.0, 100.0),
+        planned.expressions.breathiness.clamp(0.0, 100.0)
+    );
+    let flags = crate::drivers::resampler_driver::merge_utau_flags(&[
+        &planned.flags,
+        &expression_flags,
+    ]);
     let args = ResamplerArgs {
         input_wav: PathBuf::new(),
         output_wav: PathBuf::new(),
         pitch_name: format!("MIDI{}", planned.requested_midi),
         pitch_freq: frequency,
         velocity: 100.0,
-        flags: String::new(),
+        flags,
         offset_ms: ms(source.start_frame),
         duration_ms: planned.target_duration_ms,
         source_consonant_ms,
@@ -540,7 +549,7 @@ fn render_unit(
         loop_end_ms: source_sustain.map(|r| ms(r.1)),
         tail_start_ms: source.release_start_frame.map(ms),
     };
-    let (output, execution) = match backend {
+    let (mut output, execution) = match backend {
         PreviewBackend::Sola => {
             let rendered = crate::dsp::SolaResampler::render_sample_with_mode_cancellable(
                 samples,
@@ -591,8 +600,69 @@ fn render_unit(
         ));
     }
     let gain = 10.0f32.powf((unit.render.gain_db / 20.0) as f32);
-    Ok((
-        output.into_iter().map(|sample| sample * gain).collect(),
-        execution,
-    ))
+    let volume = if planned.expressions.volume.is_finite() {
+        planned.expressions.volume.clamp(0.0, 200.0) / 100.0
+    } else {
+        1.0
+    };
+    let dynamics = if planned.expressions.dynamics.is_finite() {
+        planned.expressions.dynamics.clamp(-240.0, 120.0)
+    } else {
+        0.0
+    };
+    let mut dynamics_curve = planned.expressions.dynamics_curve.clone();
+    dynamics_curve.retain(|point| point.time_offset_ms.is_finite() && point.value.is_finite());
+    for point in &mut dynamics_curve {
+        point.value = point.value.clamp(-240.0, 120.0);
+    }
+    dynamics_curve.sort_by(|left, right| left.time_offset_ms.total_cmp(&right.time_offset_ms));
+    let anchor_offset_ms = (planned.anchor_frame - planned.source_start_frame) as f64 * 1_000.0
+        / sample_rate as f64;
+    let sample_step_ms = 1_000.0 / sample_rate as f64;
+    let event_duration_ms = (planned.target_duration_ms - anchor_offset_ms).max(1.0);
+    let attack = if planned.expressions.attack.is_finite() {
+        planned.expressions.attack.clamp(0.0, 200.0) / 100.0
+    } else {
+        1.0
+    };
+    let decay = if planned.expressions.decay.is_finite() {
+        planned.expressions.decay.clamp(0.0, 100.0) / 100.0
+    } else {
+        0.0
+    };
+    let mut curve_index = 0usize;
+    for (index, sample) in output.iter_mut().enumerate() {
+        let expression_time_ms = index as f64 * sample_step_ms - anchor_offset_ms;
+        while curve_index + 1 < dynamics_curve.len()
+            && expression_time_ms > dynamics_curve[curve_index + 1].time_offset_ms
+        {
+            curve_index += 1;
+        }
+        let dynamic_value = if dynamics_curve.is_empty() {
+            dynamics
+        } else if curve_index + 1 >= dynamics_curve.len() {
+            dynamics_curve[curve_index].value
+        } else {
+            let left = &dynamics_curve[curve_index];
+            let right = &dynamics_curve[curve_index + 1];
+            let span = (right.time_offset_ms - left.time_offset_ms).max(1e-6);
+            let amount = ((expression_time_ms - left.time_offset_ms) / span).clamp(0.0, 1.0);
+            left.value + (right.value - left.value) * amount
+        };
+        let expression_gain =
+            volume * 10.0f64.powf(dynamic_value.clamp(-240.0, 120.0) * 0.1 / 20.0);
+        let attack_gain = if expression_time_ms < 5.0 {
+            attack + (1.0 - attack) * (expression_time_ms / 5.0).clamp(0.0, 1.0)
+        } else {
+            1.0
+        };
+        let decay_start_ms = event_duration_ms - 35.0;
+        let decay_gain = if expression_time_ms > decay_start_ms {
+            1.0 - decay * ((expression_time_ms - decay_start_ms) / 35.0).clamp(0.0, 1.0)
+        } else {
+            1.0
+        };
+        *sample *= gain * (expression_gain * attack_gain * decay_gain) as f32;
+    }
+    Ok((output, execution))
 }

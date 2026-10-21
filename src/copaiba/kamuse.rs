@@ -6,6 +6,7 @@ use std::path::{Path, PathBuf};
 pub struct KamuseProject {
     pub root: PathBuf,
     pub cantor: Cantor,
+    package_path: Option<PathBuf>,
     _workspace: Option<std::sync::Arc<tempfile::TempDir>>,
 }
 
@@ -73,6 +74,7 @@ impl KamuseProject {
                 imagem: None,
                 portrait: None,
             },
+            package_path: None,
             _workspace: None,
         };
         project.save()?;
@@ -84,9 +86,13 @@ impl KamuseProject {
 
     pub fn load(path: &Path) -> Result<Self, String> {
         let bank = CantorBank::load_path(path)?;
+        let package_path = path
+            .is_file()
+            .then(|| std::fs::canonicalize(path).unwrap_or_else(|_| path.to_path_buf()));
         Ok(Self {
             root: bank.root,
             cantor: bank.cantor,
+            package_path,
             _workspace: bank._workspace,
         })
     }
@@ -107,6 +113,9 @@ impl KamuseProject {
             .map_err(|e| format!("falha ao sincronizar cantor.toml: {e}"))?;
         tmp.persist(target)
             .map_err(|e| format!("falha ao publicar cantor.toml: {}", e.error))?;
+        if let Some(package_path) = &self.package_path {
+            CantorBank::load_path(&self.root)?.package(package_path)?;
+        }
         Ok(())
     }
 

@@ -641,6 +641,8 @@ impl CantorBank {
                 duration_ms: note.duracao_ms,
                 midi: note.midi,
                 pitch_points: Vec::new(),
+                expressions: crate::project::model::UExpressions::default(),
+                flags: String::new(),
                 unit_override_id: None,
                 layer_override_id: None,
             });
@@ -668,6 +670,8 @@ impl CantorBank {
                     duration_ms: duration,
                     midi: next.midi,
                     pitch_points: Vec::new(),
+                    expressions: crate::project::model::UExpressions::default(),
+                    flags: String::new(),
                     unit_override_id: None,
                     layer_override_id: None,
                 });
