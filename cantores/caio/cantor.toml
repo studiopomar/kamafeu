@@ -1,0 +1,30 @@
+versao = 1
+id = "org.kamafeu.caio"
+nome = "Caio"
+idiomas = ["pt-BR"]
+engine = "tainah"
+imagem = "assets/avatar.png"
+portrait = "assets/caio.png"
+
+[ajustes]
+ganho_db = 5.5
+transicao_ms = 20.0
+
+[[tons]]
+id = "midi-60"
+midi = 60
+
+[[tons.gravacoes]]
+id = "kak"
+arquivo = "src/kak.mp3"
+fonemas = [
+    "k",
+    "a",
+    "k",
+]
+marcacoes_ms = [
+    32.63567223017212,
+    133.01541510285165,
+    800.0,
+    1057.9148699366858,
+]

@@ -83,6 +83,7 @@ pub(super) fn draw_and_interact(
             (n.midi_key(), n.position_ms, n.duration_ms, first_t)
         })
         .collect();
+    let note_neighbors = UNote::time_neighbors(notes);
 
     let vibrato_buttons: Vec<_> = notes
         .iter()
@@ -521,9 +522,9 @@ pub(super) fn draw_and_interact(
             }
         }
 
-        let (previous_midi, is_adjacent) = if idx > 0 {
-            let (prev_m, prev_pos, prev_dur, _) = note_info[idx - 1];
-            let adj = (prev_pos + prev_dur - note.position_ms).abs() <= 1.0;
+        let (previous_midi, is_adjacent) = if let Some(previous_idx) = note_neighbors[idx].0 {
+            let (prev_m, prev_pos, prev_dur, _) = note_info[previous_idx];
+            let adj = UNote::are_adjacent(prev_pos + prev_dur, note.position_ms);
             (Some(prev_m), adj)
         } else {
             (None, false)
@@ -789,6 +790,7 @@ pub(super) fn draw_and_interact(
             visible_clip,
             grid_start_y,
             note_info: &note_info,
+            note_neighbors: &note_neighbors,
             pending_pitch_handles: &pending_pitch_handles,
             mouse_interact_pos,
             theme,

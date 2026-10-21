@@ -3,6 +3,69 @@ use std::path::{Path, PathBuf};
 use std::sync::atomic::AtomicBool;
 use std::time::Duration;
 
+/// Positional numeric arguments for the classic `wavtool2` command.
+///
+/// Kept in one place because both phrase concatenation and one-note execution
+/// must preserve the UTAU CLI order. `offset_ms` and `overlap_ms` are supplied
+/// by the caller because phrase concatenation handles the first segment and
+/// negative offsets differently from the per-note path.
+fn classic_wavtool_numeric_args(args: &WavtoolArgs, offset_ms: f64, overlap_ms: f64) -> [f64; 13] {
+    let envelope = &args.envelope;
+    [
+        offset_ms,
+        args.duration_ms,
+        envelope.p1,
+        envelope.p2,
+        envelope.p3,
+        envelope.v1,
+        envelope.v2,
+        envelope.v3,
+        envelope.v4,
+        overlap_ms,
+        envelope.p4,
+        envelope.p5,
+        envelope.v5,
+    ]
+}
+
+fn classic_wavtool_cli_args(
+    args: &WavtoolArgs,
+    offset_ms: f64,
+    overlap_ms: f64,
+    phrase_call: bool,
+) -> [String; 13] {
+    let numeric_args = classic_wavtool_numeric_args(args, offset_ms, overlap_ms);
+    std::array::from_fn(|index| {
+        let value = numeric_args[index];
+        if phrase_call {
+            format!("{value:.6}")
+        } else if matches!(index, 5..=8 | 12) {
+            format!("{value:.0}")
+        } else {
+            format!("{value:.1}")
+        }
+    })
+}
+
+fn describe_classic_wavtool_cli_args(values: &[String; 13]) -> String {
+    format!(
+        "offset={} length={} p1={} p2={} p3={} v1={} v2={} v3={} v4={} ovr={} p4={} p5={} v5={}",
+        values[0],
+        values[1],
+        values[2],
+        values[3],
+        values[4],
+        values[5],
+        values[6],
+        values[7],
+        values[8],
+        values[9],
+        values[10],
+        values[11],
+        values[12]
+    )
+}
+
 /// Classic wavtools own concatenation: every call appends to the same phrase.
 pub fn concatenate_external(
     executable: &Path,
@@ -34,37 +97,34 @@ pub fn concatenate_external(
             input = output.with_file_name(format!("padded-{index}.wav"));
             crate::renderer::TrackRenderer::save_wav_samples(&input, &padded, rate)?;
         }
-        let env = &item.envelope;
         let mut cmd = crate::drivers::process::prepare_command(executable)?;
         cmd.arg(path_arg(output)).arg(path_arg(&input));
-        for value in [
-            item.skip_over_ms.max(0.0),
-            item.duration_ms,
-            env.p1,
-            env.p2,
-            env.p3,
-            env.v1,
-            env.v2,
-            env.v3,
-            env.v4,
-            if index == 0 {
-                0.0
-            } else {
-                item.overlap_ms.max(0.0)
-            },
-            env.p4,
-            env.p5,
-            env.v5,
-        ] {
-            cmd.arg(format!("{value:.6}"));
+        let overlap_ms = if index == 0 {
+            0.0
+        } else {
+            item.overlap_ms.max(0.0)
+        };
+        let numeric_args =
+            classic_wavtool_cli_args(item, item.skip_over_ms.max(0.0), overlap_ms, true);
+        for value in &numeric_args {
+            cmd.arg(value);
         }
         let result =
-            crate::drivers::process::run_with_timeout(&mut cmd, Duration::from_secs(120), cancel)?;
+            crate::drivers::process::run_with_timeout(&mut cmd, Duration::from_secs(120), cancel)
+                .map_err(|error| {
+                format!(
+                    "Wavtool {}, segmento {} ({}): {error}",
+                    executable.display(),
+                    index + 1,
+                    describe_classic_wavtool_cli_args(&numeric_args)
+                )
+            })?;
         if !result.status.success() {
             return Err(format!(
-                "Wavtool {}, segmento {}: {}",
+                "Wavtool {}, segmento {} ({}) falhou: {}",
                 executable.display(),
                 index + 1,
+                describe_classic_wavtool_cli_args(&numeric_args),
                 String::from_utf8_lossy(&result.stderr).trim()
             ));
         }
@@ -182,30 +242,28 @@ impl WavtoolDriver for ExternalWavtoolDriver {
             };
 
             let mut cmd = crate::drivers::process::prepare_command(&final_exe)?;
-            cmd.arg(out_arg)
-                .arg(in_arg)
-                .arg(format!("{:.1}", args.skip_over_ms))
-                .arg(format!("{:.1}", args.duration_ms))
-                .arg(format!("{:.1}", args.envelope.p1))
-                .arg(format!("{:.1}", args.envelope.p2))
-                .arg(format!("{:.1}", args.envelope.p3))
-                .arg(format!("{:.0}", args.envelope.v1))
-                .arg(format!("{:.0}", args.envelope.v2))
-                .arg(format!("{:.0}", args.envelope.v3))
-                .arg(format!("{:.0}", args.envelope.v4))
-                .arg(format!("{:.1}", args.overlap_ms))
-                .arg(format!("{:.1}", args.envelope.p4))
-                .arg(format!("{:.1}", args.envelope.p5))
-                .arg(format!("{:.0}", args.envelope.v5));
+            cmd.arg(out_arg).arg(in_arg);
+            let numeric_args =
+                classic_wavtool_cli_args(args, args.skip_over_ms, args.overlap_ms, false);
+            for value in &numeric_args {
+                cmd.arg(value);
+            }
 
             let output = crate::drivers::process::run_with_timeout(
                 &mut cmd,
                 Duration::from_secs(120),
                 cancel,
-            )?;
+            )
+            .map_err(|error| {
+                format!(
+                    "wavtool falhou ({}): {error}",
+                    describe_classic_wavtool_cli_args(&numeric_args)
+                )
+            })?;
             if !output.status.success() {
                 return Err(format!(
-                    "wavtool falhou: {}",
+                    "wavtool falhou ({}): {}",
+                    describe_classic_wavtool_cli_args(&numeric_args),
                     String::from_utf8_lossy(&output.stderr).trim()
                 ));
             }
@@ -215,5 +273,72 @@ impl WavtoolDriver for ExternalWavtoolDriver {
         // become the phone audio before the renderer mixes it into the track.
         load_wavtool_output(note_samples, sample_rate, &args.output_wav)?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::dsp::envelope::UtauEnvelope;
+
+    #[test]
+    fn classic_wavtool_numeric_arguments_follow_utau_cli_order() {
+        let args = WavtoolArgs {
+            output_wav: PathBuf::from("out.wav"),
+            input_rendered_wav: PathBuf::from("in.wav"),
+            skip_over_ms: 1.0,
+            duration_ms: 2.0,
+            envelope: UtauEnvelope {
+                p1: 3.0,
+                p2: 4.0,
+                p3: 5.0,
+                v1: 6.0,
+                v2: 7.0,
+                v3: 8.0,
+                v4: 9.0,
+                p4: 11.0,
+                p5: 12.0,
+                v5: 13.0,
+                ..UtauEnvelope::default()
+            },
+            overlap_ms: 10.0,
+            phoneme_envelope: [(0.0, 0.0); 5],
+            sample_time_zero_ms: 0.0,
+        };
+
+        assert_eq!(
+            classic_wavtool_numeric_args(&args, 1.0, 10.0),
+            [1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0]
+        );
+        assert_eq!(
+            classic_wavtool_cli_args(&args, 1.0, 10.0, false),
+            ["1.0", "2.0", "3.0", "4.0", "5.0", "6", "7", "8", "9", "10.0", "11.0", "12.0", "13"]
+                .map(str::to_string)
+        );
+        assert_eq!(
+            describe_classic_wavtool_cli_args(&classic_wavtool_cli_args(
+                &args, 1.0, 10.0, false
+            )),
+            "offset=1.0 length=2.0 p1=3.0 p2=4.0 p3=5.0 v1=6 v2=7 v3=8 v4=9 ovr=10.0 p4=11.0 p5=12.0 v5=13"
+        );
+        assert_eq!(
+            classic_wavtool_cli_args(&args, 1.0, 10.0, true),
+            [
+                "1.000000",
+                "2.000000",
+                "3.000000",
+                "4.000000",
+                "5.000000",
+                "6.000000",
+                "7.000000",
+                "8.000000",
+                "9.000000",
+                "10.000000",
+                "11.000000",
+                "12.000000",
+                "13.000000"
+            ]
+            .map(str::to_string)
+        );
     }
 }

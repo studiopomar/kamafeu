@@ -4,6 +4,36 @@ impl KamafeuStudioApp {
     pub(super) fn menu_singers(&mut self, ui: &mut egui::Ui) {
         let lang = self.config.language;
         ui.menu_button(lang.tr("Cantores", "Singers"), |ui| {
+            let native_bank_active = self
+                .project
+                .tracks
+                .get(self.active_track_index)
+                .and_then(|track| track.native_voicebank.as_ref())
+                .and_then(|reference| reference.source_path_hint.as_ref())
+                .is_some();
+            if ui
+                .add_enabled(
+                    native_bank_active,
+                    egui::Button::new(lang.tr(
+                        "Configurar cantor Kamafeu da faixa ativa...",
+                        "Configure active track's Kamafeu singer...",
+                    )),
+                )
+                .clicked()
+            {
+                self.open_native_bank_settings();
+                ui.close_menu();
+            }
+            if !native_bank_active {
+                ui.label(
+                    egui::RichText::new(lang.tr(
+                        "Vincule um banco nativo para editar suas marcações e ajustes.",
+                        "Bind a native bank to edit its timing and settings.",
+                    ))
+                    .small()
+                    .color(self.config.theme.text_muted_c32()),
+                );
+            }
             if ui
                 .button(lang.tr("Galeria de Cantores...", "Singers Gallery..."))
                 .clicked()
@@ -116,7 +146,10 @@ impl KamafeuStudioApp {
             });
 
             ui.separator();
-            if ui.button("Copaiba Voicebank Toolkit").clicked() {
+            if ui
+                .button("KAMUSE · Kamafeu Autoria e Modelagem de Unidades Sonoras Editáveis")
+                .clicked()
+            {
                 self.copaiba_window_open = true;
                 ui.close_menu();
             }

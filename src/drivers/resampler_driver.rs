@@ -300,6 +300,46 @@ mod tests {
     }
 
     #[test]
+    fn classic_pitch_argument_roundtrips_through_the_utau_curve_decoder() {
+        let mut args = sample_args();
+        args.tempo = 120.0;
+        args.pitch_points = vec![
+            crate::project::model::UPitchBendPoint {
+                time_offset_ms: 0.0,
+                pitch_offset_cents: 0.0,
+                shape: "l".to_string(),
+            },
+            crate::project::model::UPitchBendPoint {
+                time_offset_ms: 6.0,
+                pitch_offset_cents: 100.0,
+                shape: "l".to_string(),
+            },
+        ];
+        args.pitch_bend_str = crate::dsp::pitch_encoder::encode_utau_base64_pitch(
+            &args.pitch_points,
+            20.0,
+            args.tempo,
+        );
+
+        let command = classic_arguments(Path::new("source.wav"), &args, "-", 20.0, false);
+        let transmitted_curve = command[12].to_str().expect("pitch argument is UTF-8");
+        let frame_step_ms = 60_000.0 * 5.0 / (args.tempo * 480.0);
+        let decoded = crate::dsp::utau_pitch_curve::decode_utau_pitch_curve(
+            transmitted_curve,
+            4,
+            frame_step_ms,
+        )
+        .expect("Kamafeu's encoded curve must be understood at the classic CLI boundary");
+
+        assert_eq!(decoded.len(), 4);
+        assert_eq!(decoded[0].pitch_offset_cents, 0.0);
+        assert_eq!(decoded[1].pitch_offset_cents, 87.0);
+        assert_eq!(decoded[2].pitch_offset_cents, 100.0);
+        assert_eq!(decoded[3].pitch_offset_cents, 100.0);
+        assert_eq!(decoded[2].time_offset_ms, 2.0 * frame_step_ms);
+    }
+
+    #[test]
     fn classic_arguments_preserve_unknown_flags_and_transmit_norm() {
         let mut args = sample_args();
         args.flags = "P86Unknown".to_string();

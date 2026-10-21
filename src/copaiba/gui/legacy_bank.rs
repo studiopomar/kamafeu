@@ -42,11 +42,18 @@ impl CopaibaToolkitApp {
                 .extension()
                 .is_some_and(|extension| extension.eq_ignore_ascii_case("kfv"))
         {
-            match crate::copaiba::native_project::CopaibaNativeProject::load_path(&path) {
-                Ok(project) => self.activate_native_project(project),
+            match crate::copaiba::kamuse::KamuseProject::load(&path) {
+                Ok(project) => self.activate_kamuse_project(project),
                 Err(error) => {
-                    self.status_message = format!("Erro ao abrir pacote KFV 2 no Copaíba: {error}")
+                    self.status_message = format!("Erro ao abrir banco KAMUSE .kfv: {error}")
                 }
+            }
+            return;
+        }
+        if path.join("cantor.toml").is_file() {
+            match crate::copaiba::kamuse::KamuseProject::load(&path) {
+                Ok(project) => self.activate_kamuse_project(project),
+                Err(error) => self.status_message = format!("Erro ao abrir cantor.toml: {error}"),
             }
             return;
         }
@@ -62,12 +69,7 @@ impl CopaibaToolkitApp {
                     if value.get("format").and_then(|v| v.as_str())
                         == Some("kamafeu.voicebank") =>
                 {
-                    match crate::copaiba::native_project::CopaibaNativeProject::load_dir(&path) {
-                        Ok(project) => self.activate_native_project(project),
-                        Err(error) => {
-                            self.status_message = format!("Erro ao abrir KFV 2 no Copaíba: {error}")
-                        }
-                    }
+                    self.status_message = "Formato KFV 2 JSON legado não é mais carregado. Use cantor.toml para bancos nativos.".into();
                     return;
                 }
                 Err(error) => {
@@ -80,6 +82,7 @@ impl CopaibaToolkitApp {
         match CopaibaConfig::load_from_dir(&path) {
             Ok(cfg) => {
                 self.native_project = None;
+                self.kamuse_project = None;
                 self.native_selected_layer = None;
                 self.native_selected_unit = None;
                 self.native_selected_asset = None;
@@ -139,6 +142,9 @@ impl CopaibaToolkitApp {
     }
 
     pub fn save_config(&mut self) -> Result<(), String> {
+        if let Some(project) = self.kamuse_project.as_ref() {
+            return project.save();
+        }
         if let Some(project) = self.native_project.as_mut() {
             let directory = self.current_dir.clone().ok_or("Nenhum diretório aberto")?;
             return project.save_to_dir(&directory);
@@ -191,6 +197,15 @@ impl CopaibaToolkitApp {
             }
         }
         if let Some(dir) = self.current_dir.clone() {
+            if self.kamuse_project.is_some() {
+                match crate::copaiba::kamuse::KamuseProject::load(&dir) {
+                    Ok(project) => self.activate_kamuse_project(project),
+                    Err(error) => {
+                        self.status_message = format!("Falha ao recarregar KAMUSE: {error}")
+                    }
+                }
+                return;
+            }
             self.open_dir(dir);
         }
     }

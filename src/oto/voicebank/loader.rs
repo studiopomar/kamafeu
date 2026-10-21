@@ -32,6 +32,19 @@ impl Voicebank {
             };
 
         let native_config_path = real_root_path.join("kamafeu_voicebank.json");
+        if real_root_path.join("cantor.toml").is_file() {
+            let kind = if real_root_path.join("oto.ini").is_file() {
+                std::io::ErrorKind::InvalidData
+            } else {
+                std::io::ErrorKind::Unsupported
+            };
+            let message = if kind == std::io::ErrorKind::InvalidData {
+                "conflito de formato: o banco contém cantor.toml e oto.ini"
+            } else {
+                "cantor.toml é um banco Kamafeu nativo; vincule-o pela galeria de Cantores"
+            };
+            return Err(std::io::Error::new(kind, message));
+        }
         // KFV 2 has an explicit format discriminator. Never reinterpret a
         // malformed or newer native manifest as a classic oto.ini voicebank.
         if native_config_path.is_file() {

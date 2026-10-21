@@ -106,7 +106,11 @@ pub(super) fn has_render_coverage(samples: &[f32], expected_len: usize, sample_r
     if peak <= 1e-5 {
         return false;
     }
-    let window = (sample_rate as usize / 20).max(64); // 50 ms
+    // Keep two coverage windows for short units such as Kamafeu's 20 ms
+    // CVVC transitions. A fixed 50 ms window would skip the entire render.
+    let window = (sample_rate as usize / 20)
+        .max(64)
+        .min((expected_len / 2).max(64));
     let threshold = (peak * 0.002).max(1e-5);
     let inspected = &samples[..expected_len.min(samples.len())];
     let mut windows = 0usize;

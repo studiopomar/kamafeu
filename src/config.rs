@@ -903,6 +903,15 @@ pub struct KamafeuConfig {
 impl Default for KamafeuConfig {
     fn default() -> Self {
         let mut default_singers = crate::oto::SingerScanner::default_singers_directories();
+        // In a source checkout, native singer banks live in the repository's
+        // `cantores/` directory. Discover them on first launch without asking
+        // the user to register the same folder manually.
+        if let Ok(working_directory) = std::env::current_dir() {
+            let project_singers = working_directory.join("cantores");
+            if project_singers.is_dir() && !default_singers.contains(&project_singers) {
+                default_singers.push(project_singers);
+            }
+        }
         default_singers.dedup();
         Self {
             language: AppLanguage::default(),
@@ -959,6 +968,12 @@ impl KamafeuConfig {
                 .map_err(|e| format!("Falha ao ler {}: {e}", path.display()))?;
             let mut config = serde_json::from_str::<KamafeuConfig>(&content)
                 .map_err(|e| format!("Configuração inválida em {}: {e}", path.display()))?;
+            if let Ok(working_directory) = std::env::current_dir() {
+                let project_singers = working_directory.join("cantores");
+                if project_singers.is_dir() && !config.singers_paths.contains(&project_singers) {
+                    config.singers_paths.push(project_singers);
+                }
+            }
             config.theme.upgrade_legacy_pomar_neon();
             Ok(config)
         }

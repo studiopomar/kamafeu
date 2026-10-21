@@ -1,4 +1,4 @@
-//! Explicit bridge from APS note data to the native KFV 2 phrase pipeline.
+//! Explicit bridge from APS note data to the native singer phrase pipeline.
 use crate::project::model::{UNote, UProject};
 use std::collections::{HashMap, VecDeque};
 use std::sync::atomic::AtomicBool;
@@ -13,6 +13,8 @@ pub struct NativeProjectPhrase {
     pub track_index: usize,
     pub plan: PhrasePlan,
     pub rendered: RenderedPhrase,
+    /// Project-level warnings that do not prevent a WORLD render.
+    pub warnings: Vec<String>,
 }
 
 const MAX_NATIVE_PHRASE_CACHE_ENTRIES: usize = 64;
@@ -83,19 +85,19 @@ fn store_native_phrase(key: [u8; 32], phrase: NativeProjectPhrase) {
     cache.entries.insert(key, phrase);
 }
 
-/// Plan and render one APS vocal track with its explicitly bound KFV 2 bank.
+/// Plan and render one APS vocal track with its explicitly bound native singer.
 /// The project must contain direct phone sequences in `phonetic_hint`, lyric,
 /// or the first native phoneme override. No G2P or classic voicebank fallback occurs.
-pub fn render_project_track_sola(
+pub fn render_project_track_world(
     bank: &NativeBank,
     project: &UProject,
     track_index: usize,
     output_sample_rate: u32,
 ) -> Result<NativeProjectPhrase, String> {
-    render_project_track_sola_cancellable(bank, project, track_index, output_sample_rate, None)
+    render_project_track_world_cancellable(bank, project, track_index, output_sample_rate, None)
 }
 
-pub fn render_project_track_sola_cancellable(
+pub fn render_project_track_world_cancellable(
     bank: &NativeBank,
     project: &UProject,
     track_index: usize,
@@ -147,7 +149,8 @@ pub fn render_project_track_sola_cancellable(
         return Err(format!("track '{}' has no notes to render", track.name));
     }
 
-    let mut events = Vec::with_capacity(notes.len());
+    let mut events = Vec::with_capacity(notes.len().saturating_mul(2));
+    let mut warnings = Vec::new();
     for (index, (position_ms, note)) in notes.iter().enumerate() {
         if cancel.is_some_and(|token| token.load(std::sync::atomic::Ordering::Relaxed)) {
             return Err("native project track render cancelled".into());
@@ -163,16 +166,14 @@ pub fn render_project_track_sola_cancellable(
         let direct_phones = pronunciation_override
             .or(note.phonetic_hint.as_deref())
             .unwrap_or(note.lyric.as_str());
-        let phones: Vec<String> = direct_phones
-            .split_whitespace()
-            .map(str::to_owned)
-            .collect();
+        let phones = resolve_note_phones(direct_phones, profile);
         if phones.is_empty() {
             return Err(format!(
                 "note {index} has no direct phonetic sequence; native G2P is not enabled"
             ));
         }
         let explicit_segments = explicit_override_segments(note, profile, index)?;
+        let final_phone = phones.last().cloned().expect("phones checked above");
         let (segments, offsets, durations) = if let Some(segments) = explicit_segments {
             let durations = note.resolved_phoneme_durations(segments.len());
             let mut offsets = Vec::with_capacity(segments.len());
@@ -208,7 +209,7 @@ pub fn render_project_track_sola_cancellable(
             .map(|previous| notes[previous].1.midi_key());
         let note_adjacent = previous_midi.is_some_and(|_| {
             let previous = notes[index - 1].1;
-            (position_ms - (notes[index - 1].0 + previous.duration_ms)).abs() <= 0.5
+            UNote::are_adjacent(notes[index - 1].0 + previous.duration_ms, *position_ms)
         });
         let native_overrides: Vec<_> = note
             .phoneme_overrides
@@ -228,7 +229,17 @@ pub fn render_project_track_sola_cancellable(
         }
         for (event_index, event_phones) in segments.into_iter().enumerate() {
             let kind = infer_unit_kind(profile, &event_phones)
-                .map_err(|error| format!("note {index}, event {event_index}: {error}"))?;
+                .map_err(|error| {
+                    if error.starts_with("unknown phone '") {
+                        format!(
+                            "nota {}, evento {}: {error}; este banco usa fonemas diretos separados por espaços (por exemplo: k a)",
+                            index + 1,
+                            event_index + 1
+                        )
+                    } else {
+                        format!("note {index}, event {event_index}: {error}")
+                    }
+                })?;
             let native_override = native_overrides
                 .iter()
                 .find(|override_| override_.index == event_index)
@@ -251,6 +262,67 @@ pub fn render_project_track_sola_cancellable(
                 unit_override_id: native_override.and_then(|value| value.native_unit_id.clone()),
                 layer_override_id: native_override.and_then(|value| value.native_layer_id.clone()),
             });
+        }
+
+        // A connected note boundary can use a vowel-to-consonant unit from
+        // the same recording, if the bank contains that coverage. Keep this
+        // at the project bridge so every native project render follows it.
+        if let Some((next_position_ms, next_note)) = notes.get(index + 1).copied() {
+            let boundary_ms = *position_ms + note.duration_ms;
+            if UNote::are_adjacent(boundary_ms, next_position_ms) {
+                let next_override = next_note
+                    .phoneme_overrides
+                    .iter()
+                    .find(|override_| override_.index == 0)
+                    .and_then(|override_| override_.phoneme.as_deref());
+                let next_direct = next_override
+                    .or(next_note.phonetic_hint.as_deref())
+                    .unwrap_or(next_note.lyric.as_str());
+                let next_phones = resolve_note_phones(next_direct, profile);
+                if let Some(consonant) = next_phones.first() {
+                    let is_vowel = |phone: &str| {
+                        profile
+                            .symbols
+                            .iter()
+                            .any(|symbol| symbol.id == phone && symbol.class == "vowel")
+                    };
+                    if is_vowel(&final_phone) && !is_vowel(consonant) {
+                        let vc_phones = vec![final_phone.clone(), consonant.clone()];
+                        let vc_unit = bank.layers.iter().find_map(|(_, units)| {
+                            units
+                                .units
+                                .iter()
+                                .find(|unit| unit.kind == "VC" && unit.phones == vc_phones)
+                        });
+                        if let Some(unit) = vc_unit {
+                            let duration_ms = unit
+                                .timing
+                                .preferred_crossfade_ms
+                                .min(note.duration_ms)
+                                .min(next_note.duration_ms)
+                                .max(1.0);
+                            events.push(PhoneEvent {
+                                phones: vc_phones,
+                                kind: "VC".into(),
+                                position_ms: boundary_ms - duration_ms,
+                                duration_ms,
+                                midi: next_note.midi_key(),
+                                pitch_points: Vec::new(),
+                                unit_override_id: None,
+                                layer_override_id: None,
+                            });
+                        } else {
+                            warnings.push(format!(
+                                "Sem cobertura VC para {} {} na junção entre as notas {} e {}; mantendo junção CV direta.",
+                                final_phone,
+                                consonant,
+                                index + 1,
+                                index + 2
+                            ));
+                        }
+                    }
+                }
+            }
         }
     }
     events.sort_by(|left, right| {
@@ -277,11 +349,12 @@ pub fn render_project_track_sola_cancellable(
         return Ok(cached);
     }
     let rendered =
-        super::render::render_phrase_sola_cancellable(bank, &plan, output_sample_rate, cancel)?;
+        super::render::render_phrase_world_cancellable(bank, &plan, output_sample_rate, cancel)?;
     let phrase = NativeProjectPhrase {
         track_index,
         plan,
         rendered,
+        warnings,
     };
     if !cancel.is_some_and(|token| token.load(std::sync::atomic::Ordering::Relaxed)) {
         store_native_phrase(cache_key, phrase.clone());
@@ -377,6 +450,63 @@ fn explicit_override_segments(
         segments.push(phones);
     }
     Ok(Some(segments))
+}
+
+/// Resolve a native note's direct phonetic text. Whitespace keeps explicit
+/// phone boundaries; compact text such as `ka` is segmented against the
+/// profile inventory so a CV bank can be played from ordinary syllable input.
+fn resolve_note_phones(value: &str, profile: &PhoneticProfile) -> Vec<String> {
+    let explicit: Vec<String> = value.split_whitespace().map(str::to_owned).collect();
+    if explicit.len() != 1 {
+        return explicit;
+    }
+    let text = explicit[0].to_lowercase();
+    let exact = profile
+        .symbols
+        .iter()
+        .find(|symbol| symbol.id.to_lowercase() == text);
+    if let Some(symbol) = exact {
+        return vec![symbol.id.clone()];
+    }
+
+    let mut symbols: Vec<_> = profile.symbols.iter().collect();
+    symbols.sort_by(|left, right| {
+        right
+            .id
+            .len()
+            .cmp(&left.id.len())
+            .then_with(|| left.id.cmp(&right.id))
+    });
+    let mut best: Vec<Option<Vec<String>>> = vec![None; text.len() + 1];
+    best[text.len()] = Some(Vec::new());
+    for offset in (0..text.len()).rev() {
+        if !text.is_char_boundary(offset) {
+            continue;
+        }
+        for symbol in &symbols {
+            let token = symbol.id.to_lowercase();
+            let end = offset + token.len();
+            if end > text.len()
+                || !text.is_char_boundary(end)
+                || !text[offset..].starts_with(&token)
+            {
+                continue;
+            }
+            let Some(suffix) = best[end].as_ref() else {
+                continue;
+            };
+            let mut candidate = Vec::with_capacity(suffix.len() + 1);
+            candidate.push(symbol.id.clone());
+            candidate.extend(suffix.iter().cloned());
+            if best[offset]
+                .as_ref()
+                .is_none_or(|current| candidate.len() < current.len())
+            {
+                best[offset] = Some(candidate);
+            }
+        }
+    }
+    best[0].clone().unwrap_or_else(|| vec![explicit[0].clone()])
 }
 
 fn infer_unit_kind(profile: &PhoneticProfile, phones: &[String]) -> Result<String, String> {

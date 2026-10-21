@@ -27,7 +27,7 @@ pub(super) fn draw_empty_state(app: &mut CopaibaToolkitApp, ui: &mut egui::Ui) {
                         ui.add_space(10.0);
                         ui.label(
                             RichText::new(
-                                "Abra um banco UTAU, revise gravações ou crie um rascunho KFV 2.",
+                                "Crie um cantor nativo, importe gravações e revise as marcações no KAMUSE.",
                             )
                             .size(14.0)
                             .color(visual_tokens::MUTED),
@@ -61,7 +61,7 @@ pub(super) fn draw_empty_state(app: &mut CopaibaToolkitApp, ui: &mut egui::Ui) {
                                     app.open_dir(package);
                                 }
                             }
-                            if ui.button("Criar banco KFV 2").clicked() {
+                            if ui.button("Criar cantor com KAMUSE").clicked() {
                                 app.native_create_wizard_open = true;
                             }
                         });

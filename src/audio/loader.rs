@@ -76,12 +76,13 @@ pub fn probe_audio_file<P: AsRef<Path>>(path: P) -> Option<AudioFileInfo> {
     let decoder = Decoder::new(reader).ok()?;
     let sample_rate = decoder.sample_rate();
     let channels = decoder.channels();
-    let duration_ms = if let Some(d) = decoder.total_duration() {
-        d.as_secs_f64() * 1000.0
-    } else {
-        let samples_count = decoder.convert_samples::<f32>().count();
-        (samples_count as f64 / f64::from(channels.max(1)) / f64::from(sample_rate.max(1))) * 1000.0
-    };
+    // MP3 container duration estimates can omit decoded samples (notably
+    // encoder delay/padding). Count the decoder output so timing marks are
+    // checked against the PCM that synthesis will actually consume.
+    let samples_count = decoder.convert_samples::<f32>().count();
+    let duration_ms =
+        (samples_count as f64 / f64::from(channels.max(1)) / f64::from(sample_rate.max(1)))
+            * 1000.0;
 
     Some(AudioFileInfo {
         duration_ms,
@@ -112,11 +113,10 @@ pub fn load_audio_file<P: AsRef<Path>>(
     let decoder = Decoder::new(reader)?;
     let sample_rate = decoder.sample_rate();
     let channels = decoder.channels();
-    let duration_from_header = decoder.total_duration().map(|d| d.as_secs_f64() * 1000.0);
     let samples: Vec<f32> = decoder.convert_samples().collect();
-    let duration_ms = duration_from_header.unwrap_or_else(|| {
-        (samples.len() as f64 / f64::from(channels.max(1)) / f64::from(sample_rate.max(1))) * 1000.0
-    });
+    let duration_ms =
+        (samples.len() as f64 / f64::from(channels.max(1)) / f64::from(sample_rate.max(1)))
+            * 1000.0;
 
     Ok(DecodedAudio {
         samples,

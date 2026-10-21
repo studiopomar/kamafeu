@@ -5,6 +5,8 @@
 /artifacts/
 /release_assets/
 /apk_output/
+/wavtools/andromeda/
+/wavtools/galapagos/
 /kamafeu-*.zip
 /kamafeu-*.tar.gz
 /kamafeu-*.dmg
@@ -19,6 +21,7 @@
 !/docs/
 /docs/*
 !/docs/architecture.md
+!/docs/cantor-toml.md
 !/docs/kfv2/
 !/docs/kfv2/**
 
@@ -35,6 +38,7 @@
 
 *.wav
 *.mp3
+!/cantores/caio/src/kak.mp3
 *.flac
 *.ogg
 *.ogc

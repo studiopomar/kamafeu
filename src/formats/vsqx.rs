@@ -336,6 +336,7 @@ impl VsqxFormat {
             let mut max_pbs_semitones: f64 = 2.0;
 
             for part in project.parts.iter().filter(|p| p.track_index == track_idx) {
+                let neighbors = UNote::time_neighbors(&part.notes);
                 for (note_index, note) in part.notes.iter().enumerate() {
                     let note_start_ms = part.position_ms + note.position_ms;
                     let tick_pos = (note_start_ms / ms_per_tick).round() as i64;
@@ -356,12 +357,14 @@ impl VsqxFormat {
                     xml.push_str(&format!("        <lyric><![CDATA[{}]]></lyric>\n", lyric));
                     xml.push_str("      </note>\n");
 
-                    let previous = note_index
-                        .checked_sub(1)
+                    let previous = neighbors[note_index]
+                        .0
                         .and_then(|index| part.notes.get(index));
                     let adjacent = previous.is_some_and(|previous| {
-                        (previous.position_ms + previous.duration_ms - note.position_ms).abs()
-                            <= 1.0
+                        UNote::are_adjacent(
+                            previous.position_ms + previous.duration_ms,
+                            note.position_ms,
+                        )
                     });
                     let pitch_points = note.pitch_bend.effective_points(
                         previous.map(|n| n.midi_key()),

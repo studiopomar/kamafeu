@@ -173,6 +173,68 @@ contratos públicos e os formatos de projeto.
   fica em `archive.rs`, e a apresentação compacta dos diagnósticos de `oto.ini`
   em `diagnostics.rs`. `voicebank.rs` mantém os tipos do banco clássico.
 
+## Porte independente da análise estática do UTAU
+
+Os exports Ghidra em `/Users/xiao/utau_legacy` são pseudocódigo de referência,
+não fonte original ou biblioteca importável. As implementações abaixo são
+independentes e mantêm explicitamente as lacunas ainda não confirmadas.
+
+### Pitch e sinc
+
+- O modelo do projeto guarda `UPitchBendPoint` em milissegundos relativos à
+  nota e cents relativos ao pitch base. `src/renderer/track.rs` forma os pontos
+  efetivos e `encode_utau_base64_pitch` os serializa para resamplers clássicos.
+- `src/dsp/utau_pitch_curve.rs` decodifica pares Base64 assinados de 12 bits e
+  repetições `#n#`; o primeiro caractere carrega os seis bits altos, como
+  confirmado no pseudocódigo e no encoder Kamafeu. O adapter exige que o
+  chamador forneça o passo em milissegundos. A relação entre `P/Q`, o passo
+  atual do encoder e a interpolação do resampler continua aberta. Um teste de
+  integração no driver clássico valida a curva que o Kamafeu envia no argumento
+  de CLI e a decodifica de volta em cents/pontos; essa verificação confirma o
+  contrato do codec e da fronteira do driver, não equivalência do áudio.
+- `src/dsp/utau_sinc.rs` recebe PCM `i16`, posição em índices de amostra, escala e
+  stride em elementos PCM. Mantém a fórmula analisada isolada do
+  `WindowedSincResampler`, que usa `f32`, janela Lanczos e normalização pelos
+  pesos. O arredondamento dos limites e a acumulação x87 têm aproximações
+  documentadas junto à função.
+
+### Wavtool e envelope
+
+O contrato numérico analisado do wavtool clássico é
+`offset length p1 p2 p3 v1 v2 v3 v4 ovr p4 p5 v5`. O adapter do Kamafeu
+monta e testa essa ordem em `src/drivers/wavtool/external.rs`:
+
+| Parâmetro CLI | Campo enviado pelo Kamafeu |
+| --- | --- |
+| `offset`, `length` | `WavtoolArgs.skip_over_ms`, `duration_ms` |
+| `p1..p3`, `v1..v4` | Campos homônimos de `WavtoolArgs.envelope` |
+| `ovr` | `WavtoolArgs.overlap_ms` |
+| `p4`, `p5`, `v5` | Campos homônimos de `WavtoolArgs.envelope` |
+
+Em falha de execução externa, o driver inclui no erro os 13 valores numéricos
+formatados como foram enviados, com os nomes da ordem CLI acima. Isso ajuda a
+diagnosticar diferenças de argumentos entre wavtools sem alterar os valores.
+
+O contrato CLI não contém `pre`. `sample_time_zero_ms` ancora o envelope apenas
+nos drivers internos. O renderer converte `phoneme_envelope` para os campos de
+duração com esta transformação de índices: `p1=0`, `p2=x1-x0`, `p3=x4-x3`,
+`p4=0`, `p5=x2-x1`; os níveis usam `y0,y1,y3,y4,y2`, convertidos para
+percentuais. Isso descreve a implementação Kamafeu, sem afirmar equivalência
+geométrica ou sonora com UTAU.
+
+Galapagos/Yawu usam interpolação linear; Andromeda usa curva cosseno. A curva
+de ganho do wavtool UTAU e o mapeamento completo de `pre` do batch para a CLI
+continuam desconhecidos, então os modos atuais seguem distintos e selecionáveis.
+
+### Piano roll
+
+O Kamafeu usa milissegundos, pitch MIDI fracionário, `px_per_ms` e `row_height`.
+`src/gui/piano_roll/state.rs` contém as conversões compartilhadas de tempo/pitch
+para tela e suas inversas; desenho e edição da curva de pitch usam essas
+funções. A análise estática do UTAU ainda não fecha escala em ticks, snap e
+gestos, portanto esta é uma consolidação do contrato interno Kamafeu, não uma
+reprodução das regras do UTAU.
+
 ## Regras para extrações
 
 Extrações devem manter formatos salvos, argumentos CLI, respostas JSON e APIs

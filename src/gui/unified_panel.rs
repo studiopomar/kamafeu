@@ -20,6 +20,7 @@ pub fn draw_unified_panel(
     voicebank: Option<&Voicebank>,
     recent_voicebanks: &[PathBuf],
     singers_list: &[crate::oto::SingerInfo],
+    active_native_singer: Option<&crate::oto::SingerInfo>,
     singer_search_query: &mut String,
     singers_paths: &mut Vec<PathBuf>,
     vocal_mode_params: &mut VocalModeParams,
@@ -52,6 +53,7 @@ pub fn draw_unified_panel(
             theme,
             lang,
             voicebank,
+            active_native_singer,
             selected_note_idx,
             selected_indices,
             selected_ruler_alias,
@@ -74,6 +76,7 @@ pub fn draw_unified_panel(
                         voicebank,
                         recent_voicebanks,
                         singers_list,
+                        active_native_singer,
                         singer_search_query,
                         singers_paths,
                         vocal_mode_params,
@@ -189,6 +192,7 @@ fn draw_context_header(
     theme: &ThemeConfig,
     lang: crate::config::AppLanguage,
     voicebank: Option<&Voicebank>,
+    active_native_singer: Option<&crate::oto::SingerInfo>,
     selected_note_idx: Option<usize>,
     selected_indices: &std::collections::HashSet<usize>,
     selected_ruler_alias: Option<&str>,
@@ -223,8 +227,9 @@ fn draw_context_header(
     });
     ui.add_space(3.0);
     ui.horizontal_wrapped(|ui| {
-        let singer = voicebank
-            .map(|vb| vb.name.as_str())
+        let singer = active_native_singer
+            .map(|native| native.name.as_str())
+            .or_else(|| voicebank.map(|vb| vb.name.as_str()))
             .unwrap_or_else(|| lang.tr("Cantor padrão", "Default singer"));
         ui.label(
             RichText::new(singer)

@@ -274,10 +274,35 @@ pub fn plan_phrase(bank: &NativeBank, request: &PhraseRequest) -> Result<PhraseP
             .timing
             .max_crossfade_ms
             .min(next_unit.timing.max_crossfade_ms);
-        selected[i].preferred_join_to_next_ms = requested.min(limit).min(
-            (current_event.position_ms + current_event.duration_ms - next_event.position_ms)
-                .max(0.0),
-        );
+        let requested_join = requested.min(limit).max(0.0);
+        let event_overlap_ms =
+            current_event.position_ms + current_event.duration_ms - next_event.position_ms;
+        let join_ms = if event_overlap_ms > 0.5 {
+            requested_join.min(event_overlap_ms)
+        } else if event_overlap_ms >= -0.5 {
+            // A contiguous musical boundary still needs an audio overlap.
+            // Units such as KAMUSE VC have no preutterance, so their source
+            // intervals otherwise meet exactly at the boundary and the
+            // renderer has nothing to crossfade.
+            requested_join
+        } else {
+            0.0
+        };
+        selected[i].preferred_join_to_next_ms = join_ms;
+
+        if join_ms > 0.0 {
+            let current_end_ms = selected[i].output_start_ms + selected[i].target_duration_ms;
+            let incoming_start_ms = selected[i + 1].output_start_ms;
+            let existing_audio_overlap_ms = current_end_ms - incoming_start_ms;
+            let missing_overlap_ms = join_ms - existing_audio_overlap_ms;
+            if missing_overlap_ms > 0.0 {
+                // Pull the incoming unit earlier and extend its duration by
+                // the same amount. Its end remains aligned to the note end,
+                // while the mixer gets real shared samples to crossfade.
+                selected[i + 1].output_start_ms -= missing_overlap_ms;
+                selected[i + 1].target_duration_ms += missing_overlap_ms;
+            }
+        }
     }
     Ok(PhrasePlan {
         bank_id: bank.manifest.bank_id.clone(),

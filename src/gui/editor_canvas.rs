@@ -134,7 +134,7 @@ impl KamafeuStudioApp {
 
         #[cfg(not(target_os = "android"))]
         if let Some((alias, pitch)) = ruler_alias_to_edit {
-            self.open_copaiba_for_alias(&alias, &pitch);
+            self.open_voicebank_editor_for_alias(&alias, &pitch);
         }
 
         // Commit qualquer snapshot pendente de arraste assim que o usuário solta o botão do mouse
@@ -228,6 +228,17 @@ impl KamafeuStudioApp {
         self.piano_roll_state.loop_start_ms = self.transport_state.loop_start_ms;
         self.piano_roll_state.loop_end_ms = self.transport_state.loop_end_ms;
 
+        let active_track_uses_native_singer = self
+            .project
+            .tracks
+            .get(self.active_track_index)
+            .is_some_and(|track| track.native_voicebank.is_some());
+        let editor_voicebank = if active_track_uses_native_singer {
+            None
+        } else {
+            self.voicebank.as_ref()
+        };
+
         draw_piano_roll(
             ui,
             active_notes,
@@ -237,7 +248,7 @@ impl KamafeuStudioApp {
             &sections,
             &mut self.piano_roll_state,
             &self.config.theme,
-            self.voicebank.as_ref(),
+            editor_voicebank,
             &mut self.phoneme_palette_state,
             self.transport_state.grid_snap,
             self.transport_state.bpm,
@@ -292,7 +303,6 @@ impl KamafeuStudioApp {
         }
 
         if note_changed || self.piano_roll_state.continuous_edit_dirty {
-            self.ensure_default_portamento();
             if !self.config.workflow.allow_overlapping_notes {
                 self.resolve_note_overlaps();
             }

@@ -515,9 +515,6 @@ fn render_unit(
         .sustain
         .as_ref()
         .map(|r| (r.start_frame, r.end_frame));
-    let relative_ms = |frame: u64| {
-        (frame.saturating_sub(source.start_frame)) as f64 * 1_000.0 / sample_rate as f64
-    };
     let args = ResamplerArgs {
         input_wav: PathBuf::new(),
         output_wav: PathBuf::new(),
@@ -537,9 +534,11 @@ fn render_unit(
         tempo: 120.0,
         pitch_bend_str: String::new(),
         pitch_points: pitch_points.clone(),
-        loop_start_ms: source_sustain.map(|r| relative_ms(r.0)),
-        loop_end_ms: source_sustain.map(|r| relative_ms(r.1)),
-        tail_start_ms: source.release_start_frame.map(relative_ms),
+        // Tainah slices the source at `offset_ms`, then converts these
+        // absolute source positions to slice-relative times in source_time().
+        loop_start_ms: source_sustain.map(|r| ms(r.0)),
+        loop_end_ms: source_sustain.map(|r| ms(r.1)),
+        tail_start_ms: source.release_start_frame.map(ms),
     };
     let (output, execution) = match backend {
         PreviewBackend::Sola => {

@@ -24,6 +24,11 @@ name = "copaiba"
 path = "src/bin/copaiba.rs"
 required-features = ["desktop"]
 
+[[bin]]
+name = "kamuse"
+path = "src/bin/kamuse.rs"
+required-features = ["desktop"]
+
 [package.metadata.android]
 package = "com.studiopomar.kamafeu"
 apk_name = "kamafeu"
@@ -59,6 +64,7 @@ priority = "optional"
 depends = "$auto"
 assets = [
   ["target/release/kamafeu", "usr/bin/kamafeu", "755"],
+  ["target/release/kamuse", "usr/bin/kamuse", "755"],
   ["target/release/copaiba", "usr/bin/copaiba", "755"],
   ["README.md", "usr/share/doc/kamafeu/README.md", "644"],
   ["LICENSE", "usr/share/doc/kamafeu/LICENSE", "644"],
@@ -71,6 +77,7 @@ assets = [
 version = "3.0.0"
 assets = [
   { source = "target/release/kamafeu", dest = "/usr/bin/kamafeu", mode = "755" },
+  { source = "target/release/kamuse", dest = "/usr/bin/kamuse", mode = "755" },
   { source = "target/release/copaiba", dest = "/usr/bin/copaiba", mode = "755" },
   { source = "README.md", dest = "/usr/share/doc/kamafeu/README.md", mode = "644" },
   { source = "LICENSE", dest = "/usr/share/licenses/kamafeu/LICENSE", mode = "644" },
@@ -88,6 +95,7 @@ hound = "3.5"
 rand = "0.8"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+toml = "0.8"
 sha2 = "0.10"
 pinyin = "0.11"
 yaml_serde = "0.10"

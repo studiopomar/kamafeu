@@ -15,7 +15,7 @@ impl KamafeuStudioApp {
             ctx.show_viewport_immediate(
                 egui::ViewportId::from_hash_of("singers_gallery_native_viewport"),
                 egui::ViewportBuilder::default()
-                    .with_title(lang.tr("Galeria de Cantores (OpenUtau / UTAU) - Kamafeu Studio", "Singers Gallery (OpenUtau / UTAU) - Kamafeu Studio"))
+                                    .with_title(lang.tr("Galeria de Cantores · UTAU e Kamafeu nativo", "Singers Gallery · UTAU and native Kamafeu"))
                     .with_inner_size([760.0, 560.0])
                     .with_min_inner_size([500.0, 380.0]),
                 |ctx, _class| {
@@ -39,7 +39,7 @@ impl KamafeuStudioApp {
                                 if ui.button(lang.tr("+ Registrar Pasta...", "+ Add Folder...")).clicked() {
                                     trigger_add_dir = true;
                                 }
-                                if ui.button("Instalar KFV 2...").clicked() {
+                                if ui.button("Instalar cantor .kfv...").clicked() {
                                     trigger_install_kfv2 = true;
                                 }
                             });
@@ -107,7 +107,7 @@ impl KamafeuStudioApp {
                                         .spacing([12.0, 12.0])
                                         .show(ui, |ui| {
                                             for (idx, singer) in filtered.iter().enumerate() {
-                                                let is_current = if singer.is_native_kfv2 {
+                                                let is_current = if singer.is_native {
                                                     self.project
                                                         .tracks
                                                         .get(self.active_track_index)
@@ -228,7 +228,7 @@ impl KamafeuStudioApp {
                                                                             .color(self.config.theme.success_c32()),
                                                                     );
                                                                 } else if singer.selectable && ui.small_button(lang.tr("Selecionar", "Select")).clicked() {
-                                                                    if singer.is_native_kfv2 {
+                                                                    if singer.is_native {
                                                                         native_singer_to_bind = Some(singer.path.clone());
                                                                     } else {
                                                                         singer_to_load = Some(singer.path.clone());
@@ -276,46 +276,46 @@ impl KamafeuStudioApp {
                 {
                     if let Some(parent) = crate::dialogs::FileDialog::new().pick_folder() {
                         let install_result = (|| {
-                            let summary =
-                                crate::voicebank::package::inspect_package_metadata(&package)?;
-                            let safe_component: String =
-                                format!("{}_{}", summary.bank_id, summary.bank_version)
-                                    .chars()
-                                    .map(|character| {
-                                        if character.is_ascii_alphanumeric()
-                                            || character == '-'
-                                            || character == '_'
-                                        {
-                                            character
-                                        } else {
-                                            '_'
-                                        }
-                                    })
-                                    .collect();
+                            let bank = crate::voicebank::cantor::CantorBank::load_path(&package)?;
+                            let singer_id = bank.cantor.id.clone();
+                            let safe_component: String = singer_id
+                                .chars()
+                                .map(|character| {
+                                    if character.is_ascii_alphanumeric()
+                                        || character == '-'
+                                        || character == '_'
+                                    {
+                                        character
+                                    } else {
+                                        '_'
+                                    }
+                                })
+                                .collect();
                             let destination = parent.join(safe_component);
-                            let report = crate::voicebank::package::install_package_atomic(
-                                &package,
-                                &destination,
-                            )?;
-                            Ok::<_, String>((summary, report))
+                            let report =
+                                crate::voicebank::cantor::CantorBank::install_package_atomic(
+                                    &package,
+                                    &destination,
+                                )?;
+                            Ok::<_, String>((report.0, report.1))
                         })();
                         match install_result {
-                            Ok((summary, report)) => {
+                            Ok((display_name, content_hash)) => {
                                 if !self.config.singers_paths.contains(&parent) {
                                     self.config.singers_paths.push(parent);
                                     self.persist_config();
                                 }
                                 self.reload_singers();
                                 self.transport_state.status_message = format!(
-                                    "KFV 2 instalado: {} · {} · sha256 {} · catálogo atualizado; selecione-o para vincular à faixa ativa (preview SOLA experimental)",
-                                    summary.display_name,
-                                    report.bank_version,
-                                    report.content_sha256.trim_start_matches("sha256:")
+                                    "Cantor nativo instalado: {} · {} · sha256 {} · catálogo atualizado; vincule-o à faixa ativa para renderizar com Tainah WORLD",
+                                    display_name,
+                                    "",
+                                    content_hash.trim_start_matches("sha256:")
                                 );
                             }
                             Err(error) => {
                                 self.transport_state.status_message =
-                                    format!("Falha ao instalar KFV 2: {error}");
+                                    format!("Falha ao instalar cantor nativo: {error}");
                             }
                         }
                     }
@@ -352,39 +352,11 @@ impl KamafeuStudioApp {
             }
 
             if let Some(path) = native_singer_to_bind {
-                match crate::voicebank::native::NativeBank::load_path(&path).and_then(|bank| {
-                    let reference = bank.project_reference(Some(path.display().to_string()))?;
-                    let coverage =
-                        bank.coverage_summary(&reference.phonetic_profile_id, &reference.style_id)?;
-                    Ok((bank.manifest.display_name.clone(), reference, coverage))
-                }) {
-                    Ok((display_name, reference, coverage)) => {
-                        if let Some(track) = self.project.tracks.get_mut(self.active_track_index) {
-                            track.native_voicebank = Some(reference);
-                            track.voicebank_path = Some(path.display().to_string());
-                            track.singer = display_name.clone();
-                            self.is_dirty = true;
-                            self.project.render_state = Some(Default::default());
-                            self.piano_roll_state.phoneme_cache_hash = 0;
-                            self.piano_roll_state.phoneme_cache.clear();
-                            self.piano_roll_state.note_phonemes_cache.clear();
-                            self.transport_state.status_message = format!(
-                                "{} vinculada à faixa {} · cobertura estrutural: {}/{} phones, {} unidades, {} revisadas · preview SOLA experimental",
-                                display_name,
-                                track.name,
-                                coverage.covered_phone_symbols,
-                                coverage.total_phone_symbols,
-                                coverage.unit_count,
-                                coverage.reviewed_unit_count
-                            );
-                        } else {
-                            self.transport_state.status_message =
-                                "Não há faixa ativa para vincular o KFV 2".into();
-                        }
-                    }
+                match self.bind_native_singer_to_active_track(&path) {
+                    Ok(()) => is_open = false,
                     Err(error) => {
                         self.transport_state.status_message =
-                            format!("Falha ao vincular KFV 2: {error}");
+                            format!("Falha ao vincular cantor.toml: {error}")
                     }
                 }
             }

@@ -339,6 +339,15 @@ impl KamafeuStudioApp {
             return;
         }
 
+        let active_track_uses_native_singer = self
+            .project
+            .tracks
+            .get(self.active_track_index)
+            .is_some_and(|track| track.native_voicebank.is_some());
+        if active_track_uses_native_singer {
+            return;
+        }
+
         let has_notes = self.project.parts.iter().any(|p| !p.notes.is_empty());
         if !has_notes {
             return;

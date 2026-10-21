@@ -12,8 +12,8 @@ pub struct SingerInfo {
     pub voice_type: String,
     /// False for formats that can be catalogued but have no project render route.
     pub selectable: bool,
-    /// KFV 2 uses the native project binding path instead of the oto.ini loader.
-    pub is_native_kfv2: bool,
+    /// Native Kamafeu formats use the native project binding path.
+    pub is_native: bool,
     pub diagnostic: Option<String>,
 }
 
@@ -143,9 +143,15 @@ impl SingerScanner {
         let has_char = dir.join("character.txt").exists();
         let has_char_yaml = dir.join("character.yaml").exists();
         let has_native = dir.join("kamafeu_voicebank.json").exists();
+        let has_cantor = dir.join("cantor.toml").exists();
+
+        if has_cantor {
+            return Some(Self::inspect_cantor_manifest(dir, has_oto));
+        }
 
         if has_native {
-            if let Ok(content) = fs::read_to_string(dir.join("kamafeu_voicebank.json")) {
+            let content = fs::read_to_string(dir.join("kamafeu_voicebank.json"));
+            if let Ok(content) = content {
                 if let Ok(value) = serde_json::from_str::<serde_json::Value>(&content) {
                     if value.get("format").and_then(|value| value.as_str())
                         == Some("kamafeu.voicebank")
@@ -154,6 +160,29 @@ impl SingerScanner {
                     }
                 }
             }
+            // The legacy native manifest filename is itself a format marker.
+            // A malformed/unknown file must not fall through and become a
+            // selectable UTAU bank merely because an oto.ini is also present.
+            let diagnostic = if has_oto {
+                "Conflito: o banco contém kamafeu_voicebank.json legado e oto.ini; o JSON nativo não é carregado.".to_string()
+            } else {
+                "Manifesto nativo JSON legado inválido ou desconhecido. Bancos nativos atuais usam cantor.toml.".to_string()
+            };
+            return Some(SingerInfo {
+                name: dir
+                    .file_name()
+                    .and_then(|name| name.to_str())
+                    .unwrap_or("Banco nativo legado")
+                    .to_string(),
+                author: "Formato nativo não carregável".into(),
+                web: None,
+                path: dir.to_path_buf(),
+                image_path: None,
+                voice_type: "Kamafeu JSON legado · não carregável".into(),
+                selectable: false,
+                is_native: true,
+                diagnostic: Some(diagnostic),
+            });
         }
 
         let mut sub_has_oto = false;
@@ -169,7 +198,7 @@ impl SingerScanner {
             }
         }
 
-        if !has_oto && !has_char && !has_char_yaml && !has_native && !sub_has_oto {
+        if !has_oto && !has_char && !has_char_yaml && !has_native && !has_cantor && !sub_has_oto {
             return None;
         }
 
@@ -297,7 +326,7 @@ impl SingerScanner {
         }
 
         let voice_type = if dir.join("kamafeu_voicebank.json").exists() {
-            "Kamafeu Studio Nativo"
+            "Kamafeu Studio Nativo legado"
         } else if sub_has_oto {
             "Multipitch VCV/CVC"
         } else {
@@ -313,9 +342,72 @@ impl SingerScanner {
             image_path,
             voice_type,
             selectable: true,
-            is_native_kfv2: false,
+            is_native: false,
             diagnostic: None,
         })
+    }
+
+    fn inspect_cantor_manifest(dir: &Path, has_oto: bool) -> SingerInfo {
+        let fallback_name = dir
+            .file_name()
+            .and_then(|name| name.to_str())
+            .unwrap_or("Cantor")
+            .to_string();
+        if has_oto {
+            return SingerInfo {
+                name: fallback_name,
+                author: "Conflito de formato".into(),
+                web: None,
+                path: dir.to_path_buf(),
+                image_path: None,
+                voice_type: "Banco inválido · cantor.toml + oto.ini".into(),
+                selectable: false,
+                is_native: true,
+                diagnostic: Some(
+                    "Conflito: remova um dos identificadores de formato, cantor.toml ou oto.ini."
+                        .into(),
+                ),
+            };
+        }
+        match crate::voicebank::cantor::Cantor::load_dir(dir) {
+            Ok(cantor) => {
+                let image_path = cantor
+                    .imagem
+                    .as_deref()
+                    .or(cantor.portrait.as_deref())
+                    .map(|p| dir.join(p));
+                SingerInfo {
+                    name: cantor.nome,
+                    author: "Banco nativo Kamafeu".into(),
+                    web: None,
+                    path: dir.to_path_buf(),
+                    image_path,
+                    voice_type: "Kamafeu nativo · Tainah WORLD".into(),
+                    selectable: true,
+                    is_native: true,
+                    diagnostic: Some(format!(
+                        "cantor.toml v{} · {} gravações · engine Tainah WORLD",
+                        cantor.versao,
+                        cantor
+                            .tons
+                            .iter()
+                            .map(|tone| tone.gravacoes.len())
+                            .sum::<usize>()
+                    )),
+                }
+            }
+            Err(error) => SingerInfo {
+                name: fallback_name,
+                author: "cantor.toml inválido".into(),
+                web: None,
+                path: dir.to_path_buf(),
+                image_path: None,
+                voice_type: "Kamafeu nativo · erro".into(),
+                selectable: false,
+                is_native: true,
+                diagnostic: Some(error),
+            },
+        }
     }
 
     fn inspect_kfv2_manifest(dir: &Path, content: &str) -> SingerInfo {
@@ -335,32 +427,22 @@ impl SingerScanner {
                     image_path: None,
                     voice_type: "KFV 2 · não carregável".into(),
                     selectable: false,
-                    is_native_kfv2: true,
+                    is_native: true,
                     diagnostic: Some(error),
                 };
             }
         };
-        let image_path = manifest
-            .presentation
-            .as_ref()
-            .and_then(|presentation| {
-                presentation
-                    .avatar
-                    .as_ref()
-                    .or(presentation.portrait.as_ref())
-            })
-            .and_then(|relative| manifest.resolve_existing(dir, relative).ok());
         SingerInfo {
             name: manifest.display_name,
             author: manifest.publisher,
             web: None,
             path: dir.to_path_buf(),
-            image_path,
-            voice_type: "Voz Kamafeu · Nativa (preview SOLA experimental)".into(),
-            selectable: true,
-            is_native_kfv2: true,
+            image_path: None,
+            voice_type: "KFV 2 JSON legado · indisponível".into(),
+            selectable: false,
+            is_native: true,
             diagnostic: Some(
-                "Preview experimental via SOLA. Use phones explícitos no campo de pronúncia; ainda não há G2P nativo nem A/B acústico aprovado.".into(),
+                "Formato KFV 2 JSON descontinuado. O formato nativo atual é cantor.toml.".into(),
             ),
         }
     }
@@ -473,7 +555,7 @@ mod tests {
     }
 
     #[test]
-    fn kfv2_catalog_reads_manifest_metadata_without_loading_audio_and_enables_native_binding() {
+    fn legacy_kfv2_catalog_is_visible_but_not_selectable() {
         let directory = tempfile::tempdir().expect("temporary KFV 2 folder");
         fs::write(
             directory.path().join("kamafeu_voicebank.json"),
@@ -485,10 +567,10 @@ mod tests {
             .expect("valid KFV 2 manifest should be catalogued");
         assert_eq!(singer.name, "Voz Nativa de Teste");
         assert_eq!(singer.author, "Autoria de Teste");
-        assert!(singer.voice_type.contains("Voz Kamafeu · Nativa"));
-        assert!(singer.selectable);
-        assert!(singer.is_native_kfv2);
-        assert!(singer.diagnostic.unwrap().contains("phones explícitos"));
+        assert!(singer.voice_type.contains("KFV 2 JSON legado"));
+        assert!(!singer.selectable);
+        assert!(singer.is_native);
+        assert!(singer.diagnostic.unwrap().contains("cantor.toml"));
     }
 
     #[test]
@@ -510,5 +592,46 @@ mod tests {
         assert_eq!(singer.voice_type, "KFV 2 · não carregável");
         assert!(!singer.selectable);
         assert!(singer.diagnostic.is_some());
+    }
+
+    #[test]
+    fn malformed_legacy_native_marker_does_not_fall_back_to_oto_ini() {
+        let directory = tempfile::tempdir().expect("temporary mixed-format singer");
+        fs::write(directory.path().join("kamafeu_voicebank.json"), "{").unwrap();
+        fs::write(
+            directory.path().join("oto.ini"),
+            "sample.wav=ka,0,100,-400,80,30\n",
+        )
+        .unwrap();
+
+        let singer = SingerScanner::inspect_singer_directory(directory.path())
+            .expect("legacy native marker should remain visible");
+        assert!(!singer.selectable);
+        assert!(singer.is_native);
+        assert!(singer.diagnostic.unwrap().contains("Conflito"));
+    }
+
+    #[test]
+    fn cantor_toml_is_discovered_as_native_and_format_conflicts_are_visible() {
+        let directory = tempfile::tempdir().unwrap();
+        fs::write(
+            directory.path().join("cantor.toml"),
+            "versao = 1\nid = 'org.test'\nnome = 'Teste'\nidiomas = ['pt-BR']\nengine = 'tainah'\n",
+        )
+        .unwrap();
+        let singer = SingerScanner::inspect_singer_directory(directory.path()).unwrap();
+        assert_eq!(singer.name, "Teste");
+        assert!(singer.selectable);
+        assert!(singer.is_native);
+        assert!(singer.voice_type.contains("Tainah WORLD"));
+
+        fs::write(directory.path().join("oto.ini"), "").unwrap();
+        let conflict = SingerScanner::inspect_singer_directory(directory.path()).unwrap();
+        assert!(!conflict.selectable);
+        assert!(conflict
+            .diagnostic
+            .unwrap()
+            .to_lowercase()
+            .contains("conflito"));
     }
 }

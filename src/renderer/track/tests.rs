@@ -605,6 +605,19 @@ fn phrase_portamento_is_shared_across_adjacent_phonemes() {
 }
 
 #[test]
+fn phrase_portamento_uses_timeline_neighbors_after_notes_are_moved() {
+    let notes = vec![
+        UNote::new("ki", "D4", 500.0, 500.0),
+        UNote::new("ka", "C4", 0.0, 500.0),
+    ];
+    let curve = TrackRenderer::phrase_pitch_notes(&notes);
+    let at = |time| TrackRenderer::phrase_pitch_cents_at(&curve, time, 0.0);
+    assert!((at(460.0) - 6000.0).abs() < 1e-6);
+    assert!((at(500.0) - 6100.0).abs() < 1e-6);
+    assert!((at(540.0) - 6200.0).abs() < 1e-6);
+}
+
+#[test]
 fn vc_transitions_render_smoothly_without_discontinuities_or_empty_holes() {
     let directory = tempfile::tempdir().unwrap();
     let sample_rate = 44_100;

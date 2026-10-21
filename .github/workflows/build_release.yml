@@ -61,7 +61,7 @@ jobs:
             os: windows-latest
             target: x86_64-pc-windows-msvc
             binary: kamafeu.exe
-            toolkit_binary: copaiba.exe
+            toolkit_binary: kamuse.exe
             archive: kamafeu-${{ github.ref_name }}-windows-x64.zip
             use_cross: false
             smoke_test: true
@@ -70,7 +70,7 @@ jobs:
             os: windows-latest
             target: aarch64-pc-windows-msvc
             binary: kamafeu.exe
-            toolkit_binary: copaiba.exe
+            toolkit_binary: kamuse.exe
             archive: kamafeu-${{ github.ref_name }}-windows-arm64.zip
             use_cross: false
             smoke_test: false
@@ -79,7 +79,7 @@ jobs:
             os: windows-latest
             target: i686-pc-windows-msvc
             binary: kamafeu.exe
-            toolkit_binary: copaiba.exe
+            toolkit_binary: kamuse.exe
             archive: kamafeu-${{ github.ref_name }}-windows-x86.zip
             use_cross: false
             smoke_test: true
@@ -88,7 +88,7 @@ jobs:
             os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             binary: kamafeu
-            toolkit_binary: copaiba
+            toolkit_binary: kamuse
             archive: kamafeu-${{ github.ref_name }}-linux-x64.tar.gz
             use_cross: false
 
@@ -96,7 +96,7 @@ jobs:
             os: ubuntu-latest
             target: aarch64-unknown-linux-gnu
             binary: kamafeu
-            toolkit_binary: copaiba
+            toolkit_binary: kamuse
             archive: kamafeu-${{ github.ref_name }}-linux-arm64.tar.gz
             use_cross: true
 
@@ -104,7 +104,7 @@ jobs:
             os: ubuntu-latest
             target: armv7-unknown-linux-gnueabihf
             binary: kamafeu
-            toolkit_binary: copaiba
+            toolkit_binary: kamuse
             archive: kamafeu-${{ github.ref_name }}-linux-armv7.tar.gz
             use_cross: true
 
@@ -112,7 +112,7 @@ jobs:
             os: ubuntu-latest
             target: x86_64-unknown-linux-musl
             binary: kamafeu
-            toolkit_binary: copaiba
+            toolkit_binary: kamuse
             archive: kamafeu-${{ github.ref_name }}-linux-musl-x64.tar.gz
             use_cross: true
 
@@ -165,10 +165,11 @@ jobs:
           $bin_path = "target/${{ matrix.job.target }}/release/${{ matrix.job.binary }}"
           $toolkit_path = "target/${{ matrix.job.target }}/release/${{ matrix.job.toolkit_binary }}"
           if (-Not (Test-Path $bin_path)) { throw "Missing Studio binary: $bin_path" }
-          if (-Not (Test-Path $toolkit_path)) { throw "Missing Copaiba binary: $toolkit_path" }
+          if (-Not (Test-Path $toolkit_path)) { throw "Missing KAMUSE binary: $toolkit_path" }
 
           New-Item -ItemType Directory -Force -Path "package_root/resamplers"
           Copy-Item $bin_path -Destination "package_root/kamafeu.exe"
+          Copy-Item $toolkit_path -Destination "package_root/kamuse.exe"
           Copy-Item $toolkit_path -Destination "package_root/copaiba.exe"
           Copy-Item "README.md", "LICENSE", "NOTICE.md" -Destination "package_root/"
           Copy-Item "target/tainah-package/tainah_motor.dll" -Destination "package_root/"
@@ -219,6 +220,7 @@ jobs:
             mkdir -p package_root/Kamafeu.app/Contents/MacOS package_root/Kamafeu.app/Contents/Resources
             cp "$BIN_PATH" package_root/Kamafeu.app/Contents/MacOS/kamafeu
             cp assets/icon.png package_root/Kamafeu.app/Contents/Resources/icon.png
+            cp "$TOOLKIT_PATH" package_root/kamuse
             cp "$TOOLKIT_PATH" package_root/copaiba
             cat > package_root/Kamafeu.app/Contents/Info.plist <<'PLIST'
           <?xml version="1.0" encoding="UTF-8"?>
@@ -236,6 +238,7 @@ jobs:
           PLIST
           else
             cp "$BIN_PATH" package_root/kamafeu
+            cp "$TOOLKIT_PATH" package_root/kamuse
             cp "$TOOLKIT_PATH" package_root/copaiba
           fi
           cp README.md LICENSE NOTICE.md package_root/
@@ -266,7 +269,7 @@ jobs:
             fi
           fi
 
-          chmod +x package_root/copaiba
+          chmod +x package_root/copaiba package_root/kamuse
           if [ -f package_root/kamafeu ]; then chmod +x package_root/kamafeu; fi
           if [ -f package_root/Kamafeu.app/Contents/MacOS/kamafeu ]; then chmod +x package_root/Kamafeu.app/Contents/MacOS/kamafeu; fi
           if [ -d "package_root/resamplers" ]; then

@@ -2096,6 +2096,7 @@ dependencies = [
  "serde_json",
  "sha2",
  "tempfile",
+ "toml",
  "unicode-normalization",
  "ureq",
  "wasm-bindgen",

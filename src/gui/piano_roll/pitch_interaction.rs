@@ -1,3 +1,7 @@
+use super::state::{
+    screen_x_to_timeline_time_ms, screen_y_to_timeline_midi, timeline_midi_to_screen_y,
+    timeline_time_to_screen_x,
+};
 use super::*;
 use crate::dsp::pitch_bend::PitchBendSolver;
 use crate::gui::types::PitchSubTool;
@@ -20,6 +24,7 @@ pub(super) struct PitchLayerContext<'a> {
     pub(super) visible_clip: Rect,
     pub(super) grid_start_y: f32,
     pub(super) note_info: &'a [(u8, f64, f64, f64)],
+    pub(super) note_neighbors: &'a [(Option<usize>, Option<usize>)],
     pub(super) pending_pitch_handles: &'a [PendingPitchHandle],
     pub(super) mouse_interact_pos: Option<Pos2>,
     pub(super) theme: &'a ThemeConfig,
@@ -41,12 +46,26 @@ pub(super) fn draw_and_interact(
         visible_clip,
         grid_start_y,
         note_info,
+        note_neighbors,
         pending_pitch_handles,
         mouse_interact_pos,
         theme,
         is_alt,
         is_shift,
     } = context;
+    let previous_pitch = |note_idx: usize| {
+        note_neighbors
+            .get(note_idx)
+            .and_then(|neighbors| neighbors.0)
+            .map(|previous_idx| {
+                let (previous_midi, previous_pos, previous_duration, _) = note_info[previous_idx];
+                (
+                    Some(previous_midi),
+                    UNote::are_adjacent(previous_pos + previous_duration, note_info[note_idx].1),
+                )
+            })
+            .unwrap_or((None, false))
+    };
     let painter = ui.painter_at(rect);
     // ====================================================================
     // OPENUTAU-GRADE CANVAS-WIDE PITCH ENGINE & INTERACTION
@@ -58,14 +77,23 @@ pub(super) fn draw_and_interact(
         let mut global_segments: Vec<Vec<Pos2>> = Vec::new();
         let mut current_segment: Vec<Pos2> = Vec::new();
 
-        for (idx, note) in notes.iter().enumerate() {
+        let mut chronological_order: Vec<usize> = (0..notes.len()).collect();
+        chronological_order.sort_by(|&left, &right| {
+            notes[left]
+                .position_ms
+                .total_cmp(&notes[right].position_ms)
+                .then_with(|| left.cmp(&right))
+        });
+        for idx in chronological_order {
+            let note = &notes[idx];
             let note_midi = note.midi_key();
             if note_midi < state.min_midi || note_midi > state.max_midi {
                 continue;
             }
 
+            let content_left = rect.min.x + keyboard_width;
             let x_start_note =
-                rect.min.x + keyboard_width + (note.position_ms * state.px_per_ms as f64) as f32;
+                timeline_time_to_screen_x(content_left, note.position_ms, state.px_per_ms, 0.0);
             let x_end_note = x_start_note + (note.duration_ms * state.px_per_ms as f64) as f32;
 
             if x_end_note < visible_clip.min.x - 200.0 || x_start_note > visible_clip.max.x + 200.0
@@ -76,9 +104,9 @@ pub(super) fn draw_and_interact(
                 continue;
             }
 
-            let (previous_midi, is_adjacent) = if idx > 0 {
-                let (prev_m, prev_pos, prev_dur, _) = note_info[idx - 1];
-                let adj = (prev_pos + prev_dur - note.position_ms).abs() <= 1.0;
+            let (previous_midi, is_adjacent) = if let Some(previous_idx) = note_neighbors[idx].0 {
+                let (prev_m, prev_pos, prev_dur, _) = note_info[previous_idx];
+                let adj = UNote::are_adjacent(prev_pos + prev_dur, note.position_ms);
                 (Some(prev_m), adj)
             } else {
                 (None, false)
@@ -93,10 +121,10 @@ pub(super) fn draw_and_interact(
                     .effective_points(previous_midi, note_midi, is_adjacent);
 
             let min_t = pitch_curve.first().map(|p| p.time_offset_ms).unwrap_or(0.0);
-            let max_t = if let Some(&(_next_m, next_pos, _next_dur, next_first_t)) =
-                note_info.get(idx + 1)
-            {
-                let next_adjacent = (note.position_ms + note.duration_ms - next_pos).abs() <= 1.0;
+            let max_t = if let Some(next_idx) = note_neighbors[idx].1 {
+                let &(_next_m, next_pos, _next_dur, next_first_t) = &note_info[next_idx];
+                let next_adjacent =
+                    UNote::are_adjacent(note.position_ms + note.duration_ms, next_pos);
                 let next_start = next_pos + next_first_t;
                 if next_adjacent {
                     (next_start - note.position_ms).max(min_t)
@@ -114,8 +142,18 @@ pub(super) fn draw_and_interact(
                 f64::INFINITY
             };
 
-            let visible_note_start = ((visible_clip.min.x - x_start_note) / state.px_per_ms) as f64;
-            let visible_note_end = ((visible_clip.max.x - x_start_note) / state.px_per_ms) as f64;
+            let visible_note_start = screen_x_to_timeline_time_ms(
+                x_start_note,
+                visible_clip.min.x,
+                state.px_per_ms,
+                0.0,
+            );
+            let visible_note_end = screen_x_to_timeline_time_ms(
+                x_start_note,
+                visible_clip.max.x,
+                state.px_per_ms,
+                0.0,
+            );
             let draw_min_t = min_t.max(visible_note_start - 20.0);
             let draw_max_t = max_t.min(visible_note_end + 20.0);
             let step = (2.0 / state.px_per_ms.max(0.001)) as f64;
@@ -151,10 +189,13 @@ pub(super) fn draw_and_interact(
 
                 let absolute_midi =
                     note_midi as f64 + (offset_cents + note.expressions.pitch_delta) / 100.0;
-                let px_y = grid_start_y
-                    + (state.max_midi as f64 - absolute_midi) as f32 * state.row_height
-                    + state.row_height * 0.5;
-                let px_x = x_start_note + (t * state.px_per_ms as f64) as f32;
+                let px_y = timeline_midi_to_screen_y(
+                    grid_start_y,
+                    state.max_midi,
+                    state.row_height,
+                    absolute_midi,
+                );
+                let px_x = timeline_time_to_screen_x(x_start_note, t, state.px_per_ms, 0.0);
 
                 current_segment.push(Pos2::new(px_x, px_y));
                 t += step;
@@ -188,11 +229,18 @@ pub(super) fn draw_and_interact(
                     .pitch_brush_raw_stroke
                     .iter()
                     .map(|&(abs_t, abs_m)| {
-                        let px_x =
-                            rect.min.x + keyboard_width + (abs_t * state.px_per_ms as f64) as f32;
-                        let px_y = grid_start_y
-                            + (state.max_midi as f64 - abs_m) as f32 * state.row_height
-                            + state.row_height * 0.5;
+                        let px_x = timeline_time_to_screen_x(
+                            rect.min.x + keyboard_width,
+                            abs_t,
+                            state.px_per_ms,
+                            0.0,
+                        );
+                        let px_y = timeline_midi_to_screen_y(
+                            grid_start_y,
+                            state.max_midi,
+                            state.row_height,
+                            abs_m,
+                        );
                         Pos2::new(px_x, px_y)
                     })
                     .collect();
@@ -211,11 +259,18 @@ pub(super) fn draw_and_interact(
                 }
             } else if state.pitch_sub_tool == PitchSubTool::Line {
                 if let Some((start_t, start_m)) = state.pitch_line_start {
-                    let p1_x =
-                        rect.min.x + keyboard_width + (start_t * state.px_per_ms as f64) as f32;
-                    let p1_y = grid_start_y
-                        + (state.max_midi as f64 - start_m) as f32 * state.row_height
-                        + state.row_height * 0.5;
+                    let p1_x = timeline_time_to_screen_x(
+                        rect.min.x + keyboard_width,
+                        start_t,
+                        state.px_per_ms,
+                        0.0,
+                    );
+                    let p1_y = timeline_midi_to_screen_y(
+                        grid_start_y,
+                        state.max_midi,
+                        state.row_height,
+                        start_m,
+                    );
                     let p1 = Pos2::new(p1_x, p1_y);
                     let p2 = mpos;
                     painter.line_segment(
@@ -236,10 +291,14 @@ pub(super) fn draw_and_interact(
     // 3. Canvas Pitch Pointer Interaction
     if can_interact_pitch {
         if let Some(mpos) = mouse_interact_pos {
-            let timeline_time_ms =
-                ((mpos.x - (rect.min.x + keyboard_width)) / state.px_per_ms) as f64;
-            let timeline_abs_midi = state.max_midi as f64
-                - ((mpos.y - grid_start_y - state.row_height * 0.5) / state.row_height) as f64;
+            let timeline_time_ms = screen_x_to_timeline_time_ms(
+                rect.min.x + keyboard_width,
+                mpos.x,
+                state.px_per_ms,
+                0.0,
+            );
+            let timeline_abs_midi =
+                screen_y_to_timeline_midi(grid_start_y, state.max_midi, state.row_height, mpos.y);
 
             // Find hovered pitch handle
             let mut hovered_handle_idx: Option<usize> = None;
@@ -291,12 +350,7 @@ pub(super) fn draw_and_interact(
                     let pt_idx = handle.pt_idx;
                     if n_idx < notes.len() {
                         if notes[n_idx].pitch_bend.points.is_empty() {
-                            let (prev_m, is_adj) = if n_idx > 0 {
-                                let (pm, pp, pd, _) = note_info[n_idx - 1];
-                                (Some(pm), (pp + pd - notes[n_idx].position_ms).abs() <= 1.0)
-                            } else {
-                                (None, false)
-                            };
+                            let (prev_m, is_adj) = previous_pitch(n_idx);
                             notes[n_idx].pitch_bend.points = notes[n_idx]
                                 .pitch_bend
                                 .effective_points(prev_m, notes[n_idx].midi_key(), is_adj);
@@ -317,12 +371,7 @@ pub(super) fn draw_and_interact(
                     let pt_idx = handle.pt_idx;
                     if n_idx < notes.len() {
                         if notes[n_idx].pitch_bend.points.is_empty() {
-                            let (prev_m, is_adj) = if n_idx > 0 {
-                                let (pm, pp, pd, _) = note_info[n_idx - 1];
-                                (Some(pm), (pp + pd - notes[n_idx].position_ms).abs() <= 1.0)
-                            } else {
-                                (None, false)
-                            };
+                            let (prev_m, is_adj) = previous_pitch(n_idx);
                             notes[n_idx].pitch_bend.points = notes[n_idx]
                                 .pitch_bend
                                 .effective_points(prev_m, notes[n_idx].midi_key(), is_adj);
@@ -341,12 +390,7 @@ pub(super) fn draw_and_interact(
             } else if let Some((n_idx, pt_idx)) = hovered_segment {
                 if ui.input(|i| i.pointer.secondary_clicked()) && n_idx < notes.len() {
                     if notes[n_idx].pitch_bend.points.is_empty() {
-                        let (prev_m, is_adj) = if n_idx > 0 {
-                            let (pm, pp, pd, _) = note_info[n_idx - 1];
-                            (Some(pm), (pp + pd - notes[n_idx].position_ms).abs() <= 1.0)
-                        } else {
-                            (None, false)
-                        };
+                        let (prev_m, is_adj) = previous_pitch(n_idx);
                         notes[n_idx].pitch_bend.points = notes[n_idx].pitch_bend.effective_points(
                             prev_m,
                             notes[n_idx].midi_key(),
@@ -371,12 +415,7 @@ pub(super) fn draw_and_interact(
                     let pt_idx = handle.pt_idx;
                     if n_idx < notes.len() {
                         if notes[n_idx].pitch_bend.points.is_empty() {
-                            let (prev_m, is_adj) = if n_idx > 0 {
-                                let (pm, pp, pd, _) = note_info[n_idx - 1];
-                                (Some(pm), (pp + pd - notes[n_idx].position_ms).abs() <= 1.0)
-                            } else {
-                                (None, false)
-                            };
+                            let (prev_m, is_adj) = previous_pitch(n_idx);
                             notes[n_idx].pitch_bend.points = notes[n_idx]
                                 .pitch_bend
                                 .effective_points(prev_m, notes[n_idx].midi_key(), is_adj);
@@ -391,23 +430,22 @@ pub(super) fn draw_and_interact(
                     // gesture immediately enters point-drag mode. This is
                     // the important behavioral difference from the old
                     // sampled freehand brush.
-                    let notes_len = notes.len();
-                    for (n_idx, note) in notes.iter_mut().enumerate() {
+                    let mut note_order: Vec<usize> = (0..notes.len()).collect();
+                    note_order.sort_by(|&left, &right| {
+                        notes[left]
+                            .position_ms
+                            .total_cmp(&notes[right].position_ms)
+                            .then_with(|| left.cmp(&right))
+                    });
+                    for n_idx in note_order {
+                        let note = &mut notes[n_idx];
                         let note_end = note.position_ms + note.duration_ms;
-                        if timeline_time_ms < note.position_ms
-                            || timeline_time_ms > note_end
-                            || (n_idx + 1 < notes_len && timeline_time_ms >= note_end)
-                        {
+                        if timeline_time_ms < note.position_ms || timeline_time_ms > note_end {
                             continue;
                         }
 
                         if note.pitch_bend.points.is_empty() {
-                            let (prev_m, is_adj) = if n_idx > 0 {
-                                let (pm, pp, pd, _) = note_info[n_idx - 1];
-                                (Some(pm), (pp + pd - note.position_ms).abs() <= 1.0)
-                            } else {
-                                (None, false)
-                            };
+                            let (prev_m, is_adj) = previous_pitch(n_idx);
                             note.pitch_bend.points =
                                 note.pitch_bend
                                     .effective_points(prev_m, note.midi_key(), is_adj);
@@ -494,12 +532,7 @@ pub(super) fn draw_and_interact(
                                         <= note.position_ms + note.duration_ms + 50.0
                                 {
                                     if note.pitch_bend.points.is_empty() {
-                                        let (prev_m, is_adj) = if n_idx > 0 {
-                                            let (pm, pp, pd, _) = note_info[n_idx - 1];
-                                            (Some(pm), (pp + pd - note.position_ms).abs() <= 1.0)
-                                        } else {
-                                            (None, false)
-                                        };
+                                        let (prev_m, is_adj) = previous_pitch(n_idx);
                                         note.pitch_bend.points = note.pitch_bend.effective_points(
                                             prev_m,
                                             note.midi_key(),
@@ -601,12 +634,7 @@ pub(super) fn draw_and_interact(
 
                             if s_max_t >= n_start - 100.0 && s_min_t <= n_end + 100.0 {
                                 if note.pitch_bend.points.is_empty() {
-                                    let (prev_m, is_adj) = if n_idx > 0 {
-                                        let (pm, pp, pd, _) = note_info[n_idx - 1];
-                                        (Some(pm), (pp + pd - note.position_ms).abs() <= 1.0)
-                                    } else {
-                                        (None, false)
-                                    };
+                                    let (prev_m, is_adj) = previous_pitch(n_idx);
                                     note.pitch_bend.points = note.pitch_bend.effective_points(
                                         prev_m,
                                         note.midi_key(),
@@ -673,12 +701,7 @@ pub(super) fn draw_and_interact(
 
                             if l_max_t >= n_start - 50.0 && l_min_t <= n_end + 50.0 {
                                 if note.pitch_bend.points.is_empty() {
-                                    let (prev_m, is_adj) = if n_idx > 0 {
-                                        let (pm, pp, pd, _) = note_info[n_idx - 1];
-                                        (Some(pm), (pp + pd - note.position_ms).abs() <= 1.0)
-                                    } else {
-                                        (None, false)
-                                    };
+                                    let (prev_m, is_adj) = previous_pitch(n_idx);
                                     note.pitch_bend.points = note.pitch_bend.effective_points(
                                         prev_m,
                                         note.midi_key(),

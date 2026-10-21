@@ -9,6 +9,7 @@ use eframe::egui;
 use eframe::egui::Frame;
 use eframe::egui::SidePanel;
 use eframe::egui::TopBottomPanel;
+use std::path::PathBuf;
 
 impl KamafeuStudioApp {
     // Explicitly ends the closure's mutable borrow of `self` before the
@@ -323,6 +324,11 @@ impl KamafeuStudioApp {
                 .min()
         });
         let active_track = self.active_track_index;
+        let active_track_uses_native_singer = self
+            .project
+            .tracks
+            .get(active_track)
+            .is_some_and(|track| track.native_voicebank.is_some());
         if self.project.parts.is_empty() {
             self.project
                 .parts
@@ -336,6 +342,7 @@ impl KamafeuStudioApp {
             .unwrap_or(0);
 
         let mut loaded_vb: Option<Voicebank> = None;
+        let mut native_singer_to_bind: Option<PathBuf> = None;
         let mut preview_alias: Option<String> = None;
         let mut insert_alias: Option<String> = None;
         let mut palette_edit_alias: Option<String> = None;
@@ -352,14 +359,62 @@ impl KamafeuStudioApp {
         let mut add_singers_dir_flag = false;
         let mut open_folder_picker = false;
         let phonemizer_before_panel = self.vocal_mode_params.phonemizer_mode;
+        let active_native_path = self
+            .project
+            .tracks
+            .get(self.active_track_index)
+            .and_then(|track| track.native_voicebank.as_ref())
+            .and_then(|reference| reference.source_path_hint.as_deref())
+            .map(std::path::Path::new);
+        // The project reference is authoritative. Scanner results can be stale
+        // (or use a different relative/absolute spelling), so never let the
+        // globally loaded UTAU bank stand in for a native singer in the UI.
+        let active_native_singer = active_native_path.and_then(|path| {
+            let same_path = |candidate: &std::path::Path| {
+                candidate == path
+                    || std::fs::canonicalize(candidate)
+                        .ok()
+                        .zip(std::fs::canonicalize(path).ok())
+                        .is_some_and(|(left, right)| left == right)
+            };
+            self.singers_list
+                .iter()
+                .find(|singer| singer.is_native && same_path(&singer.path))
+                .cloned()
+                .or_else(|| {
+                    let bank = crate::voicebank::cantor::CantorBank::load_path(path).ok()?;
+                    let image_path = bank
+                        .cantor
+                        .imagem
+                        .as_deref()
+                        .or(bank.cantor.portrait.as_deref())
+                        .map(|asset| bank.root.join(asset));
+                    Some(crate::oto::SingerInfo {
+                        name: bank.cantor.nome,
+                        author: "Banco nativo Kamafeu".into(),
+                        web: None,
+                        path: bank.root,
+                        image_path,
+                        voice_type: "Kamafeu nativo · Tainah WORLD".into(),
+                        selectable: true,
+                        is_native: true,
+                        diagnostic: None,
+                    })
+                })
+        });
 
         draw_unified_panel(
             ui,
             &self.config.theme,
             self.config.language,
-            self.voicebank.as_ref(),
+            if !active_track_uses_native_singer {
+                self.voicebank.as_ref()
+            } else {
+                None
+            },
             &self.config.recent_voicebanks,
             &self.singers_list,
+            active_native_singer.as_ref(),
             &mut self.singer_search_query,
             &mut self.config.singers_paths,
             &mut self.vocal_mode_params,
@@ -380,7 +435,9 @@ impl KamafeuStudioApp {
             &mut self.config.discord_rpc_enabled,
             &mut |opt_path| {
                 if let Some(p) = opt_path {
-                    if let Ok(vb) = Voicebank::new(&p) {
+                    if p.join("cantor.toml").is_file() {
+                        native_singer_to_bind = Some(p);
+                    } else if let Ok(vb) = Voicebank::new(&p) {
                         loaded_vb = Some(vb);
                     }
                 } else {
@@ -477,6 +534,13 @@ impl KamafeuStudioApp {
             self.activate_voicebank(vb);
         }
 
+        if let Some(path) = native_singer_to_bind {
+            if let Err(error) = self.bind_native_singer_to_active_track(&path) {
+                self.transport_state.status_message =
+                    format!("Falha ao vincular cantor.toml: {error}");
+            }
+        }
+
         if let Some(alias) = preview_alias {
             let mut played = false;
             if let (Some(note_index), Some(vb)) = (selected_idx, self.voicebank.as_ref()) {
@@ -556,7 +620,7 @@ impl KamafeuStudioApp {
             .or_else(|| palette_edit_alias.map(|alias| (alias, "C4".to_string())));
         #[cfg(not(target_os = "android"))]
         if let Some((alias, pitch)) = edit_alias {
-            self.open_copaiba_for_alias(&alias, &pitch);
+            self.open_voicebank_editor_for_alias(&alias, &pitch);
         }
     }
 
