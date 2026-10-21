@@ -129,6 +129,26 @@ pub struct CopaibaToolkitApp {
     pub preserve_oto_entry: bool,
     pub config: CopaibaConfig,
     pub native_project: Option<crate::copaiba::native_project::CopaibaNativeProject>,
+    pub kamuse_project: Option<crate::copaiba::kamuse::KamuseProject>,
+    pub kamuse_name: String,
+    pub kamuse_id: String,
+    pub kamuse_language: String,
+    pub kamuse_recording_phones: String,
+    pub kamuse_recording_midi: u8,
+    pub kamuse_new_tone_midi: u8,
+    pub kamuse_selected_tone_midi_edit: u8,
+    pub kamuse_recording_alias_edit: String,
+    pub kamuse_recording_phones_edit: String,
+    pub kamuse_editing_tone_id: Option<String>,
+    pub kamuse_editing_recording: Option<(String, String)>,
+    pub kamuse_pending_delete_tone: Option<String>,
+    pub kamuse_pending_delete_recording: Option<(String, String)>,
+    pub kamuse_selected_tone: Option<String>,
+    pub kamuse_selected_recording: Option<String>,
+    pub kamuse_prompt_filter: String,
+    pub kamuse_waveform: Option<(PathBuf, Vec<f32>, f64)>,
+    pub kamuse_drag_mark: Option<usize>,
+    pub kamuse_marks_dirty: bool,
     pub native_selected_layer: Option<String>,
     pub native_selected_unit: Option<String>,
     pub native_selected_asset: Option<String>,
@@ -174,6 +194,26 @@ impl Default for CopaibaToolkitApp {
             preserve_oto_entry: false,
             config: CopaibaConfig::default(),
             native_project: None,
+            kamuse_project: None,
+            kamuse_name: "Nova voz Kamafeu".into(),
+            kamuse_id: "org.kamafeu.voice.nova".into(),
+            kamuse_language: "pt-BR".into(),
+            kamuse_recording_phones: String::new(),
+            kamuse_recording_midi: 60,
+            kamuse_new_tone_midi: 60,
+            kamuse_selected_tone_midi_edit: 60,
+            kamuse_recording_alias_edit: String::new(),
+            kamuse_recording_phones_edit: String::new(),
+            kamuse_editing_tone_id: None,
+            kamuse_editing_recording: None,
+            kamuse_pending_delete_tone: None,
+            kamuse_pending_delete_recording: None,
+            kamuse_selected_tone: None,
+            kamuse_selected_recording: None,
+            kamuse_prompt_filter: String::new(),
+            kamuse_waveform: None,
+            kamuse_drag_mark: None,
+            kamuse_marks_dirty: false,
             native_selected_layer: None,
             native_selected_unit: None,
             native_selected_asset: None,
@@ -436,6 +476,12 @@ pub fn draw_copaiba_toolkit_ui(
     ui.vertical(|ui| {
         toolbar::draw_toolbar(app, audio_player, ui);
 
+        if app.kamuse_project.is_some() {
+            ui.add_space(12.0);
+            kamuse_ui::draw_kamuse_authoring_ui(app, audio_player, ui);
+            return;
+        }
+
         ui.add_space(12.0);
         ui.separator();
         ui.add_space(12.0);
@@ -498,6 +544,8 @@ pub fn draw_copaiba_toolkit_ui(
         }
     }
 }
+
+mod kamuse_ui;
 
 #[cfg(test)]
 mod migration_ui_tests {

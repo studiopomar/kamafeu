@@ -45,6 +45,25 @@ impl TrackRenderer {
     /// Helper to read a WAV file from disk into f32 mono samples
     pub fn load_wav_samples<P: AsRef<Path>>(path: P) -> Result<(Vec<f32>, u32), String> {
         let path = path.as_ref();
+        if path
+            .extension()
+            .is_some_and(|extension| extension.eq_ignore_ascii_case("mp3"))
+        {
+            let decoded = crate::audio::load_audio_file(path)
+                .map_err(|error| format!("Failed to decode MP3 file {:?}: {}", path, error))?;
+            if decoded.channels == 0 || decoded.sample_rate == 0 {
+                return Err(format!("MP3 {:?} declares invalid audio metadata", path));
+            }
+            let mono = decoded
+                .samples
+                .chunks_exact(decoded.channels as usize)
+                .map(|frame| frame.iter().sum::<f32>() / decoded.channels as f32)
+                .collect::<Vec<_>>();
+            if mono.is_empty() || mono.iter().any(|sample| !sample.is_finite()) {
+                return Err(format!("MP3 {:?} contains no valid decoded samples", path));
+            }
+            return Ok((mono, decoded.sample_rate));
+        }
         let mut reader = hound::WavReader::open(path)
             .map_err(|e| format!("Failed to open WAV file {:?}: {}", path, e))?;
 
@@ -127,4 +146,40 @@ impl TrackRenderer {
 
 pub(crate) fn set_anti_aliasing_filter(enabled: bool) {
     ANTI_ALIASING_FILTER.store(enabled, Ordering::Relaxed);
+}
+
+#[cfg(test)]
+mod mp3_tests {
+    use super::TrackRenderer;
+    use std::process::Command;
+
+    #[test]
+    fn reads_mp3_voicebank_audio_when_ffmpeg_is_available() {
+        if Command::new("ffmpeg").arg("-version").output().is_err() {
+            return;
+        }
+        let temp = tempfile::tempdir().unwrap();
+        let wav = temp.path().join("source.wav");
+        let mp3 = temp.path().join("sample.mp3");
+        let samples = (0..12_000)
+            .map(|i| (i as f32 * std::f32::consts::TAU * 220.0 / 48_000.0).sin() * 0.2)
+            .collect::<Vec<_>>();
+        TrackRenderer::save_wav_samples(&wav, &samples, 48_000).unwrap();
+        let result = Command::new("ffmpeg")
+            .args(["-loglevel", "error", "-y", "-i"])
+            .arg(&wav)
+            .args(["-codec:a", "libmp3lame", "-q:a", "4"])
+            .arg(&mp3)
+            .output()
+            .unwrap();
+        if !result.status.success() {
+            return;
+        }
+        let original = std::fs::read(&mp3).unwrap();
+        let (decoded, rate) = TrackRenderer::load_wav_samples(&mp3).unwrap();
+        assert_eq!(rate, 48_000);
+        assert!(!decoded.is_empty());
+        assert!(decoded.iter().any(|sample| sample.abs() > 0.01));
+        assert_eq!(std::fs::read(mp3).unwrap(), original);
+    }
 }

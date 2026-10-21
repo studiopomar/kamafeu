@@ -4,11 +4,14 @@ use eframe::egui;
 impl KamafeuStudioApp {
     pub(super) fn show_copaiba(&mut self, ctx: &egui::Context) {
         if self.copaiba_window_open {
+            let was_open = self.copaiba_window_open;
             let mut is_open = self.copaiba_window_open;
             ctx.show_viewport_immediate(
                 egui::ViewportId::from_hash_of("copaiba_toolkit_native_viewport"),
                 egui::ViewportBuilder::default()
-                    .with_title("Copaiba Voicebank Toolkit - Kamafeu Studio")
+                    .with_title(
+                        "KAMUSE · Kamafeu Autoria e Modelagem de Unidades Sonoras Editáveis",
+                    )
                     .with_inner_size([1000.0, 600.0])
                     .with_min_inner_size([700.0, 450.0]),
                 |ctx, _class| {
@@ -25,6 +28,9 @@ impl KamafeuStudioApp {
                 },
             );
             self.copaiba_window_open = is_open;
+            if was_open && !is_open {
+                self.refresh_active_native_bank_reference();
+            }
         }
     }
 }

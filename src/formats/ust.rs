@@ -312,6 +312,7 @@ impl UstFormat {
 
         let mut curr_ms = 0.0f64;
         let ms_per_beat = 60000.0 / project.bpm.max(20.0);
+        let neighbors = UNote::time_neighbors(notes);
 
         for (idx, note) in notes.iter().enumerate() {
             // Check for gap rest
@@ -372,9 +373,12 @@ impl UstFormat {
                 env.p1, env.p2, env.p5, env.v1, env.v2, env.v4, env.v5, env.p4, env.p3, env.v3,
             ));
 
-            let previous = idx.checked_sub(1).and_then(|index| notes.get(index));
+            let previous = neighbors[idx].0.and_then(|previous| notes.get(previous));
             let adjacent = previous.is_some_and(|previous| {
-                (previous.position_ms + previous.duration_ms - note.position_ms).abs() <= 1.0
+                UNote::are_adjacent(
+                    previous.position_ms + previous.duration_ms,
+                    note.position_ms,
+                )
             });
             let pitch_points = note.pitch_bend.effective_points(
                 previous.map(UNote::midi_key),

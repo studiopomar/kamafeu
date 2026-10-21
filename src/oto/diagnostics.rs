@@ -82,27 +82,26 @@ impl Voicebank {
                 continue;
             }
 
-            match hound::WavReader::open(&wav_path) {
-                Ok(reader) => {
-                    let spec = reader.spec();
-                    if reader.duration() == 0 {
+            match crate::audio::probe_audio_file(&wav_path) {
+                Some(info) => {
+                    if info.duration_ms <= 0.0 {
                         report.empty_wav_count += 1;
                         report.issues.push(issue(
                             VoicebankIssueKind::EmptyWav,
                             entry,
-                            "WAV não contém amostras de áudio",
+                            "arquivo de áudio não contém amostras",
                         ));
                     } else {
                         report.readable_wav_count += 1;
                     }
-                    *report.sample_rates.entry(spec.sample_rate).or_default() += 1;
+                    *report.sample_rates.entry(info.sample_rate).or_default() += 1;
                 }
-                Err(error) => {
+                None => {
                     report.invalid_wav_count += 1;
                     report.issues.push(issue(
                         VoicebankIssueKind::InvalidWav,
                         entry,
-                        &format!("WAV não pôde ser lido: {error}"),
+                        "WAV/MP3 não pôde ser decodificado",
                     ));
                 }
             }

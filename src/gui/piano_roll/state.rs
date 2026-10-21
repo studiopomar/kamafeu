@@ -60,6 +60,38 @@ pub(crate) fn timeline_time_to_screen_x(
     content_left + (time_ms * px_per_ms as f64) as f32 - scroll_offset
 }
 
+/// Inverse of [`timeline_time_to_screen_x`] for pointer editing. The piano roll
+/// keeps time in milliseconds and zoom positive in [`PianoRollState`].
+pub(crate) fn screen_x_to_timeline_time_ms(
+    content_left: f32,
+    screen_x: f32,
+    px_per_ms: f32,
+    scroll_offset: f32,
+) -> f64 {
+    f64::from((screen_x - content_left + scroll_offset) / px_per_ms)
+}
+
+/// Maps fractional MIDI pitch to the vertical center of its piano-roll row.
+pub(crate) fn timeline_midi_to_screen_y(
+    grid_start_y: f32,
+    max_midi: u8,
+    row_height: f32,
+    midi: f64,
+) -> f32 {
+    grid_start_y + (f64::from(max_midi) - midi) as f32 * row_height + row_height * 0.5
+}
+
+/// Inverse of [`timeline_midi_to_screen_y`], retaining fractional pitch for
+/// pitch drawing and handle dragging.
+pub(crate) fn screen_y_to_timeline_midi(
+    grid_start_y: f32,
+    max_midi: u8,
+    row_height: f32,
+    screen_y: f32,
+) -> f64 {
+    f64::from(max_midi) - f64::from((screen_y - grid_start_y - row_height * 0.5) / row_height)
+}
+
 /// Returns the absolute timeline interval covered by a screen rectangle.
 /// Keeping this conversion beside the shared affine transform prevents a
 /// footer layer from sampling waveform data outside its actual viewport.
@@ -74,8 +106,8 @@ pub(crate) fn timeline_visible_time_range(
     }
 
     let origin_x = timeline_time_to_screen_x(content_left, 0.0, px_per_ms, scroll_offset);
-    let start_ms = ((viewport.min.x - origin_x) / px_per_ms) as f64;
-    let end_ms = ((viewport.max.x - origin_x) / px_per_ms) as f64;
+    let start_ms = screen_x_to_timeline_time_ms(origin_x, viewport.min.x, px_per_ms, 0.0);
+    let end_ms = screen_x_to_timeline_time_ms(origin_x, viewport.max.x, px_per_ms, 0.0);
     Some((start_ms, end_ms))
 }
 
@@ -469,6 +501,22 @@ mod tests {
             timeline_time_to_screen_x(left, 2_400.0, px_per_ms, scroll),
             220.0
         );
+        for time_ms in [0.0, 123.5, 2_000.0, 12_345.0] {
+            let screen_x = timeline_time_to_screen_x(left, time_ms, px_per_ms, scroll);
+            let recovered = screen_x_to_timeline_time_ms(left, screen_x, px_per_ms, scroll);
+            assert!((recovered - time_ms).abs() < 0.01);
+        }
+    }
+
+    #[test]
+    fn pitch_screen_mapping_roundtrips_fractional_midi_at_multiple_row_heights() {
+        for row_height in [12.0, 22.0, 36.0] {
+            for midi in [24.0, 60.0, 60.25, 95.75, 108.0] {
+                let screen_y = timeline_midi_to_screen_y(84.0, 108, row_height, midi);
+                let recovered = screen_y_to_timeline_midi(84.0, 108, row_height, screen_y);
+                assert!((recovered - midi).abs() < 1e-5);
+            }
+        }
     }
 
     #[test]

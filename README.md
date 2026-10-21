@@ -81,7 +81,7 @@ O nome **Kamafeu** faz referência à tradicional joia em camafeu, esculpida man
 - [Motores de áudio](#motores-de-áudio-resamplers-e-wavtools)
   - [Motores de afinação (Resamplers)](#motores-de-afinação-resamplers)
   - [Motores de junção e emenda de fonemas (Wavtools)](#motores-de-junção-e-emenda-de-fonemas-wavtools)
-- [Copaiba Voicebank Toolkit (Experimental)](#copaiba-voicebank-toolkit-experimental)
+- [Kamafeu KAMUSE](#kamafeu-kamuse)
 - [Primeiros passos](#primeiros-passos)
 - [Instalação para usuários finais](#instalação-para-usuários-finais)
 - [Versão mobile (Android; iOS em avaliação)](#versão-mobile-android-ios-em-avaliação)
@@ -392,17 +392,11 @@ O Kamafeu Studio permite alternar entre o pipeline nativo de processamento e fer
 - **Andromeda (wavtool alternativo):** Implementação nativa que aplica o envelope UTAU por fonema com curva cosseno. A concatenação/alinhamento de fase é fornecida por outros caminhos do mixer.
 - **wavtool-yawu / wavtool clássico:** Junção e costura de fonemas via linha de comando com suporte a fluxo contínuo por frases.
 
-## Copaiba Voicebank Toolkit (Experimental)
+## Kamafeu KAMUSE
 
-> **Aviso de desenvolvimento:** O Copaiba Toolkit é um utilitário em estágio experimental e não está pronto para uso em produção. Sua interface, estrutura de dados e rotinas de gravação de arquivos ainda passam por alterações frequentes.
+**KAMUSE** significa **Kamafeu Autoria e Modelagem de Unidades Sonoras Editáveis**. É a ferramenta guiada para criar bancos nativos `cantor.toml`. Ela importa gravações WAV e MP3 sem alterar os originais, permite revisar as marcações em milissegundos, organiza gravações por idioma e tom e empacota o banco em `.kfv`. Tainah WORLD é a engine nativa disponível; falhas são mostradas sem troca automática para SOLA. A especificação e um exemplo estão em [docs/cantor-toml.md](docs/cantor-toml.md).
 
-O **Copaiba** foi projetado para calibragem, teste e organização de bancos de voz UTAU. Ele pode ser aberto como utilitário independente (`copaiba`) ou acionado a partir de qualquer fonema na régua do Kamafeu para inspeção dos parâmetros da `oto.ini`:
-
-- **Offset:** Início útil da amostra, descartando silêncios ou ruídos mecânicos de captação.
-- **Consonant (Consoante fixa):** Intervalo temporal que não sofre estiramento durante alterações de andamento.
-- **Cutoff:** Ponto de término da amostra. Valores positivos cortam a partir do final do arquivo; valores negativos determinam a extensão a partir do offset.
-- **Preutterance:** Antecipação do ataque consonantal em relação à batida métrica da nota.
-- **Overlap:** Extensão da sobreposição suave com o fonema anterior para evitar descontinuidades.
+Bancos UTAU com `oto.ini` continuam disponíveis no editor principal. O KAMUSE se concentra na autoria do formato nativo.
 
 ## Primeiros passos
 
@@ -416,7 +410,7 @@ O **Copaiba** foi projetado para calibragem, teste e organização de bancos de 
 ## Instalação para usuários finais
 
 Os pacotes oficiais são publicados na página de [Releases](https://github.com/studiopomar/kamafeu/releases).
-Cada pacote inclui o editor, o Copaiba e os resamplers externos compilados para a
+Cada pacote inclui o editor, o Kamafeu KAMUSE e os resamplers externos compilados para a
 plataforma correspondente.
 
 ### Windows
@@ -660,13 +654,13 @@ cargo build --release --bins
 
 Os executáveis gerados estarão localizados em `target/release/`:
 - `kamafeu` (ou `kamafeu.exe` no Windows): Editor principal e sintetizador multifaixa.
-- `copaiba` (ou `copaiba.exe` no Windows): Utilitário de calibração de voicebanks (`oto.ini`).
+- `kamuse` (ou `kamuse.exe` no Windows): Ferramenta de autoria de bancos nativos Kamafeu KAMUSE. O executável `copaiba` permanece como alias de compatibilidade.
 
 ### Limitações conhecidas da RC
 
 - O aplicativo não instala automaticamente resamplers de terceiros. O pacote oficial inclui apenas os motores externos cuja compilação foi concluída no workflow; outros executáveis devem ser instalados pelo usuário.
 - No macOS, o artefato é um `Kamafeu.app` dentro do `.dmg`, mas assinatura e notarização dependem do processo de distribuição do mantenedor.
-- A qualidade final depende do `oto.ini`, dos WAVs e do resampler/wavtool escolhidos. Um voicebank com aliases ausentes pode exigir correção manual no Copaiba.
+- A qualidade final depende das gravações, marcações e cobertura fonética do banco, além do resampler/wavtool escolhido. Bancos UTAU continuam dependendo da qualidade do `oto.ini`.
 - A reprodução com motores externos no Linux/macOS pode exigir Wine e bibliotecas de áudio/gráficas do sistema.
 - Projetos importados de `.ufdata`, `.svp` e `.vsqx` podem perder recursos específicos do formato original durante a conversão.
 - Voicebanks muito grandes, renderização de várias faixas e uso simultâneo de efeitos podem exceder o limite prático de 2 GB de RAM.
@@ -685,8 +679,8 @@ Para executar diretamente:
 # Executar o editor Kamafeu
 cargo run --release --bin kamafeu
 
-# Executar o utilitário Copaiba
-cargo run --release --bin copaiba
+# Executar a ferramenta Kamafeu KAMUSE
+cargo run --release --bin kamuse
 ```
 
 ## Interface de linha de comando

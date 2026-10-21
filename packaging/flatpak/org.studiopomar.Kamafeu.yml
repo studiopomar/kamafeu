@@ -15,6 +15,7 @@ modules:
     buildsystem: simple
     build-commands:
       - install -Dm755 target/release/kamafeu /app/bin/kamafeu
+      - install -Dm755 target/release/kamuse /app/bin/kamuse
       - install -Dm755 target/release/copaiba /app/bin/copaiba
       - install -Dm755 target/tainah-package/libtainah_motor.so.1 /app/lib/kamafeu/libtainah_motor.so.1
       - install -Dm644 target/tainah-package/licenca-da-base-LGPL-3.0.txt /app/share/licenses/kamafeu/licenca-da-base-LGPL-3.0.txt

@@ -44,13 +44,24 @@ pub(super) struct PhrasePitchNote {
 
 impl TrackRenderer {
     pub(super) fn phrase_pitch_notes(notes: &[UNote]) -> Vec<PhrasePitchNote> {
-        let mut result = notes
-            .iter()
-            .enumerate()
-            .map(|(index, note)| {
-                let previous = index.checked_sub(1).and_then(|index| notes.get(index));
+        let neighbors = UNote::time_neighbors(notes);
+        let mut order: Vec<usize> = (0..notes.len()).collect();
+        order.sort_by(|&left, &right| {
+            notes[left]
+                .position_ms
+                .total_cmp(&notes[right].position_ms)
+                .then_with(|| left.cmp(&right))
+        });
+        let mut result = order
+            .into_iter()
+            .map(|index| {
+                let note = &notes[index];
+                let previous = neighbors[index].0.and_then(|previous| notes.get(previous));
                 let adjacent = previous.is_some_and(|previous| {
-                    (note.position_ms - (previous.position_ms + previous.duration_ms)).abs() <= 60.0
+                    UNote::are_adjacent(
+                        previous.position_ms + previous.duration_ms,
+                        note.position_ms,
+                    )
                 });
                 let is_plus = note.lyric.trim() == "+" || note.lyric.trim().starts_with("+ ");
                 let points = if is_plus && adjacent {

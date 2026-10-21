@@ -154,10 +154,31 @@ impl ProjectRenderer {
                 return RenderedAudio::empty(sample_rate, 2);
             }
             if let Some(callback) = on_progress {
-                callback(
-                    0.0,
-                    "[KFV 2] Resolvendo bancos nativos e bindings do projeto",
-                );
+                callback(0.0, "Resolvendo bancos nativos e bindings do projeto");
+            }
+            let classic_tracks_with_notes = audible_tracks
+                .iter()
+                .filter(|(index, track)| {
+                    track.native_voicebank.is_none()
+                        && project
+                            .parts
+                            .iter()
+                            .any(|part| part.track_index == *index && !part.notes.is_empty())
+                })
+                .map(|(_, track)| track.name.as_str())
+                .collect::<Vec<_>>();
+            if !classic_tracks_with_notes.is_empty() {
+                if let Some(callback) = on_progress {
+                    callback(
+                        0.0,
+                        &format!(
+                            "[Mistura UTAU] faixas {} também serão renderizadas com o banco UTAU carregado: {} ({})",
+                            classic_tracks_with_notes.join(", "),
+                            voicebank.name,
+                            voicebank.root_path.display()
+                        ),
+                    );
+                }
             }
             if let Some(callback) = on_progress_event {
                 callback(super::RenderProgressEvent::counted(
@@ -212,12 +233,12 @@ impl ProjectRenderer {
                     return RenderedAudio::failed(
                         sample_rate,
                         format!(
-                            "faixa '{}': KFV 2 sem caminho local; reinstale ou relocalize o banco",
+                            "faixa '{}': cantor nativo sem caminho local; reinstale ou relocalize o banco",
                             track.name
                         ),
                     );
                 };
-                let bank = match crate::voicebank::native::NativeBank::load_path(
+                let cantor_bank = match crate::voicebank::cantor::CantorBank::load_path(
                     std::path::Path::new(bank_path),
                 ) {
                     Ok(bank) => bank,
@@ -225,19 +246,49 @@ impl ProjectRenderer {
                         return RenderedAudio::failed(
                             sample_rate,
                             format!(
-                                "faixa '{}': não foi possível abrir KFV 2: {error}",
+                                "faixa '{}': não foi possível abrir cantor.toml: {error}",
                                 track.name
                             ),
-                        )
+                        );
+                    }
+                };
+                let source_recordings = cantor_bank
+                    .cantor
+                    .tons
+                    .iter()
+                    .flat_map(|tone| {
+                        tone.gravacoes.iter().map(move |recording| {
+                            format!("{} / {}: {}", tone.id, recording.id, recording.arquivo)
+                        })
+                    })
+                    .collect::<Vec<_>>()
+                    .join("; ");
+                let singer_name = cantor_bank.cantor.nome.clone();
+                let bank = match cantor_bank.native_snapshot() {
+                    Ok(bank) => bank,
+                    Err(error) => {
+                        return RenderedAudio::failed(
+                            sample_rate,
+                            format!(
+                                "faixa '{}': falha ao preparar áudio de {}: {error}",
+                                track.name, singer_name
+                            ),
+                        );
                     }
                 };
                 if let Some(callback) = on_progress {
                     callback(
                         native_index as f32 / native_track_indices.len() as f32,
-                        &format!("[KFV 2] Renderizando faixa {}", track.name),
+                        &format!(
+                            "[KAMUSE / Tainah WORLD] faixa {} · cantor {} · {}/cantor.toml · fontes originais: {}",
+                            track.name,
+                            singer_name,
+                            bank_path,
+                            source_recordings
+                        ),
                     );
                 }
-                let rendered = match Self::render_native_track_sola_cancellable(
+                let rendered = match Self::render_native_track_world_cancellable(
                     project,
                     &bank,
                     track_index,
@@ -251,7 +302,10 @@ impl ProjectRenderer {
                         }
                         return RenderedAudio::failed(
                             sample_rate,
-                            format!("faixa '{}': render KFV 2 falhou: {error}", track.name),
+                            format!(
+                                "faixa '{}': render nativo Tainah WORLD falhou: {error}",
+                                track.name
+                            ),
                         );
                     }
                 };
@@ -273,10 +327,11 @@ impl ProjectRenderer {
                                 }
                             };
                             format!(
-                                "{} → {} / {} (MIDI {}, {})",
+                                "{} → {} / {} (MIDI pedido {}, gravação {}, {})",
                                 unit.phones.join(" "),
                                 unit.unit_id,
                                 unit.layer_id,
+                                unit.requested_midi,
                                 unit.selected_midi,
                                 reason
                             )
@@ -288,6 +343,11 @@ impl ProjectRenderer {
                         .units
                         .len()
                         .saturating_sub(decisions.len());
+                    let warnings = if rendered.phrase.warnings.is_empty() {
+                        String::new()
+                    } else {
+                        format!("; avisos: {}", rendered.phrase.warnings.join(" "))
+                    };
                     let suffix = if omitted > 0 {
                         format!("; mais {omitted} decisões no plano")
                     } else {
@@ -296,10 +356,10 @@ impl ProjectRenderer {
                     callback(
                         (native_index + 1) as f32 / native_track_indices.len() as f32,
                         &format!(
-                            "[KFV 2][{}] amostras: {}{}",
+                            "[Tainah WORLD][{}] amostras: {}{}",
                             track.name,
                             decisions.join("; "),
-                            suffix
+                            format!("{suffix}{warnings}")
                         ),
                     );
                 }
@@ -355,7 +415,10 @@ impl ProjectRenderer {
                 TrackRenderer::apply_soft_limiter(&mut mixed.samples, target_peak);
             }
             if let Some(callback) = on_progress {
-                callback(1.0, "[Mixer] Renderização KFV 2 e clássica concluída");
+                callback(
+                    1.0,
+                    "[Mixer] Renderização nativa WORLD e clássica concluída",
+                );
             }
             if let Some(callback) = on_progress_event {
                 callback(super::RenderProgressEvent::stage(

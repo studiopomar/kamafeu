@@ -178,6 +178,32 @@ pub struct UNote {
 }
 
 impl UNote {
+    /// Returns each note's previous and next note by musical position, while
+    /// preserving the caller's indices for editing and selection state.
+    pub(crate) fn time_neighbors(notes: &[UNote]) -> Vec<(Option<usize>, Option<usize>)> {
+        let mut order: Vec<usize> = (0..notes.len()).collect();
+        order.sort_by(|&left, &right| {
+            notes[left]
+                .position_ms
+                .total_cmp(&notes[right].position_ms)
+                .then_with(|| left.cmp(&right))
+        });
+        let mut neighbors = vec![(None, None); notes.len()];
+        for pair in order.windows(2) {
+            neighbors[pair[1]].0 = Some(pair[0]);
+            neighbors[pair[0]].1 = Some(pair[1]);
+        }
+        neighbors
+    }
+
+    /// Two notes share a portamento boundary when their ends meet within the
+    /// editor's one millisecond timing precision.
+    pub(crate) fn are_adjacent(previous_end_ms: f64, next_start_ms: f64) -> bool {
+        previous_end_ms.is_finite()
+            && next_start_ms.is_finite()
+            && (previous_end_ms - next_start_ms).abs() <= 1.0
+    }
+
     pub fn new(
         lyric: impl Into<String>,
         pitch: impl Into<String>,
@@ -786,6 +812,40 @@ mod project_tests {
             (point.time_offset_ms - 30.0).abs() < 1e-6
                 && (point.pitch_offset_cents - 25.0).abs() < 1e-6
         }));
+    }
+
+    #[test]
+    fn automatic_portamento_tracks_current_neighbor_without_becoming_authored_data() {
+        let bend = UPitchBend::default();
+
+        let high_note = bend.effective_points(Some(60), 72, true);
+        assert_eq!(high_note[0].pitch_offset_cents, -1_200.0);
+
+        let moved_note = bend.effective_points(Some(65), 67, true);
+        assert_eq!(moved_note[0].pitch_offset_cents, -200.0);
+
+        let separated_note = bend.effective_points(Some(65), 67, false);
+        assert_eq!(separated_note[0].pitch_offset_cents, 0.0);
+        assert!(bend.points.is_empty());
+    }
+
+    #[test]
+    fn note_neighbors_follow_timeline_order_after_a_note_is_moved() {
+        let notes = [
+            UNote::new("high", "G4", 500.0, 250.0),
+            UNote::new("low", "C4", 0.0, 250.0),
+            UNote::new("next", "D4", 250.0, 250.0),
+        ];
+        let neighbors = UNote::time_neighbors(&notes);
+
+        assert_eq!(neighbors[0].0, Some(2));
+        assert_eq!(neighbors[0].1, None);
+        assert_eq!(neighbors[1].0, None);
+        assert_eq!(neighbors[1].1, Some(2));
+        assert_eq!(neighbors[2].0, Some(1));
+        assert_eq!(neighbors[2].1, Some(0));
+        assert!(UNote::are_adjacent(250.0, 250.8));
+        assert!(!UNote::are_adjacent(250.0, 251.1));
     }
 
     #[test]

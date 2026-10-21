@@ -408,8 +408,8 @@ mod tests {
             crate::voicebank::planner::plan_phrase(&package_bank, &request).unwrap()
         );
         assert!(matches!(
-            crate::voicebank::VoicebankHandle::open(&package).unwrap(),
-            crate::voicebank::VoicebankHandle::NativeV2(_)
+            crate::voicebank::VoicebankHandle::open(&package),
+            Err(_)
         ));
     }
 
@@ -418,41 +418,7 @@ mod tests {
         use crate::project::{UNote, UPhonemeOverride, UProject};
 
         let root = tempfile::tempdir().unwrap();
-        let (manifest, mut profile, mut units) = fixture();
-        profile.symbols.push(PhoneSymbol {
-            id: "s".into(),
-            ipa: "s".into(),
-            class: "fricative".into(),
-            voiced: false,
-        });
-        let mut vc_unit = units.units[0].clone();
-        vc_unit.id = "as-1".into();
-        vc_unit.kind = "VC".into();
-        vc_unit.phones = vec!["a".into(), "s".into()];
-        vc_unit.left_context = Context {
-            kind: "phone".into(),
-            phone: Some("a".into()),
-        };
-        units.units.push(vc_unit);
-        std::fs::create_dir_all(root.path().join("phonetics")).unwrap();
-        std::fs::create_dir_all(root.path().join("units")).unwrap();
-        std::fs::create_dir_all(root.path().join("audio/natural/c4")).unwrap();
-        std::fs::write(
-            root.path().join("kamafeu_voicebank.json"),
-            serde_json::to_vec(&manifest).unwrap(),
-        )
-        .unwrap();
-        std::fs::write(
-            root.path().join("phonetics/pt-BR.json"),
-            serde_json::to_vec(&profile).unwrap(),
-        )
-        .unwrap();
-        std::fs::write(
-            root.path().join("units/natural-c4.json"),
-            serde_json::to_vec(&units).unwrap(),
-        )
-        .unwrap();
-        let wav_path = root.path().join("audio/natural/c4/take1.wav");
+        let wav_path = root.path().join("take.wav");
         let mut wav = hound::WavWriter::create(
             &wav_path,
             hound::WavSpec {
@@ -469,29 +435,40 @@ mod tests {
             wav.write_sample(sample).unwrap();
         }
         wav.finalize().unwrap();
-        let source_bank = NativeBank::load_dir(root.path()).unwrap();
+        let mut authoring = crate::copaiba::kamuse::KamuseProject::create(
+            root.path(),
+            "org.example.voice",
+            "Voz de teste",
+            "pt-BR",
+        )
+        .unwrap();
+        authoring
+            .import_recording(&wav_path, 60, &["k".into(), "a".into(), "s".into()])
+            .unwrap();
+        let source_cantor =
+            crate::voicebank::cantor::CantorBank::load_path(&authoring.root).unwrap();
+        let source_bank = source_cantor.native_snapshot().unwrap();
         let package_workspace = tempfile::tempdir().unwrap();
         let package_path = package_workspace.path().join("authoring.kfv");
-        let mut authoring =
-            crate::copaiba::native_project::CopaibaNativeProject::load_dir(root.path()).unwrap();
-        authoring.package_kfv2_draft(&package_path).unwrap();
+        authoring.package(&package_path).unwrap();
         let installed_path = package_workspace.path().join("installed-voicebank");
-        let install_report =
-            crate::voicebank::package::install_package_atomic(&package_path, &installed_path)
-                .unwrap();
-        let bank = NativeBank::load_dir(&installed_path).unwrap();
-        assert_eq!(install_report.bank_id, source_bank.manifest.bank_id);
-        assert_eq!(
-            bank.content_sha256().unwrap(),
-            install_report.content_sha256
-        );
+        let (installed_name, install_hash) =
+            crate::voicebank::cantor::CantorBank::install_package_atomic(
+                &package_path,
+                &installed_path,
+            )
+            .unwrap();
+        let cantor_bank = crate::voicebank::cantor::CantorBank::load_path(&installed_path).unwrap();
+        let bank = cantor_bank.native_snapshot().unwrap();
+        assert_eq!(installed_name, source_bank.manifest.display_name);
+        assert_eq!(bank.content_sha256().unwrap(), install_hash);
         assert_eq!(bank.manifest.bank_id, source_bank.manifest.bank_id);
-        let coverage = bank.coverage_summary("pt-br-v1", "natural").unwrap();
+        let coverage = bank.coverage_summary("cantor-phones", "natural").unwrap();
         assert_eq!(coverage.covered_phone_symbols, 3);
         assert_eq!(coverage.total_phone_symbols, 3);
         assert_eq!(coverage.unit_count, 2);
         assert_eq!(coverage.asset_count, 1);
-        assert_eq!(coverage.reviewed_unit_count, 0);
+        assert_eq!(coverage.reviewed_unit_count, 2);
         let reference = bank
             .project_reference(Some(installed_path.display().to_string()))
             .unwrap();
@@ -501,14 +478,14 @@ mod tests {
         note.phoneme_durations_ms = vec![80.0, 80.0, 80.0];
         note.phoneme_overrides.push(UPhonemeOverride {
             index: 0,
-            native_unit_id: Some("ka-1".into()),
-            native_layer_id: Some("natural-c4".into()),
+            native_unit_id: Some("take-0".into()),
+            native_layer_id: Some("midi-60".into()),
             ..Default::default()
         });
         note.phoneme_overrides.push(UPhonemeOverride {
             index: 1,
-            native_unit_id: Some("as-1".into()),
-            native_layer_id: Some("natural-c4".into()),
+            native_unit_id: Some("take-1".into()),
+            native_layer_id: Some("midi-60".into()),
             ..Default::default()
         });
         project.parts[0].notes.push(note);
@@ -526,19 +503,29 @@ mod tests {
         project = reopened_project;
 
         let result =
-            crate::voicebank::project::render_project_track_sola(&bank, &project, 0, 48_000)
+            crate::voicebank::project::render_project_track_world(&bank, &project, 0, 48_000)
                 .unwrap();
         assert_eq!(result.plan.units.len(), 2);
-        assert_eq!(result.plan.units[0].unit_id, "ka-1");
-        assert_eq!(result.plan.units[0].layer_id, "natural-c4");
+        assert_eq!(result.plan.units[0].unit_id, "take-0");
+        assert_eq!(result.plan.units[0].layer_id, "midi-60");
         assert_eq!(
             result.plan.units[0].reason,
             crate::voicebank::planner::SelectionReason::Override
         );
-        assert_eq!(result.plan.units[1].unit_id, "as-1");
+        assert_eq!(result.plan.units[1].unit_id, "take-1");
         assert_eq!(result.plan.units[1].phones, vec!["a", "s"]);
         assert_eq!(result.plan.units[1].requested_midi, 60);
-        assert_eq!(result.rendered.engine_id, "kamafeu.sola");
+        assert_eq!(result.rendered.engine_id, "kamafeu.tainah-motor");
+        assert!(result
+            .rendered
+            .units
+            .iter()
+            .all(|unit| unit.effective_engine == "kamafeu.tainah-motor"));
+        assert!(result
+            .rendered
+            .units
+            .iter()
+            .all(|unit| unit.fallback_reasons.is_empty()));
         assert!(result
             .rendered
             .samples
@@ -546,7 +533,7 @@ mod tests {
             .any(|sample| sample.abs() > 1.0e-4));
 
         let track_render =
-            crate::renderer::ProjectRenderer::render_native_track_sola(&project, &bank, 0, 48_000)
+            crate::renderer::ProjectRenderer::render_native_track_world(&project, &bank, 0, 48_000)
                 .unwrap();
         assert_eq!(track_render.audio.channels, 2);
         assert_eq!(track_render.audio.sample_rate, 48_000);
@@ -586,7 +573,7 @@ mod tests {
                 Some(&report_render_message),
                 None,
             );
-        assert!(project_render.error.is_none());
+        assert!(project_render.error.is_none(), "{:?}", project_render.error);
         assert_eq!(project_render.frame_count(), 24_000);
         assert!(project_render
             .samples
@@ -596,7 +583,7 @@ mod tests {
             .lock()
             .unwrap()
             .iter()
-            .any(|message| message.contains("ka-1") && message.contains("override")));
+            .any(|message| message.contains("take-0") && message.contains("override")));
 
         let cancelled = std::sync::atomic::AtomicBool::new(true);
         let cancelled_project_render =
@@ -619,7 +606,7 @@ mod tests {
             .unwrap_err()
             .contains("cancelled"));
         assert!(
-            crate::voicebank::project::render_project_track_sola_cancellable(
+            crate::voicebank::project::render_project_track_world_cancellable(
                 &bank,
                 &project,
                 0,
@@ -636,7 +623,7 @@ mod tests {
             .as_mut()
             .unwrap()
             .bank_version = "9.9.9".into();
-        assert!(crate::voicebank::project::render_project_track_sola(
+        assert!(crate::voicebank::project::render_project_track_world(
             &bank,
             &stale_project,
             0,
@@ -661,20 +648,17 @@ mod tests {
     }
 
     #[test]
-    fn facade_does_not_fall_back_when_a_kfv2_manifest_is_invalid() {
+    fn legacy_kfv2_json_is_not_a_native_voicebank_discriminator() {
         let root = tempfile::tempdir().unwrap();
         std::fs::write(
             root.path().join("kamafeu_voicebank.json"),
             r#"{"format":"kamafeu.voicebank","schema_version":"2.0.0"}"#,
         )
         .unwrap();
-        std::fs::write(
-            root.path().join("oto.ini"),
-            "sample.wav=ka,0,100,-400,80,30\n",
-        )
-        .unwrap();
-        let error = crate::voicebank::VoicebankHandle::open(root.path()).unwrap_err();
-        assert!(error.contains("manifest fields"));
+        let error = crate::voicebank::VoicebankHandle::open(root.path())
+            .err()
+            .unwrap();
+        assert!(error.contains("JSON legado"));
     }
 
     #[test]
@@ -857,5 +841,55 @@ mod tests {
         assert!(!world.units[0].stages.is_empty());
         assert!(!world.samples.is_empty());
         assert!(world.samples.iter().all(|sample| sample.is_finite()));
+    }
+
+    #[test]
+    fn world_failure_is_reported_without_a_sola_fallback() {
+        let root = tempfile::tempdir().unwrap();
+        let (manifest, profile, units) = fixture();
+        let wav = root.path().join("audio/natural/c4/take1.wav");
+        std::fs::create_dir_all(wav.parent().unwrap()).unwrap();
+        let mut writer = hound::WavWriter::create(
+            &wav,
+            hound::WavSpec {
+                channels: 1,
+                sample_rate: 48_000,
+                bits_per_sample: 16,
+                sample_format: hound::SampleFormat::Int,
+            },
+        )
+        .unwrap();
+        for _ in 0..48_000 {
+            writer.write_sample(0_i16).unwrap();
+        }
+        writer.finalize().unwrap();
+        let bank = NativeBank {
+            root: root.path().to_path_buf(),
+            manifest,
+            profiles: vec![profile],
+            layers: vec![(fixture().0.layers[0].clone(), units)],
+            temp_dir: None,
+        };
+        let plan = crate::voicebank::planner::plan_phrase(
+            &bank,
+            &crate::voicebank::planner::PhraseRequest {
+                style_id: "natural".into(),
+                events: vec![crate::voicebank::planner::PhoneEvent {
+                    phones: vec!["k".into(), "a".into()],
+                    kind: "CV".into(),
+                    position_ms: 0.0,
+                    duration_ms: 200.0,
+                    midi: 60,
+                    pitch_points: Vec::new(),
+                    unit_override_id: None,
+                    layer_override_id: None,
+                }],
+            },
+        )
+        .unwrap();
+        let error =
+            crate::voicebank::render::render_phrase_world(&bank, &plan, 48_000).unwrap_err();
+        assert!(error.to_ascii_lowercase().contains("world"));
+        assert!(!error.to_ascii_lowercase().contains("sola"));
     }
 }

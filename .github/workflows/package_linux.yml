@@ -54,6 +54,7 @@ jobs:
           mkdir -p AppDir/usr/bin AppDir/usr/lib/kamafeu AppDir/usr/share/licenses/kamafeu AppDir/usr/share/applications \
             AppDir/usr/share/icons/hicolor/256x256/apps
           cp target/release/kamafeu AppDir/usr/bin/
+          cp target/release/kamuse AppDir/usr/bin/
           cp target/release/copaiba AppDir/usr/bin/
           cp target/tainah-package/libtainah_motor.so.1 AppDir/usr/lib/kamafeu/
           cp target/tainah-package/licenca-da-base-LGPL-3.0.txt AppDir/usr/share/licenses/kamafeu/

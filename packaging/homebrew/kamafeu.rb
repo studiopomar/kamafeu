@@ -21,6 +21,7 @@ class Kamafeu < Formula
 
   def install
     bin.install "kamafeu"
+    bin.install "kamuse"
     bin.install "copaiba"
   end
 

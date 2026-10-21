@@ -2,6 +2,68 @@ use super::CopaibaToolkitApp;
 use std::path::PathBuf;
 
 impl CopaibaToolkitApp {
+    pub fn create_kamuse_draft(&mut self, parent: &std::path::Path) -> Result<(), String> {
+        let project = crate::copaiba::kamuse::KamuseProject::create(
+            parent,
+            &self.kamuse_id,
+            &self.kamuse_name,
+            &self.kamuse_language,
+        )?;
+        self.activate_kamuse_project(project);
+        self.native_create_wizard_open = false;
+        Ok(())
+    }
+
+    pub fn activate_kamuse_project(&mut self, project: crate::copaiba::kamuse::KamuseProject) {
+        self.current_dir = Some(project.root.clone());
+        self.active_oto_path = None;
+        self.selected_source_alias = None;
+        self.preserve_oto_entry = false;
+        self.selected_entry_index = None;
+        self.search_query.clear();
+        self.loaded_waveform = None;
+        self.loaded_wav_filename = None;
+        self.avatar_texture = None;
+        self.kamuse_waveform = None;
+        self.kamuse_drag_mark = None;
+        self.kamuse_marks_dirty = false;
+        self.kamuse_editing_tone_id = None;
+        self.kamuse_editing_recording = None;
+        self.kamuse_pending_delete_tone = None;
+        self.kamuse_pending_delete_recording = None;
+        self.native_selected_layer = None;
+        self.native_selected_unit = None;
+        self.native_selected_asset = None;
+        self.native_project = None;
+        self.kamuse_selected_tone = project.cantor.tons.first().map(|tone| tone.id.clone());
+        self.kamuse_selected_recording = project
+            .cantor
+            .tons
+            .first()
+            .and_then(|tone| tone.gravacoes.first())
+            .map(|take| take.id.clone());
+        self.kamuse_project = Some(project);
+        self.config = crate::copaiba::CopaibaConfig::default();
+        self.status_message.clear();
+    }
+
+    pub fn kamuse_import_recording(&mut self, source: PathBuf) -> Result<(), String> {
+        let phones = self
+            .kamuse_recording_phones
+            .split_whitespace()
+            .map(str::to_owned)
+            .collect::<Vec<_>>();
+        let project = self
+            .kamuse_project
+            .as_mut()
+            .ok_or("nenhum banco KAMUSE aberto")?;
+        let recording_id =
+            project.import_recording(&source, self.kamuse_recording_midi, &phones)?;
+        self.kamuse_selected_tone = Some(format!("midi-{}", self.kamuse_recording_midi));
+        self.kamuse_selected_recording = Some(recording_id);
+        Ok(())
+    }
+
     pub fn create_native_draft(&mut self, parent: &std::path::Path) -> Result<(), String> {
         let project = crate::copaiba::native_project::CopaibaNativeProject::create_new_draft(
             parent,

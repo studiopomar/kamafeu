@@ -6,6 +6,9 @@ use eframe::egui::Key;
 impl KamafeuStudioApp {
     pub(super) fn update_keyboard_shortcuts(&mut self, ctx: &egui::Context) {
         let is_editing_lyric = self.piano_roll_state.editing_lyric_index.is_some();
+        if !should_process_keyboard_shortcuts(is_editing_lyric, ctx.wants_keyboard_input()) {
+            return;
+        }
         if !is_editing_lyric {
             let mut toggle_play = false;
             ctx.input(|i| {
@@ -32,8 +35,6 @@ impl KamafeuStudioApp {
                 }
             }
         }
-
-        let is_editing_lyric = self.piano_roll_state.editing_lyric_index.is_some();
 
         if !is_editing_lyric {
             let mut do_undo = false;
@@ -424,5 +425,21 @@ impl KamafeuStudioApp {
                 }
             }
         }
+    }
+}
+
+fn should_process_keyboard_shortcuts(is_editing_lyric: bool, wants_keyboard_input: bool) -> bool {
+    !is_editing_lyric && !wants_keyboard_input
+}
+
+#[cfg(test)]
+mod tests {
+    use super::should_process_keyboard_shortcuts;
+
+    #[test]
+    fn typing_in_a_text_field_suppresses_global_shortcuts() {
+        assert!(!should_process_keyboard_shortcuts(false, true));
+        assert!(!should_process_keyboard_shortcuts(true, false));
+        assert!(should_process_keyboard_shortcuts(false, false));
     }
 }

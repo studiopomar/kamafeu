@@ -8,6 +8,7 @@ pub(super) fn draw(
     voicebank: Option<&Voicebank>,
     recent_voicebanks: &[PathBuf],
     singers_list: &[crate::oto::SingerInfo],
+    active_native_singer: Option<&crate::oto::SingerInfo>,
     singer_search_query: &mut String,
     singers_paths: &mut Vec<PathBuf>,
     vocal_mode_params: &mut VocalModeParams,
@@ -16,11 +17,13 @@ pub(super) fn draw(
     on_reload_singers: &mut dyn FnMut(),
     on_open_gallery: &mut dyn FnMut(),
 ) {
-    let vb_name = voicebank
-        .map(|v| v.name.as_str())
+    let vb_name = active_native_singer
+        .map(|singer| singer.name.as_str())
+        .or_else(|| voicebank.map(|v| v.name.as_str()))
         .unwrap_or_else(|| lang.tr("Cantor Padrão", "Default Singer"));
-    let vb_author = voicebank
-        .map(|v| v.author.as_str())
+    let vb_author = active_native_singer
+        .map(|_| "Kamafeu nativo · fonemas diretos")
+        .or_else(|| voicebank.map(|v| v.author.as_str()))
         .unwrap_or("UTAU Voicebank");
     let initial_letter = vb_name
         .chars()
@@ -50,38 +53,39 @@ pub(super) fn draw(
                     );
 
                     let mut loaded_image = false;
-                    if let Some(vb) = voicebank {
-                        if let Some(ref img_path) = vb.image_path {
-                            if let Some(texture) =
-                                crate::gui::image_cache::texture_for_path(ui.ctx(), img_path)
-                            {
-                                let [img_w, img_h] = texture.size();
-                                let img_w = img_w as f32;
-                                let img_h = img_h as f32;
-                                if img_w > 0.0 && img_h > 0.0 {
-                                    let aspect = img_w / img_h;
-                                    let (draw_w, draw_h) = if aspect >= 1.0 {
-                                        (54.0, (54.0 / aspect).min(54.0))
-                                    } else {
-                                        ((54.0 * aspect).min(54.0), 54.0)
-                                    };
+                    let image_path = active_native_singer
+                        .and_then(|singer| singer.image_path.as_ref())
+                        .or_else(|| voicebank.and_then(|vb| vb.image_path.as_ref()));
+                    if let Some(img_path) = image_path {
+                        if let Some(texture) =
+                            crate::gui::image_cache::texture_for_path(ui.ctx(), img_path)
+                        {
+                            let [img_w, img_h] = texture.size();
+                            let img_w = img_w as f32;
+                            let img_h = img_h as f32;
+                            if img_w > 0.0 && img_h > 0.0 {
+                                let aspect = img_w / img_h;
+                                let (draw_w, draw_h) = if aspect >= 1.0 {
+                                    (54.0, (54.0 / aspect).min(54.0))
+                                } else {
+                                    ((54.0 * aspect).min(54.0), 54.0)
+                                };
 
-                                    let draw_rect = Rect::from_center_size(
-                                        avatar_rect.center(),
-                                        Vec2::new(draw_w, draw_h),
-                                    );
-                                    let uv = egui::Rect::from_min_max(
-                                        Pos2::new(0.0, 0.0),
-                                        Pos2::new(1.0, 1.0),
-                                    );
-                                    painter.image(
-                                        texture.id(),
-                                        draw_rect,
-                                        uv,
-                                        ui.visuals().text_color(),
-                                    );
-                                    loaded_image = true;
-                                }
+                                let draw_rect = Rect::from_center_size(
+                                    avatar_rect.center(),
+                                    Vec2::new(draw_w, draw_h),
+                                );
+                                let uv = egui::Rect::from_min_max(
+                                    Pos2::new(0.0, 0.0),
+                                    Pos2::new(1.0, 1.0),
+                                );
+                                painter.image(
+                                    texture.id(),
+                                    draw_rect,
+                                    uv,
+                                    ui.visuals().text_color(),
+                                );
+                                loaded_image = true;
                             }
                         }
                     }
@@ -115,7 +119,23 @@ pub(super) fn draw(
                                 .size(10.0)
                                 .color(theme.text_muted_c32()),
                         );
-                        if let Some(vb) = voicebank {
+                        if let Some(singer) = active_native_singer {
+                            ui.label(
+                                RichText::new(&singer.voice_type)
+                                    .size(9.0)
+                                    .color(theme.text_muted_c32()),
+                            );
+                            ui.label(
+                                RichText::new(singer.path.display().to_string())
+                                    .size(8.0)
+                                    .color(theme.text_muted_c32()),
+                            );
+                            ui.label(
+                                RichText::new("Use fonemas diretos, como: k a")
+                                    .size(9.0)
+                                    .color(theme.text_muted_c32()),
+                            );
+                        } else if let Some(vb) = voicebank {
                             ui.label(
                                 RichText::new(format!(
                                     "{} {}",
@@ -292,8 +312,12 @@ pub(super) fn draw(
                             );
                         } else {
                             for singer in filtered_singers {
-                                let is_current =
-                                    voicebank.is_some_and(|v| v.root_path == singer.path);
+                                let is_current = if singer.is_native {
+                                    active_native_singer
+                                        .is_some_and(|active| active.path == singer.path)
+                                } else {
+                                    voicebank.is_some_and(|v| v.root_path == singer.path)
+                                };
                                 let item_bg = if is_current {
                                     theme.accent_c32().linear_multiply(0.2)
                                 } else {
@@ -375,19 +399,27 @@ pub(super) fn draw(
                                             ui.with_layout(
                                                 egui::Layout::right_to_left(egui::Align::Center),
                                                 |ui| {
-                                                    if !is_current {
+                                                    if !is_current && singer.selectable {
                                                         if ui
                                                             .small_button(lang.tr("Usar", "Use"))
                                                             .clicked()
                                                         {
                                                             on_load_vb(Some(singer.path.clone()));
                                                         }
-                                                    } else {
+                                                    } else if is_current {
                                                         ui.label(
                                                             RichText::new("[OK]")
                                                                 .strong()
                                                                 .size(11.0)
                                                                 .color(theme.accent_c32()),
+                                                        );
+                                                    } else {
+                                                        ui.add_enabled(
+                                                            false,
+                                                            egui::Button::new(lang.tr(
+                                                                "Formato indisponível",
+                                                                "Format unavailable",
+                                                            )),
                                                         );
                                                     }
                                                 },

@@ -10,6 +10,8 @@ pub mod pitch_encoder;
 pub mod pyin;
 pub mod resampler;
 pub mod sola;
+pub mod utau_pitch_curve;
+pub mod utau_sinc;
 pub mod venus_analysis;
 pub mod windowed_sinc;
 pub mod world_analysis;
@@ -175,6 +177,10 @@ pub use pitch_encoder::encode_pitch_bend_string;
 pub use pyin::{PitchExtractor, PitchResult};
 pub use resampler::Resampler;
 pub use sola::{SolaResampler, SolaStretchMode};
+pub use utau_pitch_curve::{
+    decode_utau_pitch_curve, decode_utau_pitch_values, UtauPitchCurveError, UtauPitchValue,
+};
+pub use utau_sinc::{utau_sinc_interpolate_i16, UtauSincError};
 pub use windowed_sinc::WindowedSincResampler;
 
 #[cfg(test)]

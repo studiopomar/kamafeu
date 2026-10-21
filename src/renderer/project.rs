@@ -28,7 +28,7 @@ pub struct RenderedAudio {
     pub error: Option<String>,
 }
 
-/// A native KFV 2 phrase plus the project-mixed stereo audio for that track.
+/// A native singer phrase plus the project-mixed stereo audio for that track.
 #[derive(Debug, Clone)]
 pub struct NativeTrackRender {
     pub phrase: crate::voicebank::project::NativeProjectPhrase,
@@ -83,20 +83,18 @@ impl ProgressiveChunk {
 pub struct ProjectRenderer;
 
 impl ProjectRenderer {
-    /// Render one APS track through its stable KFV 2 binding and the explicit
-    /// experimental SOLA path, then apply the project's track gain, pan and
-    /// effects. This is an offline track render; it does not select a fallback
-    /// backend or claim that the product reference engine has been chosen.
-    pub fn render_native_track_sola(
+    /// Render a native APS track through Tainah WORLD, then apply the project's
+    /// track gain, pan and effects. WORLD errors are returned without fallback.
+    pub fn render_native_track_world(
         project: &UProject,
         bank: &crate::voicebank::native::NativeBank,
         track_index: usize,
         sample_rate: u32,
     ) -> Result<NativeTrackRender, String> {
-        Self::render_native_track_sola_cancellable(project, bank, track_index, sample_rate, None)
+        Self::render_native_track_world_cancellable(project, bank, track_index, sample_rate, None)
     }
 
-    pub fn render_native_track_sola_cancellable(
+    pub fn render_native_track_world_cancellable(
         project: &UProject,
         bank: &crate::voicebank::native::NativeBank,
         track_index: usize,
@@ -110,7 +108,7 @@ impl ProjectRenderer {
         let any_solo = project.tracks.iter().any(|candidate| candidate.solo);
         if track.mute || (any_solo && !track.solo) {
             return Ok(NativeTrackRender {
-                phrase: crate::voicebank::project::render_project_track_sola_cancellable(
+                phrase: crate::voicebank::project::render_project_track_world_cancellable(
                     bank,
                     project,
                     track_index,
@@ -120,7 +118,7 @@ impl ProjectRenderer {
                 audio: RenderedAudio::empty(sample_rate, 2),
             });
         }
-        let phrase = crate::voicebank::project::render_project_track_sola_cancellable(
+        let phrase = crate::voicebank::project::render_project_track_world_cancellable(
             bank,
             project,
             track_index,

@@ -14,13 +14,13 @@ pub(super) fn draw_toolbar(
             ui.horizontal_wrapped(|ui| {
                 ui.vertical(|ui| {
                     ui.heading(
-                        RichText::new("COPAÍBA")
+                        RichText::new("KAMUSE")
                             .strong()
                             .size(22.0)
                             .color(visual_tokens::ACCENT),
                     );
                     ui.label(
-                        RichText::new("VOICEBANK WORKSHOP · KAMAFEU")
+                        RichText::new("NATIVE SINGER AUTHORING · KAMAFEU")
                             .size(10.5)
                             .strong()
                             .color(visual_tokens::MUTED),
@@ -46,10 +46,41 @@ pub(super) fn draw_toolbar(
                 }
 
                 if app.current_dir.is_some()
+                    && app.kamuse_project.is_none()
                     && app.native_project.is_none()
-                    && ui.button("Novo banco KFV 2").clicked()
+                    && ui.button("Criar cantor nativo").clicked()
                 {
                     app.native_create_wizard_open = !app.native_create_wizard_open;
+                }
+
+                if app.kamuse_project.is_some() {
+                    if ui.button("Salvar cantor.toml").clicked() {
+                        app.status_message = match app.save_config() {
+                            Ok(()) => "cantor.toml salvo".into(),
+                            Err(error) => format!("Falha ao salvar: {error}"),
+                        };
+                    }
+                    if ui.button("Empacotar .kfv").clicked() {
+                        let default_name = app
+                            .kamuse_project
+                            .as_ref()
+                            .map(|project| format!("{}.kfv", project.cantor.id.replace('.', "_")))
+                            .unwrap_or_else(|| "cantor.kfv".into());
+                        if let Some(path) = crate::dialogs::FileDialog::new()
+                            .set_file_name(&default_name)
+                            .add_filter("Kamafeu Singer (*.kfv)", &["kfv"])
+                            .save_file()
+                        {
+                            app.status_message =
+                                match app.kamuse_project.as_ref().unwrap().package(&path) {
+                                    Ok(()) => format!("Banco empacotado: {}", path.display()),
+                                    Err(error) => format!("Falha ao empacotar: {error}"),
+                                };
+                        }
+                    }
+                    if ui.button("Recarregar").clicked() {
+                        app.reload_current();
+                    }
                 }
 
                 if app.native_project.is_some() {
@@ -135,7 +166,7 @@ pub(super) fn draw_toolbar(
                             };
                         }
                     }
-                } else if app.current_dir.is_some() {
+                } else if app.current_dir.is_some() && app.kamuse_project.is_none() {
                     if ui.button("Salvar").clicked() {
                         app.status_message = match app.save_config() {
                             Ok(()) => "Configurações salvas!".to_string(),
@@ -145,53 +176,6 @@ pub(super) fn draw_toolbar(
 
                     if ui.button("Recarregar").clicked() {
                         app.reload_current();
-                    }
-
-                    if ui.button("Compilar pacote .kfv").clicked() {
-                        let default_name = format!("{}.kfv", app.config.voicebank_name);
-                        if let Some(dest_file) = crate::dialogs::FileDialog::new()
-                            .set_file_name(&default_name)
-                            .add_filter("Kamafeu Voicebank (*.kfv)", &["kfv"])
-                            .save_file()
-                        {
-                            match app.compile_and_package_kfv(&dest_file) {
-                                Ok(()) => {
-                                    app.status_message = format!(
-                                        "Compilado com sucesso: {}",
-                                        dest_file.file_name().unwrap_or_default().to_string_lossy()
-                                    );
-                                }
-                                Err(err) => {
-                                    app.status_message = format!("Erro ao empacotar: {err}");
-                                }
-                            }
-                        }
-                    }
-
-                    if ui.button("Converter para KFV 2").clicked() {
-                        if let Some(profile_path) = crate::dialogs::FileDialog::new()
-                            .add_filter("Perfil fonético KFV 2 (*.json)", &["json"])
-                            .pick_file()
-                        {
-                            let mapping_path = crate::dialogs::FileDialog::new()
-                                .add_filter("Mapa JSON alias → fonemas (*.json)", &["json"])
-                                .pick_file();
-                            if let Some(destination_parent) =
-                                crate::dialogs::FileDialog::new().pick_folder()
-                            {
-                                app.pending_classic_migration = None;
-                                app.status_message = match app.prepare_classic_voicebank_migration(
-                                    profile_path,
-                                    mapping_path,
-                                    destination_parent,
-                                ) {
-                                    Ok(()) => "Revise a prévia antes de criar o rascunho.".into(),
-                                    Err(error) => {
-                                        format!("Falha na migração assistida: {error}")
-                                    }
-                                };
-                            }
-                        }
                     }
 
                     if ui.button("Duplicar alias").clicked() {
@@ -206,9 +190,14 @@ pub(super) fn draw_toolbar(
                 if let Some(path) = &app.current_dir {
                     ui.separator();
                     let bank_name = app
-                        .native_project
+                        .kamuse_project
                         .as_ref()
-                        .map(|project| project.manifest.display_name.as_str())
+                        .map(|project| project.cantor.nome.as_str())
+                        .or_else(|| {
+                            app.native_project
+                                .as_ref()
+                                .map(|project| project.manifest.display_name.as_str())
+                        })
                         .unwrap_or(app.config.voicebank_name.as_str());
                     let folder_name = path
                         .file_name()
