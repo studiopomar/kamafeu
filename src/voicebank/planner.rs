@@ -1,5 +1,5 @@
 use super::native::{Layer, NativeBank, Unit};
-use crate::project::model::UPitchBendPoint;
+use crate::project::model::{UExpressions, UPitchBendPoint};
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -13,6 +13,10 @@ pub struct PhoneEvent {
     pub midi: u8,
     #[serde(default)]
     pub pitch_points: Vec<UPitchBendPoint>,
+    #[serde(default)]
+    pub expressions: UExpressions,
+    #[serde(default)]
+    pub flags: String,
     pub unit_override_id: Option<String>,
     pub layer_override_id: Option<String>,
 }
@@ -42,6 +46,10 @@ pub struct PlannedUnit {
     pub selected_midi: u8,
     pub requested_midi: u8,
     pub pitch_points: Vec<UPitchBendPoint>,
+    #[serde(default)]
+    pub expressions: UExpressions,
+    #[serde(default)]
+    pub flags: String,
     pub reason: SelectionReason,
     pub source_start_frame: u64,
     pub source_end_frame: u64,
@@ -222,6 +230,8 @@ pub fn plan_phrase(bank: &NativeBank, request: &PhraseRequest) -> Result<PhraseP
             selected_midi: chosen_layer.0.recorded_midi,
             requested_midi: event.midi,
             pitch_points: event.pitch_points.clone(),
+            expressions: event.expressions.clone(),
+            flags: event.flags.clone(),
             reason,
             source_start_frame: unit.source.start_frame,
             source_end_frame: unit.source.end_frame,

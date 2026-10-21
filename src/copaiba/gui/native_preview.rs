@@ -41,6 +41,8 @@ impl CopaibaToolkitApp {
             duration_ms: unit.timing.min_target_ms,
             midi: layer.recorded_midi,
             pitch_points: Vec::new(),
+            expressions: crate::project::model::UExpressions::default(),
+            flags: String::new(),
             unit_override_id: Some(unit.id.clone()),
             layer_override_id: Some(layer.id.clone()),
         };

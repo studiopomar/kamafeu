@@ -236,6 +236,11 @@ impl UstxFormat {
                         let dur_ms = (dur_ticks as f64 * ms_per_tick).max(20.0);
 
                         let mut u_note = UNote::new(lyric, pitch_str, pos_ms, dur_ms);
+                        u_note.flags = note_val
+                            .get("flags")
+                            .and_then(|value| value.as_str())
+                            .unwrap_or_default()
+                            .to_string();
 
                         u_note.phonemizer_override = note_val
                             .get("phonemizer")

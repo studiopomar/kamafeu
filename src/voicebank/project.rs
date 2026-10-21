@@ -244,13 +244,137 @@ pub fn render_project_track_world_cancellable(
                 .iter()
                 .find(|override_| override_.index == event_index)
                 .copied();
-            let mut pitch_points = note.pitch_bend.effective_points(
+            let phoneme_override = note
+                .phoneme_overrides
+                .iter()
+                .find(|override_| override_.index == event_index);
+            let pitch_bend = phoneme_override
+                .and_then(|override_| override_.pitch_bend.as_ref())
+                .unwrap_or(&note.pitch_bend);
+            let flags = phoneme_override
+                .and_then(|override_| override_.flags.clone())
+                .unwrap_or_else(|| note.flags.clone());
+            let mut pitch_points = pitch_bend.effective_points(
                 previous_midi.filter(|_| note_adjacent && event_index == 0),
                 midi,
                 note_adjacent && event_index == 0,
             );
-            for point in &mut pitch_points {
+            let mut expressions = note.expressions.clone();
+            if let Some(override_) = phoneme_override {
+                if let Some(value) = override_.velocity {
+                    expressions.velocity = value;
+                }
+                if let Some(value) = override_.volume {
+                    expressions.volume = value;
+                }
+                if let Some(value) = override_.attack {
+                    expressions.attack = value;
+                }
+                if let Some(value) = override_.decay {
+                    expressions.decay = value;
+                }
+                if let Some(value) = override_.breathiness {
+                    expressions.breathiness = value;
+                }
+                if let Some(value) = override_.gender {
+                    expressions.gender = value;
+                }
+                if let Some(value) = override_.modulation {
+                    expressions.modulation = value;
+                }
+                if let Some(value) = override_.pitch_delta {
+                    expressions.pitch_delta = value;
+                }
+                if let Some(value) = override_.dynamics {
+                    expressions.dynamics = value;
+                }
+            }
+            for point in &mut expressions.dynamics_curve {
                 point.time_offset_ms -= offsets[event_index];
+            }
+            expressions
+                .dynamics_curve
+                .retain(|point| point.time_offset_ms.is_finite() && point.value.is_finite());
+            expressions
+                .dynamics_curve
+                .sort_by(|left, right| left.time_offset_ms.total_cmp(&right.time_offset_ms));
+            let vibrato = phoneme_override
+                .and_then(|override_| override_.vibrato.as_ref())
+                .unwrap_or(&note.vibrato);
+            if vibrato.volume_link_pct.abs() > f64::EPSILON {
+                let step_ms = (vibrato.period_ms / 8.0).clamp(2.0, 10.0);
+                let start_ms = offsets[event_index] - 100.0;
+                let end_ms = offsets[event_index] + durations[event_index];
+                let count = ((end_ms - start_ms).max(0.0) / step_ms)
+                    .ceil()
+                    .min(100_000.0) as usize;
+                let mut linked_dynamics = Vec::with_capacity(count + 1);
+                for sample in 0..=count {
+                    let note_time_ms = (start_ms + sample as f64 * step_ms).min(end_ms);
+                    let event_time_ms = note_time_ms - offsets[event_index];
+                    let base_dynamics = if expressions.dynamics_curve.is_empty() {
+                        expressions.dynamics
+                    } else {
+                        let upper = expressions
+                            .dynamics_curve
+                            .partition_point(|point| point.time_offset_ms <= event_time_ms);
+                        match (upper.checked_sub(1), expressions.dynamics_curve.get(upper)) {
+                            (Some(left_index), Some(right)) => {
+                                let left = &expressions.dynamics_curve[left_index];
+                                let span = (right.time_offset_ms - left.time_offset_ms).max(1e-6);
+                                let amount = ((event_time_ms - left.time_offset_ms) / span)
+                                    .clamp(0.0, 1.0);
+                                left.value + (right.value - left.value) * amount
+                            }
+                            (Some(left_index), None) => {
+                                expressions.dynamics_curve[left_index].value
+                            }
+                            (None, Some(right)) => right.value,
+                            (None, None) => expressions.dynamics,
+                        }
+                    };
+                    let volume_link = vibrato
+                        .volume_multiplier_at(note_time_ms, note.duration_ms)
+                        .max(1e-6);
+                    linked_dynamics.push(crate::project::model::UExpressionPoint {
+                        time_offset_ms: event_time_ms,
+                        value: base_dynamics + 200.0 * volume_link.log10(),
+                    });
+                }
+                expressions.dynamics_curve = linked_dynamics;
+            }
+            if vibrato.length_pct > 0.0 && vibrato.depth_cents > 0.0 {
+                let pitch_step_ms = (vibrato.period_ms / 8.0).clamp(1.0, 5.0);
+                let start_ms = pitch_points
+                    .first()
+                    .map(|point| point.time_offset_ms.min(0.0))
+                    .unwrap_or(0.0)
+                    .min(offsets[event_index] - 100.0);
+                let end_ms = note.duration_ms.max(offsets[event_index] + durations[event_index]);
+                let sample_count = ((end_ms - start_ms).max(0.0) / pitch_step_ms)
+                    .ceil()
+                    .min(100_000.0) as usize;
+                let mut combined_pitch = Vec::with_capacity(sample_count + 1);
+                for sample in 0..=sample_count {
+                    let note_time_ms = (start_ms + sample as f64 * pitch_step_ms).min(end_ms);
+                    let bend = crate::dsp::pitch_bend::PitchBendSolver::get_pitch_offset_cents(
+                        note_time_ms,
+                        &pitch_points,
+                    );
+                    combined_pitch.push(crate::project::model::UPitchBendPoint {
+                        time_offset_ms: note_time_ms - offsets[event_index],
+                        pitch_offset_cents: bend
+                            + expressions.pitch_delta
+                            + vibrato.pitch_offset_cents_at(note_time_ms, note.duration_ms),
+                        shape: "linear".into(),
+                    });
+                }
+                pitch_points = combined_pitch;
+            } else {
+                for point in &mut pitch_points {
+                    point.time_offset_ms -= offsets[event_index];
+                    point.pitch_offset_cents += expressions.pitch_delta;
+                }
             }
             events.push(PhoneEvent {
                 phones: event_phones,
@@ -259,6 +383,8 @@ pub fn render_project_track_world_cancellable(
                 duration_ms: durations[event_index],
                 midi,
                 pitch_points,
+                expressions,
+                flags,
                 unit_override_id: native_override.and_then(|value| value.native_unit_id.clone()),
                 layer_override_id: native_override.and_then(|value| value.native_layer_id.clone()),
             });
@@ -308,6 +434,8 @@ pub fn render_project_track_world_cancellable(
                                 duration_ms,
                                 midi: next_note.midi_key(),
                                 pitch_points: Vec::new(),
+                                expressions: crate::project::model::UExpressions::default(),
+                                flags: String::new(),
                                 unit_override_id: None,
                                 layer_override_id: None,
                             });

@@ -86,7 +86,7 @@ pub(super) fn draw_kamuse_authoring_ui(
         });
     ui.add_space(12.0);
     let available_width = ui.available_width();
-    if available_width >= 900.0 {
+    if available_width >= 1024.0 {
         ui.horizontal_top(|ui| {
             let sidebar_width = (ui.available_width() * 0.36).clamp(290.0, 390.0);
             let available_height = ui.available_height();
@@ -102,7 +102,11 @@ pub(super) fn draw_kamuse_authoring_ui(
                         .show(ui, |ui| {
                             egui::ScrollArea::vertical()
                                 .id_salt("kamuse_authoring_sidebar_scroll")
-                                .show(ui, |ui| draw_kamuse_authoring_tools(app, ui));
+                                .show(ui, |ui| {
+                                    draw_kamuse_library(app, ui);
+                                    ui.add_space(12.0);
+                                    draw_kamuse_authoring_tools(app, ui);
+                                });
                         });
                 },
             );
@@ -119,17 +123,68 @@ pub(super) fn draw_kamuse_authoring_ui(
             );
         });
     } else {
-        egui::CollapsingHeader::new("Painel do banco · perfil, prompts e importação")
-            .default_open(false)
-            .show(ui, |ui| {
-                egui::ScrollArea::vertical()
-                    .max_height(260.0)
-                    .show(ui, |ui| draw_kamuse_authoring_tools(app, ui));
-            });
-        egui::ScrollArea::vertical()
-            .id_salt("kamuse_editor_scroll")
-            .show(ui, |ui| draw_kamuse_editor(app, audio_player, ui));
+        ui.horizontal_wrapped(|ui| {
+            for view in ["Editor", "Gravações", "Preparação"] {
+                let selected = app.kamuse_active_view == view;
+                if ui.selectable_label(selected, view).clicked() {
+                    app.kamuse_active_view = view.into();
+                }
+            }
+        });
+        ui.add_space(6.0);
+        match app.kamuse_active_view.as_str() {
+            "Gravações" => egui::ScrollArea::vertical()
+                .id_salt("kamuse_narrow_library")
+                .show(ui, |ui| draw_kamuse_library(app, ui)),
+            "Preparação" => egui::ScrollArea::vertical()
+                .id_salt("kamuse_narrow_tools")
+                .show(ui, |ui| draw_kamuse_authoring_tools(app, ui)),
+            _ => egui::ScrollArea::vertical()
+                .id_salt("kamuse_editor_scroll")
+                .show(ui, |ui| draw_kamuse_editor(app, audio_player, ui)),
+        };
     }
+}
+
+fn draw_kamuse_library(app: &mut CopaibaToolkitApp, ui: &mut egui::Ui) {
+    let Some(project) = app.kamuse_project.as_ref() else { return; };
+    egui::Frame::none()
+        .fill(visual_tokens::SURFACE)
+        .stroke(Stroke::new(1.0_f32, visual_tokens::BORDER))
+        .rounding(Rounding::same(12.0))
+        .inner_margin(egui::Margin::same(12.0))
+        .show(ui, |ui| {
+            ui.horizontal(|ui| {
+                ui.heading(RichText::new("Gravações").strong().size(16.0));
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    ui.label(RichText::new(format!("{} takes", project.cantor.tons.iter().map(|t| t.gravacoes.len()).sum::<usize>())).small().color(visual_tokens::MUTED));
+                });
+            });
+            ui.label(RichText::new("Selecione um take para revisar fonemas e marcações.").size(11.0).color(visual_tokens::MUTED));
+            ui.add_space(6.0);
+            if project.cantor.tons.iter().all(|t| t.gravacoes.is_empty()) {
+                ui.horizontal(|ui| {
+                    ui.add(egui::Image::from_bytes("bytes://kamuse-empty.svg", include_bytes!("../../../assets/kamuse/empty.svg")).fit_to_exact_size(egui::vec2(72.0, 72.0)));
+                    ui.label("Ainda não há takes. Vá a Preparação para importar um WAV ou MP3.");
+                });
+            } else {
+                egui::ScrollArea::vertical().max_height(220.0).show(ui, |ui| {
+                    for tone in &project.cantor.tons {
+                        ui.label(RichText::new(format!("{} · MIDI {}", tone.id, tone.midi)).strong().color(visual_tokens::ACCENT));
+                        for take in &tone.gravacoes {
+                            let selected = app.kamuse_selected_tone.as_deref() == Some(&tone.id)
+                                && app.kamuse_selected_recording.as_deref() == Some(&take.id);
+                            let label = format!("{}   ·   {}", take.id, take.fonemas.join(" "));
+                            if ui.selectable_label(selected, label).on_hover_text("Abrir este take no editor de marcações").clicked() {
+                                app.kamuse_selected_tone = Some(tone.id.clone());
+                                app.kamuse_selected_recording = Some(take.id.clone());
+                                app.kamuse_active_view = "Editor".into();
+                            }
+                        }
+                    }
+                });
+            }
+        });
 }
 
 fn draw_kamuse_authoring_tools(app: &mut CopaibaToolkitApp, ui: &mut egui::Ui) {
@@ -261,7 +316,7 @@ fn draw_kamuse_authoring_tools(app: &mut CopaibaToolkitApp, ui: &mut egui::Ui) {
     ui.horizontal_wrapped(|ui| {
         ui.label("Adicionar tom MIDI");
         ui.add(egui::DragValue::new(&mut app.kamuse_new_tone_midi).range(0..=127));
-        if ui.button("+ Tom").clicked() {
+        if ui.button("+ Tom").on_hover_text("Cria uma nova faixa de altura MIDI no banco.").clicked() {
             let result = app
                 .kamuse_project
                 .as_mut()
@@ -296,7 +351,8 @@ fn draw_kamuse_authoring_tools(app: &mut CopaibaToolkitApp, ui: &mut egui::Ui) {
                 .hint_text("ex.: k a m"),
         );
         ui.label("Tom MIDI"); ui.add(egui::DragValue::new(&mut app.kamuse_recording_midi).range(0..=127));
-        if ui.button("Importar WAV/MP3...").clicked() {
+        ui.add(egui::Image::from_bytes("bytes://kamuse-import.svg", include_bytes!("../../../assets/kamuse/import.svg")).fit_to_exact_size(egui::vec2(18.0, 18.0)));
+        if ui.button("Importar WAV/MP3...").on_hover_text("Escolha o áudio original e informe os fonemas e o tom antes da importação.").clicked() {
             if let Some(path) = crate::dialogs::FileDialog::new().add_filter("Áudio WAV ou MP3", &["wav", "mp3"]).pick_file() {
                 app.status_message = match app.kamuse_import_recording(path) {
                     Ok(()) => {
@@ -549,13 +605,17 @@ fn draw_kamuse_editor(
             egui::Color32::from_rgb(242, 194, 117),
             "Revise as marcações provisórias sobre o áudio antes de usar o banco.",
         );
+        ui.horizontal(|ui| {
+            ui.add(egui::Image::from_bytes("bytes://kamuse-mark.svg", include_bytes!("../../../assets/kamuse/mark.svg")).fit_to_exact_size(egui::vec2(18.0, 18.0)));
+            ui.label("Marcas sobre a waveform: arraste as linhas para ajustar os limites dos fonemas.");
+        });
         egui::Frame::none()
             .fill(visual_tokens::SURFACE)
             .stroke(Stroke::new(1.0_f32, visual_tokens::BORDER))
             .rounding(Rounding::same(10.0))
             .inner_margin(egui::Margin::same(10.0))
             .show(ui, |ui| {
-                ui.label(RichText::new("ALIAS DERIVADOS DA GRAVAÇÃO").strong().size(10.0).color(visual_tokens::MUTED));
+                ui.label(RichText::new("TAKE CVC E UNIDADES DERIVADAS").strong().size(10.0).color(visual_tokens::MUTED));
                 ui.horizontal_wrapped(|ui| {
                     ui.label("ID do take");
                     ui.add(egui::TextEdit::singleline(&mut app.kamuse_recording_alias_edit).desired_width(150.0));
@@ -652,9 +712,12 @@ fn draw_kamuse_editor(
             }
             ui.label(format!("fonte: {}", recording.arquivo));
         });
+        ui.add(egui::Image::from_bytes("bytes://kamuse-cvc-units.svg", include_bytes!("../../../assets/kamuse/cvc-units.svg")).fit_to_exact_size(egui::vec2(ui.available_width().min(640.0), 92.0)));
         ui.horizontal(|ui| {
+            ui.add(egui::Image::from_bytes("bytes://kamuse-play.svg", include_bytes!("../../../assets/kamuse/play.svg")).fit_to_exact_size(egui::vec2(18.0, 18.0)));
             if ui
                 .button(format!("Ouvir {}", recording.arquivo))
+                .on_hover_text("Reproduz o áudio CVC original deste take.")
                 .clicked()
             {
                 match crate::audio::load_audio_file(root.join(&recording.arquivo)) {
@@ -668,7 +731,7 @@ fn draw_kamuse_editor(
                     }
                 }
             }
-            if ui.button("Prévia Tainah WORLD").clicked() {
+            if ui.button("Prévia Tainah WORLD").on_hover_text("Gera uma frase de prévia usando as unidades CV deste take.").clicked() {
                 let result = (|| -> Result<(crate::voicebank::render::RenderedPhrase, Vec<String>), String> {
                     let bank = crate::voicebank::cantor::CantorBank::load_path(&root)?;
                     let midi = bank.cantor.tons.iter().find(|tone| Some(tone.id.as_str()) == app.kamuse_selected_tone.as_deref()).map(|tone| tone.midi).ok_or("tom selecionado não encontrado")?;
@@ -807,7 +870,13 @@ fn draw_kamuse_editor(
                     });
             });
     } else {
-        ui.label("Importe a primeira gravação para iniciar a edição das marcações.");
+        ui.horizontal(|ui| {
+            ui.add(egui::Image::from_bytes("bytes://kamuse-empty.svg", include_bytes!("../../../assets/kamuse/empty.svg")).fit_to_exact_size(egui::vec2(112.0, 112.0)));
+            ui.vertical(|ui| {
+                ui.heading("Nenhum take selecionado");
+                ui.label("Escolha uma gravação na biblioteca ou importe um áudio em Preparação.");
+            });
+        });
     }
     draw_kamuse_delete_confirmations(app, ui);
     if !app.status_message.is_empty() {

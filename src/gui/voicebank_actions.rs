@@ -3,6 +3,29 @@ use crate::oto::Voicebank;
 use web_time::Instant;
 
 impl KamafeuStudioApp {
+    pub(crate) fn open_kamuse_for_current_context(&mut self) {
+        if let Some((alias, pitch)) = self.piano_roll_state.selected_copaiba_alias.clone() {
+            // Keep the KAMUSE command and the phoneme context menu on the same
+            // bank-loading path, so both open the selected alias or native bank.
+            self.open_voicebank_editor_for_alias(&alias, &pitch);
+            return;
+        }
+
+        let native_bank_active = self
+            .project
+            .tracks
+            .get(self.active_track_index)
+            .and_then(|track| track.native_voicebank.as_ref())
+            .and_then(|reference| reference.source_path_hint.as_ref())
+            .is_some();
+        if native_bank_active {
+            self.open_native_bank_settings();
+        } else {
+            self.transport_state.status_message =
+                "Selecione um fonema no editor ou vincule um banco nativo para abrir o KAMUSE no contexto correto.".into();
+        }
+    }
+
     pub(crate) fn refresh_active_native_bank_reference(&mut self) {
         let Some(path) = self
             .project
