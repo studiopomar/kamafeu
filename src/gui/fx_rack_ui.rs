@@ -356,12 +356,7 @@ fn render_editor(
                         0.0..=24.0,
                         " dB",
                     ),
-                    (
-                        "GR",
-                        &mut config.compressor.threshold_db,
-                        -40.0..=0.0,
-                        " dB",
-                    ),
+                    ("KNEE", &mut config.compressor.knee_db, 0.0..=24.0, " dB"),
                 ],
             );
         }
@@ -398,7 +393,12 @@ fn render_editor(
                 [
                     ("WET", &mut config.reverb.wet_level, 0.0..=1.0, ""),
                     ("DRY", &mut config.reverb.dry_level, 0.0..=1.0, ""),
-                    ("ROOM", &mut config.reverb.room_size, 0.0..=1.0, ""),
+                    (
+                        "PRE-DLY",
+                        &mut config.reverb.pre_delay_ms,
+                        0.0..=200.0,
+                        " ms",
+                    ),
                 ],
             );
         }
@@ -441,12 +441,20 @@ fn render_editor(
             knob_row(
                 ui,
                 theme,
-                [(
-                    "CEILING",
-                    &mut config.limiter.ceiling_db,
-                    -24.0..=0.0,
-                    " dB",
-                )],
+                [
+                    (
+                        "CEILING",
+                        &mut config.limiter.ceiling_db,
+                        -24.0..=0.0,
+                        " dB",
+                    ),
+                    (
+                        "RELEASE",
+                        &mut config.limiter.release_ms,
+                        5.0..=1000.0,
+                        " ms",
+                    ),
+                ],
             );
         }
     });

@@ -1,8 +1,12 @@
 pub mod autopitch;
 pub mod autopitch_audio;
+pub mod bandlimited;
 pub mod envelope;
+pub(crate) mod kaiser;
+pub mod limiter;
 pub mod lpc;
 pub mod native;
+pub mod oversampling;
 pub mod piano;
 pub mod pitch;
 pub mod pitch_bend;
@@ -170,6 +174,7 @@ pub(crate) fn oto_source_bounds(
 
 pub use autopitch::{AutoPitchEngine, AutoPitchOptions, AutoPitchPreset, AutoPitchScope};
 pub use envelope::UtauEnvelope;
+pub use limiter::{LimiterReport, PeakLimiter};
 pub use lpc::LpcExtractor;
 pub use pitch::{midi_to_freq, midi_to_note_name, note_name_to_midi, PitchBendPoint, VibratoParam};
 pub use pitch_bend::PitchBendSolver;

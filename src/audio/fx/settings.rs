@@ -40,6 +40,13 @@ pub struct CompressorSettings {
     pub attack_ms: f32,      // 0.5 .. 100.0
     pub release_ms: f32,     // 10.0 .. 1000.0
     pub makeup_gain_db: f32, // 0.0 .. 24.0
+    /// Width of the soft knee centred on the threshold.
+    #[serde(default = "default_compressor_knee_db")]
+    pub knee_db: f32, // 0.0 .. 24.0
+}
+
+fn default_compressor_knee_db() -> f32 {
+    6.0
 }
 
 impl Default for CompressorSettings {
@@ -51,6 +58,7 @@ impl Default for CompressorSettings {
             attack_ms: 15.0,
             release_ms: 120.0,
             makeup_gain_db: 3.0,
+            knee_db: default_compressor_knee_db(),
         }
     }
 }
@@ -84,6 +92,9 @@ pub struct ReverbSettings {
     pub width: f32,     // 0.0 .. 1.0
     pub wet_level: f32, // 0.0 .. 1.0
     pub dry_level: f32, // 0.0 .. 1.0
+    /// Delay before the reverb tank; keeps the dry vocal attack clear.
+    #[serde(default)]
+    pub pre_delay_ms: f32, // 0.0 .. 200.0
 }
 
 impl Default for ReverbSettings {
@@ -95,6 +106,7 @@ impl Default for ReverbSettings {
             width: 1.0,
             wet_level: 0.20,
             dry_level: 1.0,
+            pre_delay_ms: 0.0,
         }
     }
 }
@@ -120,6 +132,13 @@ impl Default for SaturationSettings {
 pub struct LimiterSettings {
     pub enabled: bool,
     pub ceiling_db: f32,
+    /// Time constant of the gain recovery after an over.
+    #[serde(default = "default_limiter_release_ms")]
+    pub release_ms: f32, // 5.0 .. 1000.0
+}
+
+fn default_limiter_release_ms() -> f32 {
+    80.0
 }
 
 impl Default for LimiterSettings {
@@ -127,6 +146,7 @@ impl Default for LimiterSettings {
         Self {
             enabled: false,
             ceiling_db: -1.0,
+            release_ms: default_limiter_release_ms(),
         }
     }
 }

@@ -78,6 +78,9 @@ pub(super) fn cache_key(
     CACHE_SCHEMA.hash(&mut hasher);
     driver.cache_identity().hash(&mut hasher);
     sample_rate.hash(&mut hasher);
+    // Outputs at a different rate are converted before being cached, so the
+    // conversion mode is part of the identity.
+    crate::renderer::track::TrackRenderer::anti_aliasing_filter_enabled().hash(&mut hasher);
     source_fingerprint(args, raw_samples, &mut hasher);
     args.pitch_name.hash(&mut hasher);
     hash_f64(args.pitch_freq, &mut hasher);

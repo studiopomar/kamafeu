@@ -1,8 +1,150 @@
+use crate::dsp::kaiser::{kaiser, sinc};
 use crate::dsp::pitch_bend::PitchBendSolver;
 use crate::project::model::UPitchBendPoint;
+use rustfft::{num_complex::Complex, FftPlanner};
+use std::cell::RefCell;
 use std::sync::atomic::{AtomicBool, Ordering};
 
 pub struct SolaResampler;
+
+/// Taps on each side of the band-limited grain interpolator.
+const GRAIN_HALF_TAPS: usize = 16;
+/// Kaiser beta of the grain interpolator (~72 dB image rejection, flat to
+/// ~0.43 of the sample rate).
+const GRAIN_KAISER_BETA: f64 = 7.0;
+
+/// Windowed-sinc fractional-delay kernel. Every sample of a PSOLA grain is
+/// read at the same fractional offset, so the kernel is computed once per
+/// grain. Catmull-Rom interpolation, used before, attenuated the highs by a
+/// different amount for every grain, which modulated the brightness of
+/// sustained vowels at the pitch rate.
+struct FractionalKernel {
+    taps: [f32; 2 * GRAIN_HALF_TAPS],
+}
+
+impl FractionalKernel {
+    /// Kernel reading at `base + fraction` (`fraction` in `[0, 1)`).
+    fn new(fraction: f64) -> Self {
+        let mut weights = [0.0f64; 2 * GRAIN_HALF_TAPS];
+        let half = GRAIN_HALF_TAPS as f64;
+        for (index, weight) in weights.iter_mut().enumerate() {
+            let distance = fraction + (GRAIN_HALF_TAPS - 1) as f64 - index as f64;
+            *weight = sinc(distance) * kaiser(distance / half, GRAIN_KAISER_BETA);
+        }
+        let sum: f64 = weights.iter().sum();
+        let mut taps = [0.0f32; 2 * GRAIN_HALF_TAPS];
+        for (tap, weight) in taps.iter_mut().zip(weights) {
+            *tap = (weight / sum) as f32;
+        }
+        Self { taps }
+    }
+
+    /// Interpolated value at `base + fraction`; indices outside the slice are
+    /// clamped to its edges.
+    #[inline]
+    fn read(&self, samples: &[f32], base: isize) -> f32 {
+        let start = base - (GRAIN_HALF_TAPS as isize - 1);
+        let taps = self.taps.len();
+        if start >= 0 && (start as usize) + taps <= samples.len() {
+            let window = &samples[start as usize..start as usize + taps];
+            return window.iter().zip(&self.taps).map(|(s, t)| s * t).sum();
+        }
+        let last = samples.len().saturating_sub(1) as isize;
+        self.taps
+            .iter()
+            .enumerate()
+            .map(|(offset, tap)| samples[(start + offset as isize).clamp(0, last) as usize] * tap)
+            .sum()
+    }
+}
+
+/// Pitch mark with the integer sample it was searched at and its refined
+/// sub-sample position. `reliable` is false when the correlation peak was not
+/// bracketed (search window truncated by the slice edge or no search
+/// possible), in which case the position is only a guess.
+#[derive(Debug, Clone, Copy)]
+struct PitchMark {
+    index: usize,
+    position: f64,
+    reliable: bool,
+}
+
+/// Drops guessed marks at both ends of a tracked chain. Interior marks are
+/// kept even when unbracketed: removing them would leave a two-period gap.
+fn trim_unreliable_edges(marks: &[PitchMark]) -> &[PitchMark] {
+    let first = marks
+        .iter()
+        .position(|mark| mark.reliable)
+        .unwrap_or(marks.len());
+    let last = marks
+        .iter()
+        .rposition(|mark| mark.reliable)
+        .map_or(first, |index| index + 1);
+    &marks[first..last.max(first)]
+}
+
+/// YIN difference function `d(tau) = sum_j (x[j] - x[j + tau])^2` for
+/// `tau = 0..=max_period` over a `window_len` window, computed as
+/// `E(window) + E(shifted window) - 2 * correlation` with one FFT
+/// cross-correlation instead of the direct O(window * max_period) loop.
+fn yin_difference(frame: &[f32], window_len: usize, max_period: usize) -> Vec<f64> {
+    thread_local! {
+        static PLANNER: RefCell<FftPlanner<f64>> = RefCell::new(FftPlanner::new());
+    }
+    let span = window_len + max_period;
+    debug_assert!(frame.len() >= span);
+    let fft_len = (window_len + span).next_power_of_two();
+    let (forward, inverse) = PLANNER.with(|planner| {
+        let mut planner = planner.borrow_mut();
+        (
+            planner.plan_fft_forward(fft_len),
+            planner.plan_fft_inverse(fft_len),
+        )
+    });
+
+    let mut window: Vec<Complex<f64>> = (0..fft_len)
+        .map(|index| {
+            let value = if index < window_len {
+                f64::from(frame[index])
+            } else {
+                0.0
+            };
+            Complex::new(value, 0.0)
+        })
+        .collect();
+    let mut extended: Vec<Complex<f64>> = (0..fft_len)
+        .map(|index| {
+            let value = if index < span {
+                f64::from(frame[index])
+            } else {
+                0.0
+            };
+            Complex::new(value, 0.0)
+        })
+        .collect();
+    forward.process(&mut window);
+    forward.process(&mut extended);
+    for (left, right) in window.iter_mut().zip(&extended) {
+        *left = left.conj() * right;
+    }
+    inverse.process(&mut window);
+    let scale = 1.0 / fft_len as f64;
+
+    let mut prefix = Vec::with_capacity(span + 1);
+    prefix.push(0.0f64);
+    let mut energy = 0.0f64;
+    for sample in &frame[..span] {
+        energy += f64::from(*sample) * f64::from(*sample);
+        prefix.push(energy);
+    }
+    let window_energy = prefix[window_len];
+    (0..=max_period)
+        .map(|tau| {
+            let shifted_energy = prefix[tau + window_len] - prefix[tau];
+            (window_energy + shifted_energy - 2.0 * window[tau].re * scale).max(0.0)
+        })
+        .collect()
+}
 
 #[derive(Debug, Clone, Copy)]
 struct PitchEstimate {
@@ -58,21 +200,17 @@ impl SolaResampler {
         let available = slice.len().saturating_sub(window_len + max_period);
         let frame_start = available / 2;
         let frame = &slice[frame_start..];
+        let difference = yin_difference(frame, window_len, max_period);
+        if is_cancelled(cancel) {
+            return Err("SOLA rendering cancelled".into());
+        }
         let mut cmnd = vec![1.0f64; max_period + 1];
         let mut cumulative = 0.0f64;
 
         for tau in 1..=max_period {
-            if tau % 8 == 0 && is_cancelled(cancel) {
-                return Err("SOLA rendering cancelled".into());
-            }
-            let mut difference = 0.0f64;
-            for index in 0..window_len {
-                let delta = f64::from(frame[index]) - f64::from(frame[index + tau]);
-                difference += delta * delta;
-            }
-            cumulative += difference;
+            cumulative += difference[tau];
             cmnd[tau] = if cumulative > 1e-12 {
-                difference * tau as f64 / cumulative
+                difference[tau] * tau as f64 / cumulative
             } else {
                 1.0
             };
@@ -120,23 +258,27 @@ impl SolaResampler {
             .unwrap_or_else(|| ((sample_rate as f64 / 220.0).round() as usize).max(8))
     }
 
+    /// Returns the best integer candidate, a sub-sample offset in
+    /// `[-0.5, 0.5]` from a parabola through the correlation peak, and whether
+    /// the peak was bracketed by the search window.
     fn phase_match_mark(
         slice: &[f32],
         reference: usize,
         predicted: usize,
         period: f64,
         cancel: Option<&AtomicBool>,
-    ) -> Result<usize, String> {
+    ) -> Result<(usize, f64, bool), String> {
         let radius = (period * 0.22).round().max(2.0) as usize;
         let compare_half = (period * 0.42).round().clamp(8.0, 256.0) as usize;
         let search_start = predicted.saturating_sub(radius).max(compare_half + 1);
         let search_end = (predicted + radius).min(slice.len().saturating_sub(compare_half + 2));
         if search_start >= search_end || reference <= compare_half {
-            return Ok(predicted.min(slice.len().saturating_sub(1)));
+            return Ok((predicted.min(slice.len().saturating_sub(1)), 0.0, false));
         }
 
         let mut best = predicted.clamp(search_start, search_end);
         let mut best_score = f64::NEG_INFINITY;
+        let mut scores = Vec::with_capacity(search_end - search_start + 1);
         for candidate in search_start..=search_end {
             if is_cancelled(cancel) {
                 return Err("SOLA rendering cancelled".into());
@@ -159,25 +301,45 @@ impl SolaResampler {
             } else {
                 f64::NEG_INFINITY
             };
+            scores.push(score);
             if score > best_score {
                 best_score = score;
                 best = candidate;
             }
         }
-        Ok(best)
+
+        let peak = best - search_start;
+        let mut offset = 0.0;
+        let mut bracketed = false;
+        if peak > 0 && peak + 1 < scores.len() {
+            let (left, centre, right) = (scores[peak - 1], scores[peak], scores[peak + 1]);
+            let curvature = left - 2.0 * centre + right;
+            if left.is_finite() && right.is_finite() && curvature < -1e-12 {
+                offset = (0.5 * (left - right) / curvature).clamp(-0.5, 0.5);
+                bracketed = true;
+            }
+        }
+        Ok((best, offset, bracketed))
     }
 
     /// Track phase-coherent pitch marks instead of independently snapping
     /// every mark to the loudest peak, which often alternates between harmonics.
     pub fn find_pitch_marks(slice: &[f32], base_period: usize) -> Vec<usize> {
-        Self::find_pitch_marks_cancellable(slice, base_period, None).unwrap_or_default()
+        Self::track_pitch_marks_cancellable(slice, base_period, None)
+            .map(|marks| marks.into_iter().map(|mark| mark.index).collect())
+            .unwrap_or_default()
     }
 
-    fn find_pitch_marks_cancellable(
+    /// Phase-coherent pitch marks with sub-sample positions. Each mark is
+    /// matched against its neighbour and the correlation peak is refined with
+    /// a parabola, so consecutive grains are aligned to a fraction of a sample
+    /// instead of drifting by up to half a sample (enough to cancel partials
+    /// above ~10 kHz where grains overlap).
+    fn track_pitch_marks_cancellable(
         slice: &[f32],
         base_period: usize,
         cancel: Option<&AtomicBool>,
-    ) -> Result<Vec<usize>, String> {
+    ) -> Result<Vec<PitchMark>, String> {
         if is_cancelled(cancel) {
             return Err("SOLA rendering cancelled".into());
         }
@@ -199,42 +361,59 @@ impl SolaResampler {
             })
             .unwrap_or(center.min(slice.len() - 1));
 
-        let mut forward = vec![anchor];
-        let mut current = anchor;
-        while current + base_period / 2 < slice.len().saturating_sub(2) {
+        let anchor_mark = PitchMark {
+            index: anchor,
+            position: anchor as f64,
+            reliable: true,
+        };
+        let mut forward = vec![anchor_mark];
+        let mut current = anchor_mark;
+        while current.index + base_period / 2 < slice.len().saturating_sub(2) {
             if is_cancelled(cancel) {
                 return Err("SOLA rendering cancelled".into());
             }
-            let predicted = (current as f64 + period).round() as usize;
+            let predicted = (current.index as f64 + period).round() as usize;
             if predicted >= slice.len().saturating_sub(1) {
                 break;
             }
-            let next = Self::phase_match_mark(slice, current, predicted, period, cancel)?;
-            if next <= current {
+            let (next, offset, bracketed) =
+                Self::phase_match_mark(slice, current.index, predicted, period, cancel)?;
+            if next <= current.index {
                 break;
             }
-            forward.push(next);
-            current = next;
+            let mark = PitchMark {
+                index: next,
+                position: current.position + (next - current.index) as f64 + offset,
+                reliable: bracketed,
+            };
+            forward.push(mark);
+            current = mark;
         }
 
         let mut backward = Vec::new();
-        current = anchor;
-        while current > base_period / 2 + 2 {
+        current = anchor_mark;
+        while current.index > base_period / 2 + 2 {
             if is_cancelled(cancel) {
                 return Err("SOLA rendering cancelled".into());
             }
-            let predicted = current.saturating_sub(base_period);
-            let previous = Self::phase_match_mark(slice, current, predicted, period, cancel)?;
-            if previous >= current {
+            let predicted = current.index.saturating_sub(base_period);
+            let (previous, offset, bracketed) =
+                Self::phase_match_mark(slice, current.index, predicted, period, cancel)?;
+            if previous >= current.index {
                 break;
             }
-            backward.push(previous);
-            current = previous;
+            let mark = PitchMark {
+                index: previous,
+                position: current.position - (current.index - previous) as f64 + offset,
+                reliable: bracketed,
+            };
+            backward.push(mark);
+            current = mark;
         }
         backward.reverse();
         backward.extend(forward);
         let mut marks = backward;
-        marks.dedup();
+        marks.dedup_by_key(|mark| mark.index);
         Ok(marks)
     }
 
@@ -491,27 +670,8 @@ impl SolaResampler {
         Ok(output)
     }
 
-    fn cubic_sample(samples: &[f32], position: f64) -> f32 {
-        let base = position.floor() as isize;
-        let fraction = (position - position.floor()) as f32;
-        let at = |index: isize| {
-            let clamped = index.clamp(0, samples.len().saturating_sub(1) as isize) as usize;
-            samples[clamped]
-        };
-        let before = at(base - 1);
-        let current = at(base);
-        let next = at(base + 1);
-        let after = at(base + 2);
-        let slope = (next - before) * 0.5;
-        let delta = current - next;
-        let curve = slope + delta;
-        let a = curve + delta + (after - current) * 0.5;
-        let b = curve + a;
-        ((a * fraction - b) * fraction + slope) * fraction + current
-    }
-
     fn interpolate_pitch_marks(
-        marks: &[usize],
+        marks: &[f64],
         source_position: f64,
         fallback_period: f64,
     ) -> (f64, f64, f64, f64) {
@@ -520,12 +680,12 @@ impl SolaResampler {
         }
         if marks.len() == 1 {
             let p = Self::local_period(marks, 0, fallback_period);
-            return (marks[0] as f64, marks[0] as f64, 0.0, p);
+            return (marks[0], marks[0], 0.0, p);
         }
 
         let target = source_position.max(0.0);
-        let first_mark = marks[0] as f64;
-        let last_mark = marks[marks.len() - 1] as f64;
+        let first_mark = marks[0];
+        let last_mark = marks[marks.len() - 1];
 
         if target <= first_mark {
             let period = Self::local_period(marks, 0, fallback_period);
@@ -537,15 +697,13 @@ impl SolaResampler {
             return (last_mark, last_mark, 0.0, period);
         }
 
-        let target_usize = target.floor() as usize;
-        let idx = match marks.binary_search(&target_usize) {
-            Ok(i) => i,
-            Err(i) => i.saturating_sub(1),
-        };
-        let idx = idx.min(marks.len() - 2);
+        let idx = marks
+            .partition_point(|mark| *mark <= target)
+            .saturating_sub(1)
+            .min(marks.len() - 2);
 
-        let m0 = marks[idx] as f64;
-        let m1 = marks[idx + 1] as f64;
+        let m0 = marks[idx];
+        let m1 = marks[idx + 1];
         let span = (m1 - m0).max(1.0);
         let alpha = ((target - m0) / span).clamp(0.0, 1.0);
 
@@ -556,13 +714,11 @@ impl SolaResampler {
         (m0, m1, alpha, period)
     }
 
-    fn local_period(marks: &[usize], index: usize, fallback: f64) -> f64 {
+    fn local_period(marks: &[f64], index: usize, fallback: f64) -> f64 {
         let previous = index
             .checked_sub(1)
-            .map(|previous| (marks[index] - marks[previous]) as f64);
-        let next = marks
-            .get(index + 1)
-            .map(|next| (*next - marks[index]) as f64);
+            .map(|previous| marks[index] - marks[previous]);
+        let next = marks.get(index + 1).map(|next| *next - marks[index]);
         match (previous, next) {
             (Some(previous), Some(next)) => (previous + next) * 0.5,
             (Some(period), None) | (None, Some(period)) => period,
@@ -876,7 +1032,12 @@ impl SolaResampler {
         }
 
         let base_period = estimate.period.round().max(8.0) as usize;
-        let pitch_marks = Self::find_pitch_marks_cancellable(vowel, base_period, cancel)?;
+        // Guessed marks at the slice edges would misalign the outer grains.
+        let tracked = Self::track_pitch_marks_cancellable(vowel, base_period, cancel)?;
+        let pitch_marks: Vec<f64> = trim_unreliable_edges(&tracked)
+            .iter()
+            .map(|mark| mark.position)
+            .collect();
         if pitch_marks.len() < 2 && !force_absolute_pitch {
             return crate::dsp::resize_preserving_pitch_cancellable(
                 vowel,
@@ -889,7 +1050,10 @@ impl SolaResampler {
             // The segment can contain only a partial glottal cycle. Regular
             // marks keep the target F0 trajectory deterministic; the envelope
             // will still preserve the consonant's finite duration.
-            (0..v_len).step_by(base_period.max(1)).collect::<Vec<_>>()
+            (0..v_len)
+                .step_by(base_period.max(1))
+                .map(|mark| mark as f64)
+                .collect::<Vec<_>>()
         } else {
             pitch_marks
         };
@@ -952,6 +1116,17 @@ impl SolaResampler {
             let first = (output_center - grain_radius).ceil() as isize;
             let last = (output_center + grain_radius).floor() as isize;
 
+            // Every sample of this grain is read at the same fractional
+            // offset from its mark, so one band-limited kernel per mark
+            // serves the whole grain.
+            let shift_0 = mark_0 - output_center;
+            let shift_1 = mark_1 - output_center;
+            let kernel_0 = FractionalKernel::new(shift_0 - shift_0.floor());
+            let kernel_1 = FractionalKernel::new(shift_1 - shift_1.floor());
+            let base_0 = shift_0.floor() as isize;
+            let base_1 = shift_1.floor() as isize;
+            let in_range = |position: f64| position >= 0.0 && position < v_len as f64;
+
             for output_index in first..=last {
                 if output_index < 0 || output_index as usize >= target_samples {
                     continue;
@@ -960,30 +1135,28 @@ impl SolaResampler {
                 let window =
                     (0.5 + 0.5 * (std::f64::consts::PI * delta / grain_radius).cos()) as f32;
 
+                let p0 = mark_0 + delta;
+                let p1 = mark_1 + delta;
                 let sample_val = if alpha <= 1e-4 {
-                    let p0 = mark_0 + delta;
-                    if p0 >= 0.0 && p0 < v_len as f64 {
-                        Self::cubic_sample(vowel, p0)
+                    if in_range(p0) {
+                        kernel_0.read(vowel, output_index + base_0)
                     } else {
                         continue;
                     }
                 } else if alpha >= 1.0 - 1e-4 {
-                    let p1 = mark_1 + delta;
-                    if p1 >= 0.0 && p1 < v_len as f64 {
-                        Self::cubic_sample(vowel, p1)
+                    if in_range(p1) {
+                        kernel_1.read(vowel, output_index + base_1)
                     } else {
                         continue;
                     }
                 } else {
-                    let p0 = mark_0 + delta;
-                    let p1 = mark_1 + delta;
-                    let v0 = if p0 >= 0.0 && p0 < v_len as f64 {
-                        Self::cubic_sample(vowel, p0)
+                    let v0 = if in_range(p0) {
+                        kernel_0.read(vowel, output_index + base_0)
                     } else {
                         0.0
                     };
-                    let v1 = if p1 >= 0.0 && p1 < v_len as f64 {
-                        Self::cubic_sample(vowel, p1)
+                    let v1 = if in_range(p1) {
+                        kernel_1.read(vowel, output_index + base_1)
                     } else {
                         0.0
                     };
@@ -1540,5 +1713,167 @@ mod tests {
             max_amp <= 1.0,
             "Boundary crossfade caused clipping: peak was {max_amp}"
         );
+    }
+
+    fn harmonic_voice(sample_rate: u32, f0: f64, seconds: f64, rolloff: i32) -> Vec<f32> {
+        let frames = (sample_rate as f64 * seconds) as usize;
+        let harmonics = ((sample_rate as f64 / 2.0 - 1_000.0) / f0) as usize;
+        let mut output: Vec<f32> = (0..frames)
+            .map(|index| {
+                let time = index as f64 / sample_rate as f64;
+                (1..=harmonics)
+                    .map(|k| {
+                        (std::f64::consts::TAU * f0 * k as f64 * time).sin()
+                            / (k as f64).powi(rolloff)
+                    })
+                    .sum::<f64>() as f32
+            })
+            .collect();
+        let peak = output.iter().fold(0.0f32, |peak, s| peak.max(s.abs()));
+        for sample in &mut output {
+            *sample *= 0.5 / peak;
+        }
+        output
+    }
+
+    fn windowed_amplitude(samples: &[f32], frequency: f64, sample_rate: u32) -> f64 {
+        let length = samples.len() as f64;
+        let (mut re, mut im) = (0.0f64, 0.0f64);
+        for (index, sample) in samples.iter().enumerate() {
+            let window = 0.5 - 0.5 * (std::f64::consts::TAU * index as f64 / length).cos();
+            let phase = std::f64::consts::TAU * frequency * index as f64 / sample_rate as f64;
+            re += f64::from(*sample) * window * phase.cos();
+            im += f64::from(*sample) * window * phase.sin();
+        }
+        4.0 * (re * re + im * im).sqrt() / length
+    }
+
+    #[test]
+    fn fft_yin_difference_matches_the_direct_sum() {
+        let frame: Vec<f32> = (0..3_000)
+            .map(|index| {
+                let t = index as f32;
+                (t * 0.031).sin() * 0.6
+                    + (t * 0.173).sin() * 0.25
+                    + ((index * 7919) % 101) as f32 * 1e-3
+            })
+            .collect();
+        let (window_len, max_period) = (1_200, 700);
+        let fast = yin_difference(&frame, window_len, max_period);
+        for tau in [0usize, 1, 2, 57, 300, 699, 700] {
+            let direct: f64 = (0..window_len)
+                .map(|j| {
+                    let delta = f64::from(frame[j]) - f64::from(frame[j + tau]);
+                    delta * delta
+                })
+                .sum();
+            assert!(
+                (fast[tau] - direct).abs() <= 1e-9 * direct.max(1.0),
+                "tau {tau}: {} vs {direct}",
+                fast[tau]
+            );
+        }
+    }
+
+    #[test]
+    fn pitch_marks_have_sub_sample_spacing() {
+        let sample_rate = 44_100;
+        let f0 = 261.63;
+        let period = sample_rate as f64 / f0; // 168.556 samples
+        let input = harmonic_voice(sample_rate, f0, 0.4, 2);
+        let marks =
+            SolaResampler::track_pitch_marks_cancellable(&input, period.round() as usize, None)
+                .unwrap();
+        assert!(marks.len() > 50);
+        let reliable: Vec<f64> = trim_unreliable_edges(&marks)
+            .iter()
+            .map(|mark| mark.position)
+            .collect();
+        assert!(
+            reliable.len() + 2 >= marks.len(),
+            "only edge marks may be guesses"
+        );
+        let mut worst = 0.0f64;
+        for pair in reliable.windows(2) {
+            worst = worst.max((pair[1] - pair[0] - period).abs());
+        }
+        // Integer marks are off by up to half a sample, always in the same
+        // direction for a given period, which detuned the output.
+        assert!(worst < 0.05, "mark spacing error {worst}");
+        assert_eq!(
+            SolaResampler::find_pitch_marks(&input, period.round() as usize),
+            marks.iter().map(|mark| mark.index).collect::<Vec<_>>()
+        );
+    }
+
+    #[test]
+    fn psola_output_pitch_is_exact_for_fractional_source_periods() {
+        let sample_rate = 44_100;
+        // Periods of 168.56 and 84.28 samples: the integer marks used before
+        // detuned these notes by 4 to 6 cents.
+        for f0 in [261.63, 523.25] {
+            let input = harmonic_voice(sample_rate, f0, 0.6, 2);
+            for semitones in [0.0f64, 7.0] {
+                let target = f0 * 2f64.powf(semitones / 12.0);
+                let output = SolaResampler::render_sample(
+                    &input,
+                    sample_rate,
+                    0.0,
+                    0.0,
+                    0.0,
+                    0.0,
+                    600.0,
+                    target,
+                    &[],
+                    None,
+                    None,
+                    None,
+                );
+                let middle = &output[output.len() / 4..output.len() * 3 / 4];
+                let estimate = SolaResampler::estimate_pitch(middle, sample_rate).unwrap();
+                let measured = sample_rate as f64 / estimate.period;
+                let cents = 1_200.0 * (measured / target).log2();
+                assert!(
+                    cents.abs() < 1.5,
+                    "{f0} Hz {semitones:+} st: {measured:.2} Hz ({cents:+.2} cents)"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn psola_keeps_the_high_harmonics_of_a_sustained_vowel() {
+        let sample_rate = 44_100;
+        let f0 = 233.3;
+        let input = harmonic_voice(sample_rate, f0, 0.6, 1);
+        let output = SolaResampler::render_sample(
+            &input,
+            sample_rate,
+            0.0,
+            0.0,
+            0.0,
+            0.0,
+            600.0,
+            f0,
+            &[],
+            None,
+            None,
+            None,
+        );
+        let source = &input[input.len() / 4..input.len() * 3 / 4];
+        let rendered = &output[output.len() / 4..output.len() * 3 / 4];
+        for harmonic in [3.0, 40.0, 60.0] {
+            let frequency = f0 * harmonic;
+            let change_db = 20.0
+                * (windowed_amplitude(rendered, frequency, sample_rate)
+                    / windowed_amplitude(source, frequency, sample_rate))
+                .log10();
+            // Integer marks and Catmull-Rom grains lost 1.3 dB at 9.3 kHz
+            // and 3.1 dB at 14 kHz.
+            assert!(
+                change_db.abs() < 0.5,
+                "{frequency:.0} Hz changed by {change_db:.2} dB"
+            );
+        }
     }
 }

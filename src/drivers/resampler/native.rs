@@ -12,7 +12,8 @@ impl ResamplerDriver for NativeResamplerDriver {
     }
 
     fn cache_identity(&self) -> String {
-        "kamafeu.sola:classic-oto-v1".to_string()
+        // v2: sub-sample pitch marks and band-limited grain interpolation.
+        "kamafeu.sola:classic-oto-v2".to_string()
     }
 
     fn render_sample(

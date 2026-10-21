@@ -160,13 +160,14 @@ impl ProjectRenderer {
                     wave.position_ms,
                     wave.file_offset_ms,
                     0.0,
+                    None,
                     track.volume_db + wave.volume_db,
                     track.pan,
                 );
             }
         }
         if let Some(target_peak) = configured_render_limiter_peak() {
-            TrackRenderer::apply_soft_limiter(&mut stereo, target_peak);
+            TrackRenderer::apply_render_limiter(&mut stereo, 2, sample_rate, target_peak);
         }
         Ok(NativeTrackRender {
             phrase,
@@ -313,12 +314,59 @@ mod tests {
             channels: 2,
             duration_ms: 2.0 / 44100.0 * 1000.0,
         };
-        ProjectRenderer::mix_wave_part_into(&mut stereo, &decoded, 44100, 0.0, 0.0, 0.0, 0.0, 0.0);
+        ProjectRenderer::mix_wave_part_into(
+            &mut stereo,
+            &decoded,
+            44100,
+            0.0,
+            0.0,
+            0.0,
+            None,
+            0.0,
+            0.0,
+        );
         assert_eq!(stereo.len(), 4);
         assert!((stereo[0] - 1.0).abs() < 1e-4);
         assert!((stereo[1] - 1.0).abs() < 1e-4);
         assert!((stereo[2] - 0.5).abs() < 1e-4);
         assert!((stereo[3] - 0.5).abs() < 1e-4);
+    }
+
+    #[test]
+    fn windowed_wave_part_mix_matches_the_full_mix_inside_the_window() {
+        let samples: Vec<f32> = (0..48_000)
+            .flat_map(|index| {
+                let value = ((index as f64) * 0.013).sin() as f32 * 0.4;
+                [value, -value]
+            })
+            .collect();
+        let decoded = crate::audio::DecodedAudio {
+            samples,
+            sample_rate: 48_000,
+            channels: 2,
+            duration_ms: 1_000.0,
+        };
+        let mut full = Vec::new();
+        ProjectRenderer::mix_wave_part_into(
+            &mut full, &decoded, 44_100, 100.0, 0.0, 0.0, None, -3.0, 0.2,
+        );
+        let mut window = Vec::new();
+        ProjectRenderer::mix_wave_part_into(
+            &mut window,
+            &decoded,
+            44_100,
+            100.0,
+            0.0,
+            400.0,
+            Some(700.0),
+            -3.0,
+            0.2,
+        );
+
+        // Only 300 ms plus the 50 ms limiter margin are converted and mixed.
+        assert_eq!(window.len(), 15_435 * 2);
+        let start = 17_640 * 2;
+        assert_eq!(window[..], full[start..start + window.len()]);
     }
 
     #[test]

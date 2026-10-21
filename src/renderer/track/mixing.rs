@@ -52,50 +52,6 @@ fn accumulate_samples_scalar(destination: &mut [f32], source: &[f32]) {
     }
 }
 
-#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-#[inline]
-fn scale_samples(buffer: &mut [f32], scale: f32) {
-    if std::is_x86_feature_detected!("sse2") {
-        // SAFETY: SSE2 is checked immediately above and the slice is valid
-        // for unaligned vector loads and stores.
-        unsafe { scale_samples_sse2(buffer, scale) };
-        return;
-    }
-
-    scale_samples_scalar(buffer, scale);
-}
-
-#[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
-#[target_feature(enable = "sse2")]
-unsafe fn scale_samples_sse2(buffer: &mut [f32], scale: f32) {
-    #[cfg(target_arch = "x86")]
-    use std::arch::x86::{_mm_loadu_ps, _mm_mul_ps, _mm_set1_ps, _mm_storeu_ps};
-    #[cfg(target_arch = "x86_64")]
-    use std::arch::x86_64::{_mm_loadu_ps, _mm_mul_ps, _mm_set1_ps, _mm_storeu_ps};
-
-    let factor = _mm_set1_ps(scale);
-    let vector_len = buffer.len() / 4 * 4;
-    for index in (0..vector_len).step_by(4) {
-        let samples = _mm_loadu_ps(buffer.as_ptr().add(index));
-        _mm_storeu_ps(buffer.as_mut_ptr().add(index), _mm_mul_ps(samples, factor));
-    }
-
-    scale_samples_scalar(&mut buffer[vector_len..], scale);
-}
-
-#[cfg(not(any(target_arch = "x86", target_arch = "x86_64")))]
-#[inline]
-fn scale_samples(buffer: &mut [f32], scale: f32) {
-    scale_samples_scalar(buffer, scale);
-}
-
-#[inline]
-fn scale_samples_scalar(buffer: &mut [f32], scale: f32) {
-    for sample in buffer {
-        *sample *= scale;
-    }
-}
-
 fn crossfade_curve() -> &'static RwLock<String> {
     static CURVE: OnceLock<RwLock<String>> = OnceLock::new();
     CURVE.get_or_init(|| RwLock::new("Equal Power S-Curve".to_string()))
@@ -113,32 +69,28 @@ impl TrackRenderer {
         }
     }
 
-    /// Transparent soft-knee limiter that scales peaks above `target_peak` and smooths extreme transients.
+    /// Mono compatibility wrapper around [`TrackRenderer::apply_render_limiter`].
+    ///
+    /// Older callers did not pass the sample rate; the limiter time constants
+    /// are then evaluated at 44.1 kHz. Interleaved buffers must use
+    /// `apply_render_limiter` so the channels share one gain envelope.
     pub fn apply_soft_limiter(buffer: &mut [f32], target_peak: f32) {
-        if buffer.is_empty() {
-            return;
-        }
-        let max_peak = buffer.iter().map(|s| s.abs()).fold(0.0f32, f32::max);
-        if max_peak > target_peak && max_peak > 0.0 {
-            let scale = target_peak / max_peak;
-            scale_samples(buffer, scale);
-        }
-        // Transparent soft-knee saturation curve to protect against any localized harmonic bursts.
-        let knee_threshold = target_peak * 0.92;
-        let head = (1.0f32 - knee_threshold).max(1e-4);
-        for s in buffer.iter_mut() {
-            if !s.is_finite() {
-                *s = 0.0;
-                continue;
-            }
-            let abs_val = s.abs();
-            if abs_val > knee_threshold {
-                let sign = s.signum();
-                let excess = abs_val - knee_threshold;
-                let compressed = knee_threshold + head * (excess / head).tanh();
-                *s = sign * compressed.min(target_peak);
-            }
-        }
+        Self::apply_render_limiter(buffer, 1, 44_100, target_peak);
+    }
+
+    /// Transparent look-ahead true-peak limiter for rendered audio.
+    ///
+    /// Only the neighbourhood of an over is attenuated (2 ms S-shaped attack,
+    /// 80 ms release); audio below `target_peak` is returned unchanged and
+    /// non-finite samples are replaced by silence. See
+    /// [`crate::dsp::PeakLimiter`].
+    pub fn apply_render_limiter(
+        buffer: &mut [f32],
+        channels: usize,
+        sample_rate: u32,
+        target_peak: f32,
+    ) -> crate::dsp::LimiterReport {
+        crate::dsp::PeakLimiter::new(target_peak).process_interleaved(buffer, channels, sample_rate)
     }
 
     pub(super) fn mix_phase_aligned(

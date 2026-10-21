@@ -57,7 +57,7 @@ Este documento serve como referência e índice técnico completo de todos os ar
 | `src/audio/loader.rs` | Utilitários de decodificação e carregamento de arquivos WAV e FLAC para memória em formato de ponto flutuante (`Vec<f32>`). |
 | `src/audio/metronome.rs` | Gerador e sintetizador do metrônomo de cliques, com acentuação tonal no primeiro tempo do compasso e cálculo baseado em BPM. |
 | `src/audio/fx/mod.rs` | Módulo raiz do rack de efeitos estéreo aplicáveis por faixa de áudio. |
-| `src/audio/fx/processor.rs` | Processador unificado do canal de efeitos. Encadeia equalizador, compressor, chorus, delay e reverb. |
+| `src/audio/fx/processor.rs` | Processador unificado do canal de efeitos. Encadeia equalizador, gate (com histerese e hold), compressor (joelho suave), delay, reverb (pré-delay), saturação com oversampling 4x, chorus estéreo, auto-pan de potência constante e limiter de saída; `process_render` compensa a latência e `reset` isola renders independentes. |
 | `src/audio/fx/settings.rs` | Estruturas de dados de configuração dos efeitos (ganhos, frequências de corte, thresholds, decay, wet/dry). |
 | `src/audio/fx/equalizer.rs` | Equalizador gráfico de 31 bandas em terças de oitava e equalizador paramétrico de precisão. |
 | `src/audio/fx/biquad.rs` | Filtros IIR digitais biquad (Lowpass, Highpass, Bandpass, Peaking, HighShelf, LowShelf). |
@@ -98,8 +98,12 @@ Este documento serve como referência e índice técnico completo de todos os ar
 | `src/dsp/envelope.rs` | Gerador e interpolador de envelopes UTAU de amplitude em 5 pontos (`p1`, `p2`, `p3`, `p4`, `p5`, `v1`, `v2`, `v3`, `v4`, `v5`). |
 | `src/dsp/resampler.rs` | Utilitários e funções auxiliares de reamostragem, transposição e conversão de taxa de amostragem. |
 | `src/dsp/pyin.rs` | Implementação do algoritmo Probabilistic YIN (pYIN) para rastreamento fundamental e contorno de pitch em gravações de áudio. |
+| `src/dsp/limiter.rs` | Limiter de pico verdadeiro com look-ahead usado no render de trilhas e mixagens: detector 4x, ganho estéreo vinculado, ataque em curva S e release exponencial; áudio abaixo do teto passa intacto. |
+| `src/dsp/bandlimited.rs` | Conversão de taxa de amostragem band-limited (sinc com janela de Kaiser, 32 cruzamentos, corte em min(Nyquist de entrada, de saída)); converte sub-faixas de forma idêntica à conversão completa. Usada nas amostras, saídas de resamplers e áudio importado. |
+| `src/dsp/oversampling.rs` | Oversampling 4x em fluxo (dois estágios half-band polifásicos de fase linear) para não-linearidades como a saturação; latência inteira e constante. |
+| `src/dsp/kaiser.rs` | Janela de Kaiser, Bessel I0 e sinc normalizado compartilhados pelos kernels de interpolação e reamostragem. |
 | `src/dsp/lpc.rs` | Algoritmos de Predição Linear (LPC - *Linear Predictive Coding*) para extração e manipulação do envelope formântico vocal. |
-| `src/dsp/sola.rs` | Rotinas auxiliares de sincronismo e sobreposição de amostras (*Synchronized Overlap-Add*). |
+| `src/dsp/sola.rs` | Resampler TD-PSOLA nativo: YIN por FFT, pitch marks coerentes em fase com precisão sub-amostra e grãos lidos com interpolação sinc band-limited; WSOLA para material não vozeado. |
 | `src/dsp/windowed_sinc.rs` | Interpolação de amostras com filtro Sinc Janelado para reamostragem de alta fidelidade sem perda de altas frequências. |
 
 ---

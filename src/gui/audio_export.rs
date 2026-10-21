@@ -233,7 +233,10 @@ impl KamafeuStudioApp {
                                 let _ = export_tx.send(Err(error));
                                 return;
                             }
-                            fx_proc.process_interleaved(&mut audio.samples, audio.sample_rate);
+                            // Each stem is an independent render: start from a
+                            // clean rack so tails do not leak between stems.
+                            fx_proc.reset();
+                            fx_proc.process_render(&mut audio.samples, audio.sample_rate);
                             audio.sample_rate = mastering_options.prepare(
                                 &mut audio.samples,
                                 audio.sample_rate,
@@ -286,7 +289,8 @@ impl KamafeuStudioApp {
                         let _ = export_tx.send(Err(error));
                         return;
                     }
-                    fx_proc.process_interleaved(&mut audio.samples, audio.sample_rate);
+                    fx_proc.reset();
+                    fx_proc.process_render(&mut audio.samples, audio.sample_rate);
                     audio.sample_rate = mastering_options.prepare(
                         &mut audio.samples,
                         audio.sample_rate,
@@ -362,7 +366,7 @@ impl KamafeuStudioApp {
                         let _ = export_tx.send(Err(error));
                         return;
                     }
-                    fx_proc.process_interleaved(&mut audio.samples, audio.sample_rate);
+                    fx_proc.process_render(&mut audio.samples, audio.sample_rate);
                     audio.sample_rate = mastering_options.prepare(
                         &mut audio.samples,
                         audio.sample_rate,
@@ -664,7 +668,7 @@ impl KamafeuStudioApp {
                     crate::renderer::RenderStage::Finalizing,
                 ));
                 let mut fx_proc = crate::audio::FxRackProcessor::new(fx_config, sample_rate);
-                fx_proc.process_interleaved(&mut audio.samples, audio.sample_rate);
+                fx_proc.process_render(&mut audio.samples, audio.sample_rate);
                 audio.sample_rate = mastering_options.prepare(
                     &mut audio.samples,
                     audio.sample_rate,

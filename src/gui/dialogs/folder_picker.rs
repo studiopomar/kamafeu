@@ -28,6 +28,16 @@ impl KamafeuStudioApp {
                         });
                         ui.add_space(4.0);
 
+                        #[cfg(target_arch = "wasm32")]
+                        ui.colored_label(
+                            ui.visuals().warn_fg_color,
+                            lang.tr(
+                                "O navegador não permite explorar o disco local por este painel. O carregamento de voicebanks ainda não está disponível na versão Web.",
+                                "The browser cannot browse local files through this panel. Voicebank loading is not available in the Web version yet.",
+                            ),
+                        );
+
+                        #[cfg(not(target_arch = "wasm32"))]
                         ui.horizontal_wrapped(|ui| {
                             ui.label(
                                 egui::RichText::new(lang.tr("Atalhos:", "Shortcuts:"))
@@ -64,8 +74,10 @@ impl KamafeuStudioApp {
                             );
                         });
 
+                        #[cfg(not(target_arch = "wasm32"))]
                         let has_oto = self.folder_picker_current_dir.join("oto.ini").is_file()
                             || self.folder_picker_current_dir.join("character.txt").is_file();
+                        #[cfg(not(target_arch = "wasm32"))]
                         if has_oto {
                             ui.colored_label(
                                 ui.visuals().hyperlink_color,
@@ -81,6 +93,10 @@ impl KamafeuStudioApp {
                             .id_salt("folder_picker_entries_scroll")
                             .max_height(240.0)
                             .show(ui, |ui| {
+                                #[cfg(target_arch = "wasm32")]
+                                let _ = ui;
+
+                                #[cfg(not(target_arch = "wasm32"))]
                                 if let Ok(entries) = std::fs::read_dir(&self.folder_picker_current_dir) {
                                     let mut dirs = Vec::new();
                                     for entry in entries.flatten() {
@@ -129,7 +145,8 @@ impl KamafeuStudioApp {
                         ui.separator();
                         ui.horizontal(|ui| {
                             if ui
-                                .add(
+                                .add_enabled(
+                                    !cfg!(target_arch = "wasm32"),
                                     egui::Button::new(
                                         egui::RichText::new(lang.tr("Selecionar Esta Pasta", "Select This Folder"))
                                             .strong()

@@ -108,7 +108,9 @@ contratos públicos e os formatos de projeto.
   seleção de trilhas ficam em `renderer/execution.rs`; a resolução de alvos e
   contexto para prévias isoladas fica em `renderer/preview.rs`; entrega e
   retomada de chunks ficam em `renderer/progressive.rs`; a mistura de trilhas,
-  acumuladores SIMD e configuração do limiter ficam em `renderer/mix.rs`; a
+  acumuladores SIMD e configuração do limiter ficam em `renderer/mix.rs`, e o
+  limiter de pico verdadeiro com look-ahead aplicado ao render fica em
+  `dsp/limiter.rs`; a
   preparação do cache WAV e o tratamento de fonemas sem amostra ficam em
   `renderer/track/preload.rs`; leitura, conversão e escrita WAV ficam em
   `renderer/track/wav_io.rs`; a junção sequencial, concatenação de frases e

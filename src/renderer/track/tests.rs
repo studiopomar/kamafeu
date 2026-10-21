@@ -689,3 +689,34 @@ fn vc_transitions_render_smoothly_without_discontinuities_or_empty_holes() {
         "VC boundary energy changed abruptly: {boundary_rms:?}"
     );
 }
+
+#[test]
+fn render_limiter_only_touches_the_neighbourhood_of_an_over() {
+    let sample_rate = 44_100u32;
+    let frames = sample_rate as usize * 2;
+    let mut stereo: Vec<f32> = (0..frames)
+        .flat_map(|index| {
+            let sample = (index as f32 * 0.05).sin() * 0.4;
+            [sample, sample * 0.5]
+        })
+        .collect();
+    let original = stereo.clone();
+    let spike_frame = sample_rate as usize;
+    stereo[spike_frame * 2] = 1.5;
+
+    let report = TrackRenderer::apply_render_limiter(&mut stereo, 2, sample_rate, 0.89);
+
+    assert!(report.limited_frames > 0);
+    assert!(stereo.iter().all(|sample| sample.abs() <= 0.89));
+    // The previous limiter normalised the whole render by the spike. Audio
+    // half a second before it must now be passed through untouched.
+    let untouched = (spike_frame - sample_rate as usize / 2) * 2;
+    assert_eq!(&stereo[..untouched], &original[..untouched]);
+}
+
+#[test]
+fn legacy_soft_limiter_wrapper_still_enforces_the_ceiling() {
+    let mut mono = vec![0.2, 1.4, -1.7, 0.3, 0.0, -0.1];
+    TrackRenderer::apply_soft_limiter(&mut mono, 0.5);
+    assert!(mono.iter().all(|sample| sample.abs() <= 0.5));
+}

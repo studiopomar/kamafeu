@@ -1,4 +1,5 @@
-use super::FLUSH_DENORMALS_TO_ZERO;
+use super::{set_flush_denormals_to_zero, FLUSH_DENORMALS_TO_ZERO};
+use std::sync::atomic::Ordering;
 
 #[cfg(target_arch = "wasm32")]
 pub struct AudioPlayer {
@@ -230,6 +231,12 @@ impl AudioPlayer {
         self.ctx.as_ref().map(|ctx| {
             (ctx.current_time() - self.playback_start_time).max(0.0) * self.speed as f64 * 1000.0
         })
+    }
+
+    /// The browser sink has no separate progressive scheduler. Its single
+    /// scheduled Web Audio source is the playback clock for the web UI.
+    pub fn scheduler_position_ms(&self) -> f64 {
+        self.playback_position_ms().unwrap_or(0.0)
     }
 
     pub fn speed(&self) -> f32 {

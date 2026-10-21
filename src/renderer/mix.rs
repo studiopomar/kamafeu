@@ -1,6 +1,11 @@
 use super::project::ProjectRenderer;
 use std::sync::{OnceLock, RwLock};
 
+/// Imported audio mixed past the end of a render window, so the render
+/// limiter look-ahead near the window end sees the same material as in a
+/// full render.
+const WAVE_PART_WINDOW_MARGIN_MS: f64 = 50.0;
+
 #[cfg(any(target_arch = "x86", target_arch = "x86_64"))]
 #[inline]
 pub(super) fn accumulate_stereo_scaled(
@@ -231,7 +236,9 @@ impl ProjectRenderer {
                 );
 
                 let mut processor = crate::audio::FxRackProcessor::new(fx.clone(), sample_rate);
-                processor.process_interleaved(&mut track_stereo, sample_rate);
+                // Latency-compensated: oversampled saturation must not shift
+                // this track against the others.
+                processor.process_render(&mut track_stereo, sample_rate);
 
                 if stereo.len() < track_stereo.len() {
                     stereo.resize(track_stereo.len(), 0.0);
@@ -250,6 +257,12 @@ impl ProjectRenderer {
         accumulate_mono_to_stereo(&mut stereo[..required_len], mono, left_gain, right_gain);
     }
 
+    /// Mix an imported audio part into `stereo`.
+    ///
+    /// `end_ms` bounds the render window. Only the frames that land inside it
+    /// (plus a short margin for the render limiter look-ahead) are converted
+    /// to the project rate and mixed, so progressive chunks no longer resample
+    /// the entire file for every range.
     #[allow(clippy::too_many_arguments)]
     pub(super) fn mix_wave_part_into(
         stereo: &mut Vec<f32>,
@@ -258,6 +271,7 @@ impl ProjectRenderer {
         wave_position_ms: f64,
         wave_file_offset_ms: f64,
         start_ms: f64,
+        end_ms: Option<f64>,
         volume_db: f64,
         pan: f64,
     ) {
@@ -265,8 +279,7 @@ impl ProjectRenderer {
             return;
         }
 
-        let decoded_stereo = decoded.to_stereo_at_sample_rate(sample_rate);
-        let src_frames = decoded_stereo.len() / 2;
+        let src_frames = decoded.frames_at_sample_rate(sample_rate);
         if src_frames == 0 {
             return;
         }
@@ -297,19 +310,34 @@ impl ProjectRenderer {
             return;
         }
 
-        let frames_to_mix = src_frames - src_start_frame;
+        let mut frames_to_mix = src_frames - src_start_frame;
+        if let Some(end_ms) = end_ms {
+            let window_frames = ((((end_ms - start_ms).max(0.0) + WAVE_PART_WINDOW_MARGIN_MS)
+                / 1000.0)
+                * sample_rate as f64)
+                .ceil() as usize;
+            if dest_start_frame >= window_frames {
+                return;
+            }
+            frames_to_mix = frames_to_mix.min(window_frames - dest_start_frame);
+        }
+
+        let converted =
+            decoded.to_stereo_range_at_sample_rate(sample_rate, src_start_frame, frames_to_mix);
+        let frames_to_mix = frames_to_mix.min(converted.len() / 2);
+        if frames_to_mix == 0 {
+            return;
+        }
         let required_len = (dest_start_frame + frames_to_mix) * 2;
         if stereo.len() < required_len {
             stereo.resize(required_len, 0.0);
         }
 
-        let source_start = src_start_frame * 2;
-        let source_end = source_start + frames_to_mix * 2;
         let destination_start = dest_start_frame * 2;
         let destination_end = destination_start + frames_to_mix * 2;
         accumulate_stereo_scaled(
             &mut stereo[destination_start..destination_end],
-            &decoded_stereo[source_start..source_end],
+            &converted[..frames_to_mix * 2],
             left_gain,
             right_gain,
         );

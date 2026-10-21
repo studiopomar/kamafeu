@@ -8,7 +8,7 @@ mod slots;
 mod wav_io;
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, OnceLock, RwLock};
-use std::time::Instant;
+use web_time::Instant;
 
 use rayon::prelude::*;
 
@@ -28,6 +28,27 @@ pub struct TrackRenderer;
 
 static LAZY_WAV_LOADING: AtomicBool = AtomicBool::new(false);
 static NEXT_RENDER_SESSION_ID: AtomicU64 = AtomicU64::new(1);
+
+#[cfg(target_arch = "wasm32")]
+fn create_render_temp_dir() -> Result<(Option<tempfile::TempDir>, std::path::PathBuf), String> {
+    Err(
+        "A reprodução de voicebanks ainda requer o renderizador nativo e não está disponível no Kamafeu Web."
+            .to_string(),
+    )
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+fn create_render_temp_dir() -> Result<(Option<tempfile::TempDir>, std::path::PathBuf), String> {
+    let temp_dir = tempfile::Builder::new()
+        .prefix("kamafeu-render-")
+        .tempdir()
+        .ok();
+    let path = temp_dir
+        .as_ref()
+        .map(|dir| dir.path().to_path_buf())
+        .unwrap_or_else(|| std::path::PathBuf::from("/tmp"));
+    Ok((temp_dir, path))
+}
 
 fn io_thread_count() -> &'static RwLock<usize> {
     static THREADS: OnceLock<RwLock<usize>> = OnceLock::new();
@@ -74,6 +95,12 @@ impl TrackRenderer {
 
     pub fn set_anti_aliasing_filter(enabled: bool) {
         wav_io::set_anti_aliasing_filter(enabled);
+    }
+
+    /// Whether sample-rate conversion uses the band-limited filter. Part of
+    /// the resampler cache identity because converted outputs are cached.
+    pub(crate) fn anti_aliasing_filter_enabled() -> bool {
+        wav_io::anti_aliasing_filter_enabled()
     }
 
     pub fn set_crossfade_curve(curve: &str) {
@@ -283,15 +310,6 @@ impl TrackRenderer {
             ((max_end_ms / 1000.0) * sample_rate as f64) as usize + sample_rate as usize;
         let track_buffer = vec![0.0f32; total_samples];
 
-        let temp_dir = tempfile::Builder::new()
-            .prefix("kamafeu-render-")
-            .tempdir()
-            .ok();
-        let temp_dir_path = temp_dir
-            .as_ref()
-            .map(|d| d.path().to_path_buf())
-            .unwrap_or_else(|| std::path::PathBuf::from("/tmp"));
-
         let is_default_or_empty_vb = voicebank.entries.is_empty()
             || voicebank.name == "Synthetic Fallback"
             || voicebank.name == "Default Singer"
@@ -308,6 +326,11 @@ impl TrackRenderer {
                 return Ok(Vec::new());
             }
         }
+
+        // Keep the temporary directory after the no-bank piano shortcut. The
+        // browser can synthesize that fallback in memory, while resampler
+        // rendering needs temporary WAV files unavailable to WASM.
+        let (_temp_dir, temp_dir_path) = create_render_temp_dir()?;
 
         let mode = if let Some(vm) = vocal_mode {
             vm.phonemizer_mode

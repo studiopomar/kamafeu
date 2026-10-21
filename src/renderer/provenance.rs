@@ -7,7 +7,9 @@ use std::fs;
 use std::path::Path;
 
 pub const PROVENANCE_SCHEMA: u32 = 1;
-pub const RENDER_PIPELINE_VERSION: &str = "kamafeu-render-1";
+/// Bumped whenever the audible output of the shared render pipeline changes
+/// (render-2: look-ahead true-peak limiter replaces global normalisation).
+pub const RENDER_PIPELINE_VERSION: &str = "kamafeu-render-2";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RenderArtifact {

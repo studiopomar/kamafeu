@@ -87,7 +87,8 @@ pub async fn start() -> Result<(), JsValue> {
         .dyn_into::<web_sys::HtmlCanvasElement>()
         .map_err(|_| JsValue::from_str("Element is not a canvas"))?;
 
-    eframe::WebRunner::new()
+    let runner = eframe::WebRunner::new();
+    runner
         .start(
             canvas,
             web_options,
@@ -95,6 +96,25 @@ pub async fn start() -> Result<(), JsValue> {
         )
         .await
         .map_err(|e| JsValue::from_str(&format!("Failed to start eframe: {e:?}")))?;
+
+    // eframe catches panics from later UI frames and stops repainting. Keep a
+    // lightweight health callback so the page can explain the failure instead
+    // of leaving users with an unexplained gray canvas.
+    let panic_runner = runner.clone();
+    let health_check = Closure::<dyn FnMut() -> JsValue>::new(move || {
+        panic_runner
+            .panic_summary()
+            .map(|summary| {
+                JsValue::from_str(&format!("{}\n{}", summary.message(), summary.callstack()))
+            })
+            .unwrap_or(JsValue::NULL)
+    });
+    js_sys::Reflect::set(
+        &js_sys::global(),
+        &JsValue::from_str("kamafeuWasmHealthCheck"),
+        health_check.as_ref(),
+    )?;
+    health_check.forget();
 
     // Only dismiss the loading screen after the graphics backend and the
     // first app runner have actually started. If WebGL is unavailable, the

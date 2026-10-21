@@ -23,6 +23,53 @@ acompanhar a versão em interfaces nativas, documentação e pacotes.
 
 ## [Não lançado]
 
+### DSP de áudio
+- O limiter do render deixou de normalizar o buffer inteiro pelo pico mais alto
+  e de aplicar `tanh`: agora é um limiter de pico verdadeiro (detector 4x) com
+  look-ahead de 2 ms, ataque em curva S e release de 80 ms, com ganho vinculado
+  entre os canais. Um transiente isolado não abaixa mais a música toda, os
+  chunks da prévia progressiva mantêm o mesmo nível do render completo, o
+  equilíbrio entre trilhas é preservado e o áudio abaixo do teto passa intacto.
+- A conversão de taxa de amostragem (bancos a 48/96 kHz em projetos a 44,1 kHz,
+  saídas de resamplers externos e wavtools) usa um filtro sinc band-limited com
+  janela de Kaiser no lugar do Lanczos-3, que não baixava o corte ao reduzir a
+  taxa (aliasing) e atenuava o agudo. Áudio importado deixou a interpolação
+  linear e agora converte só a janela renderizada. O cache de resamplers passa
+  ao esquema v6 e inclui o modo do filtro anti-aliasing na identidade.
+- Rack de efeitos:
+  - o limiter de saída deixou de ser um clamp (que distorcia a forma de onda)
+    e virou um limiter de pico com ataque instantâneo, release ajustável
+    (novo knob RELEASE, padrão 80 ms) e ganho vinculado entre os canais;
+  - o compressor passou a trabalhar em dB com detector estéreo vinculado,
+    joelho suave (novo knob KNEE, padrão 6 dB) e ataque/release suavizados
+    no ganho; o makeup não corta mais o sinal em 0 dBFS. O knob "GR", que
+    editava o threshold por engano, foi substituído pelo KNEE;
+  - o gate ganhou detector de pico com hold, histerese de 4 dB e tempo de
+    retenção, e não modula mais notas graves perto do threshold;
+  - a saturação roda com oversampling 4x (pior alias audível de cerca de
+    -21 dB para -96 dB num tom de 5 kHz com 12 dB de drive), com a latência
+    compensada no render e na exportação;
+  - o reverb ganhou pré-delay (novo knob PRE-DLY no lugar do ROOM
+    duplicado) e descarta valores subnormais nas caudas;
+  - o chorus ficou estéreo (LFOs em quadratura) com interpolação cúbica, e o
+    auto-pan usa lei de potência constante com ganho unitário no centro, sem
+    a perda de 3 dB ao ser ativado;
+  - a exportação de stems reinicia o rack a cada stem, para que caudas de
+    reverb e delay não vazem de um stem para o seguinte.
+- Resampler SOLA nativo:
+  - as pitch marks passaram a ter precisão sub-amostra (pico da correlação
+    refinado por parábola). As marcas inteiras arredondavam o período sempre
+    para o mesmo lado e desafinavam a saída em até 5,8 cents (tipicamente
+    3–5 cents entre C4 e C5); agora o erro medido fica abaixo de 0,6 cent;
+  - os grãos são lidos com um interpolador sinc band-limited (32 taps,
+    janela de Kaiser) no lugar do Catmull-Rom, que perdia de 1,5 a 5 dB
+    acima de 10 kHz e variava o brilho de grão para grão;
+  - marcas adivinhadas nas bordas do trecho (busca truncada) são descartadas
+    na síntese;
+  - a função diferença do YIN é calculada por FFT (cerca de 18x mais rápida
+    por estimativa), acelerando a análise de vogais e consoantes vozeadas;
+  - a identidade de cache passa a `kamafeu.sola:classic-oto-v2`.
+
 ### Contratos e extensibilidade
 - O comando `diff` compara revisões APS e formatos suportados por dados
   musicais, arranjo, configurações de render, fonemas e áudio, sem alterar os

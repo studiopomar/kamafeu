@@ -17,7 +17,9 @@ use persistent::{
 };
 
 // v5 stores effective backend/fallback metadata beside each persistent render.
-const CACHE_SCHEMA: u32 = 5;
+// v6 invalidates renders whose output went through the old Lanczos-3 rate
+// conversion; resampler outputs are now converted with the band-limited SRC.
+const CACHE_SCHEMA: u32 = 6;
 const MAX_CACHE_ENTRIES: usize = 2048;
 const MAX_CACHE_SAMPLES: usize = 128 * 1024 * 1024;
 

@@ -412,7 +412,12 @@ impl ProjectRenderer {
                         super::RenderStage::Finalizing,
                     ));
                 }
-                TrackRenderer::apply_soft_limiter(&mut mixed.samples, target_peak);
+                TrackRenderer::apply_render_limiter(
+                    &mut mixed.samples,
+                    2,
+                    sample_rate,
+                    target_peak,
+                );
             }
             if let Some(callback) = on_progress {
                 callback(
@@ -662,6 +667,7 @@ impl ProjectRenderer {
                         wave.position_ms,
                         wave.file_offset_ms,
                         start_ms,
+                        end_ms,
                         total_vol_db,
                         pan,
                     );
@@ -675,7 +681,7 @@ impl ProjectRenderer {
             ));
         }
         if let Some(target_peak) = configured_render_limiter_peak() {
-            TrackRenderer::apply_soft_limiter(&mut stereo, target_peak);
+            TrackRenderer::apply_render_limiter(&mut stereo, 2, sample_rate, target_peak);
         }
 
         if let Some(callback) = on_progress {

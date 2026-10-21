@@ -555,6 +555,16 @@ fn render_fx_rack_ui(
                                         .suffix(" dB"),
                                     );
                                     ui.end_row();
+
+                                    ui.label(lang.tr("Joelho (knee):", "Knee:"));
+                                    ui.add(
+                                        egui::Slider::new(
+                                            &mut fx_config.compressor.knee_db,
+                                            0.0..=24.0,
+                                        )
+                                        .suffix(" dB"),
+                                    );
+                                    ui.end_row();
                                 });
                         });
 
@@ -719,6 +729,16 @@ fn render_fx_rack_ui(
                                         0.0..=1.0,
                                     ));
                                     ui.end_row();
+
+                                    ui.label(lang.tr("Pré-delay:", "Pre-delay:"));
+                                    ui.add(
+                                        egui::Slider::new(
+                                            &mut fx_config.reverb.pre_delay_ms,
+                                            0.0..=200.0,
+                                        )
+                                        .suffix(" ms"),
+                                    );
+                                    ui.end_row();
                                 });
                         });
 
@@ -830,6 +850,16 @@ fn render_fx_rack_ui(
                                         -24.0..=0.0,
                                     )
                                     .suffix(" dB"),
+                                );
+                            });
+                            ui.horizontal(|ui| {
+                                ui.label(lang.tr("Release:", "Release:"));
+                                ui.add(
+                                    egui::Slider::new(
+                                        &mut fx_config.limiter.release_ms,
+                                        5.0..=1000.0,
+                                    )
+                                    .suffix(" ms"),
                                 );
                             });
                         });

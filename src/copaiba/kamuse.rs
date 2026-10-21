@@ -539,12 +539,10 @@ mod tests {
             crate::voicebank::VoicebankHandle::open(&package),
             Ok(crate::voicebank::VoicebankHandle::Cantor(_))
         ));
-        assert!(
-            crate::oto::Voicebank::new(&package)
-                .unwrap_err()
-                .to_string()
-                .contains("cantor.toml")
-        );
+        assert!(crate::oto::Voicebank::new(&package)
+            .unwrap_err()
+            .to_string()
+            .contains("cantor.toml"));
         assert_eq!(
             loaded.cantor.tons[0].gravacoes[0].marcacoes_ms,
             vec![0.0, 120.0, 320.0, 1000.0]

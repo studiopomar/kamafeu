@@ -225,7 +225,18 @@ pub(super) fn merge_track_results(context: TrackMergeContext<'_>) -> Result<Vec<
     }
 
     if let Some(target_peak) = crate::renderer::project::configured_render_limiter_peak() {
-        TrackRenderer::apply_soft_limiter(&mut track_buffer, target_peak);
+        let report =
+            TrackRenderer::apply_render_limiter(&mut track_buffer, 1, sample_rate, target_peak);
+        if report.limited_frames > 0 {
+            log(
+                0.95,
+                &format!(
+                    "[Render][Limiter] {} frames limited, max reduction {:.2} dB",
+                    report.limited_frames,
+                    report.max_reduction_db()
+                ),
+            );
+        }
     }
 
     let diagnostics = crate::renderer::diagnostics::AudioDiagnostics::analyze(&track_buffer, 1);

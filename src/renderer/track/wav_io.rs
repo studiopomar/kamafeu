@@ -5,7 +5,12 @@ use std::sync::atomic::{AtomicBool, Ordering};
 static ANTI_ALIASING_FILTER: AtomicBool = AtomicBool::new(true);
 
 impl TrackRenderer {
-    /// Convert mono samples between rates using linear interpolation.
+    /// Convert mono samples between rates.
+    ///
+    /// Uses the band-limited Kaiser-sinc converter from
+    /// [`crate::dsp::bandlimited`] (anti-aliased when downsampling, flat to
+    /// ~20 kHz). Linear interpolation is only used when the anti-aliasing
+    /// filter has been disabled in the settings.
     pub(crate) fn convert_sample_rate(
         samples: &[f32],
         source_rate: u32,
@@ -23,7 +28,7 @@ impl TrackRenderer {
             .max(1);
 
         if ANTI_ALIASING_FILTER.load(Ordering::Relaxed) {
-            return crate::dsp::windowed_sinc::WindowedSincResampler::resample_sinc_for_rate(
+            return crate::dsp::bandlimited::resample(
                 samples,
                 output_len,
                 source_rate,
@@ -146,6 +151,10 @@ impl TrackRenderer {
 
 pub(crate) fn set_anti_aliasing_filter(enabled: bool) {
     ANTI_ALIASING_FILTER.store(enabled, Ordering::Relaxed);
+}
+
+pub(crate) fn anti_aliasing_filter_enabled() -> bool {
+    ANTI_ALIASING_FILTER.load(Ordering::Relaxed)
 }
 
 #[cfg(test)]

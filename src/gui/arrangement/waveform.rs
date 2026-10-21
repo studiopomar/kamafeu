@@ -1,7 +1,8 @@
 use crate::project::model::{UTrack, UWavePart};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
-use std::time::{Duration, Instant};
+use std::time::Duration;
+use web_time::Instant;
 
 #[derive(Debug)]
 pub(super) struct WaveformPreview {

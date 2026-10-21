@@ -189,8 +189,8 @@ impl eframe::App for KamafeuStudioApp {
                     "monthly" => 30 * 86_400,
                     _ => 7 * 86_400,
                 };
-                let now = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
+                let now = web_time::SystemTime::now()
+                    .duration_since(web_time::UNIX_EPOCH)
                     .map(|duration| duration.as_secs() as i64)
                     .unwrap_or_default();
                 if self
