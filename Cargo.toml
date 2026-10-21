@@ -162,6 +162,7 @@ cc = "1.1"
 [profile.dev]
 # Nível 1: compilação rápida com otimização básica no crate principal
 opt-level = 1
+incremental = false
 debug = 1                 # line tables apenas: reduz tamanho do binário e acelera o linker
 split-debuginfo = "unpacked" # pula dsymutil no macOS, acelerando linking em até 10x
 

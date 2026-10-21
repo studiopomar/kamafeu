@@ -1,10 +1,12 @@
 <div align="center">
 
-<img src="https://raw.githubusercontent.com/studiopomar/pomar-lts/main/public/studio-pomar-icon-4096.png" alt="Logo do Studio Pomar" width="120" height="120" />
+<img src="assets/kamafeu_banner.png" alt="Kamafeu Studio" width="100%" />
+
+<img src="https://raw.githubusercontent.com/studiopomar/pomar-lts/main/public/studio-pomar-icon-4096.png" alt="Logo do Studio Pomar" width="88" height="88" />
 
 # Kamafeu Studio
 
-**Editor e sintetizador vocal baseado em amostragem e splicing (UTAU) em Rust.**
+**Editor e sintetizador vocal para UTAU e OpenUtau, escrito em Rust.**
 
 [![Rust](https://img.shields.io/badge/Rust-1.82+-orange?style=flat-square&logo=rust)](Cargo.toml)
 [![Licença: MIT](https://img.shields.io/badge/licen%C3%A7a-MIT-yellow.svg?style=flat-square)](LICENSE)
@@ -14,17 +16,13 @@
 [![Downloads](https://img.shields.io/github/downloads/studiopomar/kamafeu/total?style=for-the-badge&label=Downloads&logo=github&logoColor=white&color=2563eb)](https://github.com/studiopomar/kamafeu/releases)
 [![Stars](https://img.shields.io/github/stars/studiopomar/kamafeu?style=for-the-badge&label=Stars&logo=github&labelColor=444&color=DAAA3F)](https://star-history.com/#studiopomar/kamafeu&Date)
 
-<img src="assets/kamafeu_banner.png" alt="Kamafeu Studio, piano roll e síntese vocal" width="1000" />
+**Desenvolvimento:** xiao · **Direção de arte:** mori-p · **QA:** makki (Linux), zoneryth (Windows e Linux) e xiao (macOS)
 
-**Programador:** xiao | **Direção de arte:** mori-p | **Bug reporter e QA (Linux):** makki | **Testador e QA (Windows e Linux):** zoneryth | **Testador e QA (macOS):** xiao
+[Downloads](https://github.com/studiopomar/kamafeu/releases) · [Primeiros passos](#primeiros-passos) · [Compilação](#instruções-de-compilação) · [Reportar bug](https://github.com/studiopomar/kamafeu/issues/new?template=bug_report.yml) · [Pedir recurso](https://github.com/studiopomar/kamafeu/issues/new?template=feature_request.yml) · [Histórico de alterações](CHANGELOG.md)
 
-[Downloads](https://github.com/studiopomar/kamafeu/releases) | [Primeiros passos](#primeiros-passos) | [Compilação](#instruções-de-compilação) | [Histórico de alterações](CHANGELOG.md)
+> **Versão atual:** `3.0.0`, codinome **Calafate**. A série 3.0 é a linha principal de desenvolvimento. O núcleo do editor e os formatos principais estão maduros; motores externos, bancos de voz e drivers de áudio ainda precisam ser validados na máquina do usuário.
 
-> **Estado atual:** `3.0`, codinome **Calafate**. Esta é a nova série principal do Kamafeu. O núcleo do editor e os formatos principais estão maduros; motores externos, voicebanks e drivers de áudio ainda precisam ser validados na máquina do usuário.
-
-> **Pre-release v3.0.0 DEV-MODE:** versão de testes destinada aos integrantes do Studio Pomar. Usuários comuns podem encontrar instabilidades e comportamentos inesperados; use esta versão considerando que ainda está em validação.
-
-> **Codinome da série:** **Calafate**. O número `3.0` marca a nova linha de desenvolvimento; internamente, o pacote usa SemVer `3.0.0`.
+> **DEV-MODE:** esta pré-release é destinada aos integrantes do Studio Pomar. Ela ainda está em validação e pode apresentar instabilidades.
 
 <details>
 <summary>Linha de lançamentos, suporte e codinomes</summary>
@@ -63,11 +61,9 @@ seguinte; não representam uma política de suporte estendida para versões anti
 
 </div>
 
-O **Kamafeu Studio** é um ambiente completo de composição, edição e síntese de canto voltado para o ecossistema UTAU e OpenUtau. Ele combina piano roll de alta precisão, modelagem contínua de afinação, ajustes fonéticos detalhados e pipeline de áudio multithread, com suporte a motores nativos em Rust e executáveis externos da comunidade.
+O **Kamafeu Studio** reúne composição, edição e síntese de canto em um só ambiente. O piano roll, as ferramentas de afinação e os ajustes fonéticos oferecem controle sobre cada etapa, desde a calibração do banco de voz (`oto.ini`) até a renderização. O programa combina motores nativos em Rust com executáveis externos compatíveis.
 
-O formato nativo `.aps` preserva discretamente a linhagem do antigo Projeto Saturno, antecessor espiritual do Kamafeu Studio.
-
-O nome **Kamafeu** faz referência à tradicional joia em camafeu, esculpida manualmente em relevo. O propósito central do projeto é fornecer controle técnico direto e transparente sobre o processo clássico de amostragem, calibração (*oto.ini*), afinação e transição acústica de bancos de voz gravados.
+O nome **Kamafeu** vem do camafeu, joia esculpida em relevo. O formato nativo `.aps` mantém a ligação com o Projeto Saturno, antecessor do Kamafeu Studio.
 
 ## Sumário
 
@@ -131,11 +127,11 @@ O nome **Kamafeu** faz referência à tradicional joia em camafeu, esculpida man
 - **Compatibilidade UTAU e OpenUtau:** Leitura e gravação de arquivos `oto.ini` em codificações UTF-8 e Shift-JIS com suporte a múltiplos tons via `prefix.map`.
 - **Campos do `oto.ini`:** Campos numéricos presentes, mas vazios, equivalem a `0`, assim como `0` explícito. Alias vazio usa o nome do WAV; coluna ausente ou número malformado continua sendo erro de validação.
 - **Fonemizadores integrados:**
-- Japonês: CV (Hiragana), VCV e CVVC com conversão automática Romaji para Kana.
-- Conversão de letras japonesas: limpeza de caracteres não-Hiragana com normalização de Katakana e conversão contextual de aliases CV/VCV pelo menu da nota.
+  - Japonês: CV (Hiragana), VCV e CVVC, com conversão automática de romaji para kana.
   - Português: BRAPA VCCV, CVC, CVVC e VCV, além de conversão ortográfica G2P.
-  - Inglês: VCCV com suporte completo ao inventário fonético de encontros consonantais.
-  - Modo manual: Inserção direta de aliases e subfonemas separados por ponto ou ponto e vírgula.
+  - Inglês: VCCV com suporte ao inventário fonético de encontros consonantais.
+  - Modo manual: inserção direta de aliases e subfonemas separados por ponto ou ponto e vírgula.
+- **Conversão de letras japonesas:** limpeza de caracteres não Hiragana, normalização de Katakana e conversão contextual de aliases CV/VCV pelo menu da nota.
 - **Régua de fonemas:** Visualização gráfica dos limites de corte, preutterance, overlap e consoante fixa diretamente abaixo do piano roll.
 - **Pacotes compactados `.kfv`:** Formato do Kamafeu para distribuição de cantores virtuais com metadados e áudio empacotados.
 
