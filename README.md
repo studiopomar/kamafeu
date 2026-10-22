@@ -1,7 +1,5 @@
 <div align="center">
 
-<img src="assets/kamafeu_banner.png" alt="Kamafeu Studio" width="100%" />
-
 <img src="https://raw.githubusercontent.com/studiopomar/pomar-lts/main/public/studio-pomar-icon-4096.png" alt="Logo do Studio Pomar" width="88" height="88" />
 
 # Kamafeu Studio
@@ -27,9 +25,7 @@
 <details>
 <summary>Linha de lançamentos, suporte e codinomes</summary>
 
-As datas abaixo foram reconstruídas a partir do `CHANGELOG.md` e das tags
-existentes no repositório. Os fins de suporte indicam a transição para a linha
-seguinte; não representam uma política de suporte estendida para versões antigas.
+<img src="assets/kamafeu_banner.png" alt="Kamafeu Studio" width="100%" />
 
 | Versão | Codinome | Lançamento | Fim de suporte | Situação |
 | --- | --- | --- | --- | --- |
