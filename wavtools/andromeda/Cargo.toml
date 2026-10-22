@@ -1,0 +1,16 @@
+[package]
+name = "andromeda-wavtool"
+version = "0.1.0"
+edition = "2021"
+description = "A small, reusable wavtool library with cosine envelopes"
+license = "MIT"
+repository = "https://github.com/studiopomar/andromeda"
+readme = "README.md"
+keywords = ["wavtool", "utau", "audio", "synthesis"]
+categories = ["multimedia::audio", "algorithms"]
+
+[lib]
+name = "andromeda_wavtool"
+path = "src/lib.rs"
+
+[dependencies]

@@ -1,5 +1,27 @@
 use serde::{Deserialize, Serialize};
 
+/// Os crates nativos de wavtool definem tipos `EnvelopePoint` independentes;
+/// o envelope do projeto continua exposto como tuplas `(ms, ganho)`.
+fn galapagos_points(points: &[(f64, f64); 5]) -> [galapagos_wavtool::EnvelopePoint; 5] {
+    [
+        galapagos_wavtool::EnvelopePoint::new(points[0].0, points[0].1),
+        galapagos_wavtool::EnvelopePoint::new(points[1].0, points[1].1),
+        galapagos_wavtool::EnvelopePoint::new(points[2].0, points[2].1),
+        galapagos_wavtool::EnvelopePoint::new(points[3].0, points[3].1),
+        galapagos_wavtool::EnvelopePoint::new(points[4].0, points[4].1),
+    ]
+}
+
+fn andromeda_points(points: &[(f64, f64); 5]) -> [andromeda_wavtool::EnvelopePoint; 5] {
+    [
+        andromeda_wavtool::EnvelopePoint::new(points[0].0, points[0].1),
+        andromeda_wavtool::EnvelopePoint::new(points[1].0, points[1].1),
+        andromeda_wavtool::EnvelopePoint::new(points[2].0, points[2].1),
+        andromeda_wavtool::EnvelopePoint::new(points[3].0, points[3].1),
+        andromeda_wavtool::EnvelopePoint::new(points[4].0, points[4].1),
+    ]
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct UtauEnvelope {
     pub p1: f64, // ms delay before attack
@@ -319,50 +341,20 @@ impl UtauEnvelope {
         sample_time_zero_ms: f64,
         points: &[(f64, f64); 5],
     ) {
-        for (index, sample) in samples.iter_mut().enumerate() {
-            let time_ms = sample_time_zero_ms + index as f64 * 1000.0 / sample_rate as f64;
-            let gain = Self::gain_at_points(time_ms, points);
-            *sample *= gain as f32;
-        }
+        galapagos_wavtool::apply_linear_envelope(
+            samples,
+            sample_rate,
+            sample_time_zero_ms,
+            &galapagos_points(points),
+        );
     }
 
     pub fn gain_at_points(time_ms: f64, points: &[(f64, f64); 5]) -> f64 {
-        if time_ms <= points[0].0 {
-            points[0].1
-        } else if time_ms >= points[4].0 {
-            points[4].1
-        } else {
-            let mut value = points[4].1;
-            for pair in points.windows(2) {
-                if time_ms <= pair[1].0 {
-                    let width = (pair[1].0 - pair[0].0).max(0.001);
-                    let t = ((time_ms - pair[0].0) / width).clamp(0.0, 1.0);
-                    value = pair[0].1 + (pair[1].1 - pair[0].1) * t;
-                    break;
-                }
-            }
-            value
-        }
+        galapagos_wavtool::gain_at(time_ms, &galapagos_points(points))
     }
 
     pub fn gain_at_points_cosine(time_ms: f64, points: &[(f64, f64); 5]) -> f64 {
-        if time_ms <= points[0].0 {
-            points[0].1
-        } else if time_ms >= points[4].0 {
-            points[4].1
-        } else {
-            let mut value = points[4].1;
-            for pair in points.windows(2) {
-                if time_ms <= pair[1].0 {
-                    let width = (pair[1].0 - pair[0].0).max(0.001);
-                    let t = ((time_ms - pair[0].0) / width).clamp(0.0, 1.0);
-                    let smooth_t = 0.5 * (1.0 - (std::f64::consts::PI * t).cos());
-                    value = pair[0].1 + (pair[1].1 - pair[0].1) * smooth_t;
-                    break;
-                }
-            }
-            value
-        }
+        andromeda_wavtool::gain_at(time_ms, &andromeda_points(points))
     }
 
     pub fn apply_points_cosine(
@@ -371,11 +363,12 @@ impl UtauEnvelope {
         sample_time_zero_ms: f64,
         points: &[(f64, f64); 5],
     ) {
-        for (index, sample) in samples.iter_mut().enumerate() {
-            let time_ms = sample_time_zero_ms + index as f64 * 1000.0 / sample_rate as f64;
-            let gain = Self::gain_at_points_cosine(time_ms, points);
-            *sample *= gain as f32;
-        }
+        andromeda_wavtool::apply_cosine_envelope(
+            samples,
+            sample_rate,
+            sample_time_zero_ms,
+            &andromeda_points(points),
+        );
     }
 
     /// Calculate amplitude multiplier (0.0 to 1.0) at a given point in time (ms) for total note duration (ms).

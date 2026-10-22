@@ -103,6 +103,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "andromeda-wavtool"
+version = "0.1.0"
+
+[[package]]
 name = "anstream"
 version = "1.0.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1312,6 +1316,10 @@ dependencies = [
 ]
 
 [[package]]
+name = "galapagos-wavtool"
+version = "0.1.0"
+
+[[package]]
 name = "gdk"
 version = "0.18.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2068,6 +2076,7 @@ name = "kamafeu"
 version = "3.1.0"
 dependencies = [
  "android-activity",
+ "andromeda-wavtool",
  "cc",
  "clap",
  "console_error_panic_hook",
@@ -2077,6 +2086,7 @@ dependencies = [
  "egui_extras",
  "encoding_rs",
  "flacenc",
+ "galapagos-wavtool",
  "getrandom 0.2.17",
  "hound",
  "image",

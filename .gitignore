@@ -1,5 +1,7 @@
 /target/
 /dist/
+/wavtools/*/target/
+/wavtools/*/Cargo.lock
 
 /package_root/
 /artifacts/

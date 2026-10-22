@@ -11,6 +11,11 @@ default-run = "kamafeu"
 default = ["desktop"]
 desktop = []
 
+# A raiz é package e workspace root: os wavtools nativos compartilham o
+# mesmo lockfile e target, e entram como dependências de path abaixo.
+[workspace]
+members = ["wavtools/andromeda", "wavtools/galapagos"]
+
 [lib]
 crate-type = ["lib", "cdylib"]
 
@@ -83,6 +88,7 @@ assets = [
 # CARGO_APK_RELEASE_KEYSTORE_PASSWORD (see docs/android-signing.md).
 
 [dependencies]
+andromeda-wavtool = { path = "wavtools/andromeda" }
 encoding_rs = "0.8"
 hound = "3.5"
 rand = "0.8"
@@ -97,6 +103,7 @@ image = { version = "0.25", default-features = false, features = ["png", "jpeg",
 zip = { version = "0.6", default-features = false, features = ["deflate"] }
 tempfile = "3.8"
 flacenc = "0.5.1"
+galapagos-wavtool = { path = "wavtools/galapagos" }
 web-time = "1.1"
 ndarray = "0.17.2"
 rustfft = "6.4"
