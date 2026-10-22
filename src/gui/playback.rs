@@ -490,8 +490,8 @@ impl KamafeuStudioApp {
     pub fn pause_audio(&mut self) {
         let was_rendering = self.direct_playback_rx.is_some() || self.render_rx.is_some();
         if self.progressive_playback_started && !self.direct_playback_active {
-            self.piano_roll_state.playhead_ms = self.playback_start_offset_ms
-                + self.audio_player.scheduler_position_ms();
+            self.piano_roll_state.playhead_ms =
+                self.playback_start_offset_ms + self.audio_player.scheduler_position_ms();
         }
         if let Some(cancel) = self.render_cancel.take() {
             cancel.store(true, Ordering::Relaxed);

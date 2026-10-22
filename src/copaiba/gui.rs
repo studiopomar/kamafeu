@@ -930,10 +930,8 @@ impl CopaibaToolkitApp {
             .map_err(|error| format!("Não foi possível abrir o oto.ini de origem: {error}"))?;
         let output_parent = std::fs::canonicalize(&destination_parent)
             .map_err(|error| format!("Não foi possível validar a pasta de destino: {error}"))?;
-        let destination = output_parent.join(format!(
-            "{}-kfv2-draft",
-            migration_slug(&source.name)
-        ));
+        let destination =
+            output_parent.join(format!("{}-kfv2-draft", migration_slug(&source.name)));
         let canonical_source = std::fs::canonicalize(source_root)
             .map_err(|error| format!("Não foi possível validar o banco de origem: {error}"))?;
         if destination.starts_with(&canonical_source) {
@@ -1132,10 +1130,13 @@ fn migration_slug(value: &str) -> String {
 fn load_migration_inputs(
     profile_path: &std::path::Path,
     mapping_path: Option<&std::path::Path>,
-) -> Result<(
-    crate::voicebank::native::PhoneticProfile,
-    std::collections::BTreeMap<String, Vec<String>>,
-), String> {
+) -> Result<
+    (
+        crate::voicebank::native::PhoneticProfile,
+        std::collections::BTreeMap<String, Vec<String>>,
+    ),
+    String,
+> {
     let profile: crate::voicebank::native::PhoneticProfile = serde_json::from_slice(
         &std::fs::read(profile_path)
             .map_err(|error| format!("Não foi possível ler o perfil fonético: {error}"))?,
@@ -1779,14 +1780,7 @@ fn draw_copaiba_native_ui(
         Stroke::new(1.0_f32, visual_tokens::BORDER),
     );
     if let Some((samples, _)) = &app.loaded_waveform {
-        draw_waveform_peak_envelope(
-            &painter,
-            rect,
-            samples,
-            visual_tokens::ACCENT,
-            0.8,
-            1.0,
-        );
+        draw_waveform_peak_envelope(&painter, rect, samples, visual_tokens::ACCENT, 0.8, 1.0);
     }
     if duration_ms > 0.0 {
         let x_at = |frame: u64| {
@@ -1806,13 +1800,13 @@ fn draw_copaiba_native_ui(
                 color,
             );
         };
-        mark(unit.source.start_frame, Color32::from_rgb(126, 190, 226), "início");
-        mark(unit.source.anchor_frame, visual_tokens::ACCENT, "âncora");
         mark(
-            unit.source.fixed_end_frame,
-            visual_tokens::WARNING,
-            "fixo",
+            unit.source.start_frame,
+            Color32::from_rgb(126, 190, 226),
+            "início",
         );
+        mark(unit.source.anchor_frame, visual_tokens::ACCENT, "âncora");
+        mark(unit.source.fixed_end_frame, visual_tokens::WARNING, "fixo");
         mark(unit.source.end_frame, visual_tokens::ERROR, "fim");
         if let Some(sustain) = &unit.source.sustain {
             mark(
@@ -3168,12 +3162,12 @@ pub fn draw_copaiba_toolkit_ui(
     });
 });
 
-if let Some(pending) = app.pending_classic_migration.as_ref() {
-    let preview = pending.preview.clone();
-    let mut open = true;
-    let mut confirm = false;
-    let mut cancel = false;
-    egui::Window::new("Prévia da migração para KFV 2")
+    if let Some(pending) = app.pending_classic_migration.as_ref() {
+        let preview = pending.preview.clone();
+        let mut open = true;
+        let mut confirm = false;
+        let mut cancel = false;
+        egui::Window::new("Prévia da migração para KFV 2")
         .collapsible(false)
         .resizable(false)
         .open(&mut open)
@@ -3200,13 +3194,13 @@ if let Some(pending) = app.pending_classic_migration.as_ref() {
                 }
             });
         });
-    if confirm {
-        app.confirm_classic_voicebank_migration();
-    } else if cancel || !open {
-        app.pending_classic_migration = None;
-        app.status_message = "Migração cancelada; nenhum rascunho foi criado.".into();
+        if confirm {
+            app.confirm_classic_voicebank_migration();
+        } else if cancel || !open {
+            app.pending_classic_migration = None;
+            app.status_message = "Migração cancelada; nenhum rascunho foi criado.".into();
+        }
     }
-}
 }
 
 fn draw_native_create_wizard(app: &mut CopaibaToolkitApp, ui: &mut egui::Ui) {

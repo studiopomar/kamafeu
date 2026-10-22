@@ -22,7 +22,6 @@ Este documento serve como referência e índice técnico completo de todos os ar
 | `resamplers/` | Binários de resamplers externos (`straycat-rs`, `macres`, `moresampler`, etc.) e documentação de licenças. |
 | `wavtools/` | Utilitários de linha de comando para junção e emenda de fonemas (`wavtool-yawu`, `wavtool`). |
 | `tests/` | Suíte de testes de integração ponta a ponta e testes de formatos. |
-| `copaiba-neo/` | Protótipos e utilitários auxiliares da ferramenta Copaiba. |
 | `src/` | Código-fonte principal da aplicação em Rust. |
 
 ---

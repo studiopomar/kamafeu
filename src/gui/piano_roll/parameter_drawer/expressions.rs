@@ -1207,7 +1207,13 @@ fn draw_envelope_editor(
                 Pos2::new(graph_rect.left(), y),
                 Pos2::new(graph_rect.right(), y),
             ],
-            Stroke::new(1.0_f32, ui.visuals().text_color().linear_multiply(0.72).linear_multiply(150.0 / 255.0)),
+            Stroke::new(
+                1.0_f32,
+                ui.visuals()
+                    .text_color()
+                    .linear_multiply(0.72)
+                    .linear_multiply(150.0 / 255.0),
+            ),
         );
     }
     let px_per_ms = state.px_per_ms.max(0.001) as f64;

@@ -21,7 +21,7 @@ acompanhar a versão em interfaces nativas, documentação e pacotes.
 - A home estática apresenta a nova série sem prometer uma release/tag pública
   antes da publicação efetiva dos artefatos.
 
-## [Não lançado]
+## [3.1.0] - 2026-10-21
 
 ### Contratos e extensibilidade
 - O comando `diff` compara revisões APS e formatos suportados por dados

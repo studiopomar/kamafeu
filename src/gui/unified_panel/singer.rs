@@ -73,7 +73,12 @@ pub(super) fn draw(
                                         Pos2::new(0.0, 0.0),
                                         Pos2::new(1.0, 1.0),
                                     );
-                                    painter.image(texture.id(), draw_rect, uv, ui.visuals().text_color());
+                                    painter.image(
+                                        texture.id(),
+                                        draw_rect,
+                                        uv,
+                                        ui.visuals().text_color(),
+                                    );
                                     loaded_image = true;
                                 }
                             }

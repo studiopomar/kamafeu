@@ -447,10 +447,7 @@ impl KamafeuStudioApp {
                     .map(|p| p.display().to_string())
                     .unwrap_or_else(|| "indisponível".into()),
             );
-            ui.label(
-                RichText::new(lang.tr("Pronto", "Ready"))
-                    .color(ui.visuals().hyperlink_color),
-            );
+            ui.label(RichText::new(lang.tr("Pronto", "Ready")).color(ui.visuals().hyperlink_color));
         });
     }
 }

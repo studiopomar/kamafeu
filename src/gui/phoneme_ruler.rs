@@ -166,7 +166,10 @@ pub fn draw_phoneme_ruler(
                                 Pos2::new(x, strip_rect.min.y),
                                 Pos2::new(x, strip_rect.max.y),
                             ],
-                            Stroke::new(1.0_f32, ui.visuals().hyperlink_color.linear_multiply(140.0 / 255.0)),
+                            Stroke::new(
+                                1.0_f32,
+                                ui.visuals().hyperlink_color.linear_multiply(140.0 / 255.0),
+                            ),
                         );
                         painter.text(
                             Pos2::new(x + 4.0, strip_rect.max.y - 4.0),
@@ -191,12 +194,18 @@ pub fn draw_phoneme_ruler(
                 for (level, color, width) in [
                     (
                         0.0_f32,
-                        ui.visuals().text_color().linear_multiply(0.72).linear_multiply(90.0 / 255.0),
+                        ui.visuals()
+                            .text_color()
+                            .linear_multiply(0.72)
+                            .linear_multiply(90.0 / 255.0),
                         1.0_f32,
                     ),
                     (
                         0.5_f32,
-                        ui.visuals().text_color().linear_multiply(0.72).linear_multiply(95.0 / 255.0),
+                        ui.visuals()
+                            .text_color()
+                            .linear_multiply(0.72)
+                            .linear_multiply(95.0 / 255.0),
                         1.0_f32,
                     ),
                     (

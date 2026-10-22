@@ -245,7 +245,10 @@ pub fn draw_arrangement_view(
                     solo: false,
                     ..UTrack::default()
                 });
-                parts.push(UVoicePart::new(format!("{} {}", lang.tr("Parte", "Part"), new_idx + 1), new_idx));
+                parts.push(UVoicePart::new(
+                    format!("{} {}", lang.tr("Parte", "Part"), new_idx + 1),
+                    new_idx,
+                ));
                 *active_track_index = new_idx;
                 changed = true;
             }
@@ -260,7 +263,10 @@ pub fn draw_arrangement_view(
             {
                 if let Some(path) = crate::dialogs::FileDialog::new()
                     .add_filter(
-                        lang.tr("Áudio (*.wav, *.mp3, *.ogg, *.flac)", "Audio (*.wav, *.mp3, *.ogg, *.flac)"),
+                        lang.tr(
+                            "Áudio (*.wav, *.mp3, *.ogg, *.flac)",
+                            "Audio (*.wav, *.mp3, *.ogg, *.flac)",
+                        ),
                         &["wav", "mp3", "ogg", "flac"],
                     )
                     .pick_file()
@@ -280,7 +286,9 @@ pub fn draw_arrangement_view(
                     let new_idx = tracks.len();
                     tracks.push(UTrack {
                         name: file_stem,
-                        singer: lang.tr("Instrumental / Áudio", "Instrumental / Audio").to_string(),
+                        singer: lang
+                            .tr("Instrumental / Áudio", "Instrumental / Audio")
+                            .to_string(),
                         volume_db: 0.0,
                         pan: 0.0,
                         mute: false,
@@ -349,7 +357,11 @@ pub fn draw_arrangement_view(
                     .size(9.5)
                     .color(theme.text_muted_c32()),
             );
-            if ui.small_button("−").on_hover_text(lang.tr("Afastar timeline", "Zoom out timeline")).clicked() {
+            if ui
+                .small_button("−")
+                .on_hover_text(lang.tr("Afastar timeline", "Zoom out timeline"))
+                .clicked()
+            {
                 *px_per_ms = (*px_per_ms * 0.82).clamp(0.01, 0.5);
             }
             ui.add(
@@ -357,17 +369,33 @@ pub fn draw_arrangement_view(
                     .show_value(false)
                     .clamping(egui::SliderClamping::Always),
             )
-            .on_hover_text(lang.tr("Arraste para alterar o zoom", "Drag to change timeline zoom"));
-            if ui.small_button("+").on_hover_text(lang.tr("Aproximar timeline", "Zoom in timeline")).clicked() {
+            .on_hover_text(lang.tr(
+                "Arraste para alterar o zoom",
+                "Drag to change timeline zoom",
+            ));
+            if ui
+                .small_button("+")
+                .on_hover_text(lang.tr("Aproximar timeline", "Zoom in timeline"))
+                .clicked()
+            {
                 *px_per_ms = (*px_per_ms * 1.22).clamp(0.01, 0.5);
             }
-            if ui.small_button(lang.tr("Ajustar", "Fit")).on_hover_text(lang.tr("Zoom confortável para a sessão", "Comfortable session zoom")).clicked() {
+            if ui
+                .small_button(lang.tr("Ajustar", "Fit"))
+                .on_hover_text(
+                    lang.tr("Zoom confortável para a sessão", "Comfortable session zoom"),
+                )
+                .clicked()
+            {
                 *px_per_ms = 0.08;
             }
             let mut follow = !*horizontal_follow_user_override;
             if ui
                 .checkbox(&mut follow, lang.tr("Seguir", "Follow"))
-                .on_hover_text(lang.tr("Acompanhar o playhead durante a reprodução", "Follow the playhead during playback"))
+                .on_hover_text(lang.tr(
+                    "Acompanhar o playhead durante a reprodução",
+                    "Follow the playhead during playback",
+                ))
                 .changed()
             {
                 *horizontal_follow_user_override = !follow;
@@ -480,7 +508,10 @@ pub fn draw_arrangement_view(
                                 for line in 0..3 {
                                     let y = grip_rect.center().y - 5.0 + line as f32 * 5.0;
                                     ui.painter().line_segment(
-                                        [Pos2::new(grip_rect.min.x + 3.0, y), Pos2::new(grip_rect.max.x - 3.0, y)],
+                                        [
+                                            Pos2::new(grip_rect.min.x + 3.0, y),
+                                            Pos2::new(grip_rect.max.x - 3.0, y),
+                                        ],
                                         Stroke::new(1.0_f32, theme.text_muted_c32()),
                                     );
                                 }
@@ -492,7 +523,10 @@ pub fn draw_arrangement_view(
                                 if is_active {
                                     ui.painter().rect_filled(
                                         Rect::from_min_max(
-                                            Pos2::new(card_rect.min.x, card_rect.min.y + track_y_offset),
+                                            Pos2::new(
+                                                card_rect.min.x,
+                                                card_rect.min.y + track_y_offset,
+                                            ),
                                             Pos2::new(card_rect.min.x + 3.0, card_rect.max.y),
                                         ),
                                         Rounding::same(1.0),
@@ -505,30 +539,48 @@ pub fn draw_arrangement_view(
                                     ui.set_min_width(175.0);
 
                                     ui.label(
-                                        egui::RichText::new(format!("{}: {}", lang.tr("Faixa", "Track"), &track.name))
-                                            .strong()
-                                            .size(11.5)
-                                            .color(theme.text_primary_c32()),
+                                        egui::RichText::new(format!(
+                                            "{}: {}",
+                                            lang.tr("Faixa", "Track"),
+                                            &track.name
+                                        ))
+                                        .strong()
+                                        .size(11.5)
+                                        .color(theme.text_primary_c32()),
                                     );
                                     ui.separator();
 
-                                    let mute_text = if track.mute { lang.tr("Desmutar Faixa", "Unmute Track") } else { lang.tr("Mutar Faixa", "Mute Track") };
+                                    let mute_text = if track.mute {
+                                        lang.tr("Desmutar Faixa", "Unmute Track")
+                                    } else {
+                                        lang.tr("Mutar Faixa", "Mute Track")
+                                    };
                                     if ui.button(mute_text).clicked() {
                                         track.mute = !track.mute;
                                         changed = true;
                                         ui.close_menu();
                                     }
 
-                                    let solo_text = if track.solo { lang.tr("Desativar Solo", "Unsolo Track") } else { lang.tr("Solo", "Solo") };
+                                    let solo_text = if track.solo {
+                                        lang.tr("Desativar Solo", "Unsolo Track")
+                                    } else {
+                                        lang.tr("Solo", "Solo")
+                                    };
                                     if ui.button(solo_text).clicked() {
                                         track.solo = !track.solo;
                                         changed = true;
                                         ui.close_menu();
                                     }
 
-                                    let has_fx_enabled = track.fx_rack.as_ref().map_or(false, |fx| fx.master_enabled);
+                                    let has_fx_enabled = track
+                                        .fx_rack
+                                        .as_ref()
+                                        .map_or(false, |fx| fx.master_enabled);
                                     let fx_menu_text = if has_fx_enabled {
-                                        lang.tr("Rack de Efeitos DSP (Ativo)...", "DSP FX Rack (Active)...")
+                                        lang.tr(
+                                            "Rack de Efeitos DSP (Ativo)...",
+                                            "DSP FX Rack (Active)...",
+                                        )
                                     } else {
                                         lang.tr("Rack de Efeitos DSP...", "DSP FX Rack...")
                                     };
@@ -538,7 +590,12 @@ pub fn draw_arrangement_view(
                                         ui.close_menu();
                                     }
 
-                                    if ui.button(lang.tr("Resetar Volume e Pan", "Reset Volume and Pan")).clicked() {
+                                    if ui
+                                        .button(
+                                            lang.tr("Resetar Volume e Pan", "Reset Volume and Pan"),
+                                        )
+                                        .clicked()
+                                    {
                                         track.volume_db = 0.0;
                                         track.pan = 0.0;
                                         changed = true;
@@ -547,20 +604,35 @@ pub fn draw_arrangement_view(
 
                                     ui.separator();
 
-                                    if ui.button(lang.tr("Duplicar Faixa", "Duplicate Track")).clicked() {
+                                    if ui
+                                        .button(lang.tr("Duplicar Faixa", "Duplicate Track"))
+                                        .clicked()
+                                    {
                                         header_action = Some(HeaderAction::DuplicateTrack(idx));
                                         ui.close_menu();
                                     }
 
-                                    if ui.button(lang.tr("Nova Faixa Vocal", "New Vocal Track")).clicked() {
+                                    if ui
+                                        .button(lang.tr("Nova Faixa Vocal", "New Vocal Track"))
+                                        .clicked()
+                                    {
                                         header_action = Some(HeaderAction::AddVoiceTrack);
                                         ui.close_menu();
                                     }
 
-                                    if ui.button(lang.tr("Adicionar Faixa de Áudio...", "Add Audio Track...")).clicked() {
+                                    if ui
+                                        .button(lang.tr(
+                                            "Adicionar Faixa de Áudio...",
+                                            "Add Audio Track...",
+                                        ))
+                                        .clicked()
+                                    {
                                         if let Some(path) = crate::dialogs::FileDialog::new()
                                             .add_filter(
-                                                lang.tr("Áudio (*.wav, *.mp3, *.ogg, *.flac)", "Audio (*.wav, *.mp3, *.ogg, *.flac)"),
+                                                lang.tr(
+                                                    "Áudio (*.wav, *.mp3, *.ogg, *.flac)",
+                                                    "Audio (*.wav, *.mp3, *.ogg, *.flac)",
+                                                ),
                                                 &["wav", "mp3", "ogg", "flac"],
                                             )
                                             .pick_file()
@@ -576,17 +648,29 @@ pub fn draw_arrangement_view(
                                                 .unwrap_or("Audio Track")
                                                 .to_string();
                                             let file_path_str = path.to_string_lossy().to_string();
-                                            header_action = Some(HeaderAction::AddAudioTrack(file_stem, file_name, file_path_str));
+                                            header_action = Some(HeaderAction::AddAudioTrack(
+                                                file_stem,
+                                                file_name,
+                                                file_path_str,
+                                            ));
                                         }
                                         ui.close_menu();
                                     }
 
                                     if tracks_count > 1 {
                                         ui.separator();
-                                        if ui.button(
-                                            egui::RichText::new(lang.tr("Excluir esta Faixa", "Delete this Track"))
+                                        if ui
+                                            .button(
+                                                egui::RichText::new(
+                                                    lang.tr(
+                                                        "Excluir esta Faixa",
+                                                        "Delete this Track",
+                                                    ),
+                                                )
                                                 .color(ui.visuals().error_fg_color),
-                                        ).clicked() {
+                                            )
+                                            .clicked()
+                                        {
                                             header_action = Some(HeaderAction::DeleteTrack(idx));
                                             ui.close_menu();
                                         }
@@ -617,16 +701,14 @@ pub fn draw_arrangement_view(
                                 if arrangement_drag_track.is_some_and(|from| from != idx)
                                     && reorder_target == Some(idx)
                                 {
-                                    let marker_y = if arrangement_drag_track
-                                        .as_ref()
-                                        .copied()
-                                        .unwrap_or(idx)
-                                        < idx
-                                    {
-                                        card_rect.max.y
-                                    } else {
-                                        card_rect.min.y
-                                    };
+                                    let marker_y =
+                                        if arrangement_drag_track.as_ref().copied().unwrap_or(idx)
+                                            < idx
+                                        {
+                                            card_rect.max.y
+                                        } else {
+                                            card_rect.min.y
+                                        };
                                     ui.painter().line_segment(
                                         [
                                             Pos2::new(card_rect.min.x + 8.0, marker_y),
@@ -718,7 +800,8 @@ pub fn draw_arrangement_view(
                                     },
                                 );
 
-                                let has_fx = track.fx_rack.as_ref().map_or(false, |fx| fx.master_enabled);
+                                let has_fx =
+                                    track.fx_rack.as_ref().map_or(false, |fx| fx.master_enabled);
                                 let fx_resp = ui.allocate_rect(fx_rect, egui::Sense::click());
                                 if fx_resp.clicked() {
                                     *active_track_index = idx;
@@ -730,7 +813,8 @@ pub fn draw_arrangement_view(
                                 } else {
                                     theme.bg_header_c32()
                                 };
-                                ui.painter().rect_filled(fx_rect, Rounding::same(3.0), fx_bg);
+                                ui.painter()
+                                    .rect_filled(fx_rect, Rounding::same(3.0), fx_bg);
                                 if has_fx {
                                     ui.painter().rect_stroke(
                                         fx_rect,
@@ -762,8 +846,11 @@ pub fn draw_arrangement_view(
                                 ui.allocate_new_ui(
                                     egui::UiBuilder::new().max_rect(name_rect),
                                     |ui| {
-                                        let edit_id = egui::Id::new(("arrangement_track_name", idx));
-                                        let editing = ui.memory(|memory| memory.data.get_temp::<bool>(edit_id).unwrap_or(false));
+                                        let edit_id =
+                                            egui::Id::new(("arrangement_track_name", idx));
+                                        let editing = ui.memory(|memory| {
+                                            memory.data.get_temp::<bool>(edit_id).unwrap_or(false)
+                                        });
                                         if editing {
                                             let response = ui.add(
                                                 egui::TextEdit::singleline(&mut track.name)
@@ -774,24 +861,43 @@ pub fn draw_arrangement_view(
                                             if response.changed() {
                                                 changed = true;
                                             }
-                                            if response.lost_focus() || ui.input(|input| input.key_pressed(egui::Key::Enter)) {
-                                                ui.memory_mut(|memory| memory.data.insert_temp(edit_id, false));
+                                            if response.lost_focus()
+                                                || ui.input(|input| {
+                                                    input.key_pressed(egui::Key::Enter)
+                                                })
+                                            {
+                                                ui.memory_mut(|memory| {
+                                                    memory.data.insert_temp(edit_id, false)
+                                                });
                                             }
-                                            if response.has_focus() == false && ui.input(|input| input.key_pressed(egui::Key::Escape)) {
-                                                ui.memory_mut(|memory| memory.data.insert_temp(edit_id, false));
+                                            if response.has_focus() == false
+                                                && ui.input(|input| {
+                                                    input.key_pressed(egui::Key::Escape)
+                                                })
+                                            {
+                                                ui.memory_mut(|memory| {
+                                                    memory.data.insert_temp(edit_id, false)
+                                                });
                                             }
                                         } else {
                                             let response = ui.add_sized(
                                                 [92.0, 18.0],
-                                                egui::Button::new(egui::RichText::new(&track.name)
-                                                    .size(11.0)
-                                                    .color(theme.text_primary_c32()))
-                                                    .frame(false),
+                                                egui::Button::new(
+                                                    egui::RichText::new(&track.name)
+                                                        .size(11.0)
+                                                        .color(theme.text_primary_c32()),
+                                                )
+                                                .frame(false),
                                             );
                                             let double_clicked = response.double_clicked();
-                                            response.on_hover_text(lang.tr("Duplo clique para renomear", "Double-click to rename"));
+                                            response.on_hover_text(lang.tr(
+                                                "Duplo clique para renomear",
+                                                "Double-click to rename",
+                                            ));
                                             if double_clicked {
-                                                ui.memory_mut(|memory| memory.data.insert_temp(edit_id, true));
+                                                ui.memory_mut(|memory| {
+                                                    memory.data.insert_temp(edit_id, true)
+                                                });
                                             }
                                         }
                                     },
@@ -817,23 +923,32 @@ pub fn draw_arrangement_view(
                                     egui::UiBuilder::new().max_rect(vol_rect),
                                     |ui| {
                                         ui.horizontal(|ui| {
-                                            let vol_lbl = ui.label(
-                                                egui::RichText::new("Vol:")
-                                                    .size(9.0)
-                                                    .color(theme.text_muted_c32()),
-                                            ).on_hover_text("Clique direito para resetar para 0 dB");
+                                            let vol_lbl = ui
+                                                .label(
+                                                    egui::RichText::new("Vol:")
+                                                        .size(9.0)
+                                                        .color(theme.text_muted_c32()),
+                                                )
+                                                .on_hover_text(
+                                                    "Clique direito para resetar para 0 dB",
+                                                );
                                             if vol_lbl.clicked_by(egui::PointerButton::Secondary) {
                                                 track.volume_db = 0.0;
                                                 changed = true;
                                             }
                                             ui.spacing_mut().slider_width = 55.0;
-                                            let vol_resp = ui.add(
-                                                egui::Slider::new(
-                                                    &mut track.volume_db,
-                                                    -20.0..=6.0,
+                                            let vol_resp = ui
+                                                .add(
+                                                    egui::Slider::new(
+                                                        &mut track.volume_db,
+                                                        -20.0..=6.0,
+                                                    )
+                                                    .show_value(false),
                                                 )
-                                                .show_value(false),
-                                            ).on_hover_text(format!("{:.1} dB (Clique direito para resetar)", track.volume_db));
+                                                .on_hover_text(format!(
+                                                    "{:.1} dB (Clique direito para resetar)",
+                                                    track.volume_db
+                                                ));
                                             if vol_resp.changed() {
                                                 changed = true;
                                             }
@@ -842,20 +957,27 @@ pub fn draw_arrangement_view(
                                                 changed = true;
                                             }
 
-                                            let pan_lbl = ui.label(
-                                                egui::RichText::new("Pan:")
-                                                    .size(9.0)
-                                                    .color(theme.text_muted_c32()),
-                                            ).on_hover_text("Clique direito para centralizar");
+                                            let pan_lbl = ui
+                                                .label(
+                                                    egui::RichText::new("Pan:")
+                                                        .size(9.0)
+                                                        .color(theme.text_muted_c32()),
+                                                )
+                                                .on_hover_text("Clique direito para centralizar");
                                             if pan_lbl.clicked_by(egui::PointerButton::Secondary) {
                                                 track.pan = 0.0;
                                                 changed = true;
                                             }
                                             ui.spacing_mut().slider_width = 55.0;
-                                            let pan_resp = ui.add(
-                                                egui::Slider::new(&mut track.pan, -1.0..=1.0)
-                                                    .show_value(false),
-                                            ).on_hover_text(format!("Pan: {:.2} (Clique direito para centralizar)", track.pan));
+                                            let pan_resp = ui
+                                                .add(
+                                                    egui::Slider::new(&mut track.pan, -1.0..=1.0)
+                                                        .show_value(false),
+                                                )
+                                                .on_hover_text(format!(
+                                                    "Pan: {:.2} (Clique direito para centralizar)",
+                                                    track.pan
+                                                ));
                                             if pan_resp.changed() {
                                                 changed = true;
                                             }
@@ -871,7 +993,9 @@ pub fn draw_arrangement_view(
                                     wave_parts
                                         .iter()
                                         .filter(|wave| wave.track_index == idx)
-                                        .filter_map(|wave| audio_part_level(wave, track, *playhead_ms))
+                                        .filter_map(|wave| {
+                                            audio_part_level(wave, track, *playhead_ms)
+                                        })
                                         .fold(0.0f32, f32::max)
                                 } else {
                                     0.0
@@ -893,23 +1017,38 @@ pub fn draw_arrangement_view(
                                 if level > 0.001 {
                                     let fill = Rect::from_min_max(
                                         meter_rect.min,
-                                        Pos2::new(meter_rect.min.x + meter_rect.width() * level, meter_rect.max.y),
+                                        Pos2::new(
+                                            meter_rect.min.x + meter_rect.width() * level,
+                                            meter_rect.max.y,
+                                        ),
                                     );
                                     ui.painter().rect_filled(
                                         fill,
                                         Rounding::same(2.0),
-                                        if level > 0.9 { theme.danger_c32() } else { theme.accent_c32() },
+                                        if level > 0.9 {
+                                            theme.danger_c32()
+                                        } else {
+                                            theme.accent_c32()
+                                        },
                                     );
                                 }
-                                let peak_x = meter_rect.min.x + meter_rect.width() * meter.peak.clamp(0.0, 1.0);
+                                let peak_x = meter_rect.min.x
+                                    + meter_rect.width() * meter.peak.clamp(0.0, 1.0);
                                 ui.painter().line_segment(
-                                    [Pos2::new(peak_x, meter_rect.min.y), Pos2::new(peak_x, meter_rect.max.y)],
-                                        Stroke::new(1.0_f32, theme.playhead_c32()),
+                                    [
+                                        Pos2::new(peak_x, meter_rect.min.y),
+                                        Pos2::new(peak_x, meter_rect.max.y),
+                                    ],
+                                    Stroke::new(1.0_f32, theme.playhead_c32()),
                                 );
                                 ui.painter().text(
                                     meter_rect.left_top() + Vec2::new(0.0, -11.0),
                                     egui::Align2::LEFT_TOP,
-                                    if level > 0.001 { format!("{:>3.0}%", level * 100.0) } else { "—".to_string() },
+                                    if level > 0.001 {
+                                        format!("{:>3.0}%", level * 100.0)
+                                    } else {
+                                        "—".to_string()
+                                    },
                                     egui::FontId::monospace(8.0),
                                     theme.text_muted_c32(),
                                 );
@@ -930,7 +1069,10 @@ pub fn draw_arrangement_view(
                                     solo: false,
                                     ..UTrack::default()
                                 });
-                                parts.push(UVoicePart::new(format!("Parte {}", new_idx + 1), new_idx));
+                                parts.push(UVoicePart::new(
+                                    format!("Parte {}", new_idx + 1),
+                                    new_idx,
+                                ));
                                 *active_track_index = new_idx;
                                 changed = true;
                             }
@@ -1022,34 +1164,37 @@ pub fn draw_arrangement_view(
                             .hover_pos()
                             .is_some_and(|pos| arrangement_rect.contains(pos))
                     });
-                    let (scroll_dx, consume_x, consume_shift_y, is_middle_drag, middle_drag_delta) = ui.input(|i| {
-                        if !is_hovering_arrangement {
-                            return (0.0, false, false, false, Vec2::ZERO);
-                        }
-                        let delta = if i.smooth_scroll_delta.length_sq() > 1e-6 {
-                            i.smooth_scroll_delta
-                        } else {
-                            i.raw_scroll_delta
-                        };
-                        // Shift maps a conventional vertical wheel to the timeline;
-                        // native two-axis trackpads keep their horizontal axis.
-                        let h_delta = horizontal_gesture_delta(delta, i.modifiers.shift);
-                        let is_m_drag = i.pointer.button_down(egui::PointerButton::Middle);
-                        let m_delta = i.pointer.delta();
-                        (
-                            h_delta,
-                            delta.x.abs() > 1e-3,
-                            i.modifiers.shift && delta.y.abs() > 1e-3,
-                            is_m_drag,
-                            m_delta,
-                        )
-                    });
+                    let (scroll_dx, consume_x, consume_shift_y, is_middle_drag, middle_drag_delta) =
+                        ui.input(|i| {
+                            if !is_hovering_arrangement {
+                                return (0.0, false, false, false, Vec2::ZERO);
+                            }
+                            let delta = if i.smooth_scroll_delta.length_sq() > 1e-6 {
+                                i.smooth_scroll_delta
+                            } else {
+                                i.raw_scroll_delta
+                            };
+                            // Shift maps a conventional vertical wheel to the timeline;
+                            // native two-axis trackpads keep their horizontal axis.
+                            let h_delta = horizontal_gesture_delta(delta, i.modifiers.shift);
+                            let is_m_drag = i.pointer.button_down(egui::PointerButton::Middle);
+                            let m_delta = i.pointer.delta();
+                            (
+                                h_delta,
+                                delta.x.abs() > 1e-3,
+                                i.modifiers.shift && delta.y.abs() > 1e-3,
+                                is_m_drag,
+                                m_delta,
+                            )
+                        });
 
                     if scroll_dx.abs() > 1e-3 {
-                        *horizontal_scroll_offset = (*horizontal_scroll_offset - scroll_dx).max(0.0);
+                        *horizontal_scroll_offset =
+                            (*horizontal_scroll_offset - scroll_dx).max(0.0);
                     }
                     if is_middle_drag && middle_drag_delta.x.abs() > 1e-3 {
-                        *horizontal_scroll_offset = (*horizontal_scroll_offset - middle_drag_delta.x).max(0.0);
+                        *horizontal_scroll_offset =
+                            (*horizontal_scroll_offset - middle_drag_delta.x).max(0.0);
                     }
                     if consume_x || consume_shift_y {
                         ui.ctx().input_mut(|input| {
@@ -1088,7 +1233,9 @@ pub fn draw_arrangement_view(
                                                 || i.pointer.primary_released()
                                         });
 
-                                        if (strip_resp.clicked() || strip_resp.dragged()) && is_primary_action {
+                                        if (strip_resp.clicked() || strip_resp.dragged())
+                                            && is_primary_action
+                                        {
                                             *active_track_index = idx;
                                             if let Some(pos) = strip_resp.interact_pointer_pos() {
                                                 let clicked_ms = ((pos.x - strip_rect.min.x)
@@ -1145,7 +1292,11 @@ pub fn draw_arrangement_view(
                                             ui.painter().text(
                                                 ruler_rect.right_top() + Vec2::new(-8.0, 3.0),
                                                 egui::Align2::RIGHT_TOP,
-                                                format!("{:02}:{:05.2}", (playhead_seconds / 60.0) as u32, playhead_seconds % 60.0),
+                                                format!(
+                                                    "{:02}:{:05.2}",
+                                                    (playhead_seconds / 60.0) as u32,
+                                                    playhead_seconds % 60.0
+                                                ),
                                                 egui::FontId::monospace(9.0),
                                                 theme.playhead_c32(),
                                             );
@@ -1212,10 +1363,14 @@ pub fn draw_arrangement_view(
                                         let track_pitch_bounds = parts
                                             .iter()
                                             .filter(|part| part.track_index == idx)
-                                            .flat_map(|part| part.notes.iter().map(|note| note.midi_key()))
+                                            .flat_map(|part| {
+                                                part.notes.iter().map(|note| note.midi_key())
+                                            })
                                             .fold(None, |bounds, midi| match bounds {
                                                 None => Some((midi, midi)),
-                                                Some((min, max)) => Some((min.min(midi), max.max(midi))),
+                                                Some((min, max)) => {
+                                                    Some((min.min(midi), max.max(midi)))
+                                                }
                                             });
 
                                         for (p_idx, part) in parts.iter_mut().enumerate() {
@@ -1259,7 +1414,8 @@ pub fn draw_arrangement_view(
                                                     // Pointer delta is incremental for this frame.
                                                     // Response::drag_delta is cumulative since the
                                                     // press and must not be added every frame.
-                                                    let delta_x = ui.input(|input| input.pointer.delta().x);
+                                                    let delta_x =
+                                                        ui.input(|input| input.pointer.delta().x);
                                                     part.position_ms = move_clip_by_frame_delta(
                                                         part.position_ms,
                                                         delta_x,
@@ -1279,23 +1435,31 @@ pub fn draw_arrangement_view(
                                                     ui.set_min_width(180.0);
 
                                                     ui.label(
-                                                        egui::RichText::new(format!("{}: {}", lang.tr("Parte MIDI", "MIDI Part"), &part.name))
-                                                            .strong()
-                                                            .size(11.5)
-                                                            .color(ui.visuals().hyperlink_color),
+                                                        egui::RichText::new(format!(
+                                                            "{}: {}",
+                                                            lang.tr("Parte MIDI", "MIDI Part"),
+                                                            &part.name
+                                                        ))
+                                                        .strong()
+                                                        .size(11.5)
+                                                        .color(ui.visuals().hyperlink_color),
                                                     );
                                                     ui.separator();
 
                                                     ui.horizontal(|ui| {
                                                         ui.label(
-                                                            egui::RichText::new(lang.tr("Nome:", "Name:"))
-                                                                .size(10.0)
-                                                                .color(theme.text_muted_c32()),
+                                                            egui::RichText::new(
+                                                                lang.tr("Nome:", "Name:"),
+                                                            )
+                                                            .size(10.0)
+                                                            .color(theme.text_muted_c32()),
                                                         );
                                                         let name_edit = ui.add(
-                                                            egui::TextEdit::singleline(&mut part.name)
-                                                                .desired_width(110.0)
-                                                                .font(egui::FontId::proportional(11.0)),
+                                                            egui::TextEdit::singleline(
+                                                                &mut part.name,
+                                                            )
+                                                            .desired_width(110.0)
+                                                            .font(egui::FontId::proportional(11.0)),
                                                         );
                                                         if name_edit.changed() {
                                                             changed = true;
@@ -1304,24 +1468,51 @@ pub fn draw_arrangement_view(
 
                                                     ui.separator();
 
-                                                    if ui.button(lang.tr("Duplicar Parte", "Duplicate Part")).clicked() {
+                                                    if ui
+                                                        .button(
+                                                            lang.tr(
+                                                                "Duplicar Parte",
+                                                                "Duplicate Part",
+                                                            ),
+                                                        )
+                                                        .clicked()
+                                                    {
                                                         part_to_duplicate = Some(p_idx);
                                                         ui.close_menu();
                                                     }
 
-                                                    if ui.button(lang.tr("Mover Início para 0ms", "Move Start to 0ms")).clicked() {
+                                                    if ui
+                                                        .button(lang.tr(
+                                                            "Mover Início para 0ms",
+                                                            "Move Start to 0ms",
+                                                        ))
+                                                        .clicked()
+                                                    {
                                                         part.position_ms = 0.0;
                                                         changed = true;
                                                         ui.close_menu();
                                                     }
 
-                                                    if ui.button(lang.tr("Dividir no Cursor", "Split at Playhead")).clicked() {
-                                                        part_to_split = Some((p_idx, current_playhead));
+                                                    if ui
+                                                        .button(lang.tr(
+                                                            "Dividir no Cursor",
+                                                            "Split at Playhead",
+                                                        ))
+                                                        .clicked()
+                                                    {
+                                                        part_to_split =
+                                                            Some((p_idx, current_playhead));
                                                         ui.close_menu();
                                                     }
 
                                                     if !part.notes.is_empty() {
-                                                        if ui.button(lang.tr("Limpar Todas as Notas", "Clear All Notes")).clicked() {
+                                                        if ui
+                                                            .button(lang.tr(
+                                                                "Limpar Todas as Notas",
+                                                                "Clear All Notes",
+                                                            ))
+                                                            .clicked()
+                                                        {
                                                             part.notes.clear();
                                                             changed = true;
                                                             ui.close_menu();
@@ -1330,10 +1521,16 @@ pub fn draw_arrangement_view(
 
                                                     ui.separator();
 
-                                                    if ui.button(
-                                                        egui::RichText::new(lang.tr("Excluir Parte Vocal", "Delete Vocal Part"))
+                                                    if ui
+                                                        .button(
+                                                            egui::RichText::new(lang.tr(
+                                                                "Excluir Parte Vocal",
+                                                                "Delete Vocal Part",
+                                                            ))
                                                             .color(ui.visuals().error_fg_color),
-                                                    ).clicked() {
+                                                        )
+                                                        .clicked()
+                                                    {
                                                         part_to_remove = Some(p_idx);
                                                         ui.close_menu();
                                                     }
@@ -1372,14 +1569,20 @@ pub fn draw_arrangement_view(
                                                     ui.visuals().hyperlink_color,
                                                 );
 
-                                                let (pitch_min, pitch_max) = track_pitch_bounds
-                                                    .unwrap_or((54, 66));
-                                                let center = (u16::from(pitch_min) + u16::from(pitch_max)) as f32 * 0.5;
-                                                let pitch_span = (pitch_max.saturating_sub(pitch_min) as f32 + 4.0)
-                                                    .max(12.0);
+                                                let (pitch_min, pitch_max) =
+                                                    track_pitch_bounds.unwrap_or((54, 66));
+                                                let center = (u16::from(pitch_min)
+                                                    + u16::from(pitch_max))
+                                                    as f32
+                                                    * 0.5;
+                                                let pitch_span =
+                                                    (pitch_max.saturating_sub(pitch_min) as f32
+                                                        + 4.0)
+                                                        .max(12.0);
                                                 let display_min = center - pitch_span * 0.5;
                                                 let melody_top = part_rect.min.y + 15.0;
-                                                let melody_height = (part_rect.height() - 19.0).max(12.0);
+                                                let melody_height =
+                                                    (part_rect.height() - 19.0).max(12.0);
 
                                                 for note in &part.notes {
                                                     let start_x = part_rect.min.x
@@ -1389,11 +1592,13 @@ pub fn draw_arrangement_view(
                                                         * px_per_ms as f64)
                                                         as f32;
 
-                                                    let pitch_norm = ((note.midi_key() as f32 - display_min)
+                                                    let pitch_norm = ((note.midi_key() as f32
+                                                        - display_min)
                                                         / pitch_span)
                                                         .clamp(0.0, 1.0);
                                                     let note_y = melody_top
-                                                        + (1.0 - pitch_norm) * (melody_height - 3.0);
+                                                        + (1.0 - pitch_norm)
+                                                            * (melody_height - 3.0);
 
                                                     let note_rect = Rect::from_min_size(
                                                         Pos2::new(start_x, note_y),
@@ -1416,7 +1621,11 @@ pub fn draw_arrangement_view(
                                         if let Some(d_idx) = part_to_duplicate {
                                             if let Some(src) = parts.get(d_idx) {
                                                 let mut cloned = src.clone();
-                                                let dur = cloned.notes.iter().map(|n| n.position_ms + n.duration_ms).fold(2000.0f64, f64::max);
+                                                let dur = cloned
+                                                    .notes
+                                                    .iter()
+                                                    .map(|n| n.position_ms + n.duration_ms)
+                                                    .fold(2000.0f64, f64::max);
                                                 cloned.name = format!("{} (Cópia)", cloned.name);
                                                 cloned.position_ms += dur;
                                                 parts.push(cloned);
@@ -1504,7 +1713,8 @@ pub fn draw_arrangement_view(
                                                 }
                                                 if wave_resp.dragged() {
                                                     *active_track_index = idx;
-                                                    let delta_x = ui.input(|input| input.pointer.delta().x);
+                                                    let delta_x =
+                                                        ui.input(|input| input.pointer.delta().x);
                                                     wave.position_ms = move_clip_by_frame_delta(
                                                         wave.position_ms,
                                                         delta_x,
@@ -1519,23 +1729,31 @@ pub fn draw_arrangement_view(
                                                     ui.set_min_width(190.0);
 
                                                     ui.label(
-                                                        egui::RichText::new(format!("{}: {}", lang.tr("Áudio", "Audio"), &wave.name))
-                                                            .strong()
-                                                            .size(11.5)
-                                                            .color(ui.visuals().hyperlink_color),
+                                                        egui::RichText::new(format!(
+                                                            "{}: {}",
+                                                            lang.tr("Áudio", "Audio"),
+                                                            &wave.name
+                                                        ))
+                                                        .strong()
+                                                        .size(11.5)
+                                                        .color(ui.visuals().hyperlink_color),
                                                     );
                                                     ui.separator();
 
                                                     ui.horizontal(|ui| {
                                                         ui.label(
-                                                            egui::RichText::new(lang.tr("Nome:", "Name:"))
-                                                                .size(10.0)
-                                                                .color(theme.text_muted_c32()),
+                                                            egui::RichText::new(
+                                                                lang.tr("Nome:", "Name:"),
+                                                            )
+                                                            .size(10.0)
+                                                            .color(theme.text_muted_c32()),
                                                         );
                                                         let name_edit = ui.add(
-                                                            egui::TextEdit::singleline(&mut wave.name)
-                                                                .desired_width(110.0)
-                                                                .font(egui::FontId::proportional(11.0)),
+                                                            egui::TextEdit::singleline(
+                                                                &mut wave.name,
+                                                            )
+                                                            .desired_width(110.0)
+                                                            .font(egui::FontId::proportional(11.0)),
                                                         );
                                                         if name_edit.changed() {
                                                             changed = true;
@@ -1544,14 +1762,20 @@ pub fn draw_arrangement_view(
 
                                                     ui.horizontal(|ui| {
                                                         ui.label(
-                                                            egui::RichText::new(lang.tr("Volume (dB):", "Volume (dB):"))
-                                                                .size(10.0)
-                                                                .color(theme.text_muted_c32()),
+                                                            egui::RichText::new(lang.tr(
+                                                                "Volume (dB):",
+                                                                "Volume (dB):",
+                                                            ))
+                                                            .size(10.0)
+                                                            .color(theme.text_muted_c32()),
                                                         );
                                                         let vol_edit = ui.add(
-                                                            egui::Slider::new(&mut wave.volume_db, -30.0..=12.0)
-                                                                .show_value(true)
-                                                                .suffix(" dB"),
+                                                            egui::Slider::new(
+                                                                &mut wave.volume_db,
+                                                                -30.0..=12.0,
+                                                            )
+                                                            .show_value(true)
+                                                            .suffix(" dB"),
                                                         );
                                                         if vol_edit.changed() {
                                                             changed = true;
@@ -1560,44 +1784,86 @@ pub fn draw_arrangement_view(
 
                                                     ui.separator();
 
-                                                    if ui.button(lang.tr("Duplicar Clipe", "Duplicate Clip")).clicked() {
+                                                    if ui
+                                                        .button(
+                                                            lang.tr(
+                                                                "Duplicar Clipe",
+                                                                "Duplicate Clip",
+                                                            ),
+                                                        )
+                                                        .clicked()
+                                                    {
                                                         wave_to_duplicate = Some(w_idx);
                                                         ui.close_menu();
                                                     }
 
-                                                    if ui.button(lang.tr("Mover Início para 0ms", "Move Start to 0ms")).clicked() {
+                                                    if ui
+                                                        .button(lang.tr(
+                                                            "Mover Início para 0ms",
+                                                            "Move Start to 0ms",
+                                                        ))
+                                                        .clicked()
+                                                    {
                                                         wave.position_ms = 0.0;
                                                         changed = true;
                                                         ui.close_menu();
                                                     }
 
-                                                    if ui.button(lang.tr("Dividir no Cursor", "Split at Playhead")).clicked() {
-                                                        wave_to_split = Some((w_idx, current_playhead));
+                                                    if ui
+                                                        .button(lang.tr(
+                                                            "Dividir no Cursor",
+                                                            "Split at Playhead",
+                                                        ))
+                                                        .clicked()
+                                                    {
+                                                        wave_to_split =
+                                                            Some((w_idx, current_playhead));
                                                         ui.close_menu();
                                                     }
 
                                                     if !wave.file_path.is_empty() {
-                                                        let file_path_clone = wave.file_path.clone();
-                                                        if ui.button(lang.tr("Revelar Arquivo de Áudio", "Reveal Audio File")).clicked() {
+                                                        let file_path_clone =
+                                                            wave.file_path.clone();
+                                                        if ui
+                                                            .button(lang.tr(
+                                                                "Revelar Arquivo de Áudio",
+                                                                "Reveal Audio File",
+                                                            ))
+                                                            .clicked()
+                                                        {
                                                             #[cfg(target_os = "macos")]
                                                             {
-                                                                let _ = std::process::Command::new("open")
-                                                                    .arg("-R")
-                                                                    .arg(&file_path_clone)
-                                                                    .spawn();
+                                                                let _ = std::process::Command::new(
+                                                                    "open",
+                                                                )
+                                                                .arg("-R")
+                                                                .arg(&file_path_clone)
+                                                                .spawn();
                                                             }
                                                             #[cfg(target_os = "windows")]
                                                             {
-                                                                let _ = std::process::Command::new("explorer")
-                                                                    .arg("/select,")
-                                                                    .arg(&file_path_clone)
-                                                                    .spawn();
+                                                                let _ = std::process::Command::new(
+                                                                    "explorer",
+                                                                )
+                                                                .arg("/select,")
+                                                                .arg(&file_path_clone)
+                                                                .spawn();
                                                             }
                                                             #[cfg(target_os = "linux")]
                                                             {
-                                                                let _ = std::process::Command::new("xdg-open")
-                                                                    .arg(std::path::Path::new(&file_path_clone).parent().unwrap_or(std::path::Path::new(".")))
-                                                                    .spawn();
+                                                                let _ = std::process::Command::new(
+                                                                    "xdg-open",
+                                                                )
+                                                                .arg(
+                                                                    std::path::Path::new(
+                                                                        &file_path_clone,
+                                                                    )
+                                                                    .parent()
+                                                                    .unwrap_or(
+                                                                        std::path::Path::new("."),
+                                                                    ),
+                                                                )
+                                                                .spawn();
                                                             }
                                                             ui.close_menu();
                                                         }
@@ -1605,10 +1871,16 @@ pub fn draw_arrangement_view(
 
                                                     ui.separator();
 
-                                                    if ui.button(
-                                                        egui::RichText::new(lang.tr("Excluir Clipe de Áudio", "Delete Audio Clip"))
+                                                    if ui
+                                                        .button(
+                                                            egui::RichText::new(lang.tr(
+                                                                "Excluir Clipe de Áudio",
+                                                                "Delete Audio Clip",
+                                                            ))
                                                             .color(ui.visuals().error_fg_color),
-                                                    ).clicked() {
+                                                        )
+                                                        .clicked()
+                                                    {
                                                         wave_to_remove = Some(w_idx);
                                                         ui.close_menu();
                                                     }
@@ -1641,43 +1913,88 @@ pub fn draw_arrangement_view(
                                                     // min/max pair per display pixel. This keeps
                                                     // transients readable at both zoom levels and
                                                     // avoids the misleading synthetic waveform.
-                                                    if let Some(preview) = cached_waveform(&wave.file_path) {
+                                                    if let Some(preview) =
+                                                        cached_waveform(&wave.file_path)
+                                                    {
                                                         let center_y = wave_rect.center().y + 3.0;
-                                                        let half_h = (wave_rect.height() * 0.40).max(5.0);
+                                                        let half_h =
+                                                            (wave_rect.height() * 0.40).max(5.0);
                                                         ui.painter().line_segment(
                                                             [
-                                                                Pos2::new(wave_rect.min.x + 4.0, center_y),
-                                                                Pos2::new(wave_rect.max.x - 4.0, center_y),
+                                                                Pos2::new(
+                                                                    wave_rect.min.x + 4.0,
+                                                                    center_y,
+                                                                ),
+                                                                Pos2::new(
+                                                                    wave_rect.max.x - 4.0,
+                                                                    center_y,
+                                                                ),
                                                             ],
                                                             Stroke::new(
                                                                 0.5_f32,
-                                                                ui.visuals().hyperlink_color.linear_multiply(70.0 / 255.0),
+                                                                ui.visuals()
+                                                                    .hyperlink_color
+                                                                    .linear_multiply(70.0 / 255.0),
                                                             ),
                                                         );
                                                         let pixels = inner_w.ceil() as usize;
                                                         for b in 0..pixels {
-                                                            let bx = wave_rect.min.x + 4.0 + b as f32 * inner_w / pixels as f32;
-                                                            let clip_start_ms = wave_dur * b as f64 / pixels as f64;
-                                                            let clip_end_ms = wave_dur * (b + 1) as f64 / pixels as f64;
-                                                            let source_start_ms = (wave.file_offset_ms + clip_start_ms)
+                                                            let bx = wave_rect.min.x
+                                                                + 4.0
+                                                                + b as f32 * inner_w
+                                                                    / pixels as f32;
+                                                            let clip_start_ms =
+                                                                wave_dur * b as f64 / pixels as f64;
+                                                            let clip_end_ms = wave_dur
+                                                                * (b + 1) as f64
+                                                                / pixels as f64;
+                                                            let source_start_ms = (wave
+                                                                .file_offset_ms
+                                                                + clip_start_ms)
                                                                 .clamp(0.0, preview.duration_ms);
-                                                            let source_end_ms = (wave.file_offset_ms + clip_end_ms)
-                                                                .clamp(source_start_ms, preview.duration_ms);
-                                                            let first = (source_start_ms / preview.bucket_ms).floor() as usize;
-                                                            let last = ((source_end_ms / preview.bucket_ms).ceil() as usize)
+                                                            let source_end_ms =
+                                                                (wave.file_offset_ms + clip_end_ms)
+                                                                    .clamp(
+                                                                        source_start_ms,
+                                                                        preview.duration_ms,
+                                                                    );
+                                                            let first = (source_start_ms
+                                                                / preview.bucket_ms)
+                                                                .floor()
+                                                                as usize;
+                                                            let last = ((source_end_ms
+                                                                / preview.bucket_ms)
+                                                                .ceil()
+                                                                as usize)
                                                                 .max(first + 1)
                                                                 .min(preview.peaks.len());
-                                                            let (mut lo, mut hi) = (1.0f32, -1.0f32);
-                                                            for &(bucket_lo, bucket_hi) in
-                                                                &preview.peaks[first.min(preview.peaks.len() - 1)..last]
+                                                            let (mut lo, mut hi) =
+                                                                (1.0f32, -1.0f32);
+                                                            for &(bucket_lo, bucket_hi) in &preview
+                                                                .peaks
+                                                                [first.min(preview.peaks.len() - 1)
+                                                                    ..last]
                                                             {
                                                                 lo = lo.min(bucket_lo);
                                                                 hi = hi.max(bucket_hi);
                                                             }
                                                             if hi >= lo {
                                                                 ui.painter().line_segment(
-                                                                    [Pos2::new(bx, center_y - hi * half_h), Pos2::new(bx, center_y - lo * half_h)],
-                                                                    Stroke::new(1.0_f32, ui.visuals().hyperlink_color),
+                                                                    [
+                                                                        Pos2::new(
+                                                                            bx,
+                                                                            center_y - hi * half_h,
+                                                                        ),
+                                                                        Pos2::new(
+                                                                            bx,
+                                                                            center_y - lo * half_h,
+                                                                        ),
+                                                                    ],
+                                                                    Stroke::new(
+                                                                        1.0_f32,
+                                                                        ui.visuals()
+                                                                            .hyperlink_color,
+                                                                    ),
                                                                 );
                                                             }
                                                         }
@@ -1705,7 +2022,8 @@ pub fn draw_arrangement_view(
                                             if let Some(src) = wave_parts.get(d_idx) {
                                                 let mut cloned = src.clone();
                                                 cloned.name = format!("{} (Cópia)", cloned.name);
-                                                cloned.position_ms += cloned.duration_ms.max(1000.0);
+                                                cloned.position_ms +=
+                                                    cloned.duration_ms.max(1000.0);
                                                 wave_parts.push(cloned);
                                                 changed = true;
                                             }
@@ -1729,7 +2047,8 @@ pub fn draw_arrangement_view(
                                                         position_ms: split_at_ms,
                                                         file_offset_ms: original_offset + split_rel,
                                                         volume_db: src.volume_db,
-                                                        duration_ms: (original_dur - split_rel).max(0.0),
+                                                        duration_ms: (original_dur - split_rel)
+                                                            .max(0.0),
                                                     };
                                                     wave_parts.push(right_wave);
                                                     changed = true;

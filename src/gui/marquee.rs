@@ -87,7 +87,8 @@ impl KamafeuStudioApp {
                     || self.selected_resampler.contains("hifisampler")
                 {
                     "Hifisampler"
-                } else if crate::drivers::is_native_world_resampler_label(&self.selected_resampler) {
+                } else if crate::drivers::is_native_world_resampler_label(&self.selected_resampler)
+                {
                     crate::drivers::TAINAH_RESAMPLER_LABEL
                 } else if self.selected_resampler.contains("Organum")
                     || self.selected_resampler.contains("organum")

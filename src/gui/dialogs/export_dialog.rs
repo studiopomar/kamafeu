@@ -142,10 +142,7 @@ impl KamafeuStudioApp {
                             egui::Frame::none()
                                 .fill(ui.visuals().panel_fill)
                                 .rounding(egui::Rounding::same(6.0))
-                                .stroke(egui::Stroke::new(
-                                    1.0_f32,
-                                    ui.visuals().hyperlink_color,
-                                ))
+                                .stroke(egui::Stroke::new(1.0_f32, ui.visuals().hyperlink_color))
                                 .inner_margin(egui::Margin::same(8.0))
                                 .show(ui, |ui| {
                                     ui.horizontal(|ui| {

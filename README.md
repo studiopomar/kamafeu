@@ -94,8 +94,7 @@ O nome **Kamafeu** faz referência à tradicional joia em camafeu, esculpida man
 - [Contrato de extensões](docs/extensoes.md)
 - [Tabela de atalhos de teclado](#tabela-de-atalhos-de-teclado)
 - [Estrutura do código-fonte](#estrutura-do-código-fonte)
-- [Guia detalhado dos arquivos](docs/GUIA_DO_CODIGO.md)
-- [Roteiro de produto](docs/roadmap-produto.md)
+- [Mapa detalhado dos arquivos](mapa_de_arquivos_do_projeto.md)
 - [Auditoria comparativa](docs/upstream-improvement-audit.md)
 - [Star History](#star-history)
 - [Licença](#licença)
@@ -1040,7 +1039,7 @@ kamafeu/
 ```
 
 Para a descrição dos arquivos centrais, do fluxo entre camadas e dos novos
-utilitários VENUS, consulte o [Guia do código-fonte](docs/GUIA_DO_CODIGO.md).
+utilitários VENUS, consulte o [Mapa de arquivos do projeto](mapa_de_arquivos_do_projeto.md).
 
 ## Star History
 

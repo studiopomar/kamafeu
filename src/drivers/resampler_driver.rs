@@ -535,9 +535,13 @@ impl ResamplerDriver for NativeWorldResamplerDriver {
     }
     fn cache_identity(&self) -> String {
         #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
-        { super::tainah_ffi::cache_identity() }
+        {
+            super::tainah_ffi::cache_identity()
+        }
         #[cfg(any(target_os = "android", target_arch = "wasm32"))]
-        { "lessampler-tainah:unsupported-platform".to_string() }
+        {
+            "lessampler-tainah:unsupported-platform".to_string()
+        }
     }
     fn render_sample(
         &self,
@@ -560,7 +564,8 @@ impl ResamplerDriver for NativeWorldResamplerDriver {
         {
             let samples = super::tainah_ffi::render(raw_samples, sample_rate, args, cancel)
                 .map_err(|reason| format!("Tainah WORLD render failed: {reason}"))?;
-            let expected_len = ((args.duration_ms.max(0.0) / 1_000.0) * sample_rate as f64).round() as usize;
+            let expected_len =
+                ((args.duration_ms.max(0.0) / 1_000.0) * sample_rate as f64).round() as usize;
             if !has_render_coverage(&samples, expected_len, sample_rate) {
                 return Err("Tainah WORLD render failed: output failed coverage validation".into());
             }
@@ -574,7 +579,10 @@ impl ResamplerDriver for NativeWorldResamplerDriver {
             })
         }
         #[cfg(any(target_os = "android", target_arch = "wasm32"))]
-        { let _ = (raw_samples, sample_rate, args, cancel); Err("Tainah WORLD library is unavailable on this platform".into()) }
+        {
+            let _ = (raw_samples, sample_rate, args, cancel);
+            Err("Tainah WORLD library is unavailable on this platform".into())
+        }
     }
 }
 
@@ -1208,7 +1216,10 @@ mod tests {
             "straycat-rs (UtaUtaUtau)"
         );
         assert_eq!(NativeWorldResamplerDriver.name(), "Tainah");
-        assert_eq!(NativeWorldResamplerDriver.engine_id(), "kamafeu.lessampler-tainah");
+        assert_eq!(
+            NativeWorldResamplerDriver.engine_id(),
+            "kamafeu.lessampler-tainah"
+        );
     }
 
     #[test]

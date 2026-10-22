@@ -135,11 +135,7 @@ pub fn preview_legacy_voicebank_migration(
             preview.explicit_mappings += 1;
             Some(phones.clone())
         } else {
-            let inferred: Vec<String> = entry
-                .alias
-                .split_whitespace()
-                .map(str::to_owned)
-                .collect();
+            let inferred: Vec<String> = entry.alias.split_whitespace().map(str::to_owned).collect();
             if !inferred.is_empty()
                 && inferred
                     .iter()
@@ -443,7 +439,8 @@ pub fn migrate_legacy_voicebank_to_copy(
             Some(frame) if frame < frame_count => frame,
             _ => {
                 report.warnings.push(
-                    "Offset in oto.ini is non-finite or outside the source WAV; entry was omitted.".into(),
+                    "Offset in oto.ini is non-finite or outside the source WAV; entry was omitted."
+                        .into(),
                 );
                 prepared.push(PreparedEntry {
                     report,
@@ -583,9 +580,10 @@ pub fn migrate_legacy_voicebank_to_copy(
             }
             entry.overlap.max(0.0)
         } else {
-            report
-                .warnings
-                .push("Non-finite overlap from oto.ini was replaced by a zero preferred crossfade.".into());
+            report.warnings.push(
+                "Non-finite overlap from oto.ini was replaced by a zero preferred crossfade."
+                    .into(),
+            );
             0.0
         };
         let duration_ms = (end_frame - start_frame) as f64 * 1000.0 / f64::from(spec.sample_rate);
@@ -1096,14 +1094,13 @@ mod tests {
         let temp = tempfile::tempdir().unwrap();
         let source = source_bank(temp.path());
         let mut options = options();
-        options.phone_mappings.insert("ka".into(), vec!["missing".into()]);
+        options
+            .phone_mappings
+            .insert("ka".into(), vec!["missing".into()]);
 
-        let preview = preview_legacy_voicebank_migration(
-            &source,
-            &options.profile,
-            &options.phone_mappings,
-        )
-        .unwrap();
+        let preview =
+            preview_legacy_voicebank_migration(&source, &options.profile, &options.phone_mappings)
+                .unwrap();
 
         assert_eq!(preview.total_entries, 3);
         assert_eq!(preview.explicit_mappings, 1);

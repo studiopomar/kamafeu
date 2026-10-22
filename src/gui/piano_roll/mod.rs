@@ -797,10 +797,8 @@ pub(crate) fn draw_piano_roll(
                 let key_idx = (state.max_midi - midi) as f32;
                 let y_top = grid_start_y + key_idx * state.row_height + 2.0;
                 let y_bottom = y_top + state.row_height - 4.0;
-                let note_rect = Rect::from_min_max(
-                    Pos2::new(x_start, y_top),
-                    Pos2::new(x_end, y_bottom),
-                );
+                let note_rect =
+                    Rect::from_min_max(Pos2::new(x_start, y_top), Pos2::new(x_end, y_bottom));
 
                 if !note_rect.is_positive() || !note_rect.intersects(extended_clip) {
                     continue;
@@ -1233,7 +1231,7 @@ pub(crate) fn draw_piano_roll(
                         painter.rect_filled(
                             pill_rect,
                             Rounding::same(4.0),
-                        theme.c32_alpha(theme.bg_panel, 235.0 / 255.0),
+                            theme.c32_alpha(theme.bg_panel, 235.0 / 255.0),
                         );
                         painter.rect_stroke(
                             pill_rect,
@@ -1292,8 +1290,7 @@ pub(crate) fn draw_piano_roll(
                     .effective_points(previous_midi, note_midi, is_adjacent);
 
             let is_custom_pitch = !note.pitch_bend.points.is_empty();
-            let show_pitch_anchors =
-                state.active_tool == EditTool::PitchDraw;
+            let show_pitch_anchors = state.active_tool == EditTool::PitchDraw;
             if show_pitch_anchors {
                 for (pt_idx, pt) in pitch_curve.iter().enumerate() {
                     let total_cents = pt.pitch_offset_cents + note.expressions.pitch_delta;
@@ -1548,8 +1545,7 @@ pub(crate) fn draw_piano_roll(
         // ====================================================================
         // OPENUTAU-GRADE CANVAS-WIDE PITCH ENGINE & INTERACTION
         // ====================================================================
-        let can_interact_pitch =
-            state.active_tool == EditTool::PitchDraw;
+        let can_interact_pitch = state.active_tool == EditTool::PitchDraw;
 
         let is_alt = ui.input(|i| i.modifiers.alt);
         let is_shift = ui.input(|i| i.modifiers.shift);
@@ -1707,14 +1703,14 @@ pub(crate) fn draw_piano_roll(
                     if preview_pts.len() >= 2 {
                         painter.add(egui::Shape::line(
                             preview_pts.clone(),
-                            Stroke::new(3.5_f32, theme.c32_alpha(theme.pitch_curve_color, 70.0 / 255.0)),
+                            Stroke::new(
+                                3.5_f32,
+                                theme.c32_alpha(theme.pitch_curve_color, 70.0 / 255.0),
+                            ),
                         ));
                         painter.add(egui::Shape::line(
                             preview_pts,
-                            Stroke::new(
-                                1.8_f32,
-                                theme.pitch_curve_c32(),
-                            ),
+                            Stroke::new(1.8_f32, theme.pitch_curve_c32()),
                         ));
                     }
                 } else if state.pitch_sub_tool == PitchSubTool::Line {
@@ -1728,15 +1724,13 @@ pub(crate) fn draw_piano_roll(
                         let p2 = mpos;
                         painter.line_segment(
                             [p1, p2],
-                            Stroke::new(3.0_f32, theme.c32_alpha(theme.pitch_curve_color, 70.0 / 255.0)),
-                        );
-                        painter.line_segment(
-                            [p1, p2],
                             Stroke::new(
-                                1.6_f32,
-                                theme.pitch_anchor_c32(),
+                                3.0_f32,
+                                theme.c32_alpha(theme.pitch_curve_color, 70.0 / 255.0),
                             ),
                         );
+                        painter
+                            .line_segment([p1, p2], Stroke::new(1.6_f32, theme.pitch_anchor_c32()));
                         painter.circle_filled(p1, 4.0, ui.visuals().hyperlink_color);
                         painter.circle_filled(p2, 4.0, ui.visuals().hyperlink_color);
                     }
@@ -2265,8 +2259,7 @@ pub(crate) fn draw_piano_roll(
         }
 
         // 4. Render OpenUtau-Grade Interactive Pitch Control Handles
-        let show_pitch_nodes =
-            state.active_tool == EditTool::PitchDraw;
+        let show_pitch_nodes = state.active_tool == EditTool::PitchDraw;
 
         if show_pitch_nodes {
             for (_h_idx, handle) in pending_pitch_handles.iter().enumerate() {
@@ -3370,7 +3363,15 @@ pub(crate) fn draw_piano_roll(
         on_playhead_scrubbed,
     );
 
-    context_menu::draw(ui, notes, state, theme, lang, on_before_change, on_note_changed);
+    context_menu::draw(
+        ui,
+        notes,
+        state,
+        theme,
+        lang,
+        on_before_change,
+        on_note_changed,
+    );
 
     note_properties::draw(ui, notes, state, theme, lang, on_note_changed);
 }

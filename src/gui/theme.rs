@@ -315,9 +315,8 @@ pub fn meets_text_contrast(foreground: [u8; 3], background: [u8; 3]) -> bool {
 
 impl ThemeConfig {
     pub fn validate(&self) -> Result<(), String> {
-        let finite_in = |value: f32, min: f32, max: f32| {
-            value.is_finite() && (min..=max).contains(&value)
-        };
+        let finite_in =
+            |value: f32, min: f32, max: f32| value.is_finite() && (min..=max).contains(&value);
         for (label, value, min, max) in [
             ("cantos das notas", self.note_corner_radius, 0.0, 14.0),
             ("borda das notas", self.note_stroke_width, 0.5, 4.0),
@@ -1143,8 +1142,8 @@ mod tests {
         assert_eq!(merged.theme.accent_color, [4, 5, 6]);
 
         let legacy = serde_json::to_string(&current).unwrap();
-        let imported = ThemeDocument::import(&legacy, &ThemeConfig::default(), false, "Antigo")
-            .unwrap();
+        let imported =
+            ThemeDocument::import(&legacy, &ThemeConfig::default(), false, "Antigo").unwrap();
         assert_eq!(imported.name, "Antigo");
         assert_eq!(imported.theme.bg_canvas, current.bg_canvas);
     }
@@ -1154,8 +1153,8 @@ mod tests {
         let theme = ThemeConfig::from_preset(ThemePreset::CalafateEditorial);
         let document = ThemeDocument::from_theme("Minha Paleta", &theme).unwrap();
         let content = serde_json::to_string(&document).unwrap();
-        let imported = ThemeDocument::import(&content, &ThemeConfig::default(), false, "x")
-            .unwrap();
+        let imported =
+            ThemeDocument::import(&content, &ThemeConfig::default(), false, "x").unwrap();
         assert_eq!(imported.name, "Minha Paleta");
         assert_eq!(imported.theme.bg_canvas, theme.bg_canvas);
         assert_eq!(imported.theme.semantic, theme.semantic);
