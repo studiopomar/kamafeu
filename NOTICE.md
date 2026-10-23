@@ -60,7 +60,7 @@ dependências diretas usadas nesta versão incluem `clap`, `encoding_rs`,
 Web declaradas em `Cargo.toml`. As dependências transitivas são fixadas por
 `Cargo.lock` e mantêm os avisos de licença publicados por cada crate.
 
-## Tainah / tainah-engine
+## Tainah e referências de timing
 
 O Tainah desktop carrega uma biblioteca compartilhada derivada de
 uma base externa licenciada sob LGPL-3.0. O código fonte do adaptador ABI
@@ -68,6 +68,13 @@ fica em `native/tainah/`; a revisão e a origem da base estão registradas em
 `native/tainah/build.py`. Os pacotes incluem a licença dessa base junto da
 biblioteca. Modificações nessa
 biblioteca permanecem sob LGPL-3.0; a licença MIT do aplicativo não as altera.
+
+O mapa de timing do Tainah também foi informado pelas referências
+`libUTAU::CheckPara` do [Lessampler original](https://github.com/YuzukiTsuru/lessampler)
+e `AudioProcess::TimeStretch` do [Lessampler-NG](https://github.com/dorayakito/lessampler-ng).
+O Lessampler-NG declara-se fork do Lessampler original e é distribuído sob
+LGPL-3.0. Esta atribuição identifica referências de comportamento; não atribui
+a esses projetos o código WORLD ou o código próprio do Tainah.
 
 Para uma distribuição jurídica completa, gere o inventário de licenças a
 partir do `Cargo.lock` com uma ferramenta como `cargo-about` e inclua o

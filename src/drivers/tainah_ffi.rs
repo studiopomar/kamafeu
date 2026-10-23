@@ -1,4 +1,4 @@
-//! Versioned tainah-engine WORLD ABI. The library lives beside the executable
+//! Versioned Tainah WORLD ABI. The library lives beside the executable
 //! in desktop packages; TAINAH_LIBRARY_PATH is useful for local development.
 use super::resampler_driver::{parse_utau_flags, ResamplerArgs};
 use std::ffi::{c_char, c_int, c_void, CStr};
@@ -77,7 +77,7 @@ pub fn library_path() -> Option<PathBuf> {
         dir.join("../Frameworks").join(name),
         dir.join("../lib").join(name),
         dir.join("../lib/kamafeu").join(name),
-        // The local tainah-engine builder writes its artifact to
+        // The local Tainah builder writes its artifact to
         // target/tainah-package, while Cargo executables live in target/debug
         // (or target/debug/deps for tests).
         dir.join("../tainah-package").join(name),
@@ -113,12 +113,12 @@ fn world_detector_method(configured: &str) -> Result<u32, String> {
     } else if detector.contains("dio") {
         Ok(2)
     } else if detector.contains("yin") {
-        // tainah-engine exposes WORLD Harvest and DIO. The app-wide YIN/pyIN
+        // Tainah exposes WORLD Harvest and DIO. The app-wide YIN/pyIN
         // preference is used by analysis tools, so use Harvest for Tainah.
         Ok(1)
     } else {
         Err(format!(
-            "WORLD detector '{}' is unsupported by tainah-engine (use Harvest or DIO)",
+            "WORLD detector '{}' is unsupported by Tainah (use Harvest or DIO)",
             configured
         ))
     }

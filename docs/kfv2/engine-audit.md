@@ -7,7 +7,7 @@ implementados no checkout; não é uma comparação de qualidade sonora.
 
 | Seleção/uso | Identidade estável | Caminho executado | Estado |
 | --- | --- | --- | --- |
-| `Tainah` no desktop | `kamafeu.tainah-motor` | `NativeWorldResamplerDriver` chama a ABI C++ WORLD do tainah-engine; ataque, sustentação e cauda são definidos pelas marcas de `oto.ini` no mapa temporal dos frames. Falhas de carregamento, análise, cobertura ou síntese retornam erro. | O nome visível e os aliases salvos continuam aceitos. A superioridade auditiva sobre straycat-rs ainda depende da comparação pareada com voicebank autorizado. |
+| `Tainah` no desktop | `kamafeu.tainah-motor` | `NativeWorldResamplerDriver` chama a ABI C++ WORLD do Tainah; ataque, sustentação e cauda são definidos pelas marcas de `oto.ini` no mapa temporal dos frames. Falhas de carregamento, análise, cobertura ou síntese retornam erro. | O nome visível e os aliases salvos continuam aceitos. A superioridade auditiva sobre straycat-rs ainda depende da comparação pareada com voicebank autorizado. |
 | Aliases antigos `WORLD (Nativo)`, `WORLD (Native)` ou `VENUS` | `kamafeu.tainah-motor` | `create_resampler_driver` reconhece os rótulos salvos e instancia `NativeWorldResamplerDriver`. | Compatibilidade de configuração; esses aliases não indicam outro motor. |
 | Driver SOLA clássico | `kamafeu.sola` | `NativeResamplerDriver` chama `SolaResampler` diretamente. | Implementado, mas não escolhido como referência de produto. |
 | Preview padrão e exportação KFV 2 | `kamafeu.sola` | `render_phrase_sola` chama SOLA explicitamente e não troca para WORLD. | Protótipo experimental; backend de referência pendente. |
@@ -31,7 +31,7 @@ cache persistente; um WAV sem metadados correspondentes é rejeitado e refeito.
 
 ## Tratamento de falhas WORLD
 
-O tainah-engine devolve um código e uma mensagem para entrada inválida, região
+O Tainah devolve um código e uma mensagem para entrada inválida, região
 sem cobertura, cancelamento, falha WORLD ou saída silenciosa. O driver Rust
 rejeita também duração, taxa e cobertura incompatíveis; não substitui o
 resultado por SOLA nem por resize.

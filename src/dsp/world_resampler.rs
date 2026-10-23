@@ -1,4 +1,4 @@
-//! Runtime WORLD settings shared by the desktop UI and the tainah-engine adapter.
+//! Runtime WORLD settings shared by the desktop UI and the Tainah adapter.
 use std::sync::{OnceLock, RwLock};
 
 #[derive(Debug, Clone)]

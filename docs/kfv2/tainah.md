@@ -2,13 +2,13 @@
 
 ## Português (Brasil)
 
-Tainah é o resampler do Kamafeu baseado na biblioteca compartilhada WORLD do tainah-engine (LGPL-3.0). Ele analisa F0, envoltória espectral e aperiodicidade; o mapa temporal usa offset, cutoff e marcas de `oto.ini` para sustain e cauda. Quando o carregamento, a análise ou a saída falha nos critérios técnicos, o render retorna erro com diagnóstico; não troca para SOLA ou resize. Os critérios detectam silêncio e cobertura insuficiente, mas não garantem qualidade perceptiva.
+Tainah é o resampler WORLD do Kamafeu. Ele analisa F0, envoltória espectral e aperiodicidade; seu mapa temporal usa offset, cutoff e marcas de `oto.ini` para preservar ataque, sustentação e cauda. Quando o carregamento, a análise ou a saída falha nos critérios técnicos, o render retorna erro com diagnóstico; não troca para SOLA ou resize. Os critérios detectam silêncio e cobertura insuficiente, mas não garantem qualidade perceptiva. Os créditos das referências de timing e a proveniência da base de compilação estão em [NOTICE.md](../../NOTICE.md).
 
 ### Instalação e seleção
 
 Instale uma versão desktop compatível do Kamafeu. Na faixa, abra as opções de voz/resampler e selecione **Tainah**. **Straycat** continua como padrão desktop enquanto não houver avaliação auditiva controlada que aprove Tainah. O Kamafeu Web não oferece este resampler nativo.
 
-Para desenvolvimento local, execute `python3 native/tainah/build.py` e inicie o aplicativo; ele procura automaticamente a biblioteca em `target/tainah-package`. `TAINAH_LIBRARY_PATH` continua disponível para indicar outro caminho. O script fixa a revisão do tainah-engine, compila a biblioteca e executa o teste de ABI. O cache de análise fica na pasta de cache do usuário, fora do voicebank.
+Para desenvolvimento local, execute `python3 native/tainah/build.py` e inicie o aplicativo; ele procura automaticamente a biblioteca em `target/tainah-package`. `TAINAH_LIBRARY_PATH` continua disponível para indicar outro caminho. O script fixa a revisão do Tainah-rt, compila a biblioteca e executa o teste de ABI. O cache de análise fica na pasta de cache do usuário, fora do voicebank.
 
 O motor usa os detectores WORLD Harvest ou DIO. Quando as preferências globais estiverem em YIN ou pyIN, Tainah usa Harvest; ao escolher DIO, o motor usa DIO.
 
@@ -22,7 +22,7 @@ As flags são sensíveis a maiúsculas/minúsculas. Valores fora do intervalo s�
 
 ### Stretch e compatibilidade
 
-Em notas longas, Tainah mapeia os frames WORLD sobre a duração solicitada e tenta preservar as regiões de ataque e cauda definidas em `oto.ini`. SOLA continua disponível como driver clássico selecionado separadamente. Outros resamplers podem interpretar flags de forma diferente.
+Tainah mapeia os frames WORLD à duração solicitada e usa os tempos de consoante, loop e cauda de `oto.ini` para definir as regiões de ataque, sustentação e release. Em notas curtas, o trecho útil é limitado pela duração de saída. SOLA continua disponível como driver clássico selecionado separadamente. Outros resamplers podem interpretar flags de forma diferente.
 
 ### Estado de avaliação
 
@@ -30,13 +30,13 @@ Não há benchmark público concluído nem resultado de escuta cega aprovado. O 
 
 ## English
 
-Tainah uses the shared WORLD library from tainah-engine (LGPL-3.0). It analyzes F0, spectral envelope, and aperiodicity. Its time map uses offset, cutoff, and `oto.ini` markers for sustain and tail regions. Library loading, analysis, or output failures return diagnostics; it does not switch to SOLA or resize. These checks detect silence and insufficient coverage; they do not establish perceptual quality.
+Tainah is Kamafeu's WORLD resampler. It analyzes F0, spectral envelope, and aperiodicity. Its time map uses offset, cutoff, and `oto.ini` markers to preserve attack, sustain, and tail regions. Library loading, analysis, or output failures return diagnostics; it does not switch to SOLA or resize. These checks detect silence and insufficient coverage; they do not establish perceptual quality. Timing reference credits and build-base provenance are listed in [NOTICE.md](../../NOTICE.md).
 
 ### Installation and selection
 
 Install a compatible Kamafeu desktop build. In the track voice/resampler options, select **Tainah**. **Straycat** remains the desktop default until Tainah passes a controlled listening evaluation. The Kamafeu Web build does not provide this native resampler.
 
-For local development, run `python3 native/tainah/build.py` and launch the app; it automatically searches `target/tainah-package`. `TAINAH_LIBRARY_PATH` is available to select another path. The script pins tainah-engine, builds the library, and runs its ABI test. Analysis cache files live in the user's cache directory, outside the voicebank.
+For local development, run `python3 native/tainah/build.py` and launch the app; it automatically searches `target/tainah-package`. `TAINAH_LIBRARY_PATH` is available to select another path. The script pins the Tainah-rt revision, builds the library, and runs its ABI test. Analysis cache files live in the user's cache directory, outside the voicebank.
 
 The engine uses WORLD Harvest or DIO. If the global preference is YIN or pyIN, Tainah uses Harvest; selecting DIO makes it use DIO.
 
@@ -50,7 +50,7 @@ Flags are case sensitive. Out of range values are clamped. `g` (−100 to +100) 
 
 ### Stretch and compatibility
 
-For long notes, Tainah maps WORLD frames to the requested duration and attempts to preserve attack and tail regions defined in `oto.ini`. SOLA remains available as a separately selected classic driver. Other resamplers may interpret flags differently.
+Tainah maps WORLD frames to the requested duration and uses `oto.ini` consonant, loop, and tail timing to set its attack, sustain, and release regions. For short notes, the useful source region is limited by output duration. SOLA remains available as a separately selected classic driver. Other resamplers may interpret flags differently.
 
 ### Evaluation status
 

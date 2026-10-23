@@ -163,6 +163,8 @@ double pitch_cents(const lt_render_options *o, double time) {
     }
     return p[o->pitch_point_count-1].cents;
 }
+// Tainah timing informed by Lessampler CheckPara and Lessampler-NG
+// AudioProcess::TimeStretch; see NOTICE.md for attribution and provenance.
 double source_time(const lt_render_options *o, double time, double source_duration) {
     const double marked_begin = o->loop_start_ms - o->offset_ms;
     const double marked_end = o->loop_end_ms - o->offset_ms;
