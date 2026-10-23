@@ -35,6 +35,9 @@ jobs:
       - name: Run Clippy
         run: cargo clippy --all-targets --all-features --locked
 
+      - name: Build Tainah for native render tests
+        run: python3 native/tainah/build.py
+
       - name: Run tests
         run: cargo test --all-targets --all-features --locked
 
