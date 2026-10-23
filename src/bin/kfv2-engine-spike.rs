@@ -202,7 +202,7 @@ fn run() -> Result<(), String> {
             duration_ms,
             midi,
             pitch_points: Vec::new(),
-            expressions: crate::project::model::UExpressions::default(),
+            expressions: kamafeu::project::model::UExpressions::default(),
             flags: String::new(),
             unit_override_id: Some(unit.id.clone()),
             layer_override_id: Some(layer.id.clone()),

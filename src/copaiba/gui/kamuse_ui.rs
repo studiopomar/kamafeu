@@ -147,7 +147,9 @@ pub(super) fn draw_kamuse_authoring_ui(
 }
 
 fn draw_kamuse_library(app: &mut CopaibaToolkitApp, ui: &mut egui::Ui) {
-    let Some(project) = app.kamuse_project.as_ref() else { return; };
+    let Some(project) = app.kamuse_project.as_ref() else {
+        return;
+    };
     egui::Frame::none()
         .fill(visual_tokens::SURFACE)
         .stroke(Stroke::new(1.0_f32, visual_tokens::BORDER))
@@ -157,32 +159,65 @@ fn draw_kamuse_library(app: &mut CopaibaToolkitApp, ui: &mut egui::Ui) {
             ui.horizontal(|ui| {
                 ui.heading(RichText::new("Gravações").strong().size(16.0));
                 ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
-                    ui.label(RichText::new(format!("{} takes", project.cantor.tons.iter().map(|t| t.gravacoes.len()).sum::<usize>())).small().color(visual_tokens::MUTED));
+                    ui.label(
+                        RichText::new(format!(
+                            "{} takes",
+                            project
+                                .cantor
+                                .tons
+                                .iter()
+                                .map(|t| t.gravacoes.len())
+                                .sum::<usize>()
+                        ))
+                        .small()
+                        .color(visual_tokens::MUTED),
+                    );
                 });
             });
-            ui.label(RichText::new("Selecione um take para revisar fonemas e marcações.").size(11.0).color(visual_tokens::MUTED));
+            ui.label(
+                RichText::new("Selecione um take para revisar fonemas e marcações.")
+                    .size(11.0)
+                    .color(visual_tokens::MUTED),
+            );
             ui.add_space(6.0);
             if project.cantor.tons.iter().all(|t| t.gravacoes.is_empty()) {
                 ui.horizontal(|ui| {
-                    ui.add(egui::Image::from_bytes("bytes://kamuse-empty.svg", include_bytes!("../../../assets/kamuse/empty.svg")).fit_to_exact_size(egui::vec2(72.0, 72.0)));
+                    ui.add(
+                        egui::Image::from_bytes(
+                            "bytes://kamuse-empty.svg",
+                            include_bytes!("../../../assets/kamuse/empty.svg"),
+                        )
+                        .fit_to_exact_size(egui::vec2(72.0, 72.0)),
+                    );
                     ui.label("Ainda não há takes. Vá a Preparação para importar um WAV ou MP3.");
                 });
             } else {
-                egui::ScrollArea::vertical().max_height(220.0).show(ui, |ui| {
-                    for tone in &project.cantor.tons {
-                        ui.label(RichText::new(format!("{} · MIDI {}", tone.id, tone.midi)).strong().color(visual_tokens::ACCENT));
-                        for take in &tone.gravacoes {
-                            let selected = app.kamuse_selected_tone.as_deref() == Some(&tone.id)
-                                && app.kamuse_selected_recording.as_deref() == Some(&take.id);
-                            let label = format!("{}   ·   {}", take.id, take.fonemas.join(" "));
-                            if ui.selectable_label(selected, label).on_hover_text("Abrir este take no editor de marcações").clicked() {
-                                app.kamuse_selected_tone = Some(tone.id.clone());
-                                app.kamuse_selected_recording = Some(take.id.clone());
-                                app.kamuse_active_view = "Editor".into();
+                egui::ScrollArea::vertical()
+                    .max_height(220.0)
+                    .show(ui, |ui| {
+                        for tone in &project.cantor.tons {
+                            ui.label(
+                                RichText::new(format!("{} · MIDI {}", tone.id, tone.midi))
+                                    .strong()
+                                    .color(visual_tokens::ACCENT),
+                            );
+                            for take in &tone.gravacoes {
+                                let selected = app.kamuse_selected_tone.as_deref()
+                                    == Some(&tone.id)
+                                    && app.kamuse_selected_recording.as_deref() == Some(&take.id);
+                                let label = format!("{}   ·   {}", take.id, take.fonemas.join(" "));
+                                if ui
+                                    .selectable_label(selected, label)
+                                    .on_hover_text("Abrir este take no editor de marcações")
+                                    .clicked()
+                                {
+                                    app.kamuse_selected_tone = Some(tone.id.clone());
+                                    app.kamuse_selected_recording = Some(take.id.clone());
+                                    app.kamuse_active_view = "Editor".into();
+                                }
                             }
                         }
-                    }
-                });
+                    });
             }
         });
 }
@@ -316,7 +351,11 @@ fn draw_kamuse_authoring_tools(app: &mut CopaibaToolkitApp, ui: &mut egui::Ui) {
     ui.horizontal_wrapped(|ui| {
         ui.label("Adicionar tom MIDI");
         ui.add(egui::DragValue::new(&mut app.kamuse_new_tone_midi).range(0..=127));
-        if ui.button("+ Tom").on_hover_text("Cria uma nova faixa de altura MIDI no banco.").clicked() {
+        if ui
+            .button("+ Tom")
+            .on_hover_text("Cria uma nova faixa de altura MIDI no banco.")
+            .clicked()
+        {
             let result = app
                 .kamuse_project
                 .as_mut()
@@ -606,8 +645,16 @@ fn draw_kamuse_editor(
             "Revise as marcações provisórias sobre o áudio antes de usar o banco.",
         );
         ui.horizontal(|ui| {
-            ui.add(egui::Image::from_bytes("bytes://kamuse-mark.svg", include_bytes!("../../../assets/kamuse/mark.svg")).fit_to_exact_size(egui::vec2(18.0, 18.0)));
-            ui.label("Marcas sobre a waveform: arraste as linhas para ajustar os limites dos fonemas.");
+            ui.add(
+                egui::Image::from_bytes(
+                    "bytes://kamuse-mark.svg",
+                    include_bytes!("../../../assets/kamuse/mark.svg"),
+                )
+                .fit_to_exact_size(egui::vec2(18.0, 18.0)),
+            );
+            ui.label(
+                "Marcas sobre a waveform: arraste as linhas para ajustar os limites dos fonemas.",
+            );
         });
         egui::Frame::none()
             .fill(visual_tokens::SURFACE)
@@ -712,7 +759,13 @@ fn draw_kamuse_editor(
             }
             ui.label(format!("fonte: {}", recording.arquivo));
         });
-        ui.add(egui::Image::from_bytes("bytes://kamuse-cvc-units.svg", include_bytes!("../../../assets/kamuse/cvc-units.svg")).fit_to_exact_size(egui::vec2(ui.available_width().min(640.0), 92.0)));
+        ui.add(
+            egui::Image::from_bytes(
+                "bytes://kamuse-cvc-units.svg",
+                include_bytes!("../../../assets/kamuse/cvc-units.svg"),
+            )
+            .fit_to_exact_size(egui::vec2(ui.available_width().min(640.0), 92.0)),
+        );
         ui.horizontal(|ui| {
             ui.add(egui::Image::from_bytes("bytes://kamuse-play.svg", include_bytes!("../../../assets/kamuse/play.svg")).fit_to_exact_size(egui::vec2(18.0, 18.0)));
             if ui
@@ -871,7 +924,13 @@ fn draw_kamuse_editor(
             });
     } else {
         ui.horizontal(|ui| {
-            ui.add(egui::Image::from_bytes("bytes://kamuse-empty.svg", include_bytes!("../../../assets/kamuse/empty.svg")).fit_to_exact_size(egui::vec2(112.0, 112.0)));
+            ui.add(
+                egui::Image::from_bytes(
+                    "bytes://kamuse-empty.svg",
+                    include_bytes!("../../../assets/kamuse/empty.svg"),
+                )
+                .fit_to_exact_size(egui::vec2(112.0, 112.0)),
+            );
             ui.vertical(|ui| {
                 ui.heading("Nenhum take selecionado");
                 ui.label("Escolha uma gravação na biblioteca ou importe um áudio em Preparação.");

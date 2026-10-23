@@ -520,10 +520,8 @@ fn render_unit(
         planned.expressions.gender.clamp(-100.0, 100.0),
         planned.expressions.breathiness.clamp(0.0, 100.0)
     );
-    let flags = crate::drivers::resampler_driver::merge_utau_flags(&[
-        &planned.flags,
-        &expression_flags,
-    ]);
+    let flags =
+        crate::drivers::resampler_driver::merge_utau_flags(&[&planned.flags, &expression_flags]);
     let args = ResamplerArgs {
         input_wav: PathBuf::new(),
         output_wav: PathBuf::new(),
@@ -616,8 +614,8 @@ fn render_unit(
         point.value = point.value.clamp(-240.0, 120.0);
     }
     dynamics_curve.sort_by(|left, right| left.time_offset_ms.total_cmp(&right.time_offset_ms));
-    let anchor_offset_ms = (planned.anchor_frame - planned.source_start_frame) as f64 * 1_000.0
-        / sample_rate as f64;
+    let anchor_offset_ms =
+        (planned.anchor_frame - planned.source_start_frame) as f64 * 1_000.0 / sample_rate as f64;
     let sample_step_ms = 1_000.0 / sample_rate as f64;
     let event_duration_ms = (planned.target_duration_ms - anchor_offset_ms).max(1.0);
     let attack = if planned.expressions.attack.is_finite() {

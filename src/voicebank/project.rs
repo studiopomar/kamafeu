@@ -322,8 +322,8 @@ pub fn render_project_track_world_cancellable(
                             (Some(left_index), Some(right)) => {
                                 let left = &expressions.dynamics_curve[left_index];
                                 let span = (right.time_offset_ms - left.time_offset_ms).max(1e-6);
-                                let amount = ((event_time_ms - left.time_offset_ms) / span)
-                                    .clamp(0.0, 1.0);
+                                let amount =
+                                    ((event_time_ms - left.time_offset_ms) / span).clamp(0.0, 1.0);
                                 left.value + (right.value - left.value) * amount
                             }
                             (Some(left_index), None) => {
@@ -350,7 +350,9 @@ pub fn render_project_track_world_cancellable(
                     .map(|point| point.time_offset_ms.min(0.0))
                     .unwrap_or(0.0)
                     .min(offsets[event_index] - 100.0);
-                let end_ms = note.duration_ms.max(offsets[event_index] + durations[event_index]);
+                let end_ms = note
+                    .duration_ms
+                    .max(offsets[event_index] + durations[event_index]);
                 let sample_count = ((end_ms - start_ms).max(0.0) / pitch_step_ms)
                     .ceil()
                     .min(100_000.0) as usize;
