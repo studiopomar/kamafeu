@@ -1,4 +1,5 @@
 #include "tainah.h"
+#include "tainah_timing.h"
 #include "AudioModel/AudioModel.h"
 #include "AudioModel/Synthesis/Synthesis.h"
 #include <algorithm>
@@ -163,27 +164,6 @@ double pitch_cents(const lt_render_options *o, double time) {
     }
     return p[o->pitch_point_count-1].cents;
 }
-double source_time(const lt_render_options *o, double time, double source_duration) {
-    const double marked_begin = o->loop_start_ms - o->offset_ms;
-    const double marked_end = o->loop_end_ms - o->offset_ms;
-    const double tail = o->tail_start_ms - o->offset_ms;
-    const bool valid_loop = std::isfinite(marked_begin) && std::isfinite(marked_end) &&
-        marked_begin >= 0 && marked_end > marked_begin && marked_end <= source_duration;
-    const double begin = valid_loop ? marked_begin : std::clamp(o->consonant_ms, 0.0, source_duration);
-    const double end = valid_loop ? marked_end :
-        (std::isfinite(tail) && tail > begin && tail <= source_duration ? tail : source_duration);
-    if (end <= begin) return std::clamp(time * source_duration / o->duration_ms, 0.0, source_duration);
-    const double tail_begin = std::isfinite(tail) && tail >= end && tail <= source_duration ? tail : source_duration;
-    const double attack = begin;
-    const double release = source_duration - tail_begin;
-    const double scale = std::min(1.0, o->duration_ms / std::max(attack + release, 1e-9));
-    const double target_attack = attack * scale;
-    const double target_tail = o->duration_ms - release * scale;
-    if (time < target_attack) return std::clamp(time / scale, 0.0, source_duration);
-    if (time >= target_tail) return std::clamp(tail_begin + (time - target_tail) / scale, 0.0, source_duration);
-    return std::clamp(begin + (time - target_attack) * (end - begin) /
-        std::max(target_tail - target_attack, 1e-9), 0.0, source_duration);
-}
 }
 extern "C" {
 uint32_t lt_abi_version(void) { return LT_ABI_VERSION; }
@@ -201,12 +181,27 @@ int32_t lt_render(const lt_render_options *o, lt_pcm *out, lt_error *error) {
     if (!out || out->struct_size < sizeof(lt_pcm) || !error || error->struct_size < sizeof(lt_error)) return 1;
     out->samples = nullptr; out->length = 0; out->sample_rate = 0;
     fail(error, 0, "");
-    if (!o || o->struct_size < sizeof(lt_render_options) || !o->input || o->input_length < 64 ||
+    constexpr uint32_t base_options_size = static_cast<uint32_t>(offsetof(lt_render_options, formant_shift));
+    const bool has_formant_shift = o && o->struct_size >= offsetof(lt_render_options, formant_shift) + sizeof(o->formant_shift);
+    const double formant_shift = has_formant_shift ? o->formant_shift : 0.0;
+    const bool has_consonant_adjustment = o && o->struct_size >=
+        offsetof(lt_render_options, consonant_adjustment) + sizeof(o->consonant_adjustment);
+    const double consonant_adjustment = has_consonant_adjustment ? o->consonant_adjustment : 0.0;
+    const bool has_target_consonant = o && o->struct_size >=
+        offsetof(lt_render_options, has_target_consonant) + sizeof(o->has_target_consonant);
+    const double target_consonant_ms = has_target_consonant ? o->target_consonant_ms : 0.0;
+    if (!o || o->struct_size < base_options_size || !o->input || o->input_length < 64 ||
         o->input_length > INT32_MAX || o->sample_rate < 8000 || o->sample_rate > 192000 ||
         !std::isfinite(o->duration_ms) || o->duration_ms <= 0 || o->duration_ms > 600000 ||
         !std::isfinite(o->offset_ms) || !std::isfinite(o->consonant_ms) || !std::isfinite(o->cutoff_ms) ||
         !std::isfinite(o->pitch_hz) || o->pitch_hz <= 0 || !std::isfinite(o->gender) ||
         !std::isfinite(o->pitch_cents) || !std::isfinite(o->breathiness) ||
+        !std::isfinite(formant_shift) ||
+        formant_shift < -100.0 || formant_shift > 100.0 ||
+        !std::isfinite(consonant_adjustment) ||
+        consonant_adjustment < -100.0 || consonant_adjustment > 100.0 ||
+        (has_target_consonant && (!std::isfinite(target_consonant_ms) ||
+         target_consonant_ms < 0.0 || target_consonant_ms > 600000.0)) ||
         !std::isfinite(o->high_frequency_cutoff) || !std::isfinite(o->frame_period_ms) ||
         o->frame_period_ms < 1 || o->frame_period_ms > 20 || !std::isfinite(o->f0_floor) ||
         !std::isfinite(o->f0_ceiling) || o->f0_floor < 20 || o->f0_ceiling <= o->f0_floor ||
@@ -271,13 +266,14 @@ int32_t lt_render(const lt_render_options *o, lt_pcm *out, lt_error *error) {
         render.fs = cached->fs;
         render.w_length = cached->w_length;
         render.fft_size = cached->fft_size;
+        const double formant_ratio = std::pow(2.0, formant_shift / 400.0);
         const size_t frames = static_cast<size_t>(std::ceil(o->duration_ms / render.frame_period)) + 2;
         render.f0.reserve(frames); render.spectrogram.reserve(frames); render.aperiodicity.reserve(frames);
         const double source_duration = source_length * 1000.0 / o->sample_rate;
         for (size_t i = 0; i < frames; ++i) {
             if (cancelled(o)) { fail(error, 2, "render cancelled"); return 2; }
             const double time = std::min(o->duration_ms, i * render.frame_period);
-            const double mapped = source_time(o, time, source_duration);
+            const double mapped = tainah::source_time(o, time, source_duration);
             const double pos = std::clamp(mapped / render.frame_period, 0.0, double(cached->f0.size() - 1));
             const size_t left = static_cast<size_t>(pos);
             const size_t right = std::min(left + 1, cached->f0.size() - 1);
@@ -289,7 +285,15 @@ int32_t lt_render(const lt_render_options *o, lt_pcm *out, lt_error *error) {
             render.aperiodicity.emplace_back(render.w_length);
             for (int bin = 0; bin < render.w_length; ++bin) {
                 const double hz = double(bin) * o->sample_rate / render.fft_size;
-                const double spectrum = cached->spectrogram[left][bin] * (1-f) + cached->spectrogram[right][bin] * f;
+                const double source_bin = std::clamp(bin / formant_ratio, 0.0, double(render.w_length - 1));
+                const int source_left = static_cast<int>(source_bin);
+                const int source_right = std::min(source_left + 1, render.w_length - 1);
+                const double source_fraction = source_bin - source_left;
+                const double spectrum_left = cached->spectrogram[left][source_left] * (1 - source_fraction) +
+                    cached->spectrogram[left][source_right] * source_fraction;
+                const double spectrum_right = cached->spectrogram[right][source_left] * (1 - source_fraction) +
+                    cached->spectrogram[right][source_right] * source_fraction;
+                const double spectrum = spectrum_left * (1-f) + spectrum_right * f;
                 const double tilt = std::pow(std::max(1.0, hz / 1000.0), -std::clamp(o->gender, -100.0, 100.0) / 200.0);
                 const double high_cut = o->high_frequency_cutoff > 0 && hz > o->high_frequency_cutoff ?
                     std::exp(-6.0 * (hz - o->high_frequency_cutoff) / o->sample_rate) : 1.0;

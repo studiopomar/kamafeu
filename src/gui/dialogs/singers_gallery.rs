@@ -107,17 +107,21 @@ impl KamafeuStudioApp {
                                         .spacing([12.0, 12.0])
                                         .show(ui, |ui| {
                                             for (idx, singer) in filtered.iter().enumerate() {
+                                                let active_track = self.project.tracks.get(self.active_track_index);
                                                 let is_current = if singer.is_native_kfv2 {
-                                                    self.project
-                                                        .tracks
-                                                        .get(self.active_track_index)
+                                                    active_track
                                                         .and_then(|track| track.native_voicebank.as_ref())
                                                         .and_then(|reference| reference.source_path_hint.as_deref())
                                                         .is_some_and(|path| std::path::Path::new(path) == singer.path)
                                                 } else {
-                                                    self.voicebank
-                                                        .as_ref()
-                                                        .is_some_and(|v| v.root_path == singer.path)
+                                                    active_track
+                                                        .and_then(|track| track.voicebank_path.as_deref())
+                                                        .map(std::path::Path::new)
+                                                        .is_some_and(|path| path == singer.path)
+                                                        || (active_track
+                                                            .and_then(|track| track.voicebank_path.as_deref())
+                                                            .is_none()
+                                                            && self.voicebank.as_ref().is_some_and(|v| v.root_path == singer.path))
                                                 };
 
                                                 let bg_color = if is_current {
@@ -363,6 +367,7 @@ impl KamafeuStudioApp {
                             track.native_voicebank = Some(reference);
                             track.voicebank_path = Some(path.display().to_string());
                             track.singer = display_name.clone();
+                            track.phonemizer = Some(crate::phonemizer::PhonemizerMode::None);
                             self.is_dirty = true;
                             self.project.render_state = Some(Default::default());
                             self.piano_roll_state.phoneme_cache_hash = 0;

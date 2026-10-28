@@ -540,6 +540,7 @@ fn real_main() -> Result<(), Box<dyn std::error::Error>> {
 
     match command {
         None | Some(Commands::Gui) => {
+            let _terminal_dashboard = kamafeu::terminal_log::start_tui();
             kamafeu::terminal_log::banner(kamafeu::APP_VERSION, kamafeu::APP_CODENAME);
             kamafeu::drivers::process::prewarm_wine_in_background();
             let icon_data = kamafeu::gui::window_icon::load_window_icon().ok();
@@ -565,7 +566,7 @@ fn real_main() -> Result<(), Box<dyn std::error::Error>> {
             let options = NativeOptions {
                 viewport,
                 hardware_acceleration: HardwareAcceleration::Preferred,
-                vsync: true,
+                vsync: false,
                 multisampling: 0,
                 renderer,
                 ..Default::default()
@@ -585,7 +586,7 @@ fn real_main() -> Result<(), Box<dyn std::error::Error>> {
                     let fallback_options = NativeOptions {
                         viewport: fallback_viewport,
                         hardware_acceleration: HardwareAcceleration::Preferred,
-                        vsync: true,
+                        vsync: false,
                         multisampling: 0,
                         renderer: Renderer::Glow,
                         ..Default::default()

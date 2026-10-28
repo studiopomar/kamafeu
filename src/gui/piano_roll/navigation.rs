@@ -170,12 +170,34 @@ pub(crate) fn update_playhead_scroll(
     let visible_width = (ui.available_width() - keyboard_width).max(100.0);
     match state.auto_scroll_mode {
         AutoScrollMode::StationaryCursor => {
-            state.horizontal_scroll_offset = (playhead_x - visible_width * 0.30).max(0.0);
+            let target = (playhead_x
+                - visible_width * state.follow_cursor_pct.clamp(0.0, 100.0) / 100.0)
+                .max(0.0);
+            let dt = ui.input(|input| input.stable_dt).clamp(0.0005, 0.05);
+            let tau = (state.horizontal_follow_smoothing_ms / 1000.0).max(0.0);
+            let alpha = if tau <= f32::EPSILON {
+                1.0
+            } else {
+                1.0 - (-dt / tau).exp()
+            };
+            state.horizontal_scroll_offset += (target - state.horizontal_scroll_offset) * alpha;
         }
         AutoScrollMode::PageScroll => {
             let current = state.horizontal_scroll_offset;
-            if playhead_x > current + visible_width * 0.92 || playhead_x < current {
-                state.horizontal_scroll_offset = (playhead_x - visible_width * 0.08).max(0.0);
+            let min = state.follow_min_pct.clamp(0.0, 99.0) / 100.0;
+            let max = state.follow_max_pct.clamp(min * 100.0 + 1.0, 100.0) / 100.0;
+            if playhead_x > current + visible_width * max
+                || playhead_x < current + visible_width * min
+            {
+                let target = (playhead_x - visible_width * min).max(0.0);
+                let dt = ui.input(|input| input.stable_dt).clamp(0.0005, 0.05);
+                let tau = (state.horizontal_follow_smoothing_ms / 1000.0).max(0.0);
+                let alpha = if tau <= f32::EPSILON {
+                    1.0
+                } else {
+                    1.0 - (-dt / tau).exp()
+                };
+                state.horizontal_scroll_offset += (target - current) * alpha;
             }
         }
         AutoScrollMode::Off => {}
@@ -235,9 +257,14 @@ pub(crate) fn update_pitch_follow(
         return;
     };
 
-    // Lunai-style frame smoothing: approximately 80 ms time constant.
+    // User-adjustable camera response, independent of the audio clock.
     let dt = ui.input(|input| input.stable_dt).clamp(0.0005, 0.05);
-    let alpha = 1.0 - (-dt / 0.080).exp();
+    let tau = (state.vertical_follow_smoothing_ms / 1000.0).max(0.0);
+    let alpha = if tau <= f32::EPSILON {
+        1.0
+    } else {
+        1.0 - (-dt / tau).exp()
+    };
     let smoothed = state
         .pitch_follow_smoothed_midi
         .map_or(target_midi, |current| {

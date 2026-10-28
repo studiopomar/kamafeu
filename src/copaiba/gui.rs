@@ -21,6 +21,9 @@ mod visual_tokens {
     pub const ERROR: Color32 = Color32::from_rgb(245, 130, 124);
 }
 
+#[path = "gui/kamuse_ui.rs"]
+mod kamuse_ui;
+
 pub fn configure_copaiba_theme(ctx: &egui::Context) {
     let mut style = (*ctx.style()).clone();
     let mut visuals = egui::Visuals::dark();
@@ -108,6 +111,26 @@ pub struct CopaibaToolkitApp {
     pub preserve_oto_entry: bool,
     pub config: CopaibaConfig,
     pub native_project: Option<crate::copaiba::native_project::CopaibaNativeProject>,
+    pub kamuse_project: Option<crate::copaiba::kamuse::KamuseProject>,
+    pub kamuse_name: String,
+    pub kamuse_id: String,
+    pub kamuse_language: String,
+    pub kamuse_recording_phones: String,
+    pub kamuse_recording_midi: u8,
+    pub kamuse_new_tone_midi: u8,
+    pub kamuse_selected_tone_midi_edit: u8,
+    pub kamuse_recording_alias_edit: String,
+    pub kamuse_recording_phones_edit: String,
+    pub kamuse_editing_tone_id: Option<String>,
+    pub kamuse_editing_recording: Option<(String, String)>,
+    pub kamuse_pending_delete_tone: Option<String>,
+    pub kamuse_pending_delete_recording: Option<(String, String)>,
+    pub kamuse_selected_tone: Option<String>,
+    pub kamuse_selected_recording: Option<String>,
+    pub kamuse_prompt_filter: String,
+    pub kamuse_waveform: Option<(PathBuf, Vec<f32>, f64)>,
+    pub kamuse_drag_mark: Option<usize>,
+    pub kamuse_marks_dirty: bool,
     pub native_selected_layer: Option<String>,
     pub native_selected_unit: Option<String>,
     pub native_selected_asset: Option<String>,
@@ -153,6 +176,26 @@ impl Default for CopaibaToolkitApp {
             preserve_oto_entry: false,
             config: CopaibaConfig::default(),
             native_project: None,
+            kamuse_project: None,
+            kamuse_name: "Nova voz Kamafeu".into(),
+            kamuse_id: "org.kamafeu.voice.nova".into(),
+            kamuse_language: "pt-BR".into(),
+            kamuse_recording_phones: String::new(),
+            kamuse_recording_midi: 60,
+            kamuse_new_tone_midi: 60,
+            kamuse_selected_tone_midi_edit: 60,
+            kamuse_recording_alias_edit: String::new(),
+            kamuse_recording_phones_edit: String::new(),
+            kamuse_editing_tone_id: None,
+            kamuse_editing_recording: None,
+            kamuse_pending_delete_tone: None,
+            kamuse_pending_delete_recording: None,
+            kamuse_selected_tone: None,
+            kamuse_selected_recording: None,
+            kamuse_prompt_filter: String::new(),
+            kamuse_waveform: None,
+            kamuse_drag_mark: None,
+            kamuse_marks_dirty: false,
             native_selected_layer: None,
             native_selected_unit: None,
             native_selected_asset: None,
@@ -192,6 +235,56 @@ impl Default for CopaibaToolkitApp {
 }
 
 impl CopaibaToolkitApp {
+    pub fn activate_kamuse_project(&mut self, project: crate::copaiba::kamuse::KamuseProject) {
+        self.current_dir = Some(project.root.clone());
+        self.active_oto_path = None;
+        self.selected_source_alias = None;
+        self.preserve_oto_entry = false;
+        self.selected_entry_index = None;
+        self.search_query.clear();
+        self.loaded_waveform = None;
+        self.loaded_wav_filename = None;
+        self.avatar_texture = None;
+        self.kamuse_waveform = None;
+        self.kamuse_drag_mark = None;
+        self.kamuse_marks_dirty = false;
+        self.kamuse_editing_tone_id = None;
+        self.kamuse_editing_recording = None;
+        self.kamuse_pending_delete_tone = None;
+        self.kamuse_pending_delete_recording = None;
+        self.native_selected_layer = None;
+        self.native_selected_unit = None;
+        self.native_selected_asset = None;
+        self.native_project = None;
+        self.kamuse_selected_tone = project.cantor.tons.first().map(|tone| tone.id.clone());
+        self.kamuse_selected_recording = project
+            .cantor
+            .tons
+            .first()
+            .and_then(|tone| tone.gravacoes.first())
+            .map(|take| take.id.clone());
+        self.kamuse_project = Some(project);
+        self.config = crate::copaiba::CopaibaConfig::default();
+        self.status_message.clear();
+    }
+
+    pub fn kamuse_import_recording(&mut self, source: PathBuf) -> Result<(), String> {
+        let phones = self
+            .kamuse_recording_phones
+            .split_whitespace()
+            .map(str::to_owned)
+            .collect::<Vec<_>>();
+        let project = self
+            .kamuse_project
+            .as_mut()
+            .ok_or("nenhum banco KAMUSE aberto")?;
+        let recording_id =
+            project.import_recording(&source, self.kamuse_recording_midi, &phones)?;
+        self.kamuse_selected_tone = Some(format!("midi-{}", self.kamuse_recording_midi));
+        self.kamuse_selected_recording = Some(recording_id);
+        Ok(())
+    }
+
     /// Opens a voicebank and selects the exact alias requested by the editor.
     /// This is used by the Kamafeu phoneme ruler so manual oto.ini fixes start on
     /// the offending sample instead of making the user search the bank again.
@@ -228,6 +321,15 @@ impl CopaibaToolkitApp {
     pub fn open_dir(&mut self, path: PathBuf) {
         self.pending_classic_migration = None;
         self.migration_report = None;
+        if path.is_dir() && path.join("cantor.toml").is_file() {
+            match crate::copaiba::kamuse::KamuseProject::load(&path) {
+                Ok(project) => self.activate_kamuse_project(project),
+                Err(error) => {
+                    self.status_message = format!("Erro ao abrir banco no KAMUSE: {error}")
+                }
+            }
+            return;
+        }
         if path.is_file()
             && path
                 .extension()
@@ -2011,6 +2113,10 @@ pub fn draw_copaiba_toolkit_ui(
     ui: &mut egui::Ui,
 ) {
     ui.vertical(|ui| {
+        if app.kamuse_project.is_some() {
+            kamuse_ui::draw_kamuse_authoring_ui(app, audio_player, ui);
+            return;
+        }
         egui::Frame::none()
             .fill(visual_tokens::PANEL)
             .stroke(Stroke::new(1.0_f32, visual_tokens::BORDER))

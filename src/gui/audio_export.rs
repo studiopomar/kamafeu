@@ -131,7 +131,7 @@ impl KamafeuStudioApp {
                 save_path.file_name().unwrap_or_default().to_string_lossy()
             );
 
-            let fx_config = self.fx_rack_config.clone();
+            let fx_config = self.project.master_fx.clone().unwrap_or_default();
             let mastering_options = MasteringOptions {
                 target_sample_rate: self.config.export.sample_rate,
                 normalize_peak_db: self
@@ -172,7 +172,8 @@ impl KamafeuStudioApp {
                     let _ = progress_tx.send(event);
                 };
 
-                let mut fx_proc = crate::audio::FxRackProcessor::new(fx_config, sample_rate);
+                let mut fx_proc =
+                    crate::audio::FxRackProcessor::new(fx_config.clone(), sample_rate);
 
                 if scope == ExportAudioScope::SeparateTrackStems {
                     // Export individual stems
@@ -233,7 +234,11 @@ impl KamafeuStudioApp {
                                 let _ = export_tx.send(Err(error));
                                 return;
                             }
-                            fx_proc.process_interleaved(&mut audio.samples, audio.sample_rate);
+                            let mut stem_fx = crate::audio::FxRackProcessor::new(
+                                fx_config.clone(),
+                                audio.sample_rate,
+                            );
+                            stem_fx.process_interleaved(&mut audio.samples, audio.sample_rate);
                             audio.sample_rate = mastering_options.prepare(
                                 &mut audio.samples,
                                 audio.sample_rate,
@@ -562,7 +567,7 @@ impl KamafeuStudioApp {
             let active_vb = self.voicebank.clone().unwrap_or(dummy_vb);
             let mut vocal_mode_params = self.vocal_mode_params.clone();
             vocal_mode_params.resampler_instances = self.config.dsp.resampler_instances.max(1);
-            let fx_config = self.fx_rack_config.clone();
+            let fx_config = self.project.master_fx.clone().unwrap_or_default();
             let mastering_options = MasteringOptions {
                 target_sample_rate: self.config.export.sample_rate,
                 normalize_peak_db: self
@@ -663,7 +668,8 @@ impl KamafeuStudioApp {
                 report_render_progress(crate::renderer::RenderProgressEvent::stage(
                     crate::renderer::RenderStage::Finalizing,
                 ));
-                let mut fx_proc = crate::audio::FxRackProcessor::new(fx_config, sample_rate);
+                let mut fx_proc =
+                    crate::audio::FxRackProcessor::new(fx_config.clone(), sample_rate);
                 fx_proc.process_interleaved(&mut audio.samples, audio.sample_rate);
                 audio.sample_rate = mastering_options.prepare(
                     &mut audio.samples,

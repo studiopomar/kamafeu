@@ -15,9 +15,10 @@ modules:
     buildsystem: simple
     build-commands:
       - install -Dm755 target/release/kamafeu /app/bin/kamafeu
+      - install -Dm755 target/console-tui-build/bin/Release/kamafeu-tui /app/bin/kamafeu-tui
       - install -Dm755 target/release/copaiba /app/bin/copaiba
-      - install -Dm755 target/tainah-package/liblessampler_tainah.so.1 /app/lib/kamafeu/liblessampler_tainah.so.1
-      - install -Dm644 target/tainah-package/lessampler-ng-LGPL-3.0.txt /app/share/licenses/kamafeu/lessampler-ng-LGPL-3.0.txt
+      - install -Dm755 target/tainah-package/libtainah_motor.so.1 /app/lib/kamafeu/libtainah_motor.so.1
+      - install -Dm644 target/tainah-package/licenca-da-base-LGPL-3.0.txt /app/share/licenses/kamafeu/licenca-da-base-LGPL-3.0.txt
       - install -Dm644 packaging/kamafeu.desktop /app/share/applications/org.studiopomar.Kamafeu.desktop
       - install -Dm644 assets/icon.png /app/share/icons/hicolor/256x256/apps/kamafeu.png
     sources:

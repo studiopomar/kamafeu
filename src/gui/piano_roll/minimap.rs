@@ -207,6 +207,7 @@ pub(super) fn draw(
         // shared playhead instead.
         if minimap_resp.drag_started() {
             state.minimap_drag_scroll_origin = Some(state.horizontal_scroll_offset);
+            state.minimap_drag_pointer_origin = ui.input(|i| i.pointer.press_origin().map(|p| p.x));
             state.minimap_navigation_active = true;
             state.horizontal_follow_user_override = true;
             state.auto_scroll_mode = crate::gui::types::AutoScrollMode::Off;
@@ -215,15 +216,18 @@ pub(super) fn draw(
             state.minimap_navigation_active = true;
             state.horizontal_follow_user_override = true;
             state.auto_scroll_mode = crate::gui::types::AutoScrollMode::Off;
-            // `drag_delta` belongs to the response that claimed the pointer;
-            // unlike the current pointer position, it remains valid after the
-            // pointer crosses the radar's edge. Requiring the pointer to stay
-            // inside the thin radar strip was what made the viewport appear
-            // locked as soon as a trackpad drag escaped that strip.
+            // egui drag_delta is per-frame. Anchor both coordinates at press
+            // so repeated moves and stationary held frames keep the viewport.
             let origin = state
                 .minimap_drag_scroll_origin
                 .unwrap_or(timeline_scroll_x);
-            let delta_ms = (minimap_resp.drag_delta().x / map_span_x) as f64 * total_canvas_ms;
+            let pointer_delta = ui.input(|i| {
+                i.pointer
+                    .interact_pos()
+                    .zip(state.minimap_drag_pointer_origin)
+                    .map_or(0.0, |(p, start)| p.x - start)
+            });
+            let delta_ms = (pointer_delta / map_span_x) as f64 * total_canvas_ms;
             state.horizontal_scroll_offset =
                 (origin + (delta_ms * state.px_per_ms as f64) as f32).clamp(0.0, max_scroll_x);
             ui.ctx().request_repaint();
@@ -243,6 +247,7 @@ pub(super) fn draw(
             // The release may happen outside the radar. Use the global button
             // state so a completed drag always drops its saved origin.
             state.minimap_drag_scroll_origin = None;
+            state.minimap_drag_pointer_origin = None;
         }
     }
 

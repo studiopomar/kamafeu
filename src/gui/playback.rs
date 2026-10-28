@@ -6,6 +6,7 @@ use crate::oto::Voicebank;
 #[cfg(not(target_arch = "wasm32"))]
 use crate::renderer::ProgressiveChunk;
 use crate::renderer::ProjectRenderer;
+use eframe::egui;
 use std::path::PathBuf;
 use std::sync::atomic::AtomicBool;
 use std::sync::atomic::Ordering;
@@ -539,7 +540,16 @@ impl KamafeuStudioApp {
             options.hash(&mut hasher);
         }
         if let Some(track) = self.project.tracks.get(self.active_track_index) {
-            if let Ok(track_data) = serde_json::to_vec(track) {
+            // The piano-roll guide is a dry vocal reference. Mixer-only edits
+            // (mute, solo, volume, pan and track FX) cannot change that signal,
+            // so they must not invalidate an expensive native render.
+            let mut reference_track = track.clone();
+            reference_track.mute = false;
+            reference_track.solo = false;
+            reference_track.volume_db = 0.0;
+            reference_track.pan = 0.0;
+            reference_track.fx_rack = None;
+            if let Ok(track_data) = serde_json::to_vec(&reference_track) {
                 track_data.hash(&mut hasher);
             }
         }
@@ -591,10 +601,23 @@ impl KamafeuStudioApp {
         hasher.finish()
     }
 
-    pub fn trigger_background_waveform_preview(&mut self) {
+    pub fn trigger_background_waveform_preview(&mut self, ctx: &egui::Context) {
         if self.transport_is_active() || self.export_rx.is_some() {
             return;
         }
+
+        // Hashing the active part serializes its notes. Four checks per second
+        // are sufficient for a debounced preview and keep idle editing cheap.
+        const HASH_CHECK_INTERVAL: std::time::Duration = std::time::Duration::from_millis(250);
+        let now = Instant::now();
+        if let Some(last_check) = self.preview_waveform_last_hash_check {
+            let remaining = HASH_CHECK_INTERVAL.saturating_sub(last_check.elapsed());
+            if !remaining.is_zero() {
+                ctx.request_repaint_after(remaining);
+                return;
+            }
+        }
+        self.preview_waveform_last_hash_check = Some(now);
 
         let has_notes = self
             .project
@@ -606,25 +629,52 @@ impl KamafeuStudioApp {
                 self.piano_roll_state.rendered_waveform_peaks.clear();
             }
             self.preview_waveform_cache_hash = 0;
+            self.preview_waveform_pending = None;
+            self.piano_roll_state.waveform_rendering = false;
+            return;
+        }
+
+        // Let an active gesture settle before serializing the notes or
+        // scheduling another WORLD render. Keep any valid in-flight result;
+        // after release the hash decides whether it is still current.
+        if ctx.input(|input| input.pointer.primary_down() || input.pointer.secondary_down()) {
+            ctx.request_repaint_after(HASH_CHECK_INTERVAL);
             return;
         }
 
         let current_hash = self.compute_preview_waveform_hash();
-        if current_hash == self.preview_waveform_cache_hash
-            && (!self.piano_roll_state.rendered_waveform_peaks.is_empty()
-                || self.preview_waveform_rx.is_some())
-        {
+        if current_hash == self.preview_waveform_cache_hash {
+            self.preview_waveform_pending = None;
             return;
         }
 
-        if let Some(cancel) = self.preview_waveform_cancel.take() {
-            cancel.store(true, Ordering::Relaxed);
+        const PREVIEW_DEBOUNCE: std::time::Duration = std::time::Duration::from_millis(250);
+        match self.preview_waveform_pending {
+            Some((pending_hash, started)) if pending_hash == current_hash => {
+                let remaining = PREVIEW_DEBOUNCE.saturating_sub(started.elapsed());
+                if !remaining.is_zero() {
+                    ctx.request_repaint_after(remaining);
+                    return;
+                }
+            }
+            _ => {
+                self.preview_waveform_pending = Some((current_hash, now));
+                if let Some(cancel) = self.preview_waveform_cancel.take() {
+                    cancel.store(true, Ordering::Relaxed);
+                }
+                self.preview_waveform_rx = None;
+                ctx.request_repaint_after(PREVIEW_DEBOUNCE);
+                return;
+            }
         }
+
+        self.preview_waveform_pending = None;
 
         // Keep the last valid waveform visible while the replacement is
         // rendering. Clearing here creates the same apparent "fixed after
         // pause and rerender" symptom as a broken progressive merge.
         self.preview_waveform_cache_hash = current_hash;
+        self.piano_roll_state.waveform_rendering = true;
         let cancel = Arc::new(AtomicBool::new(false));
         self.preview_waveform_cancel = Some(cancel.clone());
 
@@ -638,9 +688,14 @@ impl KamafeuStudioApp {
             .parts
             .retain(|part| part.track_index == self.active_track_index);
         project.wave_parts.clear();
+        // Master processing and mixer controls are intentionally absent from
+        // this vocal-only reference render.
+        project.master_fx = None;
         for (track_index, track) in project.tracks.iter_mut().enumerate() {
             track.mute = track_index != self.active_track_index;
             track.solo = false;
+            track.volume_db = 0.0;
+            track.pan = 0.0;
             // The lower piano-roll waveform is a stable vocal reference. FX
             // remain active for playback/export, but time-based effects can
             // add tails and dynamics processing can reshape every peak. Using
@@ -695,14 +750,16 @@ impl KamafeuStudioApp {
                 return;
             }
 
-            if !rendered_audio.samples.is_empty() {
+            if !cancel.load(Ordering::Relaxed) {
                 let mut temp_state = PianoRollState::default();
+                if !rendered_audio.samples.is_empty() {
                 temp_state.update_rendered_waveform(
                     &rendered_audio.samples,
                     rendered_audio.sample_rate,
                     rendered_audio.channels,
                     0.0,
                 );
+                }
                 let _ = tx.send((current_hash, temp_state.rendered_waveform_peaks));
             }
         });
@@ -721,14 +778,16 @@ impl KamafeuStudioApp {
                 Some(cancel.as_ref()),
             );
 
-            if !cancel.load(Ordering::Relaxed) && !rendered_audio.samples.is_empty() {
+            if !cancel.load(Ordering::Relaxed) {
                 let mut temp_state = PianoRollState::default();
-                temp_state.update_rendered_waveform(
-                    &rendered_audio.samples,
-                    rendered_audio.sample_rate,
-                    rendered_audio.channels,
-                    0.0,
-                );
+                if !rendered_audio.samples.is_empty() {
+                    temp_state.update_rendered_waveform(
+                        &rendered_audio.samples,
+                        rendered_audio.sample_rate,
+                        rendered_audio.channels,
+                        0.0,
+                    );
+                }
                 let _ = tx.send((current_hash, temp_state.rendered_waveform_peaks));
             }
         }

@@ -5,6 +5,7 @@ pub(super) fn draw(
     theme: &ThemeConfig,
     lang: crate::config::AppLanguage,
     voicebank: Option<&Voicebank>,
+    active_native_singer: Option<&crate::oto::SingerInfo>,
     recent_voicebanks: &[PathBuf],
     singers_list: &[crate::oto::SingerInfo],
     singer_search_query: &mut String,
@@ -15,11 +16,17 @@ pub(super) fn draw(
     on_reload_singers: &mut dyn FnMut(),
     on_open_gallery: &mut dyn FnMut(),
 ) {
-    let vb_name = voicebank
-        .map(|v| v.name.as_str())
+    let active_is_diffsinger =
+        active_native_singer.is_some_and(|singer| singer.voice_type.starts_with("DiffSinger"));
+    let classic_voicebank_is_active = voicebank
+        .is_some_and(|vb| active_native_singer.is_none_or(|singer| singer.path == vb.root_path));
+    let vb_name = active_native_singer
+        .map(|singer| singer.name.as_str())
+        .or_else(|| voicebank.map(|v| v.name.as_str()))
         .unwrap_or_else(|| lang.tr("Cantor Padrão", "Default Singer"));
-    let vb_author = voicebank
-        .map(|v| v.author.as_str())
+    let vb_author = active_native_singer
+        .map(|singer| singer.author.as_str())
+        .or_else(|| voicebank.map(|v| v.author.as_str()))
         .unwrap_or("UTAU Voicebank");
     let initial_letter = vb_name
         .chars()
@@ -49,38 +56,43 @@ pub(super) fn draw(
                     );
 
                     let mut loaded_image = false;
-                    if let Some(vb) = voicebank {
-                        if let Some(ref img_path) = vb.image_path {
-                            if let Some(texture) =
-                                crate::gui::image_cache::texture_for_path(ui.ctx(), img_path)
-                            {
-                                let [img_w, img_h] = texture.size();
-                                let img_w = img_w as f32;
-                                let img_h = img_h as f32;
-                                if img_w > 0.0 && img_h > 0.0 {
-                                    let aspect = img_w / img_h;
-                                    let (draw_w, draw_h) = if aspect >= 1.0 {
-                                        (54.0, (54.0 / aspect).min(54.0))
-                                    } else {
-                                        ((54.0 * aspect).min(54.0), 54.0)
-                                    };
+                    let active_image = active_native_singer
+                        .and_then(|singer| singer.image_path.as_ref())
+                        .or_else(|| {
+                            classic_voicebank_is_active
+                                .then(|| voicebank.and_then(|vb| vb.image_path.as_ref()))
+                                .flatten()
+                        });
+                    if let Some(img_path) = active_image {
+                        if let Some(texture) =
+                            crate::gui::image_cache::texture_for_path(ui.ctx(), img_path)
+                        {
+                            let [img_w, img_h] = texture.size();
+                            let img_w = img_w as f32;
+                            let img_h = img_h as f32;
+                            if img_w > 0.0 && img_h > 0.0 {
+                                let aspect = img_w / img_h;
+                                let (draw_w, draw_h) = if aspect >= 1.0 {
+                                    (54.0, (54.0 / aspect).min(54.0))
+                                } else {
+                                    ((54.0 * aspect).min(54.0), 54.0)
+                                };
 
-                                    let draw_rect = Rect::from_center_size(
-                                        avatar_rect.center(),
-                                        Vec2::new(draw_w, draw_h),
-                                    );
-                                    let uv = egui::Rect::from_min_max(
-                                        Pos2::new(0.0, 0.0),
-                                        Pos2::new(1.0, 1.0),
-                                    );
-                                    painter.image(
-                                        texture.id(),
-                                        draw_rect,
-                                        uv,
-                                        ui.visuals().text_color(),
-                                    );
-                                    loaded_image = true;
-                                }
+                                let draw_rect = Rect::from_center_size(
+                                    avatar_rect.center(),
+                                    Vec2::new(draw_w, draw_h),
+                                );
+                                let uv = egui::Rect::from_min_max(
+                                    Pos2::new(0.0, 0.0),
+                                    Pos2::new(1.0, 1.0),
+                                );
+                                painter.image(
+                                    texture.id(),
+                                    draw_rect,
+                                    uv,
+                                    ui.visuals().text_color(),
+                                );
+                                loaded_image = true;
                             }
                         }
                     }
@@ -114,15 +126,24 @@ pub(super) fn draw(
                                 .size(10.0)
                                 .color(theme.text_muted_c32()),
                         );
-                        if let Some(vb) = voicebank {
+                        if classic_voicebank_is_active && !active_is_diffsinger {
+                            if let Some(vb) = voicebank {
+                                ui.label(
+                                    RichText::new(format!(
+                                        "{} {}",
+                                        vb.entries.len(),
+                                        lang.tr("amostras", "samples")
+                                    ))
+                                    .size(9.0)
+                                    .color(theme.text_muted_c32()),
+                                );
+                            }
+                        }
+                        if let Some(singer) = active_native_singer {
                             ui.label(
-                                RichText::new(format!(
-                                    "{} {}",
-                                    vb.entries.len(),
-                                    lang.tr("amostras", "samples")
-                                ))
-                                .size(9.0)
-                                .color(theme.text_muted_c32()),
+                                RichText::new(&singer.voice_type)
+                                    .size(9.0)
+                                    .color(theme.text_muted_c32()),
                             );
                         }
                     });
@@ -166,36 +187,38 @@ pub(super) fn draw(
                     }
                 });
 
-                if let Some(vb) = voicebank {
-                    if !vb.character_info.is_empty() || !vb.readme_info.is_empty() {
-                        ui.add_space(4.0);
-                        egui::CollapsingHeader::new(
-                            RichText::new(lang.tr("Detalhes & Readme", "Details & Readme"))
-                                .size(10.0)
-                                .color(theme.text_muted_c32()),
-                        )
-                        .show(ui, |ui| {
-                            egui::ScrollArea::vertical()
-                                .id_salt("right_panel_vb_desc_scroll")
-                                .max_height(90.0)
-                                .show(ui, |ui| {
-                                    if !vb.character_info.is_empty() {
-                                        ui.label(
-                                            RichText::new(&vb.character_info)
-                                                .size(9.5)
-                                                .color(theme.accent_c32()),
-                                        );
-                                    }
-                                    if !vb.readme_info.is_empty() {
-                                        ui.separator();
-                                        ui.label(
-                                            RichText::new(&vb.readme_info)
-                                                .size(9.0)
-                                                .color(theme.text_muted_c32()),
-                                        );
-                                    }
-                                });
-                        });
+                if classic_voicebank_is_active && !active_is_diffsinger {
+                    if let Some(vb) = voicebank {
+                        if !vb.character_info.is_empty() || !vb.readme_info.is_empty() {
+                            ui.add_space(4.0);
+                            egui::CollapsingHeader::new(
+                                RichText::new(lang.tr("Detalhes & Readme", "Details & Readme"))
+                                    .size(10.0)
+                                    .color(theme.text_muted_c32()),
+                            )
+                            .show(ui, |ui| {
+                                egui::ScrollArea::vertical()
+                                    .id_salt("right_panel_vb_desc_scroll")
+                                    .max_height(90.0)
+                                    .show(ui, |ui| {
+                                        if !vb.character_info.is_empty() {
+                                            ui.label(
+                                                RichText::new(&vb.character_info)
+                                                    .size(9.5)
+                                                    .color(theme.accent_c32()),
+                                            );
+                                        }
+                                        if !vb.readme_info.is_empty() {
+                                            ui.separator();
+                                            ui.label(
+                                                RichText::new(&vb.readme_info)
+                                                    .size(9.0)
+                                                    .color(theme.text_muted_c32()),
+                                            );
+                                        }
+                                    });
+                            });
+                        }
                     }
                 }
                 if !recent_voicebanks.is_empty() {
@@ -291,8 +314,10 @@ pub(super) fn draw(
                             );
                         } else {
                             for singer in filtered_singers {
-                                let is_current =
-                                    voicebank.is_some_and(|v| v.root_path == singer.path);
+                                let is_current = active_native_singer
+                                    .is_some_and(|active| active.path == singer.path)
+                                    || (active_native_singer.is_none()
+                                        && voicebank.is_some_and(|v| v.root_path == singer.path));
                                 let item_bg = if is_current {
                                     theme.accent_c32().linear_multiply(0.2)
                                 } else {
@@ -374,19 +399,34 @@ pub(super) fn draw(
                                             ui.with_layout(
                                                 egui::Layout::right_to_left(egui::Align::Center),
                                                 |ui| {
-                                                    if !is_current {
+                                                    if !is_current && singer.selectable {
                                                         if ui
                                                             .small_button(lang.tr("Usar", "Use"))
                                                             .clicked()
                                                         {
                                                             on_load_vb(Some(singer.path.clone()));
                                                         }
-                                                    } else {
+                                                    } else if is_current {
                                                         ui.label(
                                                             RichText::new("[OK]")
                                                                 .strong()
                                                                 .size(11.0)
                                                                 .color(theme.accent_c32()),
+                                                        );
+                                                    } else {
+                                                        ui.add_enabled(
+                                                            false,
+                                                            egui::Button::new(
+                                                                lang.tr(
+                                                                    "Indisponível",
+                                                                    "Unavailable",
+                                                                ),
+                                                            ),
+                                                        )
+                                                        .on_hover_text(
+                                                            singer.diagnostic.as_deref().unwrap_or(
+                                                                "Banco sem suporte de render",
+                                                            ),
                                                         );
                                                     }
                                                 },
@@ -443,6 +483,8 @@ pub(super) fn draw(
             .stroke(theme.card_stroke())
             .inner_margin(egui::Margin::same(8.0))
             .show(ui, |ui| {
+                let is_diffsinger = active_native_singer
+                    .is_some_and(|singer| singer.voice_type.starts_with("DiffSinger"));
                 ui.label(
                     RichText::new(lang.tr("Modo Vocal & Timbre", "Vocal Mode & Timbre"))
                         .strong()
@@ -451,156 +493,168 @@ pub(super) fn draw(
                 );
                 ui.separator();
 
-                ui.label(
-                    RichText::new(lang.tr("Fonetizador:", "Phonemizer:"))
-                        .size(10.0)
-                        .color(theme.text_muted_c32()),
-                );
-                egui::ComboBox::from_id_salt("phonemizer_catalog_unified")
-                    .selected_text(vocal_mode_params.phonemizer_mode.display_name())
-                    .show_ui(ui, |ui| {
-                        ui.selectable_value(
-                            &mut vocal_mode_params.phonemizer_mode,
-                            crate::phonemizer::PhonemizerMode::None,
-                            "Manual — Sem fonemizador [Kamafeu nativo]",
-                        );
-                        let mut language = None;
-                        for mode in crate::phonemizer::PhonemizerMode::ALL {
-                            let info = mode.info();
-                            if language != Some(info.language) {
-                                if language.is_some() {
-                                    ui.separator();
-                                }
-                                ui.label(
-                                    RichText::new(info.language)
-                                        .strong()
-                                        .color(theme.accent_c32()),
-                                );
-                                language = Some(info.language);
-                            }
-                            ui.selectable_value(
-                                &mut vocal_mode_params.phonemizer_mode,
-                                mode,
-                                format!("  {} · {} [{}]", info.name, mode.author(), info.source),
-                            );
-                        }
-                    });
-                if false {
-                    egui::ComboBox::from_id_salt("phonemizer_mode_cb_unified")
-                        .selected_text(match vocal_mode_params.phonemizer_mode {
-                            crate::phonemizer::PhonemizerMode::None => {
-                                lang.tr("Sem Fonemizador (Manual)", "No Phonemizer (Manual)")
-                            }
-                            crate::phonemizer::PhonemizerMode::BasicCV => "JA: Basic CV",
-                            crate::phonemizer::PhonemizerMode::VCV => "JA: Japanese VCV",
-                            crate::phonemizer::PhonemizerMode::CVVC => "JA: Japanese CVVC",
-                            crate::phonemizer::PhonemizerMode::EnglishArpasing => {
-                                "EN: English Arpasing"
-                            }
-                            crate::phonemizer::PhonemizerMode::EnglishVCCV => "EN: English VCCV",
-                            crate::phonemizer::PhonemizerMode::EnglishG2P => {
-                                lang.tr("EN: English G2P (Palavras)", "EN: English G2P (Words)")
-                            }
-                            crate::phonemizer::PhonemizerMode::PortugueseBrapaVCCV => {
-                                "PT: VCCV BRAPA (xiao / 3.7)"
-                            }
-                            crate::phonemizer::PhonemizerMode::PortugueseBrapaCVC => {
-                                "PT: BRAPA CVC"
-                            }
-                            crate::phonemizer::PhonemizerMode::PortugueseCVVC => {
-                                "PT: Portuguese CVVC"
-                            }
-                            crate::phonemizer::PhonemizerMode::PortugueseVCV => {
-                                "PT: Portuguese VCV"
-                            }
-                            crate::phonemizer::PhonemizerMode::PortugueseG2P => {
-                                lang.tr("PT: Português G2P", "PT: Portuguese G2P")
-                            }
-                            _ => "Language G2P",
-                        })
+                if !is_diffsinger {
+                    ui.label(
+                        RichText::new(lang.tr("Fonetizador:", "Phonemizer:"))
+                            .size(10.0)
+                            .color(theme.text_muted_c32()),
+                    );
+                    egui::ComboBox::from_id_salt("phonemizer_catalog_unified")
+                        .selected_text(vocal_mode_params.phonemizer_mode.display_name())
                         .show_ui(ui, |ui| {
                             ui.selectable_value(
                                 &mut vocal_mode_params.phonemizer_mode,
                                 crate::phonemizer::PhonemizerMode::None,
-                                lang.tr("• Sem Fonemizador (Manual)", "• No Phonemizer (Manual)"),
+                                "Manual — Sem fonemizador [Kamafeu nativo]",
                             );
-                            ui.separator();
-                            ui.label(
-                                RichText::new(lang.tr("[JA] Japonês", "[JA] Japanese"))
-                                    .strong()
-                                    .color(theme.accent_c32()),
-                            );
-                            ui.selectable_value(
-                                &mut vocal_mode_params.phonemizer_mode,
-                                crate::phonemizer::PhonemizerMode::BasicCV,
-                                "  JA: Basic CV",
-                            );
-                            ui.selectable_value(
-                                &mut vocal_mode_params.phonemizer_mode,
-                                crate::phonemizer::PhonemizerMode::VCV,
-                                "  JA: Japanese VCV",
-                            );
-                            ui.selectable_value(
-                                &mut vocal_mode_params.phonemizer_mode,
-                                crate::phonemizer::PhonemizerMode::CVVC,
-                                "  JA: Japanese CVVC",
-                            );
-                            ui.separator();
-                            ui.label(
-                                RichText::new(lang.tr("[PT] Português", "[PT] Portuguese"))
-                                    .strong()
-                                    .color(theme.accent_c32()),
-                            );
-                            ui.selectable_value(
-                                &mut vocal_mode_params.phonemizer_mode,
-                                crate::phonemizer::PhonemizerMode::PortugueseBrapaVCCV,
-                                "  PT: VCCV BRAPA (xiao / 3.7)",
-                            );
-                            ui.selectable_value(
-                                &mut vocal_mode_params.phonemizer_mode,
-                                crate::phonemizer::PhonemizerMode::PortugueseG2P,
-                                lang.tr(
-                                    "  PT: Português G2P (Palavras -> Fonemas)",
-                                    "  PT: Portuguese G2P (Words -> Phonemes)",
-                                ),
-                            );
-                            ui.selectable_value(
-                                &mut vocal_mode_params.phonemizer_mode,
-                                crate::phonemizer::PhonemizerMode::PortugueseBrapaCVC,
-                                "  PT: BRAPA CVC",
-                            );
-                            ui.selectable_value(
-                                &mut vocal_mode_params.phonemizer_mode,
-                                crate::phonemizer::PhonemizerMode::PortugueseCVVC,
-                                "  PT: Portuguese CVVC",
-                            );
-                            ui.selectable_value(
-                                &mut vocal_mode_params.phonemizer_mode,
-                                crate::phonemizer::PhonemizerMode::PortugueseVCV,
-                                "  PT: Portuguese VCV",
-                            );
-                            ui.separator();
-                            ui.label(
-                                RichText::new(lang.tr("[EN] Inglês", "[EN] English"))
-                                    .strong()
-                                    .color(theme.accent_c32()),
-                            );
-                            ui.selectable_value(
-                                &mut vocal_mode_params.phonemizer_mode,
-                                crate::phonemizer::PhonemizerMode::EnglishG2P,
-                                "  EN: English G2P",
-                            );
-                            ui.selectable_value(
-                                &mut vocal_mode_params.phonemizer_mode,
-                                crate::phonemizer::PhonemizerMode::EnglishArpasing,
-                                "  EN: English Arpasing",
-                            );
-                            ui.selectable_value(
-                                &mut vocal_mode_params.phonemizer_mode,
-                                crate::phonemizer::PhonemizerMode::EnglishVCCV,
-                                "  EN: English VCCV",
-                            );
+                            let mut language = None;
+                            for mode in crate::phonemizer::PhonemizerMode::ALL {
+                                let info = mode.info();
+                                if language != Some(info.language) {
+                                    if language.is_some() {
+                                        ui.separator();
+                                    }
+                                    ui.label(
+                                        RichText::new(info.language)
+                                            .strong()
+                                            .color(theme.accent_c32()),
+                                    );
+                                    language = Some(info.language);
+                                }
+                                ui.selectable_value(
+                                    &mut vocal_mode_params.phonemizer_mode,
+                                    mode,
+                                    format!(
+                                        "  {} · {} [{}]",
+                                        info.name,
+                                        mode.author(),
+                                        info.source
+                                    ),
+                                );
+                            }
                         });
+                    if false {
+                        egui::ComboBox::from_id_salt("phonemizer_mode_cb_unified")
+                            .selected_text(match vocal_mode_params.phonemizer_mode {
+                                crate::phonemizer::PhonemizerMode::None => {
+                                    lang.tr("Sem Fonemizador (Manual)", "No Phonemizer (Manual)")
+                                }
+                                crate::phonemizer::PhonemizerMode::BasicCV => "JA: Basic CV",
+                                crate::phonemizer::PhonemizerMode::VCV => "JA: Japanese VCV",
+                                crate::phonemizer::PhonemizerMode::CVVC => "JA: Japanese CVVC",
+                                crate::phonemizer::PhonemizerMode::EnglishArpasing => {
+                                    "EN: English Arpasing"
+                                }
+                                crate::phonemizer::PhonemizerMode::EnglishVCCV => {
+                                    "EN: English VCCV"
+                                }
+                                crate::phonemizer::PhonemizerMode::EnglishG2P => {
+                                    lang.tr("EN: English G2P (Palavras)", "EN: English G2P (Words)")
+                                }
+                                crate::phonemizer::PhonemizerMode::PortugueseBrapaVCCV => {
+                                    "PT: VCCV BRAPA (xiao / 3.7)"
+                                }
+                                crate::phonemizer::PhonemizerMode::PortugueseBrapaCVC => {
+                                    "PT: BRAPA CVC"
+                                }
+                                crate::phonemizer::PhonemizerMode::PortugueseCVVC => {
+                                    "PT: Portuguese CVVC"
+                                }
+                                crate::phonemizer::PhonemizerMode::PortugueseVCV => {
+                                    "PT: Portuguese VCV"
+                                }
+                                crate::phonemizer::PhonemizerMode::PortugueseG2P => {
+                                    lang.tr("PT: Português G2P", "PT: Portuguese G2P")
+                                }
+                                _ => "Language G2P",
+                            })
+                            .show_ui(ui, |ui| {
+                                ui.selectable_value(
+                                    &mut vocal_mode_params.phonemizer_mode,
+                                    crate::phonemizer::PhonemizerMode::None,
+                                    lang.tr(
+                                        "• Sem Fonemizador (Manual)",
+                                        "• No Phonemizer (Manual)",
+                                    ),
+                                );
+                                ui.separator();
+                                ui.label(
+                                    RichText::new(lang.tr("[JA] Japonês", "[JA] Japanese"))
+                                        .strong()
+                                        .color(theme.accent_c32()),
+                                );
+                                ui.selectable_value(
+                                    &mut vocal_mode_params.phonemizer_mode,
+                                    crate::phonemizer::PhonemizerMode::BasicCV,
+                                    "  JA: Basic CV",
+                                );
+                                ui.selectable_value(
+                                    &mut vocal_mode_params.phonemizer_mode,
+                                    crate::phonemizer::PhonemizerMode::VCV,
+                                    "  JA: Japanese VCV",
+                                );
+                                ui.selectable_value(
+                                    &mut vocal_mode_params.phonemizer_mode,
+                                    crate::phonemizer::PhonemizerMode::CVVC,
+                                    "  JA: Japanese CVVC",
+                                );
+                                ui.separator();
+                                ui.label(
+                                    RichText::new(lang.tr("[PT] Português", "[PT] Portuguese"))
+                                        .strong()
+                                        .color(theme.accent_c32()),
+                                );
+                                ui.selectable_value(
+                                    &mut vocal_mode_params.phonemizer_mode,
+                                    crate::phonemizer::PhonemizerMode::PortugueseBrapaVCCV,
+                                    "  PT: VCCV BRAPA (xiao / 3.7)",
+                                );
+                                ui.selectable_value(
+                                    &mut vocal_mode_params.phonemizer_mode,
+                                    crate::phonemizer::PhonemizerMode::PortugueseG2P,
+                                    lang.tr(
+                                        "  PT: Português G2P (Palavras -> Fonemas)",
+                                        "  PT: Portuguese G2P (Words -> Phonemes)",
+                                    ),
+                                );
+                                ui.selectable_value(
+                                    &mut vocal_mode_params.phonemizer_mode,
+                                    crate::phonemizer::PhonemizerMode::PortugueseBrapaCVC,
+                                    "  PT: BRAPA CVC",
+                                );
+                                ui.selectable_value(
+                                    &mut vocal_mode_params.phonemizer_mode,
+                                    crate::phonemizer::PhonemizerMode::PortugueseCVVC,
+                                    "  PT: Portuguese CVVC",
+                                );
+                                ui.selectable_value(
+                                    &mut vocal_mode_params.phonemizer_mode,
+                                    crate::phonemizer::PhonemizerMode::PortugueseVCV,
+                                    "  PT: Portuguese VCV",
+                                );
+                                ui.separator();
+                                ui.label(
+                                    RichText::new(lang.tr("[EN] Inglês", "[EN] English"))
+                                        .strong()
+                                        .color(theme.accent_c32()),
+                                );
+                                ui.selectable_value(
+                                    &mut vocal_mode_params.phonemizer_mode,
+                                    crate::phonemizer::PhonemizerMode::EnglishG2P,
+                                    "  EN: English G2P",
+                                );
+                                ui.selectable_value(
+                                    &mut vocal_mode_params.phonemizer_mode,
+                                    crate::phonemizer::PhonemizerMode::EnglishArpasing,
+                                    "  EN: English Arpasing",
+                                );
+                                ui.selectable_value(
+                                    &mut vocal_mode_params.phonemizer_mode,
+                                    crate::phonemizer::PhonemizerMode::EnglishVCCV,
+                                    "  EN: English VCCV",
+                                );
+                            });
+                    }
                 }
 
                 ui.add_space(6.0);

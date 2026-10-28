@@ -185,6 +185,44 @@ impl Default for AutoPanSettings {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct PhaserSettings {
+    pub enabled: bool,
+    pub rate_hz: f32,
+    pub depth: f32,
+    pub mix: f32,
+}
+impl Default for PhaserSettings {
+    fn default() -> Self {
+        Self { enabled: false, rate_hz: 0.35, depth: 0.7, mix: 0.35 }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct FlangerSettings {
+    pub enabled: bool,
+    pub rate_hz: f32,
+    pub depth_ms: f32,
+    pub feedback: f32,
+    pub mix: f32,
+}
+impl Default for FlangerSettings {
+    fn default() -> Self {
+        Self { enabled: false, rate_hz: 0.25, depth_ms: 5.0, feedback: 0.25, mix: 0.3 }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct StereoWidenerSettings {
+    pub enabled: bool,
+    pub width: f32,
+}
+impl Default for StereoWidenerSettings {
+    fn default() -> Self {
+        Self { enabled: false, width: 1.0 }
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct FxRackConfig {
     pub master_enabled: bool,
@@ -202,4 +240,10 @@ pub struct FxRackConfig {
     pub chorus: ChorusSettings,
     #[serde(default)]
     pub gate: GateSettings,
+    #[serde(default)]
+    pub phaser: PhaserSettings,
+    #[serde(default)]
+    pub flanger: FlangerSettings,
+    #[serde(default)]
+    pub stereo_widener: StereoWidenerSettings,
 }

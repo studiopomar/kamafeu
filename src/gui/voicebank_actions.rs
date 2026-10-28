@@ -26,7 +26,20 @@ impl KamafeuStudioApp {
     }
 
     pub fn reload_singers(&mut self) {
-        self.singers_list = crate::oto::SingerScanner::scan_directories(&self.config.singers_paths);
+        crate::voicebank::diffsinger::DiffSingerBank::clear_inspection_cache();
+        let mut directories = self.config.singers_paths.clone();
+        if let Some(parent) = self
+            .config
+            .last_voicebank
+            .as_ref()
+            .and_then(|path| path.parent())
+            .map(std::path::Path::to_path_buf)
+        {
+            if !directories.contains(&parent) {
+                directories.push(parent);
+            }
+        }
+        self.singers_list = crate::oto::SingerScanner::scan_directories(&directories);
     }
 
     pub(super) fn refresh_voicebank_oto(&mut self) {
@@ -74,6 +87,16 @@ impl KamafeuStudioApp {
         if requested_alias.trim().is_empty() || requested_alias.trim() == "+" {
             return;
         }
+        if self
+            .project
+            .tracks
+            .get(self.active_track_index)
+            .and_then(|track| track.native_voicebank.as_ref())
+            .is_some()
+        {
+            self.open_kamuse_for_active_native_bank();
+            return;
+        }
         let Some(voicebank) = self.voicebank.as_ref() else {
             self.transport_state.status_message =
                 "Carregue um voicebank para editar o oto.ini.".to_string();
@@ -98,5 +121,40 @@ impl KamafeuStudioApp {
         self.copaiba_window_open = true;
         self.transport_state.status_message =
             format!("Copaiba aberto no alias {alias}; ajuste os parâmetros e clique em Salvar.");
+    }
+
+    fn open_kamuse_for_active_native_bank(&mut self) {
+        let path = self
+            .project
+            .tracks
+            .get(self.active_track_index)
+            .and_then(|track| track.native_voicebank.as_ref())
+            .and_then(|reference| reference.source_path_hint.as_deref())
+            .map(std::path::PathBuf::from);
+        let Some(path) = path else {
+            self.transport_state.status_message =
+                "A faixa ativa não tem um caminho de origem para o banco nativo.".into();
+            return;
+        };
+        match crate::copaiba::kamuse::KamuseProject::load(&path) {
+            Ok(project) => {
+                let name = project.cantor.nome.clone();
+                let source = project
+                    .cantor
+                    .tons
+                    .first()
+                    .and_then(|tone| tone.gravacoes.first())
+                    .map(|recording| recording.arquivo.clone())
+                    .unwrap_or_else(|| "sem gravação".into());
+                self.copaiba_app.activate_kamuse_project(project);
+                self.copaiba_window_open = true;
+                self.transport_state.status_message =
+                    format!("KAMUSE abriu {name} · fonte selecionada: {source}");
+            }
+            Err(error) => {
+                self.transport_state.status_message =
+                    format!("Não foi possível abrir o banco no KAMUSE: {error}");
+            }
+        }
     }
 }

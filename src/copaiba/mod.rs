@@ -1,4 +1,5 @@
 pub mod gui;
+pub mod kamuse;
 pub mod native_project;
 
 use serde::{Deserialize, Serialize};

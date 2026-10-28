@@ -176,6 +176,12 @@ pub struct TransportState {
     pub vu_level_r: f32,
     pub vu_peak_l: f32,
     pub vu_peak_r: f32,
+    /// Recent (min, max) waveform envelope behind the playhead, oldest first.
+    pub scope: Vec<(f32, f32)>,
+    /// Continuous decorative motion allowed this frame (AnimationPolicy).
+    pub motion: bool,
+    /// Whether a preview render or export is currently running.
+    pub busy: bool,
 }
 
 impl Default for TransportState {
@@ -199,6 +205,9 @@ impl Default for TransportState {
             vu_level_r: 0.0,
             vu_peak_l: 0.0,
             vu_peak_r: 0.0,
+            scope: Vec::new(),
+            motion: true,
+            busy: false,
         }
     }
 }

@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 420" role="img" aria-labelledby="title desc">
+<title id="title">Reprodução</title><desc id="desc">Trecho de piano roll com notas e playhead âmbar como estado em reprodução.</desc>
+<rect width="960" height="420" rx="24" fill="#201e22"/>
+<rect x="64" y="66" width="832" height="286" rx="8" fill="#28252b" stroke="#504850"/>
+<g stroke="#474047" stroke-width="1"><path d="M64 114h832M64 162h832M64 210h832M64 258h832M64 306h832"/><path d="M168 66v286M272 66v286M376 66v286M480 66v286M584 66v286M688 66v286M792 66v286"/></g>
+<g fill="#91687f" stroke="#b7849a" stroke-width="1.5"><rect x="116" y="265" width="106" height="26" rx="4"/><rect x="222" y="217" width="128" height="26" rx="4"/><rect x="376" y="169" width="82" height="26" rx="4"/><rect x="458" y="121" width="110" height="26" rx="4"/><rect x="584" y="169" width="130" height="26" rx="4"/><rect x="714" y="217" width="104" height="26" rx="4"/></g>
+<g stroke="#e7b27d"><path d="M480 66v286" stroke-width="2.5"/><path d="M472 66h16l-8 11z" fill="#e7b27d"/></g>
+<g fill="none" stroke="#f0e8e5" stroke-width="1" opacity=".55"><path d="M122 278h90M228 230h112M382 182h68M464 134h96M590 182h116M720 230h90"/></g>
+<circle cx="84" cy="383" r="6" fill="#d98779"/><text x="101" y="388" fill="#f0e8e5" font-family="system-ui,sans-serif" font-size="14" font-weight="600">Reproduzindo</text>
+<text x="880" y="388" text-anchor="end" fill="#b4a6aa" font-family="system-ui,sans-serif" font-size="13">estado também indicado por ícone e texto</text>
+</svg>

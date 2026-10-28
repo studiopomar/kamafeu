@@ -1,0 +1,52 @@
+diff --git a/build.py b/build.py
+index b43977c..8943d75 100755
+--- a/build.py
++++ b/build.py
+@@ -47,10 +47,11 @@ def main():
+             )
+         run(["git", "submodule", "update", "--init", "--recursive"], cwd=engine)
+
++    adapter_source = pathlib.Path(os.environ.get("TAINAH_ADAPTER_SOURCE", ROOT / "src" / "Tainah")).resolve()
+     destination = engine / "src" / "Tainah"
+     destination.mkdir(exist_ok=True)
+-    for name in ("tainah.h", "tainah.cpp", "tainah_cli.cpp", "tainah_abi_test.cpp", "CMakeLists.txt"):
+-        shutil.copy2(ROOT / "src" / "Tainah" / name, destination / name)
++    for name in ("tainah.h", "tainah_timing.h", "tainah_timing_test.cpp", "tainah.cpp", "tainah_cli.cpp", "tainah_abi_test.cpp", "CMakeLists.txt"):
++        shutil.copy2(adapter_source / name, destination / name)
+     shutil.copy2(ROOT / "patches" / "TainahConfig.h", engine / "src" / "ConfigUnit" / "lessConfigure.h")
+     shutil.copy2(
+         ROOT / "patches" / "WorldModule.cpp",
+@@ -79,7 +80,7 @@ def main():
+     run(configure)
+     run([
+         "cmake", "--build", str(build), "--config", "Release",
+-        "--target", "tainah_motor", "Tainah", "tainah_abi_test", "--parallel", "4",
++        "--target", "tainah_motor", "Tainah", "tainah_abi_test", "tainah_timing_test", "--parallel", "4",
+     ])
+     listing = subprocess.check_output(
+         ["ctest", "--test-dir", str(build), "-N", "-R", "tainah_abi"], text=True
+@@ -88,7 +89,7 @@ def main():
+         raise SystemExit("o teste de ABI não foi registrado no CTest")
+     run([
+         "ctest", "--test-dir", str(build), "-C", "Release",
+-        "-R", "tainah_abi", "--output-on-failure",
++        "-R", "tainah_(abi|timing)", "--output-on-failure",
+     ])
+
+     libraries = (
+@@ -110,7 +111,7 @@ def main():
+     shutil.copy2(engine / "LICENSE", package / "licenca-da-base-LGPL-3.0.txt")
+     shutil.copy2(ROOT / "LICENSE", package / "LICENSE")
+     shutil.copy2(ROOT / "NOTICE.md", package / "NOTICE.md")
+-    shutil.copy2(ROOT / "src" / "Tainah" / "Tainah.yaml", package / "Tainah.yaml")
++    shutil.copy2(adapter_source / "Tainah.yaml", package / "Tainah.yaml")
+     test_dir = work / "cli-smoke-test"
+     test_dir.mkdir(parents=True, exist_ok=True)
+     input_wav = test_dir / "entrada.wav"
+@@ -131,6 +132,7 @@ def main():
+             raise SystemExit("o teste do executável produziu taxa ou duração inesperada")
+         if not samples or max(abs(value[0]) for value in struct.iter_unpack("<h", samples)) < 1:
+             raise SystemExit("o teste do executável produziu áudio silencioso")
++    run([sys.executable, str(adapter_source / "tainah_cli_test.py"), str(executable), str(package / libraries[0].name)])
+     print("Executável testado: WAV mono, 44,1 kHz, 250 ms e áudio presente.")
+     print(package)

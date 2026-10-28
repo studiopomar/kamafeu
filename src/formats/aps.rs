@@ -375,3 +375,23 @@ mod tests {
         assert!(error.to_string().contains("versão futura"));
     }
 }
+
+#[cfg(test)]
+mod master_eq_project_tests {
+    use super::*;
+    #[test]
+    fn legacy_projects_disable_master_and_current_projects_roundtrip_it() {
+        let project = UProject::default();
+        let legacy = serde_json::to_string(&project).unwrap();
+        assert!(!legacy.contains("master_fx"));
+        assert!(ApsFormat::parse_str(&legacy).unwrap().master_fx.is_none());
+        let mut project = project;
+        let mut config = crate::audio::FxRackConfig::default();
+        config.master_enabled = true;
+        config.eq.gains[17] = 7.0;
+        project.master_fx = Some(config);
+        let serialized = serde_json::to_string(&project).unwrap();
+        let reopened = ApsFormat::parse_str(&serialized).unwrap();
+        assert_eq!(reopened.master_fx, project.master_fx);
+    }
+}

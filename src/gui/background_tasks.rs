@@ -667,12 +667,21 @@ impl KamafeuStudioApp {
                 .piano_roll_state
                 .waveform_amplitude_at(cur_time)
                 .unwrap_or(0.0);
-            let target_l = (amp * 1.0).clamp(0.0, 1.0);
-            let target_r = (amp * 0.98).clamp(0.0, 1.0);
+            let any_solo = self.project.tracks.iter().any(|track| track.solo);
+            let active_track = self.project.tracks.get(self.active_track_index);
+            let audible = active_track.is_some_and(|track| {
+                !track.mute && (!any_solo || track.solo)
+            });
+            let (track_gain, track_pan) = active_track.map_or((0.0, 0.0), |track| {
+                (10.0f32.powf(track.volume_db as f32 / 20.0), track.pan as f32)
+            });
+            let metered_amp = if audible { amp * track_gain } else { 0.0 };
+            let target_l = (metered_amp * (1.0 - track_pan.clamp(0.0, 1.0))).clamp(0.0, 1.0);
+            let target_r = (metered_amp * (1.0 + track_pan.clamp(-1.0, 0.0))).clamp(0.0, 1.0);
             self.piano_roll_state.update_arrangement_meter(
                 self.project.tracks.len(),
                 self.active_track_index,
-                amp,
+                metered_amp,
             );
             self.transport_state.vu_level_l =
                 self.transport_state.vu_level_l * 0.65 + target_l * 0.35;
@@ -691,6 +700,21 @@ impl KamafeuStudioApp {
             self.transport_state.vu_peak_r =
                 (self.transport_state.vu_peak_r - 0.015).max(self.transport_state.vu_level_r);
 
+            // Live scope: envelope of the last 1.6 s of rendered audio.
+            const SCOPE_POINTS: usize = 64;
+            const SCOPE_WINDOW_MS: f32 = 1_600.0;
+            let gain = if audible { track_gain } else { 0.0 };
+            let step = SCOPE_WINDOW_MS / SCOPE_POINTS as f32;
+            let start = cur_time - SCOPE_WINDOW_MS;
+            self.transport_state.scope.clear();
+            self.transport_state.scope.extend((0..SCOPE_POINTS).map(|i| {
+                let t0 = start + i as f32 * step;
+                self.piano_roll_state
+                    .waveform_min_max_between(t0, t0 + step)
+                    .map(|(min, max)| (min * gain, max * gain))
+                    .unwrap_or((0.0, 0.0))
+            }));
+
             ctx.request_repaint_after(
                 self.animation_policy()
                     .interval()
@@ -701,6 +725,24 @@ impl KamafeuStudioApp {
             self.transport_state.vu_level_r = (self.transport_state.vu_level_r - 0.08).max(0.0);
             self.transport_state.vu_peak_l = (self.transport_state.vu_peak_l - 0.02).max(0.0);
             self.transport_state.vu_peak_r = (self.transport_state.vu_peak_r - 0.02).max(0.0);
+            let mut scope_alive = false;
+            for (min, max) in &mut self.transport_state.scope {
+                *min *= 0.82;
+                *max *= 0.82;
+                scope_alive |= min.abs() > 0.002 || max.abs() > 0.002;
+            }
+            if !scope_alive {
+                self.transport_state.scope.clear();
+            }
+            if scope_alive
+                || self.transport_state.vu_level_l > 0.0
+                || self.transport_state.vu_peak_l > 0.0
+                || self.transport_state.vu_peak_r > 0.0
+            {
+                // Let the meters fall back smoothly instead of freezing on the
+                // last level until the next input event.
+                ctx.request_repaint_after(std::time::Duration::from_millis(16));
+            }
             self.piano_roll_state
                 .decay_arrangement_meters(self.project.tracks.len());
 
@@ -731,6 +773,16 @@ impl KamafeuStudioApp {
                 }
                 self.preview_waveform_rx = None;
                 self.preview_waveform_cancel = None;
+                self.piano_roll_state.waveform_rendering = false;
+                ctx.request_repaint();
+            } else if matches!(rx.try_recv(), Err(std::sync::mpsc::TryRecvError::Disconnected)) {
+                // A canceled or failed background render must be retryable. The
+                // sender intentionally drops without a payload on render errors.
+                self.preview_waveform_rx = None;
+                self.preview_waveform_cancel = None;
+                self.piano_roll_state.waveform_rendering = false;
+                self.preview_waveform_cache_hash = 0;
+                self.preview_waveform_pending = None;
                 ctx.request_repaint();
             }
         }
@@ -740,10 +792,14 @@ impl KamafeuStudioApp {
         // start a new render on every UI frame.
         #[cfg(not(target_arch = "wasm32"))]
         if self.config.dsp.background_prerender {
-            self.trigger_background_waveform_preview();
-        } else if let Some(cancel) = self.preview_waveform_cancel.take() {
-            cancel.store(true, std::sync::atomic::Ordering::Relaxed);
-            self.preview_waveform_rx = None;
+            self.trigger_background_waveform_preview(ctx);
+        } else {
+            if let Some(cancel) = self.preview_waveform_cancel.take() {
+                cancel.store(true, std::sync::atomic::Ordering::Relaxed);
+                self.preview_waveform_rx = None;
+            }
+            self.piano_roll_state.waveform_rendering = false;
+            self.preview_waveform_pending = None;
         }
 
         let cur_ms = self.piano_roll_state.playhead_ms.max(0.0);

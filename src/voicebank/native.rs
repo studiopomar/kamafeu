@@ -229,7 +229,9 @@ impl NativeBank {
         crate::oto::voicebank::extract_kfv(path, temp_dir.path())
             .map_err(|e| format!("failed to extract KFV package: {e}"))?;
         let mut bank = Self::load_dir(temp_dir.path())?;
-        bank.temp_dir = Some(Arc::new(temp_dir));
+        if bank.temp_dir.is_none() {
+            bank.temp_dir = Some(Arc::new(temp_dir));
+        }
         Ok(bank)
     }
 
@@ -240,6 +242,9 @@ impl NativeBank {
             .map_err(|error| format!("cannot resolve voicebank folder: {error}"))?;
         if !root.is_dir() {
             return Err("KFV 2 voicebank root is not a directory".into());
+        }
+        if root.join("cantor.toml").is_file() {
+            return super::cantor::CantorBank::load_path(&root)?.native_snapshot();
         }
         let manifest_path = root.join("kamafeu_voicebank.json");
         let manifest_text = std::fs::read_to_string(&manifest_path)
@@ -587,7 +592,10 @@ impl Manifest {
             return Err("bank_version must use numeric SemVer (major.minor.patch)".into());
         }
         if self.package_revision == 0
-            || self.engine.id != "kamafeu.concat"
+            || !matches!(
+                self.engine.id.as_str(),
+                "kamafeu.concat" | "kamafeu.tainah-world"
+            )
             || self.engine.api_major != 1
         {
             return Err("unsupported package revision or native engine API".into());

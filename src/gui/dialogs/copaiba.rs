@@ -8,7 +8,11 @@ impl KamafeuStudioApp {
             ctx.show_viewport_immediate(
                 egui::ViewportId::from_hash_of("copaiba_toolkit_native_viewport"),
                 egui::ViewportBuilder::default()
-                    .with_title("Copaiba Voicebank Toolkit - Kamafeu Studio")
+                    .with_title(if self.copaiba_app.kamuse_project.is_some() {
+                        "KAMUSE - Kamafeu Studio"
+                    } else {
+                        "Copaiba Voicebank Toolkit - Kamafeu Studio"
+                    })
                     .with_inner_size([1000.0, 600.0])
                     .with_min_inner_size([700.0, 450.0]),
                 |ctx, _class| {

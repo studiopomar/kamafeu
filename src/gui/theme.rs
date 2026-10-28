@@ -934,6 +934,11 @@ impl ThemeConfig {
         let grid_sub = self.grid_line_sub_c32();
         let round = self.ui_rounding();
 
+        // Give egui sliders a hardware-fader treatment while keeping their
+        // existing orientation, value editing, and per-widget configuration.
+        visuals.slider_trailing_fill = true;
+        visuals.handle_shape = egui::style::HandleShape::Rect { aspect_ratio: 0.55 };
+
         visuals.panel_fill = panel_bg;
         visuals.window_fill = panel_bg;
         visuals.window_rounding = round;
@@ -1097,6 +1102,47 @@ mod tests {
         let control_rounding = Rounding::same(theme.ui_corner_radius.max(5.0));
         assert_eq!(visuals.widgets.inactive.rounding, control_rounding);
         assert_eq!(visuals.widgets.hovered.rounding, control_rounding);
+    }
+
+    #[test]
+    fn slider_fader_visuals_work_in_light_and_dark_presets() {
+        for preset in [
+            ThemePreset::CleanLight,
+            ThemePreset::CalafateEditorial,
+            ThemePreset::Cyberpunk,
+            ThemePreset::NordicSlate,
+        ] {
+            let theme = ThemeConfig::from_preset(preset);
+            let visuals = theme.create_egui_visuals();
+
+            assert!(visuals.slider_trailing_fill, "{preset:?}");
+            assert_eq!(
+                visuals.handle_shape,
+                egui::style::HandleShape::Rect { aspect_ratio: 0.55 },
+                "{preset:?}"
+            );
+            assert_eq!(
+                visuals.selection.bg_fill,
+                theme.note_selected_fill_c32().linear_multiply(0.32),
+                "{preset:?}"
+            );
+            assert_eq!(
+                visuals.widgets.inactive.fg_stroke.color,
+                theme.text_primary_c32()
+            );
+            assert_eq!(
+                visuals.widgets.hovered.fg_stroke.color,
+                if theme.is_light() {
+                    Color32::BLACK
+                } else {
+                    Color32::WHITE
+                }
+            );
+            assert_eq!(
+                visuals.widgets.active.fg_stroke.color,
+                theme.text_primary_c32()
+            );
+        }
     }
 
     #[test]

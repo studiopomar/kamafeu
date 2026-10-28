@@ -52,6 +52,12 @@ pub(crate) fn draw_piano_roll(
     time_signature_numerator: u8,
     time_signature_denominator: u8,
     phonemizer_mode: crate::phonemizer::PhonemizerMode,
+    diffsinger: Option<(
+        &crate::voicebank::diffsinger::DiffSingerBank,
+        &str,
+        crate::voicebank::diffsinger::DiffSingerPhonemizer,
+        &str,
+    )>,
     lang: crate::config::AppLanguage,
     playback: minimap::TimelinePlaybackStatus<'_>,
     on_preview_freq: &mut dyn FnMut(f64),
@@ -81,13 +87,14 @@ pub(crate) fn draw_piano_roll(
         },
     };
     let animation_time = ui.input(|input| input.time) as f32;
-    let playback_pulse = if animation_policy.enabled {
-        0.5 + 0.5
-            * animation_policy.pulse_amplitude()
-            * (animation_time * std::f32::consts::TAU * 0.9 * animation_policy.visual_speed()).sin()
-    } else {
-        0.0
-    };
+    let playback_phase =
+        (animation_time * std::f32::consts::TAU * 0.9 * animation_policy.visual_speed()).sin();
+    let playback_pulse =
+        if state.is_playing && animation_policy.enabled && !animation_policy.reduce_motion {
+            0.5 + 0.5 * animation_policy.pulse_amplitude() * playback_phase
+        } else {
+            0.0
+        };
     if state.is_playing && state.ui_animations_enabled {
         let interval = if state.animation_quality_reduced {
             crate::gui::animation::REDUCED_FRAME_MS
@@ -112,7 +119,7 @@ pub(crate) fn draw_piano_roll(
         .fold(0.0f64, f64::max);
     let total_canvas_ms = (max_note_end_ms + 30_000.0).max(60_000.0);
 
-    phoneme_cache::draw(notes, state, voicebank, phonemizer_mode);
+    phoneme_cache::draw(notes, state, voicebank, phonemizer_mode, diffsinger);
 
     // Update active playback sounding keys
     state.active_sounding_keys.clear();
@@ -561,6 +568,7 @@ pub(crate) fn draw_piano_roll(
         state,
         notes,
         voicebank,
+        diffsinger.is_some(),
         ruler_rect,
         keyboard_width,
         timeline_scroll_x,
@@ -919,14 +927,32 @@ pub(crate) fn draw_piano_roll(
                 base_color.a(),
             );
 
-            // Active playback pulsing glow halo
+            let note_progress = if is_active_playback {
+                ((state.playhead_ms - note.position_ms) / note.duration_ms.max(1.0)).clamp(0.0, 1.0)
+                    as f32
+            } else {
+                0.0
+            };
+
+            // Active notes share the playhead's pulse and reveal playback
+            // progress with a narrow, theme-colored sweep.
             if is_active_playback {
+                let active_strength = if animation_policy.enabled {
+                    0.22 + playback_pulse * 0.20
+                } else {
+                    0.18
+                };
+                painter.rect_filled(
+                    note_rect,
+                    theme.note_rounding(),
+                    theme.c32_alpha(theme.playhead_color, active_strength),
+                );
                 painter.rect_stroke(
-                    note_rect.expand(2.0 + playback_pulse * 1.5),
+                    note_rect.expand(2.5 + playback_pulse * 2.0),
                     theme.note_rounding(),
                     Stroke::new(
-                        1.8 + playback_pulse * 1.4,
-                        theme.c32_alpha(theme.playhead_color, 0.30 + playback_pulse * 0.35),
+                        1.8 + playback_pulse * 1.6,
+                        theme.c32_alpha(theme.playhead_color, 0.38 + playback_pulse * 0.40),
                     ),
                 );
             }
@@ -934,6 +960,35 @@ pub(crate) fn draw_piano_roll(
             // Corpo da nota estilo moderno (DAW profissional):
             // Fundo da nota com contorno limpo
             painter.rect_filled(note_rect, theme.note_rounding(), note_color);
+
+            if is_active_playback {
+                let sweep_x = x_start + note_rect.width() * note_progress;
+                let sweep_width = (note_rect.width() * 0.10).clamp(5.0, 22.0);
+                let sweep_rect = Rect::from_min_max(
+                    Pos2::new(sweep_x - sweep_width * 0.5, y_top),
+                    Pos2::new(sweep_x + sweep_width * 0.5, y_bottom),
+                );
+                let sweep_painter = painter.with_clip_rect(note_rect);
+                sweep_painter.rect_filled(
+                    sweep_rect,
+                    theme.note_rounding(),
+                    theme.c32_alpha(
+                        theme.playhead_color,
+                        if animation_policy.allows_motion() {
+                            0.38
+                        } else {
+                            0.24
+                        },
+                    ),
+                );
+                sweep_painter.line_segment(
+                    [Pos2::new(sweep_x, y_top), Pos2::new(sweep_x, y_bottom)],
+                    Stroke::new(
+                        1.3 + playback_pulse * 0.7,
+                        theme.c32_alpha(theme.playhead_color, 0.65 + playback_pulse * 0.25),
+                    ),
+                );
+            }
 
             if let Some(ref dragged_alias) = phoneme_state.dragged_phoneme {
                 if let Some(mpos) = mouse_interact_pos {
@@ -3300,6 +3355,34 @@ pub(crate) fn draw_piano_roll(
         let playhead_x =
             rect.min.x + keyboard_width + (state.playhead_ms * state.px_per_ms as f64) as f32;
         if playhead_x >= sticky_key_x + keyboard_width && playhead_x <= visible_clip.max.x {
+            let playhead_glow = theme.c32_alpha(
+                theme.playhead_color,
+                if animation_policy.allows_motion() {
+                    0.10 + playback_pulse * 0.16
+                } else if state.is_playing {
+                    0.16
+                } else {
+                    0.0
+                },
+            );
+            if state.is_playing || playback_pulse > 0.0 {
+                painter.line_segment(
+                    [
+                        Pos2::new(playhead_x, keys_y_min),
+                        Pos2::new(playhead_x, keys_y_max),
+                    ],
+                    Stroke::new(6.0 + playback_pulse * 3.0, playhead_glow),
+                );
+                painter.add(egui::Shape::convex_polygon(
+                    vec![
+                        Pos2::new(playhead_x - 6.0, keys_y_min),
+                        Pos2::new(playhead_x + 6.0, keys_y_min),
+                        Pos2::new(playhead_x, keys_y_min + 12.0),
+                    ],
+                    playhead_glow,
+                    Stroke::NONE,
+                ));
+            }
             let handle_points = vec![
                 Pos2::new(playhead_x - 3.5, keys_y_min + 1.0),
                 Pos2::new(playhead_x + 3.5, keys_y_min + 1.0),
@@ -3311,16 +3394,18 @@ pub(crate) fn draw_piano_roll(
                 Stroke::new(0.8_f32, theme.text_primary_c32()),
             ));
 
-            painter.line_segment(
-                [
-                    Pos2::new(playhead_x, keys_y_min),
-                    Pos2::new(playhead_x, keys_y_max),
-                ],
-                Stroke::new(
-                    2.0 + playback_pulse * 1.2,
-                    theme.c32_alpha(theme.playhead_color, 0.18 + playback_pulse * 0.16),
-                ),
-            );
+            if state.is_playing {
+                painter.line_segment(
+                    [
+                        Pos2::new(playhead_x, keys_y_min),
+                        Pos2::new(playhead_x, keys_y_max),
+                    ],
+                    Stroke::new(
+                        2.0 + playback_pulse * 1.2,
+                        theme.c32_alpha(theme.playhead_color, 0.40 + playback_pulse * 0.34),
+                    ),
+                );
+            }
 
             painter.line_segment(
                 [
@@ -3357,6 +3442,7 @@ pub(crate) fn draw_piano_roll(
         keyboard_width,
         timeline_scroll_x,
         theme,
+        animation_policy,
         ruler_rect,
         bpm,
         lang,

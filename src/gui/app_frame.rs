@@ -116,29 +116,29 @@ impl eframe::App for KamafeuStudioApp {
                 style.spacing.interact_size = egui::vec2(44.0, 44.0);
                 style.spacing.menu_margin = egui::Margin::same(7.0);
             } else {
-                style.spacing.item_spacing = egui::vec2(4.0, 2.0);
-                style.spacing.button_padding = egui::vec2(4.0, 3.0);
+                style.spacing.item_spacing = egui::vec2(5.0, 3.0);
+                style.spacing.button_padding = egui::vec2(5.0, 3.0);
                 style.spacing.interact_size = egui::vec2(20.0, 20.0);
                 style.spacing.menu_margin = egui::Margin::same(3.0);
             }
 
             // Escala tipográfica deliberada: o editor pode ser denso, mas
             // seus níveis de informação precisam ser imediatamente distintos.
-            let body_size = if touch_first { 13.0 } else { 11.5 };
+            let body_size = if touch_first { 13.0 } else { 12.0 };
             style
                 .text_styles
                 .insert(egui::TextStyle::Body, egui::FontId::proportional(body_size));
             style.text_styles.insert(
                 egui::TextStyle::Button,
-                egui::FontId::proportional(if touch_first { 13.0 } else { 10.5 }),
+                egui::FontId::proportional(if touch_first { 13.0 } else { 11.0 }),
             );
             style.text_styles.insert(
                 egui::TextStyle::Small,
-                egui::FontId::proportional(if touch_first { 11.5 } else { 9.5 }),
+                egui::FontId::proportional(if touch_first { 11.5 } else { 10.0 }),
             );
             style.text_styles.insert(
                 egui::TextStyle::Heading,
-                egui::FontId::proportional(if touch_first { 17.0 } else { 14.0 }),
+                egui::FontId::proportional(if touch_first { 17.0 } else { 15.0 }),
             );
         });
 

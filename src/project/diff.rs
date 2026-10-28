@@ -73,7 +73,8 @@ impl ProjectDiff {
                     })
                 || before.markers != after.markers
                 || before.sections != after.sections,
-            changed_render_settings: before.phonemizer != after.phonemizer
+            changed_render_settings: before.master_fx != after.master_fx
+                || before.phonemizer != after.phonemizer
                 || before.resampler != after.resampler
                 || before.wavtool != after.wavtool
                 || before.flags != after.flags

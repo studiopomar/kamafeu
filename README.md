@@ -20,7 +20,7 @@
 
 [Downloads](https://github.com/studiopomar/kamafeu/releases) | [Primeiros passos](#primeiros-passos) | [Compilação](#instruções-de-compilação) | [Histórico de alterações](CHANGELOG.md)
 
-> **Estado atual:** `3.0`, codinome **Calafate**. Esta é a nova série principal do Kamafeu. O núcleo do editor e os formatos principais estão maduros; motores externos, voicebanks e drivers de áudio ainda precisam ser validados na máquina do usuário.
+> **Estado atual:** `3.0`, codinome **Calafate**. Esta é a série principal em estabilização, ainda distribuída como pré-release. O fluxo vocal essencial está em validação para Windows x64, macOS ARM64/Intel e Linux x86_64; builds verdes, por si só, não equivalem à aceitação funcional. Consulte a [barra para a primeira versão estável](docs/release-readiness.md). Copaíba, KAMUSE, KFV2 e outras ferramentas autorais recentes são experimentais. Android, WASM e arquiteturas secundárias não fazem parte da promessa inicial.
 
 > **Codinome da série:** **Calafate**. O número `3.0` marca a nova linha de desenvolvimento; internamente, o pacote usa SemVer `3.0.0`.
 
@@ -684,6 +684,21 @@ cargo run --release --bin kamafeu
 
 # Executar o utilitário Copaiba
 cargo run --release --bin copaiba
+```
+
+Quando o editor é iniciado em um terminal interativo, o console abre um painel
+FTXUI com contagem de eventos, avisos, erros e atividade de render. Use `↑`/`↓`
+para navegar, `f` para filtrar avisos e erros, `p`
+para pausar a lista, `c` para limpá-la, `g` para voltar ao fim e `q` para sair
+do painel sem fechar o editor. Defina `KAMAFEU_TUI=off` para voltar ao console
+tradicional; fora de um terminal interativo ele permanece em modo texto. O
+helper `kamafeu-tui` usa FTXUI 7.0.3 e é compilado e empacotado junto com os
+builds estáveis de desktop. Para desenvolvimento, compile-o com CMake antes de
+iniciar o editor:
+
+```sh
+cmake -S native/console_tui -B target/console-tui-build -DCMAKE_BUILD_TYPE=Release
+cmake --build target/console-tui-build --config Release
 ```
 
 ## Interface de linha de comando

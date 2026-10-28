@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 420" role="img" aria-labelledby="title desc">
+<title id="title">Abertura: Kamafeu Studio</title><desc id="desc">Protótipo estático com marca tipográfica e waveform coral em fundo grafite.</desc>
+<rect width="960" height="420" rx="24" fill="#201e22"/>
+<g fill="none" stroke="#d98779" stroke-linecap="round" opacity=".76">
+<path d="M94 213h92l19-35 22 72 24-114 26 160 28-118 23 69 22-34h516" stroke-width="3"/>
+<path d="M94 228h772" stroke="#b7849a" stroke-width="1" opacity=".42"/>
+</g>
+<text x="96" y="155" fill="#f0e8e5" font-family="system-ui,sans-serif" font-size="38" font-weight="650" letter-spacing="1">KAMAFEU STUDIO</text>
+<text x="96" y="286" fill="#b4a6aa" font-family="system-ui,sans-serif" font-size="16" letter-spacing="3">EDIÇÃO DE SÍNTESE VOCAL</text>
+<circle cx="866" cy="354" r="5" fill="#e7b27d"/><text x="846" y="385" text-anchor="end" fill="#b4a6aa" font-family="system-ui,sans-serif" font-size="13">inicializando</text>
+</svg>

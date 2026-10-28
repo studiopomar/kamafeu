@@ -19,6 +19,15 @@ fn default_row_height() -> f32 {
 fn default_arrangement_height() -> f32 {
     140.0
 }
+fn default_left_dock_width() -> f32 {
+    360.0
+}
+fn default_right_dock_width() -> f32 {
+    280.0
+}
+fn default_bottom_dock_height() -> f32 {
+    190.0
+}
 
 fn default_min_midi() -> u8 {
     36
@@ -36,12 +45,32 @@ fn default_scale_root_key() -> u8 {
     0
 }
 
+fn default_vertical_follow_smoothing_ms() -> f32 { 80.0 }
+fn default_horizontal_follow_smoothing_ms() -> f32 { 120.0 }
+fn default_follow_cursor_pct() -> f32 { 30.0 }
+fn default_follow_min_pct() -> f32 { 8.0 }
+fn default_follow_max_pct() -> f32 { 92.0 }
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EditorLayoutConfig {
     /// Enables the dockable workspace. Kept opt-in while legacy panel
     /// placement remains available as a safe recovery layout.
     #[serde(default)]
     pub modular_workspace: bool,
+    /// Selected tab in the integrated right dock: inspector or effects.
+    #[serde(default)]
+    pub right_dock_tab: u8,
+    /// Selected tab in the integrated lower dock: mixer or harmony.
+    #[serde(default)]
+    pub bottom_dock_tab: u8,
+    #[serde(default)]
+    pub show_bottom_dock: bool,
+    #[serde(default = "default_left_dock_width")]
+    pub left_dock_width: f32,
+    #[serde(default = "default_right_dock_width")]
+    pub right_dock_width: f32,
+    #[serde(default = "default_bottom_dock_height")]
+    pub bottom_dock_height: f32,
     #[serde(default)]
     pub show_arrangement_view: bool,
     #[serde(default)]
@@ -58,6 +87,16 @@ pub struct EditorLayoutConfig {
     pub show_envelope_handles: bool,
     #[serde(default)]
     pub vertical_pitch_follow: bool,
+    #[serde(default = "default_vertical_follow_smoothing_ms")]
+    pub vertical_follow_smoothing_ms: f32,
+    #[serde(default = "default_horizontal_follow_smoothing_ms")]
+    pub horizontal_follow_smoothing_ms: f32,
+    #[serde(default = "default_follow_cursor_pct")]
+    pub follow_cursor_pct: f32,
+    #[serde(default = "default_follow_min_pct")]
+    pub follow_min_pct: f32,
+    #[serde(default = "default_follow_max_pct")]
+    pub follow_max_pct: f32,
     #[serde(default = "default_scale_str")]
     pub default_scale: String,
     #[serde(default = "default_scale_root_key")]
@@ -80,6 +119,12 @@ impl Default for EditorLayoutConfig {
     fn default() -> Self {
         Self {
             modular_workspace: false,
+            right_dock_tab: 0,
+            bottom_dock_tab: 0,
+            show_bottom_dock: false,
+            left_dock_width: default_left_dock_width(),
+            right_dock_width: default_right_dock_width(),
+            bottom_dock_height: default_bottom_dock_height(),
             show_arrangement_view: true,
             show_parameters_drawer: false,
             show_phoneme_ruler: true,
@@ -88,6 +133,11 @@ impl Default for EditorLayoutConfig {
             show_waveform_area: true,
             show_envelope_handles: false,
             vertical_pitch_follow: false,
+            vertical_follow_smoothing_ms: default_vertical_follow_smoothing_ms(),
+            horizontal_follow_smoothing_ms: default_horizontal_follow_smoothing_ms(),
+            follow_cursor_pct: default_follow_cursor_pct(),
+            follow_min_pct: default_follow_min_pct(),
+            follow_max_pct: default_follow_max_pct(),
             default_scale: default_scale_str(),
             default_scale_root_key: 0,
             is_maximized: false,
@@ -1015,5 +1065,23 @@ impl KamafeuConfig {
         if let Err(error) = self.save() {
             crate::terminal_log::warn("Config", error);
         }
+    }
+}
+
+#[cfg(test)]
+mod editor_layout_tests {
+    use super::EditorLayoutConfig;
+
+    #[test]
+    fn older_layout_without_dock_fields_uses_safe_defaults() {
+        let layout: EditorLayoutConfig =
+            serde_json::from_str(r#"{"modular_workspace":false,"show_arrangement_view":true}"#)
+                .expect("legacy editor layout should load");
+        assert!(!layout.show_bottom_dock);
+        assert_eq!(layout.right_dock_tab, 0);
+        assert_eq!(layout.bottom_dock_tab, 0);
+        assert_eq!(layout.left_dock_width, 360.0);
+        assert_eq!(layout.right_dock_width, 280.0);
+        assert_eq!(layout.bottom_dock_height, 190.0);
     }
 }

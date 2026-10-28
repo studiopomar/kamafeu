@@ -276,8 +276,11 @@ pub fn render_project_track_sola_cancellable(
     if let Some(cached) = cached_native_phrase(&cache_key) {
         return Ok(cached);
     }
-    let rendered =
-        super::render::render_phrase_sola_cancellable(bank, &plan, output_sample_rate, cancel)?;
+    let rendered = if bank.manifest.engine.id == "kamafeu.tainah-world" {
+        super::render::render_phrase_world_cancellable(bank, &plan, output_sample_rate, cancel)?
+    } else {
+        super::render::render_phrase_sola_cancellable(bank, &plan, output_sample_rate, cancel)?
+    };
     let phrase = NativeProjectPhrase {
         track_index,
         plan,

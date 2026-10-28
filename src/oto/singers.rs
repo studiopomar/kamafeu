@@ -19,6 +19,29 @@ pub struct SingerInfo {
 
 pub struct SingerScanner;
 
+fn diffsinger_portrait(dir: &Path) -> Option<PathBuf> {
+    let content = fs::read_to_string(dir.join("character.yaml")).ok()?;
+    let value =
+        yaml_serde::from_str::<yaml_serde::Value>(content.trim_start_matches('\u{feff}')).ok()?;
+    let relative = value
+        .get("image")
+        .or_else(|| value.get("portrait"))
+        .and_then(|value| value.as_str())?;
+    let relative_path = Path::new(relative);
+    if relative_path.is_absolute()
+        || relative_path.components().any(|component| {
+            !matches!(
+                component,
+                std::path::Component::Normal(_) | std::path::Component::CurDir
+            )
+        })
+    {
+        return None;
+    }
+    let candidate = dir.join(relative_path);
+    candidate.is_file().then_some(candidate)
+}
+
 impl SingerScanner {
     pub fn default_singers_directories() -> Vec<PathBuf> {
         let mut dirs = Vec::new();
@@ -139,6 +162,58 @@ impl SingerScanner {
     }
 
     pub fn inspect_singer_directory(dir: &Path) -> Option<SingerInfo> {
+        // DiffSinger metadata is independent of oto.ini. Never route a neural
+        // bank through the classic sampler merely because it also ships one.
+        if dir.join("character.yaml").is_file()
+            && (dir.join("dsconfig.yaml").is_file() || dir.join("configs/dsconfig.yaml").is_file())
+        {
+            return Some(Self::inspect_diffsinger(dir));
+        }
+        let cantor_manifest = dir.join("cantor.toml");
+        if cantor_manifest.is_file() {
+            let fallback_name = dir
+                .file_name()
+                .and_then(|name| name.to_str())
+                .unwrap_or("Cantor nativo")
+                .to_string();
+            let cantor = crate::voicebank::cantor::Cantor::load_dir(dir);
+            return Some(match cantor {
+                Ok(cantor) if !dir.join("oto.ini").exists() => SingerInfo {
+                    name: cantor.nome,
+                    author: "Kamafeu KAMUSE".into(),
+                    web: None,
+                    path: dir.to_path_buf(),
+                    image_path: cantor.imagem.map(|path| dir.join(path)),
+                    voice_type: "Kamafeu · Tainah WORLD".into(),
+                    selectable: true,
+                    is_native_kfv2: true,
+                    diagnostic: None,
+                },
+                Ok(_) => SingerInfo {
+                    name: fallback_name,
+                    author: "Conflito de formatos".into(),
+                    web: None,
+                    path: dir.to_path_buf(),
+                    image_path: None,
+                    voice_type: "Cantor nativo · conflito".into(),
+                    selectable: false,
+                    is_native_kfv2: true,
+                    diagnostic: Some("o banco contém cantor.toml e oto.ini".into()),
+                },
+                Err(error) => SingerInfo {
+                    name: fallback_name,
+                    author: "cantor.toml inválido".into(),
+                    web: None,
+                    path: dir.to_path_buf(),
+                    image_path: None,
+                    voice_type: "Cantor nativo · não carregável".into(),
+                    selectable: false,
+                    is_native_kfv2: true,
+                    diagnostic: Some(error),
+                },
+            });
+        }
+
         let has_oto = dir.join("oto.ini").exists();
         let has_char = dir.join("character.txt").exists();
         let has_char_yaml = dir.join("character.yaml").exists();
@@ -318,6 +393,41 @@ impl SingerScanner {
         })
     }
 
+    fn inspect_diffsinger(dir: &Path) -> SingerInfo {
+        let fallback_name = dir
+            .file_name()
+            .and_then(|s| s.to_str())
+            .unwrap_or("DiffSinger")
+            .to_owned();
+        match crate::voicebank::diffsinger::DiffSingerBank::inspect(dir) {
+            Ok(bank) => SingerInfo {
+                name: bank.name,
+                author: bank.author.unwrap_or_else(|| "Desconhecido".into()),
+                web: None,
+                path: dir.to_path_buf(),
+                image_path: diffsinger_portrait(dir),
+                voice_type: match bank.layout {
+                    crate::voicebank::diffsinger::Layout::Classic => "DiffSinger · clássico".into(),
+                    crate::voicebank::diffsinger::Layout::V17 => "DiffSinger · v1.7".into(),
+                },
+                selectable: bank.loadable,
+                is_native_kfv2: false,
+                diagnostic: bank.diagnostic,
+            },
+            Err(error) => SingerInfo {
+                name: fallback_name,
+                author: "Configuração DiffSinger inválida".into(),
+                web: None,
+                path: dir.to_path_buf(),
+                image_path: None,
+                voice_type: "DiffSinger · não carregável".into(),
+                selectable: false,
+                is_native_kfv2: false,
+                diagnostic: Some(error),
+            },
+        }
+    }
+
     fn inspect_kfv2_manifest(dir: &Path, content: &str) -> SingerInfo {
         let fallback_name = dir
             .file_name()
@@ -420,6 +530,26 @@ mod tests {
     fn test_inspect_missing_dir_returns_none() {
         let path = PathBuf::from("non_existent_voicebank_dir_12345");
         assert!(SingerScanner::inspect_singer_directory(&path).is_none());
+    }
+
+    #[test]
+    fn diffsinger_portrait_comes_from_its_own_character_metadata() {
+        let directory = tempfile::tempdir().expect("temporary DiffSinger directory");
+        let portrait = directory.path().join("singer.png");
+        fs::write(&portrait, b"placeholder image bytes").expect("portrait");
+        fs::write(
+            directory.path().join("character.yaml"),
+            "name: Test DiffSinger\nportrait: singer.png\n",
+        )
+        .expect("character metadata");
+        assert_eq!(diffsinger_portrait(directory.path()), Some(portrait));
+
+        fs::write(
+            directory.path().join("character.yaml"),
+            "name: Test DiffSinger\nportrait: ../unrelated-utau.png\n",
+        )
+        .expect("unsafe character metadata");
+        assert_eq!(diffsinger_portrait(directory.path()), None);
     }
 
     #[test]

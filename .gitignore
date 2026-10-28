@@ -23,6 +23,8 @@
 /docs/*
 !/docs/kfv2/
 !/docs/kfv2/**
+!/docs/gui-framework-and-visual-system.md
+!/docs/indice-arquivos.md
 
 # Checkpoints de retomada são notas locais, mesmo dentro de docs incluídos.
 **/CONTINUAR_DEPOIS.md

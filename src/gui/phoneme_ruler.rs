@@ -18,6 +18,7 @@ pub fn draw_phoneme_ruler(
     state: &mut PianoRollState,
     notes: &mut [UNote],
     voicebank: Option<&Voicebank>,
+    is_diffsinger: bool,
     _ruler_rect: Rect,
     keyboard_width: f32,
     timeline_scroll_x: f32,
@@ -61,7 +62,8 @@ pub fn draw_phoneme_ruler(
 
                 let is_primary_down = ui.input(|i| i.pointer.primary_down());
                 let is_secondary_down = ui.input(|i| i.pointer.secondary_down());
-                let drag_active = state.dragging_phoneme_handle.is_some()
+                let drag_active = state.dragging_diffsinger_phone_onset.is_some()
+                    || state.dragging_phoneme_handle.is_some()
                     || state.dragging_subphoneme_boundary.is_some()
                     || state.dragging_envelope_pt.is_some()
                     || state.dragging_phoneme_envelope_pt.is_some();
@@ -83,6 +85,7 @@ pub fn draw_phoneme_ruler(
                 if is_primary_down
                     && (state.dragging_phoneme_handle.is_some()
                         || state.dragging_subphoneme_boundary.is_some()
+                        || state.dragging_diffsinger_phone_onset.is_some()
                         || state.dragging_envelope_pt.is_some()
                         || state.dragging_phoneme_envelope_pt.is_some())
                 {
@@ -113,11 +116,13 @@ pub fn draw_phoneme_ruler(
                     state.is_edge_autoscrolling = false;
                     if state.dragging_phoneme_handle.is_some()
                         || state.dragging_subphoneme_boundary.is_some()
+                        || state.dragging_diffsinger_phone_onset.is_some()
                         || state.dragging_envelope_pt.is_some()
                         || state.dragging_phoneme_envelope_pt.is_some()
                     {
                         state.dragging_phoneme_handle = None;
                         state.dragging_subphoneme_boundary = None;
+                        state.dragging_diffsinger_phone_onset = None;
                         state.dragging_envelope_pt = None;
                         state.dragging_phoneme_envelope_pt = None;
                         state.continuous_edit_dirty = true;
@@ -983,308 +988,363 @@ pub fn draw_phoneme_ruler(
                             let visible_start = seg_start_x.max(strip_rect.min.x);
                             let visible_end = seg_end_x.min(strip_rect.max.x);
 
-                            // OpenUtau-style phoneme canvas: fixed blue lane,
-                            // five effective points, and no theme-colour or
-                            // note-level overlay. The points are resolved once
-                            // from the same envelope model used by the renderer.
-                            let cached_phone = state
-                                .note_phonemes_cache
-                                .get(note_index)
-                                .and_then(|phones| phones.get(index));
-                            let overlap_ms = cached_phone
-                                .map(|phone| finite_or_zero(phone.overlap_ms))
-                                .unwrap_or(0.0);
-                            // The lane never guesses from a note-level oto.ini
-                            // entry. It paints the exact five points resolved
-                            // for this phoneme by the OpenUtau timing model.
-                            let points = cached_phone
-                                .map(|phone| phone.envelope_points)
-                                .unwrap_or([(0.0, 0.0); 5]);
-                            let point_positions: Vec<Pos2> = points
-                                .iter()
-                                .map(|(time, level)| {
-                                    Pos2::new(
-                                        x_start + ((*rel_pos + *time) * px_per_ms) as f32,
-                                        y_bottom
-                                            - (level.clamp(0.0, 2.0) as f32)
-                                                * (y_bottom - y_top)
-                                                * 0.5,
-                                    )
-                                })
-                                .collect();
-                            let block_left = point_positions
-                                .first()
-                                .map_or(seg_start_x, |point| point.x)
-                                .min(seg_end_x);
-                            let block_right = point_positions
-                                .last()
-                                .map_or(seg_end_x, |point| point.x)
-                                .max(seg_end_x);
-                            let lane_fill = if is_selected {
-                                ui.visuals().hyperlink_color.linear_multiply(115.0 / 255.0)
-                            } else {
-                                ui.visuals().hyperlink_color.linear_multiply(105.0 / 255.0)
-                            };
-                            let lane_stroke = if is_selected {
-                                ui.visuals().hyperlink_color
-                            } else {
-                                ui.visuals().hyperlink_color
-                            };
-                            // `convex_polygon` cannot represent an envelope
-                            // with valleys: egui triangulates it as a fan,
-                            // producing the broken blue triangles seen in the
-                            // lane. Fill each monotonic segment independently
-                            // with a convex quad instead.
-                            let fill_segment = |a: Pos2, b: Pos2| {
-                                painter.add(egui::Shape::convex_polygon(
-                                    vec![a, b, Pos2::new(b.x, y_bottom), Pos2::new(a.x, y_bottom)],
-                                    lane_fill,
-                                    Stroke::NONE,
-                                ));
-                            };
-                            if let Some(first) = point_positions.first().copied() {
-                                fill_segment(Pos2::new(block_left, first.y), first);
-                            }
-                            for pair in point_positions.windows(2) {
-                                fill_segment(pair[0], pair[1]);
-                            }
-                            if let Some(last) = point_positions.last().copied() {
-                                fill_segment(last, Pos2::new(block_right, last.y));
-                            }
-                            painter.line_segment(
-                                [
-                                    Pos2::new(block_left, y_bottom),
-                                    Pos2::new(block_right, y_bottom),
-                                ],
-                                Stroke::new(1.2_f32, lane_stroke),
-                            );
-                            for pair in point_positions.windows(2) {
-                                painter.line_segment(
-                                    [pair[0], pair[1]],
-                                    Stroke::new(1.25_f32, lane_stroke),
-                                );
-                            }
-                            let block_response = ui.interact(
-                                Rect::from_min_max(
-                                    Pos2::new(block_left.max(strip_rect.min.x), y_top),
-                                    Pos2::new(block_right.min(strip_rect.max.x), y_bottom),
-                                ),
-                                ui.id().with(("phoneme_envelope_block", note_index, index)),
-                                Sense::click(),
-                            );
-                            if block_response.clicked() {
-                                state.selected_note_index = Some(note_index);
-                            }
-                            if block_response.secondary_clicked() {
-                                on_before_change();
-                                if let Some(override_item) = note
+                            if is_diffsinger {
+                                let phone_offset = note
                                     .phoneme_overrides
-                                    .iter_mut()
+                                    .iter()
                                     .find(|item| item.index == index)
-                                {
-                                    // Equivalent to OpenUtau's "clear phoneme
-                                    // timing": the canvas edits timing deltas,
-                                    // never an independent P1-P5 shape.
-                                    override_item.preutter_delta_ms = None;
-                                    override_item.overlap_delta_ms = None;
-                                    override_item.attack_time_delta_ms = None;
-                                    override_item.release_time_delta_ms = None;
+                                    .and_then(|item| item.offset_ms)
+                                    .filter(|value| value.is_finite())
+                                    .unwrap_or(0.0);
+                                let phone_visual_start =
+                                    x_start + ((*rel_pos + phone_offset) * px_per_ms) as f32;
+                                let phone_visual_end = seg_end_x;
+                                let phone_left = phone_visual_start.max(strip_rect.min.x);
+                                let phone_right = phone_visual_end.min(strip_rect.max.x);
+                                let fill =
+                                    ui.visuals()
+                                        .hyperlink_color
+                                        .linear_multiply(if is_selected {
+                                            105.0 / 255.0
+                                        } else {
+                                            70.0 / 255.0
+                                        });
+                                let phone_rect = Rect::from_min_max(
+                                    Pos2::new(phone_left, y_top + 5.0),
+                                    Pos2::new(phone_right.max(phone_left + 1.0), y_bottom - 5.0),
+                                );
+                                painter.rect_filled(phone_rect, Rounding::same(3.0), fill);
+                                if phone_rect.width() > 22.0 {
+                                    painter.text(
+                                        phone_rect.center(),
+                                        egui::Align2::CENTER_CENTER,
+                                        format!("{} · {:.0}ms", label, (*duration - phone_offset)),
+                                        egui::FontId::proportional(10.0),
+                                        ui.visuals().text_color(),
+                                    );
                                 }
-                                state.continuous_edit_dirty = true;
-                                on_note_changed();
-                            }
-                            for (point_index, point) in point_positions.iter().enumerate() {
-                                // OpenUtau exposes P0, P1, P3 and P4 as
-                                // timing handles. P2 is the computed sustain
-                                // point and is intentionally not draggable.
-                                let overlap_target =
-                                    phoneme_successors.get(&(note_index, index)).copied();
-                                let editable = matches!(point_index, 0 | 1 | 3)
-                                    || (point_index == 4 && overlap_target.is_some());
-                                if point.x >= strip_rect.min.x - 5.0
-                                    && point.x <= strip_rect.max.x + 5.0
-                                {
-                                    let point_pos = point.clamp(
-                                        Pos2::new(strip_rect.min.x, y_top),
-                                        Pos2::new(strip_rect.max.x, y_bottom),
+                            } else {
+                                // OpenUtau-style phoneme canvas: fixed blue lane,
+                                // five effective points, and no theme-colour or
+                                // note-level overlay. The points are resolved once
+                                // from the same envelope model used by the renderer.
+                                let cached_phone = state
+                                    .note_phonemes_cache
+                                    .get(note_index)
+                                    .and_then(|phones| phones.get(index));
+                                // The lane never guesses from a note-level oto.ini
+                                // entry. It paints the exact five points resolved
+                                // for this phoneme by the OpenUtau timing model.
+                                let points = cached_phone
+                                    .map(|phone| phone.envelope_points)
+                                    .unwrap_or([(0.0, 0.0); 5]);
+                                let point_positions: Vec<Pos2> = points
+                                    .iter()
+                                    .map(|(time, level)| {
+                                        Pos2::new(
+                                            x_start + ((*rel_pos + *time) * px_per_ms) as f32,
+                                            y_bottom
+                                                - (level.clamp(0.0, 2.0) as f32)
+                                                    * (y_bottom - y_top)
+                                                    * 0.5,
+                                        )
+                                    })
+                                    .collect();
+                                let block_left = point_positions
+                                    .first()
+                                    .map_or(seg_start_x, |point| point.x)
+                                    .min(seg_end_x);
+                                let block_right = point_positions
+                                    .last()
+                                    .map_or(seg_end_x, |point| point.x)
+                                    .max(seg_end_x);
+                                let lane_fill = if is_selected {
+                                    ui.visuals().hyperlink_color.linear_multiply(115.0 / 255.0)
+                                } else {
+                                    ui.visuals().hyperlink_color.linear_multiply(105.0 / 255.0)
+                                };
+                                let lane_stroke = if is_selected {
+                                    ui.visuals().hyperlink_color
+                                } else {
+                                    ui.visuals().hyperlink_color
+                                };
+                                // `convex_polygon` cannot represent an envelope
+                                // with valleys: egui triangulates it as a fan,
+                                // producing the broken blue triangles seen in the
+                                // lane. Fill each monotonic segment independently
+                                // with a convex quad instead.
+                                let fill_segment = |a: Pos2, b: Pos2| {
+                                    painter.add(egui::Shape::convex_polygon(
+                                        vec![
+                                            a,
+                                            b,
+                                            Pos2::new(b.x, y_bottom),
+                                            Pos2::new(a.x, y_bottom),
+                                        ],
+                                        lane_fill,
+                                        Stroke::NONE,
+                                    ));
+                                };
+                                if let Some(first) = point_positions.first().copied() {
+                                    fill_segment(Pos2::new(block_left, first.y), first);
+                                }
+                                for pair in point_positions.windows(2) {
+                                    fill_segment(pair[0], pair[1]);
+                                }
+                                if let Some(last) = point_positions.last().copied() {
+                                    fill_segment(last, Pos2::new(block_right, last.y));
+                                }
+                                painter.line_segment(
+                                    [
+                                        Pos2::new(block_left, y_bottom),
+                                        Pos2::new(block_right, y_bottom),
+                                    ],
+                                    Stroke::new(1.2_f32, lane_stroke),
+                                );
+                                for pair in point_positions.windows(2) {
+                                    painter.line_segment(
+                                        [pair[0], pair[1]],
+                                        Stroke::new(1.25_f32, lane_stroke),
                                     );
-                                    let point_response = ui.interact(
-                                        Rect::from_center_size(point_pos, Vec2::splat(18.0)),
-                                        ui.id().with((
-                                            "phoneme_envelope_point",
-                                            note_index,
-                                            index,
-                                            point_index,
-                                        )),
-                                        if editable {
-                                            Sense::click_and_drag()
-                                        } else {
-                                            Sense::hover()
-                                        },
-                                    );
-                                    let hovered = point_response.hovered();
-                                    let dragging = state.dragging_phoneme_envelope_pt
-                                        == Some((note_index, index, point_index));
-                                    painter.circle_filled(
-                                        point_pos,
-                                        if hovered || dragging { 4.5 } else { 3.2 },
-                                        if hovered || dragging {
-                                            ui.visuals().hyperlink_color
-                                        } else {
-                                            ui.visuals().hyperlink_color
-                                        },
-                                    );
-                                    if editable && (hovered || dragging) {
-                                        ui.ctx().set_cursor_icon(egui::CursorIcon::Grab);
-                                        if point_response.drag_started()
-                                            && state.dragging_phoneme_envelope_pt.is_none()
-                                            && state.dragging_phoneme_handle.is_none()
-                                            && state.dragging_subphoneme_boundary.is_none()
-                                        {
+                                }
+                                let block_response = ui.interact(
+                                    Rect::from_min_max(
+                                        Pos2::new(block_left.max(strip_rect.min.x), y_top),
+                                        Pos2::new(block_right.min(strip_rect.max.x), y_bottom),
+                                    ),
+                                    ui.id().with(("phoneme_envelope_block", note_index, index)),
+                                    Sense::click(),
+                                );
+                                if block_response.clicked() {
+                                    state.selected_note_index = Some(note_index);
+                                }
+                                if block_response.secondary_clicked() {
+                                    on_before_change();
+                                    if let Some(override_item) = note
+                                        .phoneme_overrides
+                                        .iter_mut()
+                                        .find(|item| item.index == index)
+                                    {
+                                        // Equivalent to OpenUtau's "clear phoneme
+                                        // timing": the canvas edits timing deltas,
+                                        // never an independent P1-P5 shape.
+                                        override_item.preutter_delta_ms = None;
+                                        override_item.overlap_delta_ms = None;
+                                        override_item.attack_time_delta_ms = None;
+                                        override_item.release_time_delta_ms = None;
+                                    }
+                                    state.continuous_edit_dirty = true;
+                                    on_note_changed();
+                                }
+                                for (point_index, point) in point_positions.iter().enumerate() {
+                                    // OpenUtau exposes P0, P1, P3 and P4 as
+                                    // timing handles. P2 is the computed sustain
+                                    // point and is intentionally not draggable.
+                                    let overlap_target =
+                                        phoneme_successors.get(&(note_index, index)).copied();
+                                    let editable = matches!(point_index, 0 | 1 | 3)
+                                        || (point_index == 4 && overlap_target.is_some());
+                                    if point.x >= strip_rect.min.x - 5.0
+                                        && point.x <= strip_rect.max.x + 5.0
+                                    {
+                                        let point_pos = point.clamp(
+                                            Pos2::new(strip_rect.min.x, y_top),
+                                            Pos2::new(strip_rect.max.x, y_bottom),
+                                        );
+                                        let point_response = ui.interact(
+                                            Rect::from_center_size(point_pos, Vec2::splat(18.0)),
+                                            ui.id().with((
+                                                "phoneme_envelope_point",
+                                                note_index,
+                                                index,
+                                                point_index,
+                                            )),
+                                            if editable {
+                                                Sense::click_and_drag()
+                                            } else {
+                                                Sense::hover()
+                                            },
+                                        );
+                                        let hovered = point_response.hovered();
+                                        let dragging = state.dragging_phoneme_envelope_pt
+                                            == Some((note_index, index, point_index));
+                                        painter.circle_filled(
+                                            point_pos,
+                                            if hovered || dragging { 4.5 } else { 3.2 },
+                                            if hovered || dragging {
+                                                ui.visuals().hyperlink_color
+                                            } else {
+                                                ui.visuals().hyperlink_color
+                                            },
+                                        );
+                                        if editable && (hovered || dragging) {
+                                            ui.ctx().set_cursor_icon(egui::CursorIcon::Grab);
+                                            if point_response.drag_started()
+                                                && state.dragging_phoneme_envelope_pt.is_none()
+                                                && state.dragging_phoneme_handle.is_none()
+                                                && state.dragging_subphoneme_boundary.is_none()
+                                            {
+                                                on_before_change();
+                                                let (target_note, target_index) = if point_index
+                                                    == 4
+                                                {
+                                                    overlap_target.unwrap_or((note_index, index))
+                                                } else {
+                                                    (note_index, index)
+                                                };
+                                                if target_note == note_index
+                                                    && !note
+                                                        .phoneme_overrides
+                                                        .iter()
+                                                        .any(|item| item.index == target_index)
+                                                {
+                                                    note.phoneme_overrides.push(
+                                                        crate::project::model::UPhonemeOverride {
+                                                            index: target_index,
+                                                            ..Default::default()
+                                                        },
+                                                    );
+                                                }
+                                                state.dragging_phoneme_envelope_pt =
+                                                    Some((target_note, target_index, point_index));
+                                                state.selected_note_index = Some(note_index);
+                                            }
+                                        }
+                                        if point_response.clicked() {
+                                            state.selected_note_index = Some(note_index);
+                                        }
+                                        if point_response.secondary_clicked() {
                                             on_before_change();
                                             let (target_note, target_index) = if point_index == 4 {
                                                 overlap_target.unwrap_or((note_index, index))
                                             } else {
                                                 (note_index, index)
                                             };
-                                            if target_note == note_index
-                                                && !note
+                                            if target_note == note_index {
+                                                if let Some(override_item) = note
                                                     .phoneme_overrides
-                                                    .iter()
-                                                    .any(|item| item.index == target_index)
+                                                    .iter_mut()
+                                                    .find(|item| item.index == target_index)
+                                                {
+                                                    match point_index {
+                                                        0 => override_item.preutter_delta_ms = None,
+                                                        1 => {
+                                                            override_item.attack_time_delta_ms =
+                                                                None
+                                                        }
+                                                        3 => {
+                                                            override_item.release_time_delta_ms =
+                                                                None
+                                                        }
+                                                        4 => override_item.overlap_delta_ms = None,
+                                                        _ => {}
+                                                    }
+                                                }
+                                            }
+                                            state.continuous_edit_dirty = true;
+                                            on_note_changed();
+                                        }
+                                    }
+                                }
+
+                                if let Some((drag_note, drag_phoneme, drag_point)) =
+                                    state.dragging_phoneme_envelope_pt
+                                {
+                                    if drag_note == note_index && drag_phoneme == index {
+                                        if let Some(cursor) = pointer_pos {
+                                            let time = ((cursor.x - x_start) as f64 / px_per_ms
+                                                - *rel_pos)
+                                                .clamp(-2_000.0, (*duration).max(1.0) + 2_000.0);
+                                            if let Some(override_item) = note
+                                                .phoneme_overrides
+                                                .iter_mut()
+                                                .find(|item| item.index == index)
                                             {
+                                                let current_delta = match drag_point {
+                                                    1 => override_item
+                                                        .attack_time_delta_ms
+                                                        .unwrap_or(0.0),
+                                                    3 => override_item
+                                                        .release_time_delta_ms
+                                                        .unwrap_or(0.0),
+                                                    _ => 0.0,
+                                                };
+                                                let updated = match drag_point {
+                                                    // P0: position is -preutter.
+                                                    0 => {
+                                                        override_item.preutter_delta_ms = Some(
+                                                            (-time
+                                                                - cached_phone.map_or(0.0, |p| {
+                                                                    p.auto_preutter_ms
+                                                                }))
+                                                            .clamp(-2_000.0, 2_000.0),
+                                                        );
+                                                        true
+                                                    }
+                                                    // P1: attack-time delta is measured from the
+                                                    // OpenUtau fade-in baseline.
+                                                    1 => {
+                                                        let base = points[1].0 - current_delta;
+                                                        override_item.attack_time_delta_ms = Some(
+                                                            (time - base).clamp(-2_000.0, 2_000.0),
+                                                        );
+                                                        true
+                                                    }
+                                                    // P3: release delta is measured backwards from
+                                                    // the fade-out baseline.
+                                                    3 => {
+                                                        let fade_out =
+                                                            cached_phone.map_or(35.0, |p| {
+                                                                if p.tail_overlap_ms > 0.0 {
+                                                                    p.tail_overlap_ms
+                                                                } else {
+                                                                    35.0
+                                                                }
+                                                            });
+                                                        let base =
+                                                            points[2].0.max(points[4].0 - fade_out);
+                                                        override_item.release_time_delta_ms = Some(
+                                                            (base - time).clamp(-2_000.0, 2_000.0),
+                                                        );
+                                                        true
+                                                    }
+                                                    // P4 belongs to the next adjacent phoneme's
+                                                    // overlap, as in OpenUtau.
+                                                    4 => {
+                                                        let base = cached_phone.map_or(0.0, |p| {
+                                                            -p.preutter_ms + p.auto_overlap_ms
+                                                        });
+                                                        override_item.overlap_delta_ms = Some(
+                                                            (time - base).clamp(-2_000.0, 2_000.0),
+                                                        );
+                                                        true
+                                                    }
+                                                    _ => false,
+                                                };
+                                                if updated {
+                                                    state.continuous_edit_dirty = true;
+                                                }
+                                            } else {
                                                 note.phoneme_overrides.push(
                                                     crate::project::model::UPhonemeOverride {
-                                                        index: target_index,
+                                                        index,
                                                         ..Default::default()
                                                     },
                                                 );
                                             }
-                                            state.dragging_phoneme_envelope_pt =
-                                                Some((target_note, target_index, point_index));
-                                            state.selected_note_index = Some(note_index);
                                         }
-                                    }
-                                    if point_response.clicked() {
-                                        state.selected_note_index = Some(note_index);
-                                    }
-                                    if point_response.secondary_clicked() {
-                                        on_before_change();
-                                        let (target_note, target_index) = if point_index == 4 {
-                                            overlap_target.unwrap_or((note_index, index))
-                                        } else {
-                                            (note_index, index)
-                                        };
-                                        if target_note == note_index {
-                                            if let Some(override_item) = note
-                                                .phoneme_overrides
-                                                .iter_mut()
-                                                .find(|item| item.index == target_index)
-                                            {
-                                                match point_index {
-                                                    0 => override_item.preutter_delta_ms = None,
-                                                    1 => override_item.attack_time_delta_ms = None,
-                                                    3 => override_item.release_time_delta_ms = None,
-                                                    4 => override_item.overlap_delta_ms = None,
-                                                    _ => {}
-                                                }
-                                            }
-                                        }
-                                        state.continuous_edit_dirty = true;
-                                        on_note_changed();
                                     }
                                 }
                             }
-
-                            if let Some((drag_note, drag_phoneme, drag_point)) =
-                                state.dragging_phoneme_envelope_pt
+                            if !is_diffsinger
+                                && index + 1 < subphonemes.len()
+                                && seg_end_x > seg_start_x
                             {
-                                if drag_note == note_index && drag_phoneme == index {
-                                    if let Some(cursor) = pointer_pos {
-                                        let time = ((cursor.x - x_start) as f64 / px_per_ms
-                                            - *rel_pos)
-                                            .clamp(-2_000.0, (*duration).max(1.0) + 2_000.0);
-                                        if let Some(override_item) = note
-                                            .phoneme_overrides
-                                            .iter_mut()
-                                            .find(|item| item.index == index)
-                                        {
-                                            let current_delta = match drag_point {
-                                                1 => override_item
-                                                    .attack_time_delta_ms
-                                                    .unwrap_or(0.0),
-                                                3 => override_item
-                                                    .release_time_delta_ms
-                                                    .unwrap_or(0.0),
-                                                _ => 0.0,
-                                            };
-                                            let updated = match drag_point {
-                                                // P0: position is -preutter.
-                                                0 => {
-                                                    override_item.preutter_delta_ms = Some(
-                                                        (-time
-                                                            - cached_phone.map_or(0.0, |p| {
-                                                                p.auto_preutter_ms
-                                                            }))
-                                                        .clamp(-2_000.0, 2_000.0),
-                                                    );
-                                                    true
-                                                }
-                                                // P1: attack-time delta is measured from the
-                                                // OpenUtau fade-in baseline.
-                                                1 => {
-                                                    let base = points[1].0 - current_delta;
-                                                    override_item.attack_time_delta_ms = Some(
-                                                        (time - base).clamp(-2_000.0, 2_000.0),
-                                                    );
-                                                    true
-                                                }
-                                                // P3: release delta is measured backwards from
-                                                // the fade-out baseline.
-                                                3 => {
-                                                    let fade_out = cached_phone.map_or(35.0, |p| {
-                                                        if p.tail_overlap_ms > 0.0 {
-                                                            p.tail_overlap_ms
-                                                        } else {
-                                                            35.0
-                                                        }
-                                                    });
-                                                    let base =
-                                                        points[2].0.max(points[4].0 - fade_out);
-                                                    override_item.release_time_delta_ms = Some(
-                                                        (base - time).clamp(-2_000.0, 2_000.0),
-                                                    );
-                                                    true
-                                                }
-                                                // P4 belongs to the next adjacent phoneme's
-                                                // overlap, as in OpenUtau.
-                                                4 => {
-                                                    let base = cached_phone.map_or(0.0, |p| {
-                                                        -p.preutter_ms + p.auto_overlap_ms
-                                                    });
-                                                    override_item.overlap_delta_ms = Some(
-                                                        (time - base).clamp(-2_000.0, 2_000.0),
-                                                    );
-                                                    true
-                                                }
-                                                _ => false,
-                                            };
-                                            if updated {
-                                                state.continuous_edit_dirty = true;
-                                            }
-                                        } else {
-                                            note.phoneme_overrides.push(
-                                                crate::project::model::UPhonemeOverride {
-                                                    index,
-                                                    ..Default::default()
-                                                },
-                                            );
-                                        }
-                                    }
-                                }
-                            }
-
-                            if index + 1 < subphonemes.len() && seg_end_x > seg_start_x {
+                                let overlap_ms = state
+                                    .note_phonemes_cache
+                                    .get(note_index)
+                                    .and_then(|phones| phones.get(index))
+                                    .map_or(0.0, |phone| finite_or_zero(phone.overlap_ms));
                                 let next_start =
                                     x_start + (subphonemes[index + 1].1 * px_per_ms) as f32;
                                 let x_left = (seg_end_x - (overlap_ms.max(0.0) * px_per_ms) as f32)
@@ -1302,7 +1362,81 @@ pub fn draw_phoneme_ruler(
                                 }
                             }
 
-                            if seg_start_x >= strip_rect.min.x - 1.0
+                            if is_diffsinger {
+                                let offset_ms = note
+                                    .phoneme_overrides
+                                    .iter()
+                                    .find(|item| item.index == index)
+                                    .and_then(|item| item.offset_ms)
+                                    .filter(|value| value.is_finite())
+                                    .unwrap_or(0.0);
+                                let onset_x = x_start + ((*rel_pos + offset_ms) * px_per_ms) as f32;
+                                if onset_x >= strip_rect.min.x - 12.0
+                                    && onset_x <= strip_rect.max.x + 12.0
+                                {
+                                    let hit = ui.interact(
+                                        Rect::from_center_size(
+                                            Pos2::new(onset_x, y_top + 1.0),
+                                            Vec2::new(18.0, 20.0),
+                                        ),
+                                        ui.id().with(("diffsinger_phone_onset", note_index, index)),
+                                        Sense::click_and_drag(),
+                                    );
+                                    let active = hit.hovered()
+                                        || state
+                                            .dragging_diffsinger_phone_onset
+                                            .is_some_and(|(n, i, _)| n == note_index && i == index);
+                                    painter.line_segment(
+                                        [Pos2::new(onset_x, y_top), Pos2::new(onset_x, y_bottom)],
+                                        Stroke::new(
+                                            if active { 3.0_f32 } else { 1.5_f32 },
+                                            if active {
+                                                theme.note_hover_c32()
+                                            } else {
+                                                ui.visuals().hyperlink_color
+                                            },
+                                        ),
+                                    );
+                                    painter.circle_filled(
+                                        Pos2::new(onset_x, y_top + 1.0),
+                                        if active { 4.0 } else { 3.0 },
+                                        ui.visuals().hyperlink_color,
+                                    );
+                                    if active {
+                                        ui.ctx()
+                                            .set_cursor_icon(egui::CursorIcon::ResizeHorizontal);
+                                        painter.text(
+                                            Pos2::new(onset_x, y_top - 3.0),
+                                            egui::Align2::CENTER_BOTTOM,
+                                            format!("Início {:+.0}ms", offset_ms),
+                                            egui::FontId::proportional(9.0),
+                                            theme.text_note_tag_c32(),
+                                        );
+                                    }
+                                    if hit.drag_started()
+                                        && state.dragging_diffsinger_phone_onset.is_none()
+                                    {
+                                        on_before_change();
+                                        if !note
+                                            .phoneme_overrides
+                                            .iter()
+                                            .any(|item| item.index == index)
+                                        {
+                                            note.phoneme_overrides.push(
+                                                crate::project::model::UPhonemeOverride {
+                                                    index,
+                                                    ..Default::default()
+                                                },
+                                            );
+                                        }
+                                        state.dragging_diffsinger_phone_onset =
+                                            Some((note_index, index, offset_ms));
+                                        state.selected_note_index = Some(note_index);
+                                    }
+                                }
+                            }
+                            if !is_diffsinger
+                                && seg_start_x >= strip_rect.min.x - 1.0
                                 && seg_start_x <= strip_rect.max.x + 1.0
                             {
                                 painter.line_segment(
@@ -1364,7 +1498,7 @@ pub fn draw_phoneme_ruler(
                                 }
                                 if let Some(alias) = alias_for_copaiba {
                                     pill_resp.context_menu(|ui| {
-                                        if ui.button("Editar no Copaiba").clicked() {
+                                        if ui.button("Editar no editor do banco").clicked() {
                                             on_edit_oto_alias(alias, &pitch_for_copaiba);
                                             ui.close_menu();
                                         }
@@ -1780,7 +1914,7 @@ pub fn draw_phoneme_ruler(
                         }
                         if let Some(alias) = alias_for_copaiba {
                             pill_resp.context_menu(|ui| {
-                                if ui.button("Editar no Copaiba").clicked() {
+                                if ui.button("Editar no editor do banco").clicked() {
                                     on_edit_oto_alias(alias, &pitch_for_copaiba);
                                     ui.close_menu();
                                 }
@@ -2064,6 +2198,30 @@ pub fn draw_phoneme_ruler(
                                     note.envelope.set_point(pt_idx, time, volume, duration);
                                 }
                                 state.continuous_edit_dirty = true;
+                            }
+                        }
+                    }
+
+                    if is_diffsinger {
+                        if let Some((drag_idx, phone_idx, _initial_offset)) =
+                            state.dragging_diffsinger_phone_onset
+                        {
+                            if drag_idx == note_index {
+                                if let (Some(pos), Some((_, rel_pos, _))) =
+                                    (pointer_pos, subphonemes.get(phone_idx))
+                                {
+                                    let offset = ((pos.x - x_start) as f64 / px_per_ms as f64
+                                        - *rel_pos)
+                                        .clamp(-2_000.0, 2_000.0);
+                                    if let Some(item) = note
+                                        .phoneme_overrides
+                                        .iter_mut()
+                                        .find(|item| item.index == phone_idx)
+                                    {
+                                        item.offset_ms = Some(offset);
+                                    }
+                                    state.continuous_edit_dirty = true;
+                                }
                             }
                         }
                     }

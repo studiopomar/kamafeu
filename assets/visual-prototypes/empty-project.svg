@@ -1,0 +1,12 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 540" role="img" aria-labelledby="title desc">
+<title id="title">Projeto vazio</title><desc id="desc">Uma frase de orientação com desenho estático de envelope e espectro em área livre.</desc>
+<rect width="960" height="540" rx="24" fill="#201e22"/><rect x="1" y="1" width="958" height="538" rx="23" fill="none" stroke="#383239"/>
+<g transform="translate(480 206)" fill="none" stroke="#b7849a" stroke-linecap="round" stroke-linejoin="round">
+<path d="M-222 0h48l18-30 24 63 28-91 29 128 31-107 27 67 22-30h48" stroke-width="3" opacity=".72"/>
+<path d="M-222 46h444" stroke="#d98779" stroke-width="2" opacity=".55"/>
+<path d="M-194 46v-12m28 12V20m28 26V3m28 43V-15m28 61V-4m28 50V12m28 34V-27m28 73V-8m28 54V15m28 31V-2m28 48V19m28 27V-9m28 55V4m28 42V22m28 24V12" stroke-width="5" opacity=".4"/>
+</g>
+<text x="480" y="330" text-anchor="middle" fill="#f0e8e5" font-family="system-ui,sans-serif" font-size="25" font-weight="600">Seu próximo projeto começa aqui</text>
+<text x="480" y="367" text-anchor="middle" fill="#b4a6aa" font-family="system-ui,sans-serif" font-size="15">Crie uma faixa ou abra um projeto existente.</text>
+<rect x="348" y="408" width="264" height="48" rx="7" fill="#d98779"/><text x="480" y="438" text-anchor="middle" fill="#201e22" font-family="system-ui,sans-serif" font-size="15" font-weight="650">Criar projeto</text>
+</svg>

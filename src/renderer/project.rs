@@ -1,6 +1,7 @@
 use crate::drivers::{ResamplerDriver, WavtoolDriver};
 use crate::oto::Voicebank;
 use crate::project::model::{UNote, UProject, UTrack};
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{OnceLock, RwLock};
 
@@ -522,12 +523,42 @@ impl ProjectRenderer {
     /// boundary, so CVVC/VCV aliases are generated exactly as they are in a
     /// full render instead of losing their VC lead at a preview boundary.
     pub fn preview_context_start(project: &UProject, boundary_ms: f64, floor_ms: f64) -> f64 {
+        Self::preview_context_start_with_lookahead(project, boundary_ms, floor_ms, 500.0)
+    }
+
+    fn preview_context_start_with_lookahead(
+        project: &UProject,
+        boundary_ms: f64,
+        floor_ms: f64,
+        lookahead_ms: f64,
+    ) -> f64 {
         let mut min_context = boundary_ms;
+        let mut tracks: HashMap<usize, Vec<(f64, f64)>> = HashMap::new();
         for part in &project.parts {
-            let Some(mut index) = part.notes.iter().position(|note| {
+            if part.track_index >= project.tracks.len() {
+                continue;
+            }
+            // Rendering combines every part on a track before phonemizing.
+            // Keep page/part boundaries out of the context calculation too:
+            // otherwise the first note of a new part loses the preceding
+            // vowel needed for a CVVC/VCV transition.
+            let timeline = tracks.entry(part.track_index).or_default();
+            timeline.extend(part.notes.iter().map(|note| {
                 let start = part.position_ms + note.position_ms;
-                let end = start + note.duration_ms;
-                end > boundary_ms && start <= boundary_ms + 500.0
+                (start, start + note.duration_ms)
+            }));
+        }
+
+        for timeline in tracks.values_mut() {
+            // Piano-roll edits append notes and can move them across pages, so
+            // storage order is not a reliable proxy for musical order.
+            timeline.sort_by(|left, right| {
+                left.0
+                    .total_cmp(&right.0)
+                    .then_with(|| left.1.total_cmp(&right.1))
+            });
+            let Some(mut index) = timeline.iter().position(|(start, end)| {
+                *end > boundary_ms && *start <= boundary_ms + lookahead_ms.max(0.0)
             }) else {
                 continue;
             };
@@ -537,19 +568,73 @@ impl ProjectRenderer {
             // than retaining only one note, which could make the renderer
             // synthesize a different phoneme sequence during playback.
             while index > 0 {
-                let previous = &part.notes[index - 1];
-                let current = &part.notes[index];
-                let previous_end = part.position_ms + previous.position_ms + previous.duration_ms;
-                let current_start = part.position_ms + current.position_ms;
+                let previous_end = timeline[index - 1].1;
+                let current_start = timeline[index].0;
                 if current_start - previous_end > 400.0 {
                     break;
                 }
                 index -= 1;
             }
-            let start = part.position_ms + part.notes[index].position_ms;
+            let start = timeline[index].0;
             min_context = min_context.min(start.max(floor_ms));
         }
         min_context
+    }
+
+    /// Amount of future music needed to render phonemes whose oto preutterance
+    /// starts before their note onset. Progressive chunks must render this
+    /// lookahead, then trim it away before publishing the chunk.
+    fn progressive_lookahead_ms(project: &UProject, voicebank: &Voicebank) -> f64 {
+        let oto_preutter = voicebank
+            .entries
+            .values()
+            .map(|entry| entry.preutterance)
+            .filter(|value| value.is_finite())
+            .fold(0.0_f64, f64::max);
+        let mut max_velocity_scale = 1.0_f64;
+        let mut max_preutter_override = 0.0_f64;
+        let mut max_manual_lead = 0.0_f64;
+
+        for note in project.parts.iter().flat_map(|part| &part.notes) {
+            max_velocity_scale =
+                max_velocity_scale.max(crate::phonemizer::consonant_velocity_time_scale(
+                    note.expressions.consonant_velocity,
+                ));
+            max_preutter_override = max_preutter_override.max(
+                note.expressions
+                    .preutter_override_ms
+                    .filter(|value| value.is_finite())
+                    .unwrap_or(0.0)
+                    .max(0.0),
+            );
+            let note_offset = if note.expressions.preutter_offset_ms.is_finite() {
+                note.expressions.preutter_offset_ms
+            } else {
+                0.0
+            };
+            let mut phoneme_lead = 0.0_f64;
+            for override_item in &note.phoneme_overrides {
+                if let Some(value) = override_item.velocity.filter(|value| value.is_finite()) {
+                    max_velocity_scale = max_velocity_scale
+                        .max(crate::phonemizer::consonant_velocity_time_scale(value));
+                }
+                let preutter_delta = override_item
+                    .preutter_delta_ms
+                    .filter(|value| value.is_finite())
+                    .unwrap_or(0.0)
+                    .max(0.0);
+                let offset = override_item
+                    .offset_ms
+                    .filter(|value| value.is_finite())
+                    .unwrap_or(0.0)
+                    .abs();
+                phoneme_lead = phoneme_lead.max(preutter_delta + offset);
+            }
+            max_manual_lead = max_manual_lead.max(note_offset.max(0.0) + phoneme_lead);
+        }
+
+        ((oto_preutter * max_velocity_scale).max(max_preutter_override) + max_manual_lead + 1.0)
+            .clamp(0.0, 4_000.0)
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -691,7 +776,14 @@ impl ProjectRenderer {
             .iter()
             .filter_map(|(index, track)| track.native_voicebank.as_ref().map(|_| *index))
             .collect();
-        if !native_track_indices.is_empty() {
+        let diffsinger_track_indices: Vec<usize> = audible_tracks.iter().filter_map(|(index, track)| {
+            let path = track.voicebank_path.as_deref()?;
+            let root = std::path::Path::new(path);
+            (root.join("character.yaml").is_file()
+                && (root.join("dsconfig.yaml").is_file() || root.join("configs/dsconfig.yaml").is_file()))
+                .then_some(*index)
+        }).collect();
+        if !native_track_indices.is_empty() || !diffsinger_track_indices.is_empty() {
             if cancel.is_some_and(|token| token.load(Ordering::Relaxed)) {
                 return RenderedAudio::empty(sample_rate, 2);
             }
@@ -713,7 +805,7 @@ impl ProjectRenderer {
             // while muting native tracks in this clone so their notes cannot be
             // phonemized or rendered through a classic voicebank by accident.
             let mut classic_project = project.clone();
-            for &index in &native_track_indices {
+            for &index in native_track_indices.iter().chain(&diffsinger_track_indices) {
                 if let Some(track) = classic_project.tracks.get_mut(index) {
                     track.native_voicebank = None;
                     track.mute = true;
@@ -880,6 +972,86 @@ impl ProjectRenderer {
                 }
             }
 
+            for (diff_index, &track_index) in diffsinger_track_indices.iter().enumerate() {
+                if cancel.is_some_and(|token| token.load(Ordering::Relaxed)) {
+                    return RenderedAudio::empty(sample_rate, 2);
+                }
+                let track = &project.tracks[track_index];
+                let bank_path = track.voicebank_path.as_deref().expect("DiffSinger track has a path");
+                let bank = match crate::voicebank::diffsinger::DiffSingerBank::inspect(bank_path) {
+                    Ok(bank) if bank.loadable => bank,
+                    Ok(bank) => return RenderedAudio::failed(sample_rate, format!(
+                        "faixa '{}': banco DiffSinger indisponível: {}", track.name,
+                        bank.diagnostic.unwrap_or_else(|| "configuração incompleta".into())
+                    )),
+                    Err(error) => return RenderedAudio::failed(sample_rate, format!(
+                        "faixa '{}': não foi possível carregar o banco DiffSinger: {error}", track.name
+                    )),
+                };
+                let legacy_pt_default = track.diffsinger_phonemizer.is_none()
+                    && bank.language_ids.contains_key("pt");
+                let language = if legacy_pt_default {
+                    Some("pt")
+                } else {
+                    track.diffsinger_language.as_deref()
+                        .filter(|language| bank.language_ids.contains_key(*language))
+                        .or_else(|| bank.language_ids.contains_key("pt").then_some("pt"))
+                        .or_else(|| bank.language_ids.contains_key("en").then_some("en"))
+                        .or_else(|| bank.language_ids.keys().next().map(String::as_str))
+                };
+                let Some(language) = language else {
+                    return RenderedAudio::failed(sample_rate, format!("faixa '{}': o banco DiffSinger não declara idiomas", track.name));
+                };
+                let speaker = track.diffsinger_speaker.as_deref()
+                    .filter(|speaker| bank.speaker_embeddings.contains_key(*speaker))
+                    .or_else(|| bank.speakers.first().map(String::as_str));
+                let Some(speaker) = speaker else {
+                    return RenderedAudio::failed(sample_rate, format!("faixa '{}': o banco DiffSinger não declara speakers", track.name));
+                };
+                let provider = track.diffsinger_provider.unwrap_or_default();
+                let phonemizer = track.diffsinger_phonemizer.unwrap_or_else(|| {
+                    if language == "pt" {
+                        crate::voicebank::diffsinger::DiffSingerPhonemizer::BrapaPhonetic
+                    } else {
+                        crate::voicebank::diffsinger::DiffSingerPhonemizer::Automatic
+                    }
+                });
+                if let Some(callback) = on_progress {
+                    callback(diff_index as f32 / diffsinger_track_indices.len() as f32,
+                        &format!("[DiffSinger · {provider:?}] Preparando {} ({language}, {speaker})", track.name));
+                }
+                let notes = Self::notes_for_track(project, track_index, start_ms, end_ms);
+                let samples = match crate::voicebank::diffsinger_render::render_track(
+                    &bank, &notes, language, phonemizer, speaker, provider, sample_rate, cancel,
+                ) {
+                    Ok(samples) => samples,
+                    Err(error) => return RenderedAudio::failed(sample_rate, format!(
+                        "faixa '{}': render DiffSinger falhou: {error}", track.name
+                    )),
+                };
+                if cancel.is_some_and(|token| token.load(Ordering::Relaxed)) {
+                    return RenderedAudio::empty(sample_rate, 2);
+                }
+                let mut samples = samples;
+                Self::mix_track_into(&mut mixed.samples, &mut samples, track.volume_db,
+                    track.pan, track.fx_rack.as_ref(), sample_rate);
+                if let Some(callback) = on_progress_event {
+                    callback(super::RenderProgressEvent::counted(
+                        super::RenderStage::Rendering,
+                        native_track_indices.len() + diff_index + 1,
+                        native_track_indices.len() + diffsinger_track_indices.len(),
+                    ));
+                }
+                if let Some(callback) = on_progress {
+                    let provider_status = match provider {
+                        crate::voicebank::diffsinger::ExecutionProvider::Cpu => "CPU",
+                        crate::voicebank::diffsinger::ExecutionProvider::CoreMl => "CoreML com fallback CPU do ONNX Runtime",
+                    };
+                    callback((diff_index + 1) as f32 / diffsinger_track_indices.len() as f32,
+                        &format!("[DiffSinger][{}] síntese concluída; execução: {provider_status}", track.name));
+                }
+            }
+
             if let Some(end_ms) = end_ms {
                 let requested_frames =
                     (((end_ms - start_ms).max(0.0) / 1000.0) * sample_rate as f64).round() as usize;
@@ -897,7 +1069,7 @@ impl ProjectRenderer {
                 TrackRenderer::apply_soft_limiter(&mut mixed.samples, target_peak);
             }
             if let Some(callback) = on_progress {
-                callback(1.0, "[Mixer] Renderização KFV 2 e clássica concluída");
+                callback(1.0, "[Mixer] Renderização DiffSinger, KFV 2 e clássica concluída");
             }
             if let Some(callback) = on_progress_event {
                 callback(super::RenderProgressEvent::stage(
@@ -1238,13 +1410,16 @@ impl ProjectRenderer {
     ) -> ProgressiveChunk {
         let start_ms = start_ms.max(0.0);
         let end_ms = end_ms.max(start_ms);
-        let context_start = Self::preview_context_start(project, start_ms, 0.0);
+        let lookahead_ms = Self::progressive_lookahead_ms(project, voicebank);
+        let context_start =
+            Self::preview_context_start_with_lookahead(project, start_ms, 0.0, lookahead_ms);
+        let render_end_ms = end_ms + lookahead_ms;
         let rendered = Self::render_project_range_with_progress_events_cancellable(
             project,
             voicebank,
             sample_rate,
             context_start,
-            Some(end_ms),
+            Some(render_end_ms),
             resampler_driver,
             wavtool_driver,
             options,
@@ -1318,13 +1493,16 @@ impl ProjectRenderer {
         // at the playhead, but do not make the first audible chunk wait for
         // unrelated notes elsewhere in the project.
         let first_end = (cursor + chunk_ms).min(max_end_ms);
-        let context_start = Self::preview_context_start(project, cursor, 0.0);
+        let lookahead_ms = Self::progressive_lookahead_ms(project, voicebank);
+        let context_start =
+            Self::preview_context_start_with_lookahead(project, cursor, 0.0, lookahead_ms);
+        let first_render_end = (first_end + lookahead_ms).min(max_end_ms);
         let priority_audio = Self::render_project_range_with_drivers_cancellable(
             project,
             voicebank,
             sample_rate,
             context_start,
-            Some(first_end),
+            Some(first_render_end),
             resampler_driver,
             wavtool_driver,
             options,
@@ -1393,13 +1571,15 @@ impl ProjectRenderer {
                 return;
             }
             let end = (cursor + chunk_ms).min(max_end_ms);
-            let context_start = Self::preview_context_start(project, cursor, 0.0);
+            let context_start =
+                Self::preview_context_start_with_lookahead(project, cursor, 0.0, lookahead_ms);
+            let render_end = (end + lookahead_ms).min(max_end_ms);
             let page_audio = Self::render_project_range_with_drivers_cancellable(
                 project,
                 voicebank,
                 sample_rate,
                 context_start,
-                Some(end),
+                Some(render_end),
                 resampler_driver,
                 wavtool_driver,
                 options,

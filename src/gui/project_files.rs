@@ -21,9 +21,90 @@ fn is_recovery_snapshot_path(path: &Path) -> bool {
             .is_some_and(|name| name.contains("_recovery_"))
 }
 
+#[cfg(not(target_arch = "wasm32"))]
+fn save_recovery_snapshot(
+    project: &crate::project::model::UProject,
+    parent: &Path,
+    stem: &str,
+    timestamp: u64,
+) -> Result<PathBuf, String> {
+    let snapshot_dir = parent.join(".kamafeu_snapshots");
+    std::fs::create_dir_all(&snapshot_dir).map_err(|error| error.to_string())?;
+    let base_name = format!("{}_recovery_{}", stem, timestamp);
+    let mut path = snapshot_dir.join(format!("{base_name}.aps"));
+    let mut suffix = 2;
+    while path.exists() {
+        path = snapshot_dir.join(format!("{base_name}_{suffix}.aps"));
+        suffix += 1;
+    }
+    ApsFormat::save_file(project, &path).map_err(|error| error.to_string())?;
+    Ok(path)
+}
+
+fn track_uses_diffsinger(track: &crate::project::model::UTrack) -> bool {
+    let has_diffsinger_settings = track.diffsinger_language.is_some()
+        || track.diffsinger_speaker.is_some()
+        || track.diffsinger_phonemizer.is_some()
+        || track.diffsinger_provider.is_some();
+    let Some(path) = track.voicebank_path.as_deref() else {
+        return has_diffsinger_settings;
+    };
+    if crate::voicebank::diffsinger::DiffSingerBank::inspect(path).is_ok() {
+        return true;
+    }
+    let path = Path::new(path);
+    // A newly selected classic bank takes precedence over stale optional
+    // DiffSinger settings left on a track from an earlier selection.
+    if path.is_file() || path.join("oto.ini").is_file() {
+        return false;
+    }
+    has_diffsinger_settings
+}
+
+fn sync_voicebank_metadata(
+    project: &mut crate::project::model::UProject,
+    active_track_index: usize,
+    classic_bank: Option<(&str, &Path)>,
+) {
+    let active_diffsinger = project
+        .tracks
+        .get(active_track_index)
+        .filter(|track| track_uses_diffsinger(track))
+        .and_then(|track| {
+            track
+                .voicebank_path
+                .clone()
+                .map(|path| (track.singer.clone(), path))
+        });
+
+    if let Some((name, path)) = active_diffsinger {
+        project.voicebank = Some(name);
+        project.voicebank_path = Some(path);
+    } else if let Some((name, path)) = classic_bank {
+        project.voicebank = Some(name.to_owned());
+        project.voicebank_path = Some(path.to_string_lossy().into_owned());
+    }
+
+    if let Some((name, path)) = classic_bank {
+        for track in &mut project.tracks {
+            if track_uses_diffsinger(track) {
+                continue;
+            }
+            if track.singer.is_empty()
+                || track.singer == "Default Singer"
+                || track.singer == "Cantor Padrão"
+            {
+                track.singer = name.to_owned();
+            }
+            track.voicebank_path = Some(path.to_string_lossy().into_owned());
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
-    use super::is_recovery_snapshot_path;
+    use super::{is_recovery_snapshot_path, save_recovery_snapshot, sync_voicebank_metadata};
+    use crate::formats::ApsFormat;
     use std::path::Path;
 
     #[test]
@@ -37,6 +118,62 @@ mod tests {
         assert!(!is_recovery_snapshot_path(Path::new(
             "/tmp/.kamafeu_snapshots/song.aps"
         )));
+    }
+
+    #[test]
+    fn saving_keeps_active_diffsinger_track_instead_of_classic_voicebank() {
+        let mut project = crate::project::model::UProject::default();
+        let track = &mut project.tracks[0];
+        track.singer = "VIICTOR_v110".into();
+        track.voicebank_path = Some("/voicebanks/VIICTOR/configs".into());
+        track.diffsinger_language = Some("pt".into());
+        track.diffsinger_speaker = Some("standard".into());
+        sync_voicebank_metadata(
+            &mut project,
+            0,
+            Some(("UTAU Singer", Path::new("/voicebanks/utau"))),
+        );
+        assert_eq!(project.voicebank.as_deref(), Some("VIICTOR_v110"));
+        assert_eq!(
+            project.voicebank_path.as_deref(),
+            Some("/voicebanks/VIICTOR/configs")
+        );
+        assert_eq!(project.tracks[0].singer, "VIICTOR_v110");
+        assert_eq!(
+            project.tracks[0].voicebank_path.as_deref(),
+            Some("/voicebanks/VIICTOR/configs")
+        );
+        let file = tempfile::NamedTempFile::new().unwrap();
+        ApsFormat::save_file(&project, file.path()).unwrap();
+        let reopened = ApsFormat::load_file(file.path()).unwrap();
+        assert_eq!(reopened.voicebank.as_deref(), Some("VIICTOR_v110"));
+        assert_eq!(reopened.tracks[0].singer, "VIICTOR_v110");
+        assert_eq!(
+            reopened.tracks[0].voicebank_path.as_deref(),
+            Some("/voicebanks/VIICTOR/configs")
+        );
+        assert_eq!(
+            reopened.tracks[0].diffsinger_language.as_deref(),
+            Some("pt")
+        );
+    }
+
+    #[cfg(not(target_arch = "wasm32"))]
+    #[test]
+    fn recovery_snapshots_roundtrip_and_avoid_timestamp_collisions() {
+        let directory = tempfile::tempdir().unwrap();
+        let mut project = crate::project::model::UProject::default();
+        project.name = "Snapshot fixture".into();
+        project.bpm = 142.0;
+
+        let first = save_recovery_snapshot(&project, directory.path(), "song", 1234).unwrap();
+        let second = save_recovery_snapshot(&project, directory.path(), "song", 1234).unwrap();
+
+        assert_eq!(first.file_name().unwrap(), "song_recovery_1234.aps");
+        assert_eq!(second.file_name().unwrap(), "song_recovery_1234_2.aps");
+        assert!(is_recovery_snapshot_path(&first));
+        assert_eq!(ApsFormat::load_file(&first).unwrap(), project);
+        assert_eq!(ApsFormat::load_file(&second).unwrap(), project);
     }
 }
 #[cfg(target_arch = "wasm32")]
@@ -146,8 +283,6 @@ impl KamafeuStudioApp {
             .as_ref()
             .and_then(|path| path.parent().map(Path::to_path_buf))
             .unwrap_or_else(|| PathBuf::from("."));
-        let snapshot_dir = parent.join(".kamafeu_snapshots");
-        std::fs::create_dir_all(&snapshot_dir).map_err(|error| error.to_string())?;
         let secs = web_time::SystemTime::now()
             .duration_since(web_time::UNIX_EPOCH)
             .unwrap_or_default()
@@ -158,14 +293,7 @@ impl KamafeuStudioApp {
             .and_then(|path| path.file_stem().and_then(|value| value.to_str()))
             .filter(|value| !value.trim().is_empty())
             .unwrap_or("projeto");
-        let base_name = format!("{}_recovery_{}", stem, secs);
-        let mut path = snapshot_dir.join(format!("{base_name}.aps"));
-        let mut suffix = 2;
-        while path.exists() {
-            path = snapshot_dir.join(format!("{base_name}_{suffix}.aps"));
-            suffix += 1;
-        }
-        ApsFormat::save_file(&self.project, &path).map_err(|error| error.to_string())?;
+        let path = save_recovery_snapshot(&self.project, &parent, stem, secs)?;
         let time_str = format!("timestamp {}", secs);
         self.last_snapshot_time = Some(time_str.clone());
         if notify {
@@ -863,24 +991,16 @@ impl KamafeuStudioApp {
             self.project.render_state = Some(Default::default());
         }
 
-        if let Some(ref vb) = self.voicebank {
-            self.project.voicebank = Some(vb.name.clone());
-            self.project.voicebank_path = Some(vb.root_path.to_string_lossy().to_string());
-        }
+        let classic_bank = self
+            .voicebank
+            .as_ref()
+            .map(|vb| (vb.name.as_str(), vb.root_path.as_path()));
+        sync_voicebank_metadata(&mut self.project, self.active_track_index, classic_bank);
 
         for track in &mut self.project.tracks {
             track.phonemizer = Some(self.vocal_mode_params.phonemizer_mode);
             track.resampler = Some(self.selected_resampler.clone());
             track.wavtool = Some(self.selected_wavtool.clone());
-            if let Some(ref vb) = self.voicebank {
-                if track.singer.is_empty()
-                    || track.singer == "Default Singer"
-                    || track.singer == "Cantor Padrão"
-                {
-                    track.singer = vb.name.clone();
-                }
-                track.voicebank_path = Some(vb.root_path.to_string_lossy().to_string());
-            }
         }
     }
 

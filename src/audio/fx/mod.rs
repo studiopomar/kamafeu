@@ -9,7 +9,7 @@ pub use processor::FxRackProcessor;
 pub use settings::{
     AutoPanSettings, ChorusSettings, CompressorSettings, DelaySettings, EqSettings, FxRackConfig,
     GateSettings, LimiterSettings, ReverbSettings, SaturationSettings, ISO_31_BAND_FREQS,
-    ISO_31_BAND_LABELS,
+    ISO_31_BAND_LABELS, PhaserSettings, FlangerSettings, StereoWidenerSettings,
 };
 
 #[cfg(test)]

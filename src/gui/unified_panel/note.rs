@@ -373,12 +373,12 @@ pub(super) fn draw(
                                     .add_sized(
                                         Vec2::new(ui.available_width(), 20.0),
                                         egui::Button::new(
-                                            RichText::new(lang.tr("Editar no Copaiba", "Edit in Copaiba"))
+                                            RichText::new(lang.tr("Editar banco", "Edit voicebank"))
                                                 .size(9.5)
                                                 .color(ui.visuals().hyperlink_color),
                                         ),
                                     )
-                                    .on_hover_text(format!("{} '{}' {}", lang.tr("Editar alias", "Edit alias"), ruler_name, lang.tr("no editor Copaiba", "in Copaiba editor")))
+                                    .on_hover_text(format!("{} '{}' {}", lang.tr("Editar alias", "Edit alias"), ruler_name, lang.tr("no editor do banco", "in the voicebank editor")))
                                     .clicked()
                                 {
                                     on_edit_selected_ruler_alias();

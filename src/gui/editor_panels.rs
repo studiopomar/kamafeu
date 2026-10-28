@@ -11,13 +11,73 @@ use eframe::egui::SidePanel;
 use eframe::egui::TopBottomPanel;
 
 impl KamafeuStudioApp {
+    fn draw_project_harmony(&self, ui: &mut egui::Ui) {
+        let names = [
+            "C", "C♯", "D", "D♯", "E", "F", "F♯", "G", "G♯", "A", "A♯", "B",
+        ];
+        let mut pitch_classes = std::collections::BTreeSet::new();
+        let mut note_count = 0usize;
+        for part in &self.project.parts {
+            for note in &part.notes {
+                if let Ok(midi) = note.pitch.parse::<u8>() {
+                    pitch_classes.insert(midi % 12);
+                    note_count += 1;
+                } else if let Some(midi) = crate::dsp::pitch::note_name_to_midi(&note.pitch) {
+                    pitch_classes.insert(midi as u8 % 12);
+                    note_count += 1;
+                }
+            }
+        }
+        ui.label(
+            egui::RichText::new(
+                self.config
+                    .language
+                    .tr("Leitura das notas do projeto", "Project note analysis"),
+            )
+            .strong(),
+        );
+        if note_count == 0 {
+            ui.label(
+                self.config
+                    .language
+                    .tr("Sem notas analisáveis", "No analyzable notes"),
+            );
+            return;
+        }
+        ui.label(format!(
+            "{}: {}",
+            self.config
+                .language
+                .tr("Classes de altura", "Pitch classes"),
+            pitch_classes
+                .iter()
+                .map(|pc| names[*pc as usize])
+                .collect::<Vec<_>>()
+                .join(" · ")
+        ));
+        ui.label(format!(
+            "{note_count} {} · {}",
+            self.config
+                .language
+                .tr("notas no projeto", "notes in project"),
+            self.config.language.tr(
+                "Resumo harmônico não altera o projeto",
+                "Harmony summary does not modify the project"
+            )
+        ));
+    }
+
     pub(super) fn update_editor_panels(&mut self, ctx: &egui::Context) {
+        self.audio_player
+            .set_master_fx(&self.project.master_fx.clone().unwrap_or_default());
         self.render_menu_bar(ctx);
 
         let is_modular = self.config.layout.modular_workspace;
         let toolbar_title = self.config.language.tr("Controles", "Controls");
         let toolbar_fill = self.config.theme.elevated_surface_c32();
         let toolbar_stroke = self.config.theme.card_stroke();
+        self.transport_state.motion = self.animation_policy().allows_motion();
+        self.transport_state.busy = self.render_rx.is_some() || self.export_rx.is_some();
         let mut draw_toolbar = |ui: &mut egui::Ui| {
             let transport_active = self.transport_is_active();
             let bpm_before = self.project.bpm;
@@ -31,6 +91,13 @@ impl KamafeuStudioApp {
             let mut env_p1p4_clicked = false;
             let mut env_opt_clicked = false;
             let mut env_reset_clicked = false;
+            let follow_before = (
+                self.piano_roll_state.vertical_follow_smoothing_ms,
+                self.piano_roll_state.horizontal_follow_smoothing_ms,
+                self.piano_roll_state.follow_cursor_pct,
+                self.piano_roll_state.follow_min_pct,
+                self.piano_roll_state.follow_max_pct,
+            );
 
             let lang = self.config.language;
             draw_unified_toolbar(
@@ -45,6 +112,11 @@ impl KamafeuStudioApp {
                 &mut self.piano_roll_state.pitch_smooth_intensity,
                 &mut self.piano_roll_state.auto_scroll_mode,
                 &mut self.piano_roll_state.vertical_pitch_follow,
+                &mut self.piano_roll_state.vertical_follow_smoothing_ms,
+                &mut self.piano_roll_state.horizontal_follow_smoothing_ms,
+                &mut self.piano_roll_state.follow_cursor_pct,
+                &mut self.piano_roll_state.follow_min_pct,
+                &mut self.piano_roll_state.follow_max_pct,
                 &mut self.piano_roll_state.active_scale,
                 &mut self.piano_roll_state.scale_root_key,
                 &mut self.piano_roll_state.px_per_ms,
@@ -67,6 +139,21 @@ impl KamafeuStudioApp {
                 &mut || env_opt_clicked = true,
                 &mut || env_reset_clicked = true,
             );
+            let follow_after = (
+                self.piano_roll_state.vertical_follow_smoothing_ms,
+                self.piano_roll_state.horizontal_follow_smoothing_ms,
+                self.piano_roll_state.follow_cursor_pct,
+                self.piano_roll_state.follow_min_pct,
+                self.piano_roll_state.follow_max_pct,
+            );
+            if follow_after != follow_before {
+                self.config.layout.vertical_follow_smoothing_ms = follow_after.0;
+                self.config.layout.horizontal_follow_smoothing_ms = follow_after.1;
+                self.config.layout.follow_cursor_pct = follow_after.2;
+                self.config.layout.follow_min_pct = follow_after.3;
+                self.config.layout.follow_max_pct = follow_after.4;
+                self.persist_config();
+            }
 
             if quantize_clicked {
                 self.quantize_positions();
@@ -183,6 +270,7 @@ impl KamafeuStudioApp {
             let bg_panel = self.config.theme.bg_panel_c32();
             let inspector_rounding = self.config.theme.ui_rounding();
             let inspector_stroke = self.config.theme.card_stroke();
+            let inspector_default_width = self.config.layout.right_dock_width;
             let inspector_snap = match self.workspace_snap_rect.take() {
                 Some((crate::gui::workspace::WorkspacePane::Inspector, rect)) if is_modular => {
                     Some(rect)
@@ -193,9 +281,59 @@ impl KamafeuStudioApp {
                 }
             };
             let mut inspector_snap_after = None;
+            let mut inspector_resized_width = None;
 
             let mut draw_inspector = |ui: &mut egui::Ui| {
-                self.draw_inspector_inner(ui);
+                ui.horizontal(|ui| {
+                    if ui
+                        .selectable_label(
+                            self.config.layout.right_dock_tab == 0,
+                            self.config.language.tr("Inspetor", "Inspector"),
+                        )
+                        .clicked()
+                    {
+                        self.config.layout.right_dock_tab = 0;
+                    }
+                    if ui
+                        .selectable_label(self.config.layout.right_dock_tab == 1, "FX")
+                        .clicked()
+                    {
+                        self.config.layout.right_dock_tab = 1;
+                    }
+                });
+                ui.separator();
+                if self.config.layout.right_dock_tab == 0 {
+                    self.draw_inspector_inner(ui);
+                } else {
+                    let mut close = false;
+                    let target = self.active_track_index;
+                    let rack_state = &mut self.fx_rack_dialog_state;
+                    rack_state.target_track = Some(target);
+                    let mut track_fx = self
+                        .project
+                        .tracks
+                        .get(target)
+                        .and_then(|track| track.fx_rack.clone())
+                        .unwrap_or_default();
+                    let original_fx = track_fx.clone();
+                    crate::gui::fx_rack_ui::render_fx_rack_ui(
+                        ui,
+                        self.config.language,
+                        &self.config.theme,
+                        self.config.language.tr("Efeitos da faixa", "Track effects"),
+                        rack_state,
+                        &self.project.tracks,
+                        &mut track_fx,
+                        &mut close,
+                    );
+                    if track_fx != original_fx {
+                        if let Some(track) = self.project.tracks.get_mut(target) {
+                            track.fx_rack = Some(track_fx);
+                        }
+                        self.is_dirty = true;
+                        self.fx_preview_refresh_pending = true;
+                    }
+                }
             };
 
             if is_modular {
@@ -223,15 +361,22 @@ impl KamafeuStudioApp {
                     }
                 }
             } else {
-                SidePanel::right("right_inspector_panel")
+                let response = SidePanel::right("right_inspector_panel")
                     .resizable(true)
-                    .default_width(220.0)
+                    .default_width(inspector_default_width)
                     .min_width(180.0)
                     .max_width(300.0)
                     .frame(Frame::none().fill(bg_panel).stroke(inspector_stroke))
                     .show(ctx, &mut draw_inspector);
+                if response.response.drag_stopped() {
+                    inspector_resized_width = Some(response.response.rect.width());
+                }
             }
             drop(draw_inspector);
+            if let Some(width) = inspector_resized_width {
+                self.config.layout.right_dock_width = width;
+                self.persist_config();
+            }
             if inspector_snap_after.is_some() {
                 self.workspace_snap_rect = inspector_snap_after
                     .map(|rect| (crate::gui::workspace::WorkspacePane::Inspector, rect));
@@ -257,7 +402,7 @@ impl KamafeuStudioApp {
                 .tr("Arranjo e faixas", "Arrangement & Tracks");
             let bg_panel = self.config.theme.bg_panel_c32();
             let border_stroke = self.config.theme.active_border_stroke();
-            let default_arr_h = self.piano_roll_state.arrangement_height;
+            let arrangement_default_width = self.config.layout.left_dock_width;
 
             let mut draw_arrangement = |ui: &mut egui::Ui| {
                 self.draw_arrangement_inner(ui);
@@ -271,12 +416,197 @@ impl KamafeuStudioApp {
                     .frame(Frame::none().fill(bg_panel).stroke(border_stroke))
                     .show(ctx, &mut draw_arrangement);
             } else {
-                TopBottomPanel::top("arrangement_multitrack_panel")
+                let response = SidePanel::left("arrangement_multitrack_panel")
                     .resizable(true)
-                    .height_range(80.0..=420.0)
-                    .default_height(default_arr_h)
+                    .default_width(arrangement_default_width)
+                    .min_width(280.0)
+                    .max_width(600.0)
                     .frame(Frame::none().fill(bg_panel).stroke(border_stroke))
                     .show(ctx, &mut draw_arrangement);
+                drop(draw_arrangement);
+                if response.response.drag_stopped() {
+                    self.config.layout.left_dock_width = response.response.rect.width();
+                    self.persist_config();
+                }
+            }
+        }
+
+        if self.config.layout.show_bottom_dock {
+            let fill = self.config.theme.bg_panel_c32();
+            let response = TopBottomPanel::bottom("editor_analysis_dock")
+                .resizable(true)
+                .default_height(self.config.layout.bottom_dock_height)
+                .height_range(100.0..=360.0)
+                .frame(
+                    Frame::none()
+                        .fill(fill)
+                        .stroke(self.config.theme.card_stroke()),
+                )
+                .show(ctx, |ui| {
+                    ui.horizontal(|ui| {
+                        if ui
+                            .selectable_label(
+                                self.config.layout.bottom_dock_tab == 0,
+                                self.config.language.tr("Mixer", "Mixer"),
+                            )
+                            .clicked()
+                        {
+                            self.config.layout.bottom_dock_tab = 0;
+                        }
+                        if ui
+                            .selectable_label(
+                                self.config.layout.bottom_dock_tab == 1,
+                                self.config.language.tr("Harmonia", "Harmony"),
+                            )
+                            .clicked()
+                        {
+                            self.config.layout.bottom_dock_tab = 1;
+                        }
+                        if ui
+                            .small_button("×")
+                            .on_hover_text(
+                                self.config.language.tr("Recolher painel", "Collapse panel"),
+                            )
+                            .clicked()
+                        {
+                            self.config.layout.show_bottom_dock = false;
+                            self.persist_config();
+                        }
+                    });
+                    ui.separator();
+                    match self.config.layout.bottom_dock_tab {
+                        0 => {
+                            egui::ScrollArea::vertical()
+                                .id_salt("mixer_track_cascade")
+                                .auto_shrink([false, false])
+                                .show(ui, |ui| {
+                                    let mut mix_changed = false;
+                                    for (index, track) in self.project.tracks.iter_mut().enumerate()
+                                    {
+                                        ui.group(|ui| {
+                                            ui.set_width(ui.available_width());
+                                            ui.horizontal(|ui| {
+                                                ui.label(egui::RichText::new(&track.name).strong());
+                                                ui.separator();
+                                                mix_changed |= ui
+                                                    .checkbox(
+                                                        &mut track.mute,
+                                                        self.config.language.tr("Mudo", "Mute"),
+                                                    )
+                                                    .changed();
+                                                mix_changed |=
+                                                    ui.checkbox(&mut track.solo, "Solo").changed();
+                                                if ui.small_button("FX").clicked() {
+                                                    self.active_track_index = index;
+                                                    self.config.layout.right_dock_tab = 1;
+                                                }
+                                            });
+                                            let slider_width = ui.available_width();
+                                            mix_changed |= ui
+                                                .add_sized(
+                                                    [slider_width, 22.0],
+                                                    egui::Slider::new(
+                                                        &mut track.volume_db,
+                                                        -60.0..=12.0,
+                                                    )
+                                                    .text(
+                                                        self.config
+                                                            .language
+                                                            .tr("Volume (dB)", "Volume (dB)"),
+                                                    ),
+                                                )
+                                                .changed();
+                                            mix_changed |= ui
+                                                .add_sized(
+                                                    [slider_width, 22.0],
+                                                    egui::Slider::new(&mut track.pan, -1.0..=1.0)
+                                                        .text("Pan"),
+                                                )
+                                                .changed();
+                                            // Track VU meter
+                                            let track_meter = self.piano_roll_state.arrangement_track_meters.get(index);
+                                            let level = track_meter.map(|m| m.level).unwrap_or(0.0);
+                                            let peak = track_meter.map(|m| m.peak).unwrap_or(0.0);
+                                            let (meter_rect, _) = ui.allocate_exact_size(egui::Vec2::new(slider_width, 6.0), egui::Sense::hover());
+                                            let painter = ui.painter_at(meter_rect);
+                                            let palette = crate::gui::visual_fx::MeterPalette {
+                                                low: self.config.theme.meter_c32(),
+                                                mid: self.config.theme.warning_c32(),
+                                                high: self.config.theme.danger_c32(),
+                                                off: self.config.theme.c32_alpha(self.config.theme.grid_line_sub, 0.22),
+                                            };
+                                            crate::gui::visual_fx::paint_led_meter(&painter, meter_rect, level, peak, &palette);
+                                        });
+                                    }
+                                    if mix_changed {
+                                        self.is_dirty = true;
+                                        self.fx_preview_refresh_pending = true;
+                                    }
+                                    ui.group(|ui| {
+                                        ui.set_width(ui.available_width());
+                                        ui.horizontal(|ui| {
+                                            ui.label(egui::RichText::new("Master").strong());
+                                            ui.separator();
+                                            // Live Scope preview in master mixer channel
+                                            let (scope_rect, _) = ui.allocate_exact_size(egui::Vec2::new(120.0, 20.0), egui::Sense::hover());
+                                            let painter = ui.painter_at(scope_rect);
+                                            crate::gui::visual_fx::paint_vertical_gradient(
+                                                &painter,
+                                                scope_rect,
+                                                self.config.theme.c32_alpha(self.config.theme.bg_canvas, 0.95),
+                                                self.config.theme.c32_alpha(self.config.theme.bg_header, 0.95),
+                                            );
+                                            crate::gui::visual_fx::paint_scope(
+                                                &painter,
+                                                scope_rect.shrink(1.0),
+                                                &self.transport_state.scope,
+                                                self.config.theme.waveform_c32(),
+                                                1.5,
+                                            );
+                                            painter.rect_stroke(
+                                                scope_rect,
+                                                self.config.theme.ui_rounding(),
+                                                egui::Stroke::new(1.0_f32, self.config.theme.c32_alpha(self.config.theme.grid_line_sub, 0.6)),
+                                            );
+                                        });
+                                        ui.add_sized(
+                                            [ui.available_width(), 22.0],
+                                            egui::Slider::new(
+                                                &mut self.transport_state.master_volume,
+                                                0.0..=2.0,
+                                            )
+                                            .text(self.config.language.tr("Volume", "Volume")),
+                                        );
+                                        // Master Stereo LED Meter
+                                        let (meter_rect_l, _) = ui.allocate_exact_size(egui::Vec2::new(ui.available_width(), 5.0), egui::Sense::hover());
+                                        let painter_l = ui.painter_at(meter_rect_l);
+                                        let (meter_rect_r, _) = ui.allocate_exact_size(egui::Vec2::new(ui.available_width(), 5.0), egui::Sense::hover());
+                                        let painter_r = ui.painter_at(meter_rect_r);
+                                        let palette = crate::gui::visual_fx::MeterPalette {
+                                            low: self.config.theme.meter_c32(),
+                                            mid: self.config.theme.warning_c32(),
+                                            high: self.config.theme.danger_c32(),
+                                            off: self.config.theme.c32_alpha(self.config.theme.grid_line_sub, 0.22),
+                                        };
+                                        crate::gui::visual_fx::paint_led_meter(&painter_l, meter_rect_l, self.transport_state.vu_level_l, self.transport_state.vu_peak_l, &palette);
+                                        crate::gui::visual_fx::paint_led_meter(&painter_r, meter_rect_r, self.transport_state.vu_level_r, self.transport_state.vu_peak_r, &palette);
+                                    });
+                                });
+                        }
+                        _ => self.draw_project_harmony(ui),
+                    }
+                });
+            if response.response.drag_stopped() {
+                self.config.layout.bottom_dock_height = response.response.rect.height();
+                self.persist_config();
+            }
+        }
+
+        if self.fx_preview_refresh_pending && !ctx.input(|input| input.pointer.primary_down()) {
+            self.fx_preview_refresh_pending = false;
+            if self.transport_is_active() {
+                self.pause_audio();
+                self.play_current_track();
             }
         }
     }
@@ -338,9 +668,32 @@ impl KamafeuStudioApp {
         let mut palette_edit_alias: Option<String> = None;
         let mut selected_ruler_alias_to_edit: Option<(String, String)> = None;
         let selected_ruler_alias = self.piano_roll_state.selected_copaiba_alias.clone();
-        let project_snapshot_before_panel = ui
-            .input(|i| i.pointer.primary_down() || i.pointer.secondary_down())
-            .then(|| self.project.clone());
+        let active_native_singer = self.project.tracks.get(self.active_track_index)
+            .and_then(|track| track.native_voicebank.as_ref()
+                .and_then(|reference| reference.source_path_hint.clone())
+                .or_else(|| track.voicebank_path.clone()))
+            .and_then(|path| {
+                self.singers_list
+                    .iter()
+                    .find(|singer| singer.path == std::path::PathBuf::from(&path))
+            })
+            .cloned();
+        let pointer_down = ui.input(|i| i.pointer.primary_down() || i.pointer.secondary_down());
+        let mut notes_to_watch = selected_indices.clone();
+        if let Some(index) = selected_idx {
+            notes_to_watch.insert(index);
+        }
+        let watched_note_snapshots: Vec<_> = self
+            .project
+            .parts
+            .get(part_idx)
+            .map(|part| {
+                notes_to_watch
+                    .iter()
+                    .filter_map(|index| part.notes.get(*index).map(|note| (*index, note.clone())))
+                    .collect()
+            })
+            .unwrap_or_default();
 
         let notes = &mut self.project.parts[part_idx].notes[..];
 
@@ -348,6 +701,7 @@ impl KamafeuStudioApp {
         let mut reload_singers_flag = false;
         let mut add_singers_dir_flag = false;
         let mut open_folder_picker = false;
+        let mut selected_diffsinger: Option<std::path::PathBuf> = None;
         let phonemizer_before_panel = self.vocal_mode_params.phonemizer_mode;
 
         draw_unified_panel(
@@ -355,6 +709,7 @@ impl KamafeuStudioApp {
             &self.config.theme,
             self.config.language,
             self.voicebank.as_ref(),
+            active_native_singer.as_ref(),
             &self.config.recent_voicebanks,
             &self.singers_list,
             &mut self.singer_search_query,
@@ -377,14 +732,22 @@ impl KamafeuStudioApp {
             &mut self.config.discord_rpc_enabled,
             &mut |opt_path| {
                 if let Some(p) = opt_path {
-                    if let Ok(vb) = Voicebank::new(&p) {
+                    if crate::oto::SingerScanner::inspect_singer_directory(&p)
+                        .is_some_and(|singer| singer.voice_type.starts_with("DiffSinger"))
+                    {
+                        selected_diffsinger = Some(p);
+                    } else if let Ok(vb) = Voicebank::new(&p) {
                         loaded_vb = Some(vb);
                     }
                 } else {
                     #[cfg(not(target_os = "android"))]
                     {
                         if let Some(folder) = crate::dialogs::FileDialog::new().pick_folder() {
-                            if let Ok(vb) = Voicebank::new(&folder) {
+                            if crate::oto::SingerScanner::inspect_singer_directory(&folder)
+                                .is_some_and(|singer| singer.voice_type.starts_with("DiffSinger"))
+                            {
+                                selected_diffsinger = Some(folder);
+                            } else if let Ok(vb) = Voicebank::new(&folder) {
                                 loaded_vb = Some(vb);
                             }
                         } else {
@@ -406,6 +769,123 @@ impl KamafeuStudioApp {
             &mut || selected_ruler_alias_to_edit = selected_ruler_alias.clone(),
         );
 
+        if let Some(path) = selected_diffsinger {
+            if let Some(track) = self.project.tracks.get_mut(self.active_track_index) {
+                if let Ok(bank) = crate::voicebank::diffsinger::DiffSingerBank::inspect(&path) {
+                    track.singer = bank.name;
+                    track.voicebank_path = Some(path.display().to_string());
+                    track.native_voicebank = None;
+                    track.diffsinger_language = bank.language_ids.contains_key("pt").then(|| "pt".into())
+                        .or_else(|| bank.language_ids.contains_key("en").then(|| "en".into()))
+                        .or_else(|| bank.languages.first().cloned());
+                    track.diffsinger_speaker = bank.speakers.first().cloned();
+                    track.diffsinger_phonemizer = Some(if bank.language_ids.contains_key("pt") {
+                        crate::voicebank::diffsinger::DiffSingerPhonemizer::BrapaPhonetic
+                    } else {
+                        crate::voicebank::diffsinger::DiffSingerPhonemizer::Automatic
+                    });
+                    track.diffsinger_provider = Some(crate::voicebank::diffsinger::ExecutionProvider::Cpu);
+                    self.is_dirty = true;
+                    self.piano_roll_state.show_phoneme_ruler = true;
+                    self.config.layout.show_phoneme_ruler = true;
+                    self.piano_roll_state.phoneme_cache_hash = 0;
+                    self.piano_roll_state.phoneme_cache.clear();
+                    self.piano_roll_state.note_phonemes_cache.clear();
+                }
+            }
+            self.persist_config();
+        }
+
+        let mut diffsinger_settings_changed = false;
+        let mut phoneme_ruler_visibility_changed = false;
+        if let Some(track) = self.project.tracks.get_mut(self.active_track_index) {
+            if let Some(path) = track.voicebank_path.as_deref() {
+                let root = std::path::Path::new(path);
+                if root.join("character.yaml").is_file()
+                    && (root.join("dsconfig.yaml").is_file() || root.join("configs/dsconfig.yaml").is_file())
+                {
+                    if let Ok(bank) = crate::voicebank::diffsinger::DiffSingerBank::inspect(root) {
+                        if track.diffsinger_phonemizer.is_none() {
+                            if bank.language_ids.contains_key("pt") {
+                                track.diffsinger_language = Some("pt".into());
+                                track.diffsinger_phonemizer = Some(crate::voicebank::diffsinger::DiffSingerPhonemizer::BrapaPhonetic);
+                            } else {
+                                track.diffsinger_phonemizer = Some(crate::voicebank::diffsinger::DiffSingerPhonemizer::Automatic);
+                            }
+                            self.piano_roll_state.show_phoneme_ruler = true;
+                            self.config.layout.show_phoneme_ruler = true;
+                            diffsinger_settings_changed = true;
+                        }
+                        ui.group(|ui| {
+                            ui.label(egui::RichText::new("DiffSinger · faixa ativa").strong());
+                            ui.label("Idioma");
+                            egui::ComboBox::from_id_salt("diffsinger_language")
+                                .selected_text(track.diffsinger_language.as_deref().unwrap_or("idioma"))
+                                .show_ui(ui, |ui| for language in &bank.languages {
+                                    diffsinger_settings_changed |= ui.selectable_value(&mut track.diffsinger_language, Some(language.clone()), language).changed();
+                                });
+                            if track.diffsinger_language.as_deref() == Some("pt") {
+                                ui.label("Fonemizador DiffSinger");
+                                egui::ComboBox::from_id_salt("diffsinger_phonemizer")
+                                    .selected_text(match track.diffsinger_phonemizer.unwrap_or_default() {
+                                        crate::voicebank::diffsinger::DiffSingerPhonemizer::Automatic => "G2P automático",
+                                        crate::voicebank::diffsinger::DiffSingerPhonemizer::BrapaPhonetic => "BRAPA · fonético",
+                                    })
+                                    .show_ui(ui, |ui| {
+                                        diffsinger_settings_changed |= ui.selectable_value(
+                                            &mut track.diffsinger_phonemizer,
+                                            Some(crate::voicebank::diffsinger::DiffSingerPhonemizer::BrapaPhonetic),
+                                            "BRAPA · fonético",
+                                        ).changed();
+                                        diffsinger_settings_changed |= ui.selectable_value(
+                                            &mut track.diffsinger_phonemizer,
+                                            Some(crate::voicebank::diffsinger::DiffSingerPhonemizer::Automatic),
+                                            "G2P automático",
+                                        ).changed();
+                                    });
+                            }
+                            egui::ComboBox::from_id_salt("diffsinger_speaker")
+                                .selected_text(track.diffsinger_speaker.as_deref().unwrap_or("speaker"))
+                                .show_ui(ui, |ui| for speaker in &bank.speakers {
+                                    diffsinger_settings_changed |= ui.selectable_value(&mut track.diffsinger_speaker, Some(speaker.clone()), speaker).changed();
+                                });
+                            egui::ComboBox::from_id_salt("diffsinger_provider")
+                                .selected_text(match track.diffsinger_provider.unwrap_or_default() {
+                                    crate::voicebank::diffsinger::ExecutionProvider::Cpu => "CPU",
+                                    crate::voicebank::diffsinger::ExecutionProvider::CoreMl => "CoreML",
+                                })
+                                .show_ui(ui, |ui| {
+                                    diffsinger_settings_changed |= ui.selectable_value(&mut track.diffsinger_provider, Some(crate::voicebank::diffsinger::ExecutionProvider::Cpu), "CPU").changed();
+                                    #[cfg(target_os = "macos")]
+                                    {
+                                        diffsinger_settings_changed |= ui.selectable_value(&mut track.diffsinger_provider, Some(crate::voicebank::diffsinger::ExecutionProvider::CoreMl), "CoreML").changed();
+                                    }
+                                });
+                            let ruler_toggle = ui.checkbox(
+                                &mut self.piano_roll_state.show_phoneme_ruler,
+                                "Régua de phones",
+                            );
+                            phoneme_ruler_visibility_changed = ruler_toggle.changed();
+                            ruler_toggle.on_hover_text(
+                                "Arraste a divisão entre os phones para ajustar quanto tempo cada um ocupa na nota.",
+                            );
+                            if let Some(reason) = bank.diagnostic.as_deref() {
+                                ui.colored_label(egui::Color32::LIGHT_RED, reason);
+                            }
+                        });
+                    }
+                }
+            }
+        }
+        if diffsinger_settings_changed {
+            self.is_dirty = true;
+            self.piano_roll_state.phoneme_cache_hash = 0;
+        }
+        if phoneme_ruler_visibility_changed {
+            self.config.layout.show_phoneme_ruler = self.piano_roll_state.show_phoneme_ruler;
+            self.persist_config();
+        }
+
         // The phonemizer selector lives in the sidebar, outside the note
         // editor's project snapshot. Invalidate phoneme previews immediately
         // when it changes so the next frame cannot keep showing aliases from
@@ -416,26 +896,41 @@ impl KamafeuStudioApp {
             self.piano_roll_state.note_phonemes_cache.clear();
         }
 
-        if project_snapshot_before_panel
-            .as_ref()
-            .is_some_and(|snapshot| self.project != *snapshot)
-        {
-            let pointer_down = ui.input(|i| i.pointer.primary_down() || i.pointer.secondary_down());
-            if pointer_down {
-                if self.pending_edit_snapshot.is_none() {
-                    self.pending_edit_snapshot = project_snapshot_before_panel.clone();
+        let watched_notes_changed = watched_note_snapshots.iter().any(|(index, before)| {
+            self.project
+                .parts
+                .get(part_idx)
+                .and_then(|part| part.notes.get(*index))
+                != Some(before)
+        });
+        if watched_notes_changed {
+            let snapshot = self.pending_edit_snapshot.take().unwrap_or_else(|| {
+                let mut snapshot = self.project.clone();
+                if let Some(part) = snapshot.parts.get_mut(part_idx) {
+                    for (index, before) in &watched_note_snapshots {
+                        if let Some(note) = part.notes.get_mut(*index) {
+                            *note = before.clone();
+                        }
+                    }
                 }
-            } else {
-                let snapshot = self
-                    .pending_edit_snapshot
-                    .take()
-                    .or_else(|| project_snapshot_before_panel.clone())
-                    .expect("inspector edits always retain their gesture snapshot");
+                snapshot
+            });
+            if pointer_down {
+                self.pending_edit_snapshot = Some(snapshot);
+            } else if self.project != snapshot {
                 self.undo_manager.push_state(snapshot);
                 self.piano_roll_state.phoneme_cache.clear();
                 self.piano_roll_state.note_phonemes_cache.clear();
             }
             self.is_dirty = true;
+        } else if !pointer_down {
+            if let Some(snapshot) = self.pending_edit_snapshot.take() {
+                if self.project != snapshot {
+                    self.undo_manager.push_state(snapshot);
+                    self.piano_roll_state.phoneme_cache.clear();
+                    self.piano_roll_state.note_phonemes_cache.clear();
+                }
+            }
         }
 
         if open_folder_picker {
@@ -558,17 +1053,6 @@ impl KamafeuStudioApp {
     }
 
     pub(crate) fn draw_arrangement_inner(&mut self, ui: &mut egui::Ui) {
-        // Playback has one shared clock. Keep the arrangement viewport aligned
-        // with the piano-roll viewport while it follows that clock; manual
-        // piano-roll navigation explicitly opts out through this override.
-        if self.piano_roll_state.is_playing
-            && !self.piano_roll_state.horizontal_follow_user_override
-            && self.piano_roll_state.minimap_drag_scroll_origin.is_none()
-        {
-            self.piano_roll_state.arrangement_horizontal_scroll_offset =
-                self.piano_roll_state.horizontal_scroll_offset;
-        }
-
         // Undo preparation used to clone the entire project whenever any
         // primary button was held anywhere in the app. Restrict it to a press
         // that actually began over the arrangement panel.
@@ -579,10 +1063,19 @@ impl KamafeuStudioApp {
                 .or(input.pointer.interact_pos())
                 .is_some_and(|pos| ui.max_rect().contains(pos))
         });
-        let arrangement_snapshot_before = if self.pending_edit_snapshot.is_none()
-            && pointer_is_over_arrangement
-            && ui.input(|i| i.pointer.primary_down() || i.pointer.secondary_down())
-        {
+        let mut arrangement_snapshot_before = if self.pending_edit_snapshot.is_none()
+            && ui.input(|i| {
+                (pointer_is_over_arrangement
+                    && (i.pointer.primary_down()
+                        || i.pointer.secondary_down()
+                        || i.pointer.any_released()))
+                    || i.events.iter().any(|event| {
+                        matches!(
+                            event,
+                            egui::Event::Key { pressed: true, .. } | egui::Event::Text(_)
+                        )
+                    })
+            }) {
             Some(self.project.clone())
         } else {
             None
@@ -591,6 +1084,8 @@ impl KamafeuStudioApp {
         let actual_h = ui.max_rect().height().clamp(60.0, 500.0);
         self.piano_roll_state.arrangement_height = actual_h;
 
+        let mut master_fx = self.project.master_fx.clone().unwrap_or_default();
+        let original_master_fx = master_fx.clone();
         let arrangement_changed = draw_arrangement_view(
             ui,
             &self.config.theme,
@@ -599,17 +1094,22 @@ impl KamafeuStudioApp {
             &mut self.project.wave_parts,
             &mut self.active_track_index,
             &mut self.piano_roll_state.playhead_ms,
-            &mut self.piano_roll_state.px_per_ms,
+            &mut self.piano_roll_state.arrangement_zoom,
             self.transport_state.bpm,
             &mut self.piano_roll_state.arrangement_horizontal_scroll_offset,
             &mut self.piano_roll_state.arrangement_vertical_scroll_offset,
-            &mut self.piano_roll_state.horizontal_follow_user_override,
+            &mut self.piano_roll_state.arrangement_follow_override,
             &mut self.piano_roll_state.arrangement_drag_track,
             &mut self.piano_roll_state.arrangement_track_meters,
             self.piano_roll_state.is_playing,
             &mut self.fx_rack_dialog_state,
             self.config.language,
+            &mut master_fx,
         );
+        if master_fx != original_master_fx {
+            self.project.master_fx = Some(master_fx);
+        }
+
         if arrangement_changed {
             let pointer_down = ui.input(|i| i.pointer.primary_down() || i.pointer.secondary_down());
             if pointer_down {
@@ -621,8 +1121,10 @@ impl KamafeuStudioApp {
             } else {
                 if let Some(snapshot) = self.pending_edit_snapshot.take() {
                     self.undo_manager.push_state(snapshot);
-                } else if let Some(snapshot) = arrangement_snapshot_before.as_ref() {
-                    self.undo_manager.push_state(snapshot.clone());
+                } else if let Some(snapshot) = arrangement_snapshot_before.take() {
+                    // A click commits on release. Move the captured snapshot
+                    // into history instead of cloning the whole project again.
+                    self.undo_manager.push_state(snapshot);
                 }
             }
             self.is_dirty = true;

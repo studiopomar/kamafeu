@@ -35,7 +35,7 @@ jobs:
         run: cargo fmt --all -- --check
       - name: Run tests
         env:
-          TAINAH_LIBRARY_PATH: target/tainah-package/liblessampler_tainah.so.1
+          TAINAH_LIBRARY_PATH: target/tainah-package/libtainah_motor.so.1
         run: cargo test --all-targets --all-features --locked
       - name: Run Clippy
         # O CI principal executa Clippy sem promover avisos legados a erros.
@@ -51,7 +51,9 @@ jobs:
   build:
     name: Build ${{ matrix.job.name }}
     needs: quality
-    continue-on-error: ${{ matrix.job.use_cross }}
+    # A failure in a promised desktop target blocks publication. Secondary
+    # architectures remain best-effort until they have native smoke coverage.
+    continue-on-error: ${{ !matrix.job.blocking }}
     runs-on: ${{ matrix.job.os }}
     strategy:
       fail-fast: false
@@ -64,6 +66,7 @@ jobs:
             toolkit_binary: copaiba.exe
             archive: kamafeu-${{ github.ref_name }}-windows-x64.zip
             use_cross: false
+            blocking: true
             smoke_test: true
 
           - name: Windows ARM64
@@ -73,6 +76,7 @@ jobs:
             toolkit_binary: copaiba.exe
             archive: kamafeu-${{ github.ref_name }}-windows-arm64.zip
             use_cross: false
+            blocking: false
             smoke_test: false
 
           - name: Windows x86 (32-bit)
@@ -82,6 +86,7 @@ jobs:
             toolkit_binary: copaiba.exe
             archive: kamafeu-${{ github.ref_name }}-windows-x86.zip
             use_cross: false
+            blocking: false
             smoke_test: true
 
           - name: macOS Apple Silicon (ARM64)
@@ -91,6 +96,7 @@ jobs:
             toolkit_binary: copaiba
             archive: kamafeu-${{ github.ref_name }}-macos-arm64.dmg
             use_cross: false
+            blocking: true
 
           - name: macOS Intel (x86_64)
             os: macos-15-intel
@@ -99,6 +105,7 @@ jobs:
             toolkit_binary: copaiba
             archive: kamafeu-${{ github.ref_name }}-macos-x86_64.dmg
             use_cross: false
+            blocking: true
 
           - name: Linux x64
             os: ubuntu-latest
@@ -107,6 +114,7 @@ jobs:
             toolkit_binary: copaiba
             archive: kamafeu-${{ github.ref_name }}-linux-x64.tar.gz
             use_cross: false
+            blocking: true
 
           - name: Linux ARM64
             os: ubuntu-latest
@@ -115,6 +123,7 @@ jobs:
             toolkit_binary: copaiba
             archive: kamafeu-${{ github.ref_name }}-linux-arm64.tar.gz
             use_cross: true
+            blocking: false
 
           - name: Linux ARMv7 (32-bit)
             os: ubuntu-latest
@@ -123,6 +132,7 @@ jobs:
             toolkit_binary: copaiba
             archive: kamafeu-${{ github.ref_name }}-linux-armv7.tar.gz
             use_cross: true
+            blocking: false
 
           - name: Linux musl x64
             os: ubuntu-latest
@@ -131,6 +141,7 @@ jobs:
             toolkit_binary: copaiba
             archive: kamafeu-${{ github.ref_name }}-linux-musl-x64.tar.gz
             use_cross: true
+            blocking: false
 
     steps:
       - name: Checkout repository
@@ -140,7 +151,7 @@ jobs:
         if: matrix.job.os == 'ubuntu-latest' && matrix.job.use_cross == false
         run: |
           sudo apt-get update
-          sudo apt-get install -y libasound2-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev pkg-config
+          sudo apt-get install -y libasound2-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev pkg-config xvfb
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -157,6 +168,16 @@ jobs:
       - name: Build Binary (Native)
         if: matrix.job.use_cross == false
         run: cargo build --release --bins --target ${{ matrix.job.target }} --locked
+
+      - name: Build FTXUI terminal dashboard
+        if: matrix.job.blocking == true
+        run: |
+          cmake -S native/console_tui -B target/console-tui-build -DCMAKE_BUILD_TYPE=Release
+          cmake --build target/console-tui-build --config Release --parallel 2
+
+      - name: Test FTXUI terminal transport
+        if: matrix.job.blocking == true && matrix.job.os != 'windows-latest'
+        run: ctest --test-dir target/console-tui-build --output-on-failure
 
       - name: Install cross
         if: matrix.job.use_cross == true
@@ -187,8 +208,11 @@ jobs:
           Copy-Item $bin_path -Destination "package_root/kamafeu.exe"
           Copy-Item $toolkit_path -Destination "package_root/copaiba.exe"
           Copy-Item "README.md", "LICENSE", "NOTICE.md" -Destination "package_root/"
-          Copy-Item "target/tainah-package/lessampler_tainah.dll" -Destination "package_root/"
-          Copy-Item "target/tainah-package/lessampler-ng-LGPL-3.0.txt" -Destination "package_root/"
+          Copy-Item "target/tainah-package/tainah_motor.dll" -Destination "package_root/"
+          Copy-Item "target/tainah-package/licenca-da-base-LGPL-3.0.txt" -Destination "package_root/"
+          if ("${{ matrix.job.blocking }}" -eq "true") {
+            Copy-Item "target/console-tui-build/bin/Release/kamafeu-tui.exe" -Destination "package_root/"
+          }
 
           # Recent `ort` builds may statically link ONNX Runtime. If a build
           # selects the dynamic variant, keep its DLL beside the executable;
@@ -234,6 +258,9 @@ jobs:
           if [[ "${{ matrix.job.os }}" == "macos-15" || "${{ matrix.job.os }}" == "macos-15-intel" || "${{ matrix.job.os }}" == "macos-13" ]]; then
             mkdir -p package_root/Kamafeu.app/Contents/MacOS package_root/Kamafeu.app/Contents/Resources
             cp "$BIN_PATH" package_root/Kamafeu.app/Contents/MacOS/kamafeu
+            if [[ "${{ matrix.job.blocking }}" == "true" ]]; then
+              cp target/console-tui-build/bin/Release/kamafeu-tui package_root/Kamafeu.app/Contents/MacOS/
+            fi
             cp assets/icon.png package_root/Kamafeu.app/Contents/Resources/icon.png
             cp "$TOOLKIT_PATH" package_root/copaiba
             cat > package_root/Kamafeu.app/Contents/Info.plist <<'PLIST'
@@ -253,16 +280,19 @@ jobs:
           else
             cp "$BIN_PATH" package_root/kamafeu
             cp "$TOOLKIT_PATH" package_root/copaiba
+            if [[ "${{ matrix.job.blocking }}" == "true" ]]; then
+              cp target/console-tui-build/bin/Release/kamafeu-tui package_root/
+            fi
           fi
           cp README.md LICENSE NOTICE.md package_root/
           if [[ "${{ matrix.job.os }}" == *"macos"* ]]; then
             mkdir -p package_root/Kamafeu.app/Contents/Frameworks
-            cp target/tainah-package/liblessampler_tainah.dylib package_root/Kamafeu.app/Contents/Frameworks/
-            cp target/tainah-package/liblessampler_tainah.dylib package_root/
+            cp target/tainah-package/libtainah_motor.dylib package_root/Kamafeu.app/Contents/Frameworks/
+            cp target/tainah-package/libtainah_motor.dylib package_root/
           else
-            cp target/tainah-package/liblessampler_tainah.so.1 package_root/
+            cp target/tainah-package/libtainah_motor.so.1 package_root/
           fi
-          cp target/tainah-package/lessampler-ng-LGPL-3.0.txt package_root/
+          cp target/tainah-package/licenca-da-base-LGPL-3.0.txt package_root/
 
           # Include compiled resamplers
           if [ -d "resamplers_dist/bin" ]; then
@@ -290,8 +320,10 @@ jobs:
           fi
 
           if [[ "${{ matrix.job.os }}" == *"macos"* ]]; then
+            python3 scripts/release-smoke.py package_root/Kamafeu.app/Contents/MacOS/kamafeu
             hdiutil create -volname "Kamafeu" -srcfolder package_root -ov -format UDZO "${{ matrix.job.archive }}"
           else
+            xvfb-run -a python3 scripts/release-smoke.py package_root/kamafeu
             tar -czvf "${{ matrix.job.archive }}" -C package_root .
           fi
 

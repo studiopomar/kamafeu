@@ -11,3 +11,6 @@ pub use playback_timeline::{PlaybackTimeline, TimelineChunk, TimelineDecision, T
 pub use player::AudioPlayer;
 #[cfg(not(target_arch = "wasm32"))]
 pub use player::{PlaybackSchedulerEvent, ProgressivePlaybackHandle};
+
+#[cfg(not(target_arch = "wasm32"))]
+pub mod master_output;

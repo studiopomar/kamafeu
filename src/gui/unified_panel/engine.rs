@@ -90,11 +90,21 @@ pub(super) fn draw(
                     });
 
                     ui.add_space(4.0);
+                    let external_profile_selected = crate::drivers::KnownResampler::ALL
+                        .into_iter()
+                        .filter(|profile| {
+                            *profile != crate::drivers::KnownResampler::StraycatRs
+                        })
+                        .any(|profile| {
+                            selected_resampler == profile.label()
+                                || selected_resampler.starts_with(profile.label())
+                        });
                     egui::CollapsingHeader::new(
                         RichText::new(lang.tr("Outros Motores Externos (CLI)", "Other External Engines (CLI)"))
                             .size(10.0)
                             .color(theme.text_muted_c32()),
                     )
+                    .default_open(external_profile_selected)
                     .show(ui, |ui| {
                         for profile in crate::drivers::KnownResampler::ALL {
                             if profile == crate::drivers::KnownResampler::StraycatRs {
@@ -114,18 +124,23 @@ pub(super) fn draw(
                                             .find_executable()
                                             .unwrap_or_else(|| profile.default_path()),
                                     );
-                                    if profile
-                                        == crate::drivers::KnownResampler::HifisamplerRs
-                                    {
-                                        let _ =
-                                            crate::drivers::resampler_driver::ensure_hifisampler_ready();
+                                    if matches!(
+                                        profile,
+                                        crate::drivers::KnownResampler::Catalina
+                                            | crate::drivers::KnownResampler::HifisamplerRs
+                                    ) {
+                                        let _ = crate::drivers::resampler_driver::
+                                            ensure_hifisampler_profile_ready(profile);
                                     }
                                 }
-                                if profile
-                                    == crate::drivers::KnownResampler::HifisamplerRs
-                                {
+                                if matches!(
+                                    profile,
+                                    crate::drivers::KnownResampler::Catalina
+                                        | crate::drivers::KnownResampler::HifisamplerRs
+                                ) {
                                     if let Ok(ref msg) =
-                                        crate::drivers::resampler_driver::ensure_hifisampler_ready()
+                                        crate::drivers::resampler_driver::
+                                            ensure_hifisampler_profile_ready(profile)
                                     {
                                         ui.label(
                                             RichText::new("ONNX pronto")
@@ -137,6 +152,12 @@ pub(super) fn draw(
                                 }
                             });
                         }
+                        #[cfg(all(not(target_os = "android"), not(target_arch = "wasm32")))]
+                        crate::gui::engine_install::draw(
+                            ui,
+                            selected_resampler,
+                            custom_resampler_path.as_deref(),
+                        );
                     });
 
                     {

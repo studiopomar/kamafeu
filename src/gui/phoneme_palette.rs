@@ -162,7 +162,7 @@ pub fn draw_phoneme_palette(
 
                             response.context_menu(|ui| {
                                 if ui
-                                    .button(lang.tr("Editar no Copaiba", "Edit in Copaiba"))
+                                    .button(lang.tr("Editar banco", "Edit voicebank"))
                                     .clicked()
                                 {
                                     on_edit_phoneme(alias);

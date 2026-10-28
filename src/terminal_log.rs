@@ -7,6 +7,9 @@ use std::collections::HashSet;
 use std::fmt::Display;
 use std::sync::{Mutex, OnceLock};
 
+#[cfg(all(not(target_arch = "wasm32"), not(target_os = "android")))]
+mod tui;
+
 const RULE: &str = "+------------------------------------------------------------------------+";
 
 #[derive(Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -33,6 +36,47 @@ pub fn is_verbose() -> bool {
     verbosity() == Verbosity::Verbose
 }
 
+#[cfg(all(not(target_arch = "wasm32"), not(target_os = "android")))]
+pub struct TuiGuard {
+    _inner: tui::TuiHandle,
+}
+
+#[cfg(any(target_arch = "wasm32", target_os = "android"))]
+pub struct TuiGuard;
+
+/// Starts the live terminal dashboard when the process owns an interactive TTY.
+/// `KAMAFEU_TUI=off` keeps the traditional line-oriented console.
+pub fn start_tui() -> Option<TuiGuard> {
+    #[cfg(all(not(target_arch = "wasm32"), not(target_os = "android")))]
+    {
+        return tui::start().map(|inner| TuiGuard { _inner: inner });
+    }
+    #[cfg(any(target_arch = "wasm32", target_os = "android"))]
+    {
+        None
+    }
+}
+
+#[cfg(all(not(target_arch = "wasm32"), not(target_os = "android")))]
+fn tui_active() -> bool {
+    tui::active()
+}
+
+#[cfg(any(target_arch = "wasm32", target_os = "android"))]
+fn tui_active() -> bool {
+    false
+}
+
+#[cfg(all(not(target_arch = "wasm32"), not(target_os = "android")))]
+fn tui_push(level: &str, scope: &str, message: &str) -> bool {
+    tui::push(level, scope, message)
+}
+
+#[cfg(any(target_arch = "wasm32", target_os = "android"))]
+fn tui_push(_level: &str, _scope: &str, _message: &str) -> bool {
+    false
+}
+
 fn level_tag(level: &str) -> String {
     format!("{level:^7}")
 }
@@ -48,7 +92,7 @@ fn enabled(level: &str) -> bool {
 pub fn info(scope: &str, message: impl Display) {
     // Normal mode is intentionally quiet: startup and subsystem details are
     // useful while diagnosing, but they should not compete with warnings.
-    if is_verbose() {
+    if is_verbose() || tui_active() {
         emit("INFO", scope, message);
     }
 }
@@ -82,10 +126,13 @@ pub fn debug(scope: &str, message: impl Display) {
 }
 
 fn emit(level: &str, scope: &str, message: impl Display) {
-    if !enabled(level) {
+    if !enabled(level) && !tui_active() {
         return;
     }
     let message = message.to_string();
+    if tui_push(level, scope, &message) {
+        return;
+    }
     let mut lines = message.lines();
     let first = lines.next().unwrap_or_default();
     eprintln!("[{}] {:<12} {}", level_tag(level), scope, first);
@@ -95,6 +142,13 @@ fn emit(level: &str, scope: &str, message: impl Display) {
 }
 
 pub fn banner(version: &str, codename: &str) {
+    if tui_push(
+        "INFO",
+        "Kamafeu",
+        &format!("Studio v{version} · {codename} · OpenUTAU-compatible vocal editor"),
+    ) {
+        return;
+    }
     if verbosity() == Verbosity::Quiet {
         return;
     }
@@ -115,10 +169,18 @@ pub fn render(session: u64, elapsed_ms: u128, progress: f32, message: &str) {
     // Render progress is intentionally opt-in. The GUI already exposes this
     // state, and printing every resampler/wavtool step makes the terminal
     // unusable during long projects.
-    if !is_verbose() {
+    if !is_verbose() && !tui_active() {
         return;
     }
     let progress = (progress.clamp(0.0, 1.0) * 100.0).round();
+    let dashboard_message = format!("{progress:.0}% · {elapsed_ms}ms · {message}");
+    if tui_push(
+        "RENDER",
+        &format!("Render #{session:03}"),
+        &dashboard_message,
+    ) {
+        return;
+    }
     let mut lines = message.lines();
     let first = lines.next().unwrap_or_default();
     eprintln!(

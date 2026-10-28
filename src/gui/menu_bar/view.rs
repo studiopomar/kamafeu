@@ -102,6 +102,29 @@ impl KamafeuStudioApp {
                 self.workspace_snap_rect = None;
                 ui.close_menu();
             }
+            if ui
+                .button(lang.tr("Mostrar mixer e análise", "Show mixer and analysis"))
+                .clicked()
+            {
+                self.config.layout.show_bottom_dock = true;
+                self.persist_config();
+                ui.close_menu();
+            }
+            if ui
+                .button(lang.tr(
+                    "Restaurar layout padrão dos painéis",
+                    "Restore default panel layout",
+                ))
+                .clicked()
+            {
+                self.config.layout = crate::config::EditorLayoutConfig::default();
+                self.piano_roll_state.show_arrangement_view = true;
+                self.piano_roll_state.is_maximized = false;
+                ctx.memory_mut(|memory| memory.reset_areas());
+                self.workspace_snap_rect = None;
+                self.persist_config();
+                ui.close_menu();
+            }
             ui.menu_button(lang.tr("Painéis", "Panels"), |ui| {
                 let panels = [
                     (

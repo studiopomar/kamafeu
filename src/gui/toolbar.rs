@@ -3,23 +3,107 @@ use crate::gui::theme::ThemeConfig;
 use crate::gui::types::{AutoScrollMode, EditTool, GridSnapOption, PitchSubTool, TransportState};
 use eframe::egui::{self, Color32, Frame, Margin, Pos2, Rect, RichText, Rounding, Stroke, Vec2};
 
+use crate::gui::visual_fx as fx;
+
+/// Duration used for state colour transitions. Follows the global egui
+/// animation time, which `app_frame` sets to zero when animations are off.
+fn transition_time(ui: &egui::Ui) -> f32 {
+    ui.style().animation_time.max(0.0) * 1.25
+}
+
 fn toolbar_card<R>(
     ui: &mut egui::Ui,
     theme: &ThemeConfig,
+    id_salt: &str,
     add_contents: impl FnOnce(&mut egui::Ui) -> R,
 ) -> R {
+    // Reserved before the frame so the hover halo sits behind the card.
+    let glow_slot = fx::reserve(ui.painter());
+    let radius = theme.ui_corner_radius.max(5.0);
     // Toolbar groups should read as one continuous control surface, rather
     // than a row of heavy outlined boxes.
     let frame = Frame::none()
         .fill(theme.c32_alpha(theme.bg_header, 0.58))
-        .rounding(Rounding::same(theme.ui_corner_radius.max(5.0)))
+        .rounding(Rounding::same(radius))
         .stroke(Stroke::new(
             0.6_f32,
             theme.c32_alpha(theme.grid_line_sub, 0.34),
         ))
         .inner_margin(Margin::symmetric(4.0, 2.0))
         .show(ui, add_contents);
+
+    let rect = frame.response.rect;
+    let hovered = ui.rect_contains_pointer(rect);
+    let t = ui.ctx().animate_bool_with_time(
+        egui::Id::new("toolbar_card_hover").with(id_salt),
+        hovered,
+        transition_time(ui) * 1.4,
+    );
+    if t > 0.001 {
+        let accent = theme.accent_c32();
+        fx::paint_glow_into(
+            ui.painter(),
+            glow_slot,
+            rect,
+            radius,
+            fx::with_alpha(accent, 0.22 * t),
+            10.0,
+        );
+        ui.painter().rect_stroke(
+            rect,
+            radius,
+            Stroke::new(0.9_f32, fx::with_alpha(accent, 0.55 * t)),
+        );
+    }
     frame.inner
+}
+
+/// Smoothly interpolated (fill, stroke, text) for an on/off control.
+fn toggle_style(
+    ui: &egui::Ui,
+    theme: &ThemeConfig,
+    id: egui::Id,
+    active: bool,
+    active_color: Color32,
+    active_fill_alpha: f32,
+) -> (Color32, Stroke, Color32) {
+    let t = ui
+        .ctx()
+        .animate_bool_with_time(id.with("toggle_anim"), active, transition_time(ui));
+    let fill = fx::lerp_color(
+        theme.bg_header_c32(),
+        fx::with_alpha(active_color, active_fill_alpha),
+        t,
+    );
+    let stroke = Stroke::new(
+        1.0 + 0.2 * t,
+        fx::lerp_color(theme.grid_line_sub_c32(), active_color, t),
+    );
+    let text = fx::lerp_color(theme.text_muted_c32(), active_color, t);
+    (fill, stroke, text)
+}
+
+/// Glowing underline that slides between the selected buttons of a group.
+fn paint_selection_slider(ui: &egui::Ui, theme: &ThemeConfig, id: &str, target: Option<Rect>) {
+    let Some(target) = target else {
+        return;
+    };
+    let rect = fx::animate_rect(
+        ui.ctx(),
+        egui::Id::new("toolbar_slider").with(id),
+        target,
+        transition_time(ui) * 1.6,
+    );
+    let bar = Rect::from_min_max(
+        Pos2::new(rect.left() + 4.0, rect.bottom() - 2.4),
+        Pos2::new(rect.right() - 4.0, rect.bottom() - 0.6),
+    );
+    if bar.width() <= 0.0 {
+        return;
+    }
+    let accent = theme.accent_c32();
+    fx::paint_glow(ui.painter(), bar, 1.0, fx::with_alpha(accent, 0.75), 6.0);
+    ui.painter().rect_filled(bar, 1.0, fx::lighten(accent, 0.25));
 }
 
 fn draw_vu_meter(
@@ -28,20 +112,28 @@ fn draw_vu_meter(
     state: &mut TransportState,
     _is_playing: bool,
 ) {
-    let (vu_rect, _) = ui.allocate_exact_size(Vec2::new(72.0, 22.0), egui::Sense::hover());
+    let (vu_rect, _) = ui.allocate_exact_size(Vec2::new(84.0, 22.0), egui::Sense::hover());
     let painter = ui.painter_at(vu_rect);
 
-    // Frame
-    painter.rect_filled(vu_rect, theme.ui_rounding(), theme.bg_canvas_c32());
+    fx::paint_vertical_gradient(
+        &painter,
+        vu_rect.shrink(0.5),
+        theme.c32_alpha(theme.bg_canvas, 0.95),
+        theme.c32_alpha(theme.bg_header, 0.95),
+    );
     painter.rect_stroke(
         vu_rect,
         theme.ui_rounding(),
-        Stroke::new(1.0_f32, theme.grid_line_sub_c32()),
+        Stroke::new(1.0_f32, theme.c32_alpha(theme.grid_line_sub, 0.6)),
     );
 
-    let bar_h = 5.0;
-    let bar_max_w = vu_rect.width() - 18.0;
-
+    let palette = fx::MeterPalette {
+        low: theme.meter_c32(),
+        mid: theme.warning_c32(),
+        high: theme.danger_c32(),
+        off: theme.c32_alpha(theme.grid_line_sub, 0.22),
+    };
+    let bar_h = 6.0;
     for (ch_idx, (level, peak, label)) in [
         (state.vu_level_l, state.vu_peak_l, "L"),
         (state.vu_level_r, state.vu_peak_r, "R"),
@@ -49,10 +141,7 @@ fn draw_vu_meter(
     .iter()
     .enumerate()
     {
-        let bar_y = vu_rect.min.y + 4.0 + ch_idx as f32 * (bar_h + 3.0);
-        let bar_x_start = vu_rect.min.x + 12.0;
-
-        // Label
+        let bar_y = vu_rect.min.y + 3.5 + ch_idx as f32 * (bar_h + 2.5);
         painter.text(
             Pos2::new(vu_rect.min.x + 3.0, bar_y + bar_h * 0.5),
             egui::Align2::LEFT_CENTER,
@@ -60,48 +149,49 @@ fn draw_vu_meter(
             egui::FontId::monospace(8.0),
             theme.text_muted_c32(),
         );
-
-        // Track
-        painter.rect_filled(
-            Rect::from_min_max(
-                Pos2::new(bar_x_start, bar_y),
-                Pos2::new(bar_x_start + bar_max_w, bar_y + bar_h),
-            ),
-            Rounding::same(1.5),
-            theme.c32_alpha(theme.bg_header, 0.7),
+        let bar = Rect::from_min_size(
+            Pos2::new(vu_rect.min.x + 12.0, bar_y),
+            Vec2::new(vu_rect.width() - 15.0, bar_h),
         );
-
-        // Active meter
-        let fill_w = bar_max_w * level.clamp(0.0, 1.0);
-        if fill_w > 0.5 {
-            let fill_rect = Rect::from_min_max(
-                Pos2::new(bar_x_start, bar_y),
-                Pos2::new(bar_x_start + fill_w, bar_y + bar_h),
-            );
-            let fill_color = if *level > 0.85 {
-                theme.danger_c32()
-            } else if *level > 0.65 {
-                theme.warning_c32()
-            } else {
-                theme.meter_c32()
-            };
-            painter.rect_filled(fill_rect, Rounding::same(1.5), fill_color);
-        }
-
-        // Peak Hold
-        let peak_x = bar_x_start + bar_max_w * peak.clamp(0.0, 1.0);
-        if peak_x > bar_x_start + 1.0 {
-            let peak_color = if *peak > 0.85 {
-                theme.danger_c32()
-            } else {
-                theme.playhead_c32()
-            };
-            painter.line_segment(
-                [Pos2::new(peak_x, bar_y), Pos2::new(peak_x, bar_y + bar_h)],
-                Stroke::new(1.5_f32, peak_color),
-            );
-        }
+        fx::paint_led_meter(&painter, bar, *level, *peak, &palette);
     }
+}
+
+/// Compact oscilloscope of the audio that just played.
+fn draw_live_scope(ui: &mut egui::Ui, theme: &ThemeConfig, state: &TransportState) {
+    let (rect, response) = ui.allocate_exact_size(Vec2::new(74.0, 22.0), egui::Sense::hover());
+    let painter = ui.painter_at(rect);
+    fx::paint_vertical_gradient(
+        &painter,
+        rect.shrink(0.5),
+        theme.c32_alpha(theme.bg_canvas, 0.95),
+        theme.c32_alpha(theme.bg_header, 0.95),
+    );
+    // Faint graticule.
+    for i in 1..4 {
+        let x = egui::lerp(rect.left()..=rect.right(), i as f32 / 4.0);
+        painter.line_segment(
+            [Pos2::new(x, rect.top() + 2.0), Pos2::new(x, rect.bottom() - 2.0)],
+            Stroke::new(0.5_f32, theme.c32_alpha(theme.grid_line_sub, 0.25)),
+        );
+    }
+    let peak = state
+        .scope
+        .iter()
+        .map(|(min, max)| min.abs().max(max.abs()))
+        .fold(0.0f32, f32::max);
+    let gain = if peak > 1e-4 { (0.9 / peak).clamp(1.0, 4.0) } else { 1.0 };
+    let color = theme.waveform_c32();
+    if peak > 0.01 {
+        fx::paint_glow(&painter, rect.shrink(6.0), 2.0, fx::with_alpha(color, 0.10), 8.0);
+    }
+    fx::paint_scope(&painter, rect.shrink2(Vec2::new(2.0, 2.0)), &state.scope, color, gain);
+    painter.rect_stroke(
+        rect,
+        theme.ui_rounding(),
+        Stroke::new(1.0_f32, theme.c32_alpha(theme.grid_line_sub, 0.6)),
+    );
+    response.on_hover_text("Osciloscópio · 1,6 s / Scope · 1.6 s");
 }
 
 pub fn draw_unified_toolbar(
@@ -116,6 +206,11 @@ pub fn draw_unified_toolbar(
     _pitch_smooth_intensity: &mut f32,
     auto_scroll_mode: &mut AutoScrollMode,
     vertical_pitch_follow: &mut bool,
+    vertical_follow_smoothing_ms: &mut f32,
+    horizontal_follow_smoothing_ms: &mut f32,
+    follow_cursor_pct: &mut f32,
+    follow_min_pct: &mut f32,
+    follow_max_pct: &mut f32,
     active_scale: &mut MusicalScale,
     scale_root_key: &mut u8,
     px_per_ms: &mut f32,
@@ -166,34 +261,26 @@ pub fn draw_unified_toolbar(
                 ui.add_space(2.0);
 
                 // ── Card 1: Transport (Play / Stop / Time) ──
-                toolbar_card(ui, theme, |ui| {
+                toolbar_card(ui, theme, "transport", |ui| {
                     ui.spacing_mut().item_spacing = Vec2::new(3.0, 0.0);
 
-                    // O estado de reprodução tem um pulso quase imperceptível:
-                    // ele comunica atividade contínua sem virar decoração
-                    // piscante.
-                    let playback_pulse = if is_playing {
-                        let phase = ui.input(|input| input.time) as f32;
-                        0.18 + 0.10 * (phase * std::f32::consts::TAU * 1.2).sin().abs()
-                    } else {
-                        0.20
-                    };
-
-                    let (play_bg, play_text, play_color, play_stroke) = if is_playing {
-                        (
-                            theme.c32_alpha(theme.accent_color, playback_pulse),
-                            "⏸",
-                            theme.accent_c32(),
-                            theme.accent_c32(),
-                        )
-                    } else {
-                        (
-                            theme.c32_alpha(theme.note_fill, 0.2),
-                            "▶",
-                            theme.note_fill_c32(),
-                            theme.note_stroke_c32(),
-                        )
-                    };
+                    // O estado de reprodução tem um pulso suave: ele comunica
+                    // atividade contínua sem virar decoração piscante.
+                    let time = ui.input(|input| input.time);
+                    let breath = fx::breathe(time, 0.9, state.motion);
+                    let play_t = ui.ctx().animate_bool_with_time(
+                        egui::Id::new("toolbar_play_state"),
+                        is_playing,
+                        transition_time(ui) * 1.5,
+                    );
+                    let idle_bg = theme.c32_alpha(theme.note_fill, 0.2);
+                    let live_bg = theme.c32_alpha(theme.accent_color, 0.16 + 0.14 * breath);
+                    let play_bg = fx::lerp_color(idle_bg, live_bg, play_t);
+                    let play_color =
+                        fx::lerp_color(theme.note_fill_c32(), theme.accent_c32(), play_t);
+                    let play_stroke =
+                        fx::lerp_color(theme.note_stroke_c32(), theme.accent_c32(), play_t);
+                    let play_text = if is_playing { "⏸" } else { "▶" };
 
                     let play_btn = egui::Button::new(
                         RichText::new(play_text)
@@ -206,11 +293,30 @@ pub fn draw_unified_toolbar(
                     .stroke(Stroke::new(1.0_f32, play_stroke))
                     .rounding(Rounding::same(3.0));
 
-                    if ui
+                    let play_glow = fx::reserve(ui.painter());
+                    let play_response = ui
                         .add(play_btn)
-                        .on_hover_text(lang.tr("Tocar / Pausar (Space)", "Play / Pause (Space)"))
-                        .clicked()
-                    {
+                        .on_hover_text(lang.tr("Tocar / Pausar (Space)", "Play / Pause (Space)"));
+                    let hover_t = ui.ctx().animate_bool_with_time(
+                        play_response.id.with("hover_glow"),
+                        play_response.hovered(),
+                        transition_time(ui),
+                    );
+                    let glow_strength = (play_t * (0.35 + 0.40 * breath)).max(hover_t * 0.35);
+                    if glow_strength > 0.01 {
+                        fx::paint_glow_into(
+                            ui.painter(),
+                            play_glow,
+                            play_response.rect,
+                            3.0,
+                            fx::with_alpha(
+                                fx::lerp_color(theme.note_fill_c32(), theme.accent_c32(), play_t),
+                                glow_strength,
+                            ),
+                            8.0 + 4.0 * breath * play_t,
+                        );
+                    }
+                    if play_response.clicked() {
                         on_play();
                     }
 
@@ -225,17 +331,35 @@ pub fn draw_unified_toolbar(
                     .stroke(Stroke::new(1.0_f32, theme.danger_c32()))
                     .rounding(Rounding::same(3.0));
 
-                    if ui
-                        .add(stop_btn)
-                        .on_hover_text(lang.tr(
-                            "Parar e retornar ao início (Esc)",
-                            "Stop and return to start (Esc)",
-                        ))
-                        .clicked()
-                    {
+                    let stop_glow = fx::reserve(ui.painter());
+                    let stop_response = ui.add(stop_btn).on_hover_text(lang.tr(
+                        "Parar e retornar ao início (Esc)",
+                        "Stop and return to start (Esc)",
+                    ));
+                    let stop_hover = ui.ctx().animate_bool_with_time(
+                        stop_response.id.with("hover_glow"),
+                        stop_response.hovered(),
+                        transition_time(ui),
+                    );
+                    if stop_hover > 0.01 {
+                        fx::paint_glow_into(
+                            ui.painter(),
+                            stop_glow,
+                            stop_response.rect,
+                            3.0,
+                            fx::with_alpha(theme.danger_c32(), 0.4 * stop_hover),
+                            8.0,
+                        );
+                    }
+                    if stop_response.clicked() {
                         on_stop();
                     }
 
+                    let time_color = fx::lerp_color(
+                        theme.text_primary_c32(),
+                        fx::lighten(theme.accent_c32(), 0.15 * breath),
+                        0.55 + 0.45 * play_t,
+                    );
                     ui.add_sized(
                         [65.0, 20.0],
                         egui::Label::new(
@@ -243,9 +367,40 @@ pub fn draw_unified_toolbar(
                                 .monospace()
                                 .strong()
                                 .size(11.0)
-                                .color(theme.accent_c32()),
+                                .color(time_color),
                         ),
                     );
+
+                    // Render activity: an orbiting spinner plus percentage
+                    // that grows in/out instead of popping.
+                    let busy_t = ui.ctx().animate_bool_with_time(
+                        egui::Id::new("toolbar_busy"),
+                        state.busy,
+                        transition_time(ui) * 2.0,
+                    );
+                    if busy_t > 0.01 {
+                        let width = 40.0 * fx::ease_out_cubic(busy_t);
+                        let (rect, response) =
+                            ui.allocate_exact_size(Vec2::new(width, 20.0), egui::Sense::hover());
+                        let painter = ui.painter_at(rect);
+                        let accent = fx::with_alpha(theme.accent_c32(), busy_t);
+                        fx::paint_orbit_spinner(
+                            &painter,
+                            Pos2::new(rect.left() + 8.0, rect.center().y),
+                            5.5,
+                            time,
+                            accent,
+                            state.motion,
+                        );
+                        painter.text(
+                            Pos2::new(rect.left() + 16.0, rect.center().y),
+                            egui::Align2::LEFT_CENTER,
+                            format!("{:.0}%", state.render_progress.clamp(0.0, 1.0) * 100.0),
+                            egui::FontId::monospace(9.0),
+                            accent,
+                        );
+                        response.on_hover_text(lang.tr("Renderizando…", "Rendering…"));
+                    }
 
                     // Transport actions must not depend on the trailing
                     // overflow menu: it disappears first on compact windows.
@@ -272,24 +427,9 @@ pub fn draw_unified_toolbar(
                         ),
                     ];
                     for (enabled, label, tooltip, active_color) in transport_toggles {
-                        let (fill, stroke, text_color) = if *enabled {
-                            (
-                                Color32::from_rgba_unmultiplied(
-                                    active_color.r(),
-                                    active_color.g(),
-                                    active_color.b(),
-                                    64,
-                                ),
-                                Stroke::new(1.2_f32, active_color),
-                                active_color,
-                            )
-                        } else {
-                            (
-                                theme.bg_header_c32(),
-                                Stroke::new(1.0_f32, theme.grid_line_sub_c32()),
-                                theme.text_muted_c32(),
-                            )
-                        };
+                        let toggle_id = egui::Id::new("transport_toggle").with(label);
+                        let (fill, stroke, text_color) =
+                            toggle_style(ui, theme, toggle_id, *enabled, active_color, 0.25);
                         let button =
                             egui::Button::new(RichText::new(label).size(9.5).color(text_color))
                                 .min_size(Vec2::new(30.0, 20.0))
@@ -302,6 +442,7 @@ pub fn draw_unified_toolbar(
                     }
 
                     ui.separator();
+                    let mut scroll_selected_rect = None;
                     for (mode, label, tooltip) in [
                         (
                             AutoScrollMode::Off,
@@ -323,72 +464,68 @@ pub fn draw_unified_toolbar(
                         ),
                     ] {
                         let selected = *auto_scroll_mode == mode;
-                        let button = egui::Button::new(
-                            RichText::new(label)
-                                .size(9.5)
-                                .color(if selected {
-                                    theme.accent_c32()
-                                } else {
-                                    theme.text_muted_c32()
-                                }),
-                        )
-                        .min_size(Vec2::new(42.0, 18.0))
-                        .fill(if selected {
-                            theme.c32_alpha(theme.accent_color, 0.22)
-                        } else {
-                            theme.bg_header_c32()
-                        })
-                        .stroke(Stroke::new(
-                            if selected { 1.2_f32 } else { 1.0_f32 },
-                            if selected {
-                                theme.accent_c32()
-                            } else {
-                                theme.grid_line_sub_c32()
-                            },
-                        ));
-                        if ui.add(button).on_hover_text(tooltip).clicked() {
+                        let (fill, stroke, text_color) = toggle_style(
+                            ui,
+                            theme,
+                            egui::Id::new("scroll_mode").with(label),
+                            selected,
+                            theme.accent_c32(),
+                            0.22,
+                        );
+                        let button = egui::Button::new(RichText::new(label).size(9.5).color(text_color))
+                            .min_size(Vec2::new(42.0, 18.0))
+                            .fill(fill)
+                            .stroke(stroke);
+                        let response = ui.add(button).on_hover_text(tooltip);
+                        if selected {
+                            scroll_selected_rect = Some(response.rect);
+                        }
+                        if response.clicked() {
                             *auto_scroll_mode = mode;
                         }
+                        if mode == AutoScrollMode::StationaryCursor {
+                            response.context_menu(|ui| {
+                                ui.label(lang.tr("Acompanhamento horizontal", "Horizontal follow"));
+                                ui.add(egui::Slider::new(horizontal_follow_smoothing_ms, 0.0..=1000.0).suffix(" ms").text(lang.tr("Suavidade", "Smoothing")));
+                                ui.add(egui::Slider::new(follow_cursor_pct, 0.0..=100.0).suffix("%").text(lang.tr("Posição do cursor", "Cursor position")));
+                                ui.add(egui::Slider::new(follow_min_pct, 0.0..=98.0).suffix("%").text(lang.tr("Limite inicial", "Start limit")));
+                                ui.add(egui::Slider::new(follow_max_pct, 2.0..=100.0).suffix("%").text(lang.tr("Limite final", "End limit")));
+                            });
+                        }
                     }
+                    paint_selection_slider(ui, theme, "scroll_mode", scroll_selected_rect);
 
-                    let vertical_button = egui::Button::new(
-                        RichText::new("V:Nt")
-                            .size(9.5)
-                            .color(if *vertical_pitch_follow {
-                                theme.note_fill_c32()
-                            } else {
-                                theme.text_muted_c32()
-                            }),
-                    )
-                    .min_size(Vec2::new(42.0, 18.0))
-                    .fill(if *vertical_pitch_follow {
-                        theme.c32_alpha(theme.note_fill, 0.22)
-                    } else {
-                        theme.bg_header_c32()
-                    })
-                    .stroke(Stroke::new(
-                        if *vertical_pitch_follow { 1.2_f32 } else { 1.0_f32 },
-                        if *vertical_pitch_follow {
-                            theme.note_fill_c32()
-                        } else {
-                            theme.grid_line_sub_c32()
-                        },
-                    ));
-                    if ui
+                    let (v_fill, v_stroke, v_text) = toggle_style(
+                        ui,
+                        theme,
+                        egui::Id::new("vertical_follow"),
+                        *vertical_pitch_follow,
+                        theme.note_fill_c32(),
+                        0.22,
+                    );
+                    let vertical_button = egui::Button::new(RichText::new("V:Nt").size(9.5).color(v_text))
+                        .min_size(Vec2::new(42.0, 18.0))
+                        .fill(v_fill)
+                        .stroke(v_stroke);
+                    let vertical_response = ui
                         .add(vertical_button)
                         .on_hover_text(lang.tr(
                             "Acompanhar automaticamente as notas na vertical",
                             "Automatically follow notes vertically",
                         ))
-                        .clicked()
-                    {
+                        ;
+                    if vertical_response.clicked() {
                         *vertical_pitch_follow = !*vertical_pitch_follow;
                     }
+                    vertical_response.context_menu(|ui| {
+                        ui.label(lang.tr("Acompanhamento vertical", "Vertical follow"));
+                        ui.add(egui::Slider::new(vertical_follow_smoothing_ms, 0.0..=1000.0).suffix(" ms").text(lang.tr("Suavidade", "Smoothing")));
+                    });
 
                 });
 
                 // ── Card 2: Edit Tools ──
-                toolbar_card(ui, theme, |ui| {
+                toolbar_card(ui, theme, "tools", |ui| {
                     ui.spacing_mut().item_spacing = Vec2::new(2.0, 0.0);
 
                     let tools = [
@@ -419,21 +556,17 @@ pub fn draw_unified_toolbar(
                         ),
                     ];
 
+                    let mut tool_selected_rect = None;
                     for (tool, label, tooltip) in tools {
                         let is_selected = *current_tool == tool;
-                        let (bg_color, stroke_color, text_color) = if is_selected {
-                            (
-                                theme.c32_alpha(theme.accent_color, 0.25),
-                                Stroke::new(1.2_f32, theme.accent_c32()),
-                                theme.accent_c32(),
-                            )
-                        } else {
-                            (
-                                theme.bg_header_c32(),
-                                Stroke::new(1.0_f32, theme.grid_line_sub_c32()),
-                                theme.text_muted_c32(),
-                            )
-                        };
+                        let (bg_color, stroke_color, text_color) = toggle_style(
+                            ui,
+                            theme,
+                            egui::Id::new("tool_btn").with(label),
+                            is_selected,
+                            theme.accent_c32(),
+                            0.25,
+                        );
 
                         let btn = egui::Button::new(
                             RichText::new(label).strong().size(10.0).color(text_color),
@@ -443,10 +576,15 @@ pub fn draw_unified_toolbar(
                         .stroke(stroke_color)
                         .rounding(Rounding::same(3.0));
 
-                        if ui.add(btn).on_hover_text(tooltip).clicked() {
+                        let resp = ui.add(btn).on_hover_text(tooltip);
+                        if is_selected {
+                            tool_selected_rect = Some(resp.rect);
+                        }
+                        if resp.clicked() {
                             *current_tool = tool;
                         }
                     }
+                    paint_selection_slider(ui, theme, "edit_tools", tool_selected_rect);
 
                     if *current_tool == EditTool::PitchDraw {
                         ui.add_space(2.0);
@@ -466,7 +604,7 @@ pub fn draw_unified_toolbar(
                 });
 
                 // ── Card 3: BPM + Grid Snap ──
-                toolbar_card(ui, theme, |ui| {
+                toolbar_card(ui, theme, "tempo_grid", |ui| {
                     ui.spacing_mut().item_spacing = Vec2::new(3.0, 0.0);
 
                     ui.add(
@@ -520,7 +658,7 @@ pub fn draw_unified_toolbar(
                 });
 
                 // ── Card 4: Pre-tunning + Export ──
-                toolbar_card(ui, theme, |ui| {
+                toolbar_card(ui, theme, "export_actions", |ui| {
                     ui.spacing_mut().item_spacing = Vec2::new(3.0, 0.0);
 
                     let autopitch_btn = egui::Button::new(
@@ -568,7 +706,7 @@ pub fn draw_unified_toolbar(
                 });
 
                 // ── Card 5: UTAU Envelopes & Crossfades (ACPT, P2P3, P1P4, OPT, RESET) ──
-                toolbar_card(ui, theme, |ui| {
+                toolbar_card(ui, theme, "envelopes", |ui| {
                     ui.spacing_mut().item_spacing = Vec2::new(2.0, 0.0);
 
                     let env_buttons: [(&str, &str, &mut dyn FnMut(), Color32); 5] = [
@@ -638,7 +776,7 @@ pub fn draw_unified_toolbar(
                 });
 
                 // ── Card 6: Panels ──
-                toolbar_card(ui, theme, |ui| {
+                toolbar_card(ui, theme, "panels", |ui| {
                     ui.spacing_mut().item_spacing = Vec2::new(2.0, 0.0);
 
                     let toggles: [(&mut bool, &str, &str, &str); 5] = [
@@ -691,19 +829,14 @@ pub fn draw_unified_toolbar(
 
                     for (flag, label, tooltip, id_str) in toggles {
                         let active = *flag;
-                        let (bg, stroke, color) = if active {
-                            (
-                                theme.c32_alpha(theme.accent_color, 0.25),
-                                Stroke::new(1.2_f32, theme.accent_c32()),
-                                theme.accent_c32(),
-                            )
-                        } else {
-                            (
-                                theme.bg_header_c32(),
-                                Stroke::new(1.0_f32, theme.grid_line_sub_c32()),
-                                theme.text_muted_c32(),
-                            )
-                        };
+                        let (bg, stroke, color) = toggle_style(
+                            ui,
+                            theme,
+                            egui::Id::new("panel_toggle").with(label),
+                            active,
+                            theme.accent_c32(),
+                            0.25,
+                        );
 
                         let btn = egui::Button::new(RichText::new(label).size(9.5).color(color))
                             .min_size(Vec2::new(24.0, 20.0))
@@ -725,19 +858,14 @@ pub fn draw_unified_toolbar(
 
                     // Maximize
                     let max_active = *is_maximized;
-                    let (max_bg, max_stroke, max_color) = if max_active {
-                        (
-                            theme.c32_alpha(theme.accent_color, 0.35),
-                            Stroke::new(1.2_f32, theme.accent_c32()),
-                            theme.accent_c32(),
-                        )
-                    } else {
-                        (
-                            theme.bg_header_c32(),
-                            Stroke::new(1.0_f32, theme.grid_line_sub_c32()),
-                            theme.text_muted_c32(),
-                        )
-                    };
+                    let (max_bg, max_stroke, max_color) = toggle_style(
+                        ui,
+                        theme,
+                        egui::Id::new("panel_max_btn"),
+                        max_active,
+                        theme.accent_c32(),
+                        0.35,
+                    );
                     let max_btn = egui::Button::new(RichText::new("⛶").size(10.0).color(max_color))
                         .min_size(Vec2::new(20.0, 20.0))
                         .fill(max_bg)
@@ -1026,9 +1154,11 @@ pub fn draw_unified_toolbar(
                     },
                 );
 
-                // ── Card 7: Master Volume + VU ──
-                toolbar_card(ui, theme, |ui| {
+                // ── Card 7: Master Volume + VU + Scope ──
+                toolbar_card(ui, theme, "master", |ui| {
                     ui.spacing_mut().item_spacing = Vec2::new(3.0, 0.0);
+                    draw_live_scope(ui, theme, state);
+                    ui.separator();
                     draw_vu_meter(ui, theme, state, is_playing);
                     ui.separator();
                     ui.label(

@@ -32,20 +32,32 @@ impl KamafeuStudioApp {
             ui.horizontal(|ui| {
                 ui.add_space(8.0);
 
+                let time = ui.input(|i| i.time);
+                let motion = self.animation_policy().allows_motion();
+                let breath = crate::gui::visual_fx::breathe(time, 1.2, motion);
+
                 let (status_dot_color, status_text) = if is_rendering {
-                    (theme.accent_c32(), lang.tr("RENDERIZANDO", "RENDERING"))
+                    (
+                        crate::gui::visual_fx::lerp_color(theme.accent_c32(), crate::gui::visual_fx::lighten(theme.accent_c32(), 0.3), breath),
+                        lang.tr("RENDERIZANDO", "RENDERING"),
+                    )
                 } else if is_playing {
-                    (theme.accent_c32(), lang.tr("REPRODUZINDO", "PLAYING"))
+                    (
+                        crate::gui::visual_fx::lerp_color(theme.accent_c32(), crate::gui::visual_fx::lighten(theme.accent_c32(), 0.4), breath),
+                        lang.tr("REPRODUZINDO", "PLAYING"),
+                    )
                 } else {
                     (theme.text_muted_c32(), lang.tr("● PRONTO", "● READY"))
                 };
 
-                ui.label(
-                    egui::RichText::new(status_text)
-                        .strong()
-                        .size(10.5)
-                        .color(status_dot_color),
-                );
+                let status_label = egui::RichText::new(status_text)
+                    .strong()
+                    .size(10.5)
+                    .color(status_dot_color);
+                let resp = ui.label(status_label);
+                if (is_rendering || is_playing) && motion {
+                    crate::gui::visual_fx::paint_glow(ui.painter(), resp.rect, 2.0, crate::gui::visual_fx::with_alpha(theme.accent_c32(), 0.4 * breath), 6.0);
+                }
 
                 ui.add_space(4.0);
                 ui.separator();
@@ -221,6 +233,10 @@ impl KamafeuStudioApp {
             ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
                 ui.add_space(8.0);
 
+                let time = ui.input(|i| i.time);
+                let motion = self.animation_policy().allows_motion();
+                let breath = crate::gui::visual_fx::breathe(time, 1.2, motion);
+
                 let fps = if self.frame_time_ema_ms > 0.0 {
                     1_000.0 / self.frame_time_ema_ms
                 } else {
@@ -295,6 +311,24 @@ impl KamafeuStudioApp {
                     );
                     ui.painter()
                         .rect_filled(filled_rect, theme.ui_rounding(), progress_color);
+
+                    if is_rendering && motion {
+                        // Shimmer sweep across the active render bar
+                        crate::gui::visual_fx::paint_shimmer(
+                            ui.painter(),
+                            filled_rect,
+                            time,
+                            crate::gui::visual_fx::with_alpha(egui::Color32::WHITE, 0.4),
+                            1.2,
+                        );
+                        crate::gui::visual_fx::paint_glow(
+                            ui.painter(),
+                            filled_rect,
+                            2.0,
+                            crate::gui::visual_fx::with_alpha(progress_color, 0.3 * breath),
+                            6.0,
+                        );
+                    }
                 }
 
                 ui.painter()
@@ -302,6 +336,15 @@ impl KamafeuStudioApp {
 
                 if is_rendering {
                     ui.add_space(4.0);
+                    let (spinner_rect, _) = ui.allocate_exact_size(egui::Vec2::new(12.0, 12.0), egui::Sense::hover());
+                    crate::gui::visual_fx::paint_orbit_spinner(
+                        ui.painter(),
+                        spinner_rect.center(),
+                        5.0,
+                        time,
+                        theme.accent_c32(),
+                        motion,
+                    );
                     ui.label(
                         egui::RichText::new("[Render]")
                             .size(9.0)

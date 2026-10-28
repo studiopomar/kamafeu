@@ -7,7 +7,7 @@ impl KamafeuStudioApp {
             let lang = self.config.language;
             let theme = self.config.theme.clone();
             let mut state = self.fx_rack_dialog_state;
-            let mut fx_config = self.fx_rack_config.clone();
+            let mut fx_config = self.project.master_fx.clone().unwrap_or_default();
             let mut changed = false;
             crate::gui::fx_rack_dialog::draw_fx_rack_dialog(
                 ctx,
@@ -19,10 +19,21 @@ impl KamafeuStudioApp {
                 &mut changed,
             );
             self.fx_rack_dialog_state = state;
-            self.fx_rack_config = fx_config;
+            if changed && state.target_track.is_none() {
+                let snapshot = self.project.clone();
+                if ctx.input(|i| i.pointer.primary_down()) {
+                    if self.pending_edit_snapshot.is_none() {
+                        self.pending_edit_snapshot = Some(snapshot);
+                    }
+                } else {
+                    self.undo_manager
+                        .push_state(self.pending_edit_snapshot.take().unwrap_or(snapshot));
+                }
+                self.project.master_fx = Some(fx_config);
+            }
             if changed {
                 self.is_dirty = true;
-                self.fx_preview_refresh_pending = true;
+                self.fx_preview_refresh_pending = state.target_track.is_some();
             }
             if self.fx_preview_refresh_pending && !ctx.input(|input| input.pointer.primary_down()) {
                 self.fx_preview_refresh_pending = false;

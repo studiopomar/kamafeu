@@ -101,21 +101,51 @@ impl KamafeuStudioApp {
         let _ =
             crate::renderer::resampler_cache::cleanup_older_than(config.memory.auto_cleanup_days);
 
-        let project = crate::project::model::UProject::default();
+        let mut project = crate::project::model::UProject::default();
 
-        let mut voicebank: Option<Voicebank> = None;
-        if let Some(ref last_path) = config.last_voicebank {
-            if last_path.exists() {
-                if let Ok(vb) = Voicebank::new(last_path) {
-                    voicebank = Some(vb);
+        let mut native_voicebank_name = None;
+        let mut native_voicebank_path = None;
+        if let Some(path) = config.last_voicebank.as_ref().filter(|path| path.is_dir()) {
+            if path.join("cantor.toml").is_file() {
+                match crate::voicebank::native::NativeBank::load_path(path).and_then(|bank| {
+                    let reference = bank.project_reference(Some(path.display().to_string()))?;
+                    Ok((bank.manifest.display_name.clone(), reference))
+                }) {
+                    Ok((name, reference)) => {
+                        if let Some(track) = project.tracks.first_mut() {
+                            track.name = name.clone();
+                            track.singer = name.clone();
+                            track.voicebank_path = Some(path.display().to_string());
+                            track.native_voicebank = Some(reference);
+                            track.phonemizer = Some(crate::phonemizer::PhonemizerMode::None);
+                        }
+                        project.voicebank = Some(name.clone());
+                        project.voicebank_path = Some(path.display().to_string());
+                        native_voicebank_name = Some(name);
+                        native_voicebank_path = Some(path.clone());
+                    }
+                    Err(error) => {
+                        crate::terminal_log::error("Voicebank", error);
+                    }
                 }
             }
         }
 
-        if voicebank.is_none() {
-            voicebank = Voicebank::new("demo_vb")
-                .or_else(|_| Voicebank::new("sample_vb"))
-                .ok();
+        let mut voicebank: Option<Voicebank> = None;
+        if native_voicebank_name.is_none() {
+            if let Some(ref last_path) = config.last_voicebank {
+                if last_path.exists() {
+                    if let Ok(vb) = Voicebank::new(last_path) {
+                        voicebank = Some(vb);
+                    }
+                }
+            }
+
+            if voicebank.is_none() {
+                voicebank = Voicebank::new("demo_vb")
+                    .or_else(|_| Voicebank::new("sample_vb"))
+                    .ok();
+            }
         }
 
         // Configurações anteriores ao perfil vocal persistente só tinham a
@@ -162,6 +192,10 @@ impl KamafeuStudioApp {
             transport_state.voicebank_name = vb.name.clone();
             transport_state.voicebank_path = Some(vb.root_path.clone());
         }
+        if let Some(name) = native_voicebank_name {
+            transport_state.voicebank_name = name;
+            transport_state.voicebank_path = native_voicebank_path;
+        }
         let voicebank_oto_signature = voicebank
             .as_ref()
             .and_then(|vb| crate::copaiba_bridge::oto_signature(&vb.root_path).ok());
@@ -191,6 +225,18 @@ impl KamafeuStudioApp {
         humanize_dialog_state.vibrato_params.fade_in_pct =
             config.workflow.auto_vibrato_fade_in_pct.clamp(5.0, 60.0);
 
+        let mut singer_scan_paths = config.singers_paths.clone();
+        if let Some(parent) = config
+            .last_voicebank
+            .as_ref()
+            .and_then(|path| path.parent())
+            .map(PathBuf::from)
+        {
+            if !singer_scan_paths.contains(&parent) {
+                singer_scan_paths.push(parent);
+            }
+        }
+
         Self {
             project,
             current_project_path: None,
@@ -207,6 +253,11 @@ impl KamafeuStudioApp {
                 state.show_waveform_area = config.layout.show_waveform_area;
                 state.show_envelope_handles = config.layout.show_envelope_handles;
                 state.vertical_pitch_follow = config.layout.vertical_pitch_follow;
+                state.vertical_follow_smoothing_ms = config.layout.vertical_follow_smoothing_ms;
+                state.horizontal_follow_smoothing_ms = config.layout.horizontal_follow_smoothing_ms;
+                state.follow_cursor_pct = config.layout.follow_cursor_pct;
+                state.follow_min_pct = config.layout.follow_min_pct;
+                state.follow_max_pct = config.layout.follow_max_pct;
                 state.is_maximized = config.layout.is_maximized;
                 state.px_per_ms = config.layout.px_per_ms;
                 state.row_height = config.layout.row_height;
@@ -323,7 +374,7 @@ impl KamafeuStudioApp {
             export_rx: None,
             export_cancel: None,
             active_track_index: 0,
-            singers_list: crate::oto::SingerScanner::scan_directories(&config.singers_paths),
+            singers_list: crate::oto::SingerScanner::scan_directories(&singer_scan_paths),
             singer_search_query: String::new(),
             singers_gallery_window_open: false,
             config,
@@ -402,7 +453,6 @@ impl KamafeuStudioApp {
             lyrics_dialog_state: lyrics_dialog::LyricsDialogState::default(),
             humanize_dialog_state,
             fx_rack_dialog_state: fx_rack_dialog::FxRackDialogState::default(),
-            fx_rack_config: crate::audio::FxRackConfig::default(),
             fx_preview_refresh_pending: false,
             frame_time_ema_ms: 16.67,
             last_frame_instant: Instant::now(),
@@ -414,6 +464,8 @@ impl KamafeuStudioApp {
             phonemizer_warning_dismissed: false,
             phonemizer_warning_expanded: false,
             preview_waveform_cache_hash: 0,
+            preview_waveform_last_hash_check: None,
+            preview_waveform_pending: None,
             preview_waveform_rx: None,
             preview_waveform_cancel: None,
             workspace_snap_rect: None,

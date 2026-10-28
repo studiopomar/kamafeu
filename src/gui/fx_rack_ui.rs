@@ -21,10 +21,13 @@ enum FxModule {
     Chorus,
     AutoPan,
     Limiter,
+    Phaser,
+    Flanger,
+    Widener,
 }
 
 impl FxModule {
-    const ALL: [Self; 9] = [
+    const ALL: [Self; 12] = [
         Self::Eq,
         Self::Gate,
         Self::Compressor,
@@ -34,6 +37,9 @@ impl FxModule {
         Self::Chorus,
         Self::AutoPan,
         Self::Limiter,
+        Self::Phaser,
+        Self::Flanger,
+        Self::Widener,
     ];
 
     fn index(self) -> u8 {
@@ -55,6 +61,9 @@ impl FxModule {
             Self::Chorus => "chorus",
             Self::AutoPan => "autopan",
             Self::Limiter => "limiter",
+            Self::Phaser => "phaser",
+            Self::Flanger => "flanger",
+            Self::Widener => "widener",
         }
     }
 
@@ -69,6 +78,9 @@ impl FxModule {
             Self::Chorus => lang.tr("CHORUS", "CHORUS"),
             Self::AutoPan => lang.tr("PAN", "PAN"),
             Self::Limiter => lang.tr("LIMITER", "LIMITER"),
+            Self::Phaser => "PHASER",
+            Self::Flanger => "FLANGER",
+            Self::Widener => "WIDENER",
         }
     }
 
@@ -83,6 +95,9 @@ impl FxModule {
             Self::Chorus => lang.tr("largura modulada", "modulated width"),
             Self::AutoPan => lang.tr("movimento L/R", "L/R movement"),
             Self::Limiter => lang.tr("teto de segurança", "safety ceiling"),
+            Self::Phaser => lang.tr("modulação de fase", "phase modulation"),
+            Self::Flanger => lang.tr("combinação de atraso modulada", "modulated delay comb"),
+            Self::Widener => lang.tr("largura mid-side", "mid-side width"),
         }
     }
 
@@ -97,6 +112,9 @@ impl FxModule {
             Self::Chorus => config.chorus.enabled,
             Self::AutoPan => config.auto_pan.enabled,
             Self::Limiter => config.limiter.enabled,
+            Self::Phaser => config.phaser.enabled,
+            Self::Flanger => config.flanger.enabled,
+            Self::Widener => config.stereo_widener.enabled,
         }
     }
 
@@ -111,6 +129,7 @@ impl FxModule {
             Self::Chorus => include_bytes!("../../assets/fx/chorus.svg"),
             Self::AutoPan => include_bytes!("../../assets/fx/autopan.svg"),
             Self::Limiter => include_bytes!("../../assets/fx/limiter.svg"),
+            Self::Phaser | Self::Flanger | Self::Widener => include_bytes!("../../assets/fx/chorus.svg"),
         }
     }
 }
@@ -447,6 +466,19 @@ fn render_editor(
                     " dB",
                 )],
             );
+        }
+        FxModule::Phaser => {
+            module_header(ui, &mut config.phaser.enabled, "PHASER", theme);
+            knob_row(ui, theme, [("RATE", &mut config.phaser.rate_hz, 0.03..=8.0, " Hz"), ("DEPTH", &mut config.phaser.depth, 0.0..=1.0, ""), ("MIX", &mut config.phaser.mix, 0.0..=1.0, "")]);
+        }
+        FxModule::Flanger => {
+            module_header(ui, &mut config.flanger.enabled, "FLANGER", theme);
+            knob_row(ui, theme, [("RATE", &mut config.flanger.rate_hz, 0.03..=8.0, " Hz"), ("DEPTH", &mut config.flanger.depth_ms, 0.1..=15.0, " ms"), ("FEEDBACK", &mut config.flanger.feedback, -0.9..=0.9, "")]);
+            ui.add(egui::Slider::new(&mut config.flanger.mix, 0.0..=1.0).text("MIX"));
+        }
+        FxModule::Widener => {
+            module_header(ui, &mut config.stereo_widener.enabled, "STEREO WIDENER", theme);
+            ui.add(egui::Slider::new(&mut config.stereo_widener.width, 0.0..=2.0).text("WIDTH"));
         }
     });
 }

@@ -1,0 +1,10 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 420" role="img" aria-labelledby="title desc">
+<title id="title">Renderização</title><desc id="desc">Progresso estático e legível de render vocal acompanhado por envelope segmentado.</desc>
+<rect width="960" height="420" rx="24" fill="#201e22"/><rect x="1" y="1" width="958" height="418" rx="23" fill="none" stroke="#383239"/>
+<text x="72" y="86" fill="#f0e8e5" font-family="system-ui,sans-serif" font-size="23" font-weight="620">Renderizando voz</text>
+<text x="72" y="118" fill="#b4a6aa" font-family="system-ui,sans-serif" font-size="14">Faixa vocal · 00:42 de 01:16</text>
+<g transform="translate(480 219)" fill="none" stroke-linecap="round" stroke-linejoin="round"><path d="M-370 0h44l18-25 24 52 26-102 30 146 30-109 29 57 28-26 31 7 25-32 28 61 28-101 29 124 28-67 27 39 31-17 27 8 29-43 29 79 30-109 28 125 28-62 28 20 31-24 28 4 24-34 27 69 21-45 20 29 22-8h47" stroke="#b7849a" stroke-width="3" opacity=".68"/><path d="M-370 0h44l18-25 24 52 26-102 30 146 30-109 29 57 28-26 31 7 25-32 28 61 28-101 29 124 28-67 27 39 31-17 27 8 29-43 29 79 30-109 28 125 28-62 28 20 31-24 28 4 24-34 27 69 21-45 20 29 22-8h47" stroke="#d98779" stroke-width="3" opacity=".75"/></g>
+<rect x="72" y="292" width="816" height="12" rx="6" fill="#39343b"/><rect x="72" y="292" width="498" height="12" rx="6" fill="#8d7569"/><rect x="72" y="292" width="498" height="12" rx="6" fill="none" stroke="#e7b27d" stroke-width="1"/>
+<text x="72" y="338" fill="#f0e8e5" font-family="system-ui,sans-serif" font-size="15" font-weight="600">61%</text><text x="888" y="338" text-anchor="end" fill="#b4a6aa" font-family="system-ui,sans-serif" font-size="14">Processando fonemas e áudio</text>
+<text x="72" y="378" fill="#b4a6aa" font-family="system-ui,sans-serif" font-size="12">O progresso permanece visível sem animação.</text>
+</svg>

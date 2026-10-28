@@ -6,7 +6,9 @@
 
 use std::time::Duration;
 
-pub const NORMAL_FRAME_MS: f32 = 1000.0 / 60.0;
+/// Zero asks egui to repaint on the next available frame. The native renderer
+/// may then run above 60 FPS instead of inheriting an application-side cap.
+pub const NORMAL_FRAME_MS: f32 = 0.0;
 pub const REDUCED_FRAME_MS: f32 = 1000.0 / 30.0;
 pub const HIGH_FRAME_TIME_MS: f32 = 24.0;
 pub const MIN_ANIMATION_SPEED: f32 = 0.25;
@@ -111,12 +113,9 @@ mod tests {
     }
 
     #[test]
-    fn normal_cadence_targets_sixty_fps() {
+    fn normal_quality_has_no_fixed_frame_interval() {
         assert_eq!(policy(16.0).quality(), AnimationQuality::Normal);
-        assert!(
-            (policy(16.0).interval().unwrap().as_secs_f32() * 1000.0 - NORMAL_FRAME_MS).abs()
-                < 0.01
-        );
+        assert_eq!(policy(16.0).interval(), Some(Duration::ZERO));
     }
 
     #[test]

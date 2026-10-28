@@ -9,7 +9,9 @@ pub fn set_flush_denormals_to_zero(enabled: bool) {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
-use rodio::{buffer::SamplesBuffer, OutputStream, OutputStreamHandle, Sink};
+use super::master_output::{MasterSource, OutputState, Settings, State};
+#[cfg(not(target_arch = "wasm32"))]
+use rodio::{OutputStream, OutputStreamHandle, Sink};
 #[cfg(not(target_arch = "wasm32"))]
 use std::collections::VecDeque;
 #[cfg(not(target_arch = "wasm32"))]
@@ -66,6 +68,8 @@ pub enum PlaybackSchedulerEvent {
 
 #[cfg(not(target_arch = "wasm32"))]
 pub struct AudioPlayer {
+    master_settings: Settings,
+    master_state: State,
     _stream: Option<OutputStream>,
     stream_handle: Option<OutputStreamHandle>,
     active_sink: Option<Sink>,
@@ -281,6 +285,8 @@ impl AudioPlayer {
             }
         };
 
+        let master_settings = Arc::new(Mutex::new(crate::audio::FxRackConfig::default()));
+        let worker_settings = master_settings.clone();
         let scheduler_state = Arc::new(std::sync::atomic::AtomicU8::new(
             PlaybackSchedulerState::Idle as u8,
         ));
@@ -301,6 +307,7 @@ impl AudioPlayer {
                 let Some(worker_handle) = worker_handle else {
                     return;
                 };
+                let mut master_state = OutputState::new(44100);
                 let mut sink: Option<Sink> = None;
                 let mut final_chunk = false;
                 let mut expected_sample_rate: Option<u32> = None;
@@ -431,11 +438,8 @@ impl AudioPlayer {
                                 }
                                 match Sink::try_new(&worker_handle) {
                                     Ok(next) => {
-                                        next.append(SamplesBuffer::new(
-                                            channels.max(1),
-                                            sample_rate,
-                                            samples,
-                                        ));
+                                        master_state = OutputState::new(sample_rate);
+                                        next.append(MasterSource::new(samples, sample_rate, channels, worker_settings.clone(), master_state.clone()));
                                         next.set_volume(volume);
                                         next.set_speed(speed);
                                         next.play();
@@ -587,11 +591,7 @@ impl AudioPlayer {
                                         PlaybackSchedulerState::Waiting
                                             | PlaybackSchedulerState::Underrun
                                     );
-                                    active.append(SamplesBuffer::new(
-                                        channels.max(1),
-                                        sample_rate,
-                                        samples,
-                                    ));
+                                    active.append(MasterSource::new(samples, sample_rate, channels, worker_settings.clone(), master_state.clone()));
                                     final_chunk = is_final;
                                     expected_index = expected_index.saturating_add(1);
                                     expected_start_ms = end_ms;
@@ -783,6 +783,8 @@ impl AudioPlayer {
             .ok();
 
         Self {
+            master_settings,
+            master_state: OutputState::new(44100),
             _stream: stream,
             stream_handle,
             active_sink: None,
@@ -794,6 +796,12 @@ impl AudioPlayer {
             scheduler_queued_until_ms,
             playback_generation,
             scheduler_events,
+        }
+    }
+
+    pub fn set_master_fx(&self, config: &crate::audio::FxRackConfig) {
+        if let Ok(mut settings) = self.master_settings.lock() {
+            *settings = config.clone();
         }
     }
 
@@ -849,7 +857,14 @@ impl AudioPlayer {
         };
         let sink = Sink::try_new(handle)
             .map_err(|error| format!("Não foi possível criar a saída de áudio: {error}"))?;
-        let buffer = SamplesBuffer::new(channels.max(1), sample_rate, samples);
+        self.master_state = OutputState::new(sample_rate);
+        let buffer = MasterSource::new(
+            samples,
+            sample_rate,
+            channels,
+            self.master_settings.clone(),
+            self.master_state.clone(),
+        );
         sink.append(buffer);
         sink.set_volume(self.volume);
         sink.set_speed(self.speed);
@@ -877,7 +892,13 @@ impl AudioPlayer {
             self.active_sink = None;
             self.play_samples_with_channels(samples, sample_rate, channels);
         } else if let Some(sink) = self.active_sink.as_ref() {
-            sink.append(SamplesBuffer::new(channels.max(1), sample_rate, samples));
+            sink.append(MasterSource::new(
+                samples,
+                sample_rate,
+                channels,
+                self.master_settings.clone(),
+                self.master_state.clone(),
+            ));
         } else {
             self.play_samples_with_channels(samples, sample_rate, channels);
         }
@@ -1094,6 +1115,8 @@ impl AudioPlayer {
     pub fn set_flush_denormals_to_zero(&mut self, enabled: bool) {
         set_flush_denormals_to_zero(enabled);
     }
+
+    pub fn set_master_fx(&self, _config: &crate::audio::FxRackConfig) {}
 
     pub fn new() -> Self {
         Self {

@@ -5,6 +5,12 @@ pub(super) fn draw(
     state: &mut PianoRollState,
     voicebank: Option<&Voicebank>,
     phonemizer_mode: crate::phonemizer::PhonemizerMode,
+    diffsinger: Option<(
+        &crate::voicebank::diffsinger::DiffSingerBank,
+        &str,
+        crate::voicebank::diffsinger::DiffSingerPhonemizer,
+        &str,
+    )>,
 ) {
     {
         use std::collections::hash_map::DefaultHasher;
@@ -16,6 +22,7 @@ pub(super) fn draw(
             n.voicebank_pitch.hash(&mut hasher);
             n.phonemizer_override.hash(&mut hasher);
             n.lyric.hash(&mut hasher);
+            n.phonetic_hint.hash(&mut hasher);
             n.pitch.hash(&mut hasher);
             n.position_ms.to_bits().hash(&mut hasher);
             n.duration_ms.to_bits().hash(&mut hasher);
@@ -75,6 +82,12 @@ pub(super) fn draw(
                 .to_bits()
                 .hash(&mut hasher);
         }
+        if let Some((bank, language, phonemizer, speaker)) = diffsinger {
+            bank.root.hash(&mut hasher);
+            language.hash(&mut hasher);
+            phonemizer.hash(&mut hasher);
+            speaker.hash(&mut hasher);
+        }
         if let Some(vb) = voicebank {
             vb.name.hash(&mut hasher);
             vb.prefix_map.selected_color().hash(&mut hasher);
@@ -88,7 +101,55 @@ pub(super) fn draw(
             state.oto_consonant_cache = vec![0.0; notes.len()];
             state.oto_preutter_cache = vec![0.0; notes.len()];
             state.oto_overlap_cache = vec![0.0; notes.len()];
-            if let Some(vb) = voicebank {
+            #[cfg(not(target_arch = "wasm32"))]
+            if let Some((bank, language, phonemizer, speaker)) = diffsinger {
+                for (note_index, note) in notes.iter().enumerate() {
+                    match crate::voicebank::diffsinger_render::phone_sequence(
+                        bank, note, language, phonemizer,
+                    ) {
+                        Ok(phones) => {
+                            let frame_ms = bank.hop_size as f64 * 1000.0 / bank.sample_rate as f64;
+                            let timing = crate::voicebank::diffsinger_render::phoneme_durations_with_offsets(
+                                bank, note, &phones, frame_ms, language, speaker,
+                                crate::voicebank::diffsinger::ExecutionProvider::Cpu,
+                            );
+                            let Ok((durations, onset)) = timing else {
+                                if let Some(text) = state.phoneme_cache.get_mut(note_index) {
+                                    *text = format!("⚠ {}", timing.unwrap_err());
+                                }
+                                continue;
+                            };
+                            let mut position = onset;
+                            for (phone, duration) in phones.into_iter().zip(durations) {
+                                if let Some(text) = state.phoneme_cache.get_mut(note_index) {
+                                    if !text.is_empty() {
+                                        text.push_str(" [");
+                                        text.push_str(&phone);
+                                        text.push(']');
+                                    } else {
+                                        *text = phone.clone();
+                                    }
+                                }
+                                if let Some(entries) = state.note_phonemes_cache.get_mut(note_index)
+                                {
+                                    entries.push(CachedPhoneme {
+                                        alias: phone,
+                                        relative_position_ms: position,
+                                        duration_ms: duration,
+                                        ..CachedPhoneme::default()
+                                    });
+                                }
+                                position += duration;
+                            }
+                        }
+                        Err(error) => {
+                            if let Some(text) = state.phoneme_cache.get_mut(note_index) {
+                                *text = format!("⚠ {error}");
+                            }
+                        }
+                    }
+                }
+            } else if let Some(vb) = voicebank {
                 let phones = crate::phonemizer::JapanesePhonemizer::apply_phonemizer(
                     notes,
                     vb,

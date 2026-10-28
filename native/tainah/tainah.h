@@ -1,8 +1,9 @@
-#ifndef LESSAMPLER_TAINAH_H
-#define LESSAMPLER_TAINAH_H
+#ifndef MOTOR_TAINAH_H
+#define MOTOR_TAINAH_H
+#include <stddef.h>
 #include <stdint.h>
 #if defined(_WIN32)
-# if defined(LESSAMPLER_TAINAH_BUILD)
+# if defined(MOTOR_TAINAH_BUILD)
 #  define LT_API __declspec(dllexport)
 # else
 #  define LT_API __declspec(dllimport)
@@ -50,6 +51,13 @@ typedef struct lt_render_options {
     double tail_start_ms;
     lt_cancel_callback cancel;
     void *cancel_user_data;
+    /* Optional ABI v2 extension: formant frequency-axis shift, -100 to +100. */
+    double formant_shift;
+    /* Optional ABI v2 extension: fixed consonant adjustment, -100 to +100; default 0. */
+    double consonant_adjustment;
+    /* Optional ABI v2 extension: consonant duration on the output timeline. */
+    double target_consonant_ms;
+    uint32_t has_target_consonant;
 } lt_render_options;
 typedef struct lt_pcm {
     uint32_t struct_size;

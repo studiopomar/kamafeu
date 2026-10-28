@@ -227,8 +227,6 @@ impl KnownResampler {
                 "catalina.exe",
                 "hifisampler",
                 "hifisampler.exe",
-                "hifiserver-rust",
-                "hifiserver-rust.exe",
                 "hifisampler-rs",
                 "hifisampler-rs.exe",
             ],
@@ -238,8 +236,6 @@ impl KnownResampler {
             Self::HifisamplerRs => &[
                 "hifisampler",
                 "hifisampler.exe",
-                "hifiserver-rust",
-                "hifiserver-rust.exe",
                 "hifisampler-rs",
                 "hifisampler-rs.exe",
             ],
@@ -262,7 +258,43 @@ impl KnownResampler {
     }
 
     pub fn default_path(self) -> PathBuf {
-        PathBuf::from("./resamplers").join(self.executable_names()[0])
+        self.recommended_engine_dir()
+            .join(self.recommended_executable_name())
+    }
+
+    pub fn recommended_executable_name(self) -> &'static str {
+        let names = self.executable_names();
+        if cfg!(windows) || matches!(self, Self::Tips | Self::Moresampler | Self::OpenMoresampler) {
+            names
+                .iter()
+                .copied()
+                .find(|name| name.to_ascii_lowercase().ends_with(".exe"))
+                .unwrap_or(names[0])
+        } else {
+            names
+                .iter()
+                .copied()
+                .find(|name| !name.to_ascii_lowercase().ends_with(".exe"))
+                .unwrap_or(names[0])
+        }
+    }
+
+    /// Writable, stable location suggested by the setup UI for optional engines.
+    pub fn recommended_install_dir() -> PathBuf {
+        std::env::var_os("HOME")
+            .or_else(|| std::env::var_os("USERPROFILE"))
+            .map(PathBuf::from)
+            .map(|home| home.join("Documents").join("kamafeu").join("resamplers"))
+            .unwrap_or_else(|| {
+                std::env::current_dir()
+                    .unwrap_or_else(|_| PathBuf::from("."))
+                    .join("resamplers")
+            })
+    }
+
+    /// Per-engine folder keeps executables, local configuration, and models together.
+    pub fn recommended_engine_dir(self) -> PathBuf {
+        Self::recommended_install_dir().join(self.install_folder_name())
     }
 
     pub fn clear_cache() {
@@ -295,7 +327,10 @@ impl KnownResampler {
 
     fn search_executable_uncached(self) -> Option<PathBuf> {
         let mut roots = vec![
+            PathBuf::from("./resamplers").join(self.install_folder_name()),
+            self.recommended_engine_dir(),
             PathBuf::from("./resamplers"),
+            Self::recommended_install_dir(),
             PathBuf::from("."),
             PathBuf::from("/opt/homebrew/bin"),
             PathBuf::from("/usr/local/bin"),
@@ -304,13 +339,17 @@ impl KnownResampler {
 
         if let Ok(current_exe) = std::env::current_exe() {
             if let Some(exe_dir) = current_exe.parent() {
+                roots.push(exe_dir.join("resamplers").join(self.install_folder_name()));
                 roots.push(exe_dir.join("resamplers"));
                 roots.push(exe_dir.to_path_buf());
                 if let Some(p1) = exe_dir.parent() {
+                    roots.push(p1.join("resamplers").join(self.install_folder_name()));
                     roots.push(p1.join("resamplers"));
                     if let Some(p2) = p1.parent() {
+                        roots.push(p2.join("resamplers").join(self.install_folder_name()));
                         roots.push(p2.join("resamplers"));
                         if let Some(p3) = p2.parent() {
+                            roots.push(p3.join("resamplers").join(self.install_folder_name()));
                             roots.push(p3.join("resamplers"));
                         }
                     }
@@ -353,6 +392,20 @@ impl KnownResampler {
         }
 
         None
+    }
+
+    const fn install_folder_name(self) -> &'static str {
+        match self {
+            Self::Catalina => "catalina",
+            Self::MacRes => "macres",
+            Self::Organum => "organum",
+            Self::StraycatRs => "straycat-rs",
+            Self::HifisamplerRs => "hifisampler",
+            Self::World4Utau => "world4utau",
+            Self::Tips => "tips",
+            Self::Moresampler => "moresampler",
+            Self::OpenMoresampler => "openmoresampler",
+        }
     }
 }
 
@@ -1010,31 +1063,54 @@ max_workers = 4
 }
 
 pub fn ensure_hifisampler_ready() -> Result<String, String> {
-    let exe = KnownResampler::Catalina
-        .find_executable()
-        .or_else(|| KnownResampler::HifisamplerRs.find_executable());
+    let profile = if KnownResampler::Catalina.find_executable().is_some() {
+        KnownResampler::Catalina
+    } else {
+        KnownResampler::HifisamplerRs
+    };
+    ensure_hifisampler_profile_ready(profile)
+}
 
-    let Some(exe_path) = exe else {
-        return Err("Executável do Hifisampler não encontrado em ./resamplers".to_string());
+pub fn ensure_hifisampler_profile_ready(profile: KnownResampler) -> Result<String, String> {
+    if !uses_nsf_hifigan(Some(profile)) {
+        return Err(format!("{} não usa o modelo HiFi-GAN", profile.label()));
+    }
+
+    let Some(exe_path) = profile.find_executable() else {
+        return Err(format!(
+            "Executável de {} não encontrado. Instale-o em {}",
+            profile.label(),
+            profile.recommended_engine_dir().display()
+        ));
     };
 
     let dir = exe_path.parent().unwrap_or_else(|| Path::new("."));
-    ensure_hifisampler_environment(&exe_path);
-
     let model_dir = dir.join("model");
     let model_found = model_dir
         .join("pc_nsf_hifigan_44.1k_hop512_128bin_2025.02.onnx")
         .is_file()
         || model_dir.join("pc-nsf-hifigan.onnx").is_file()
         || model_dir.join("model.onnx").is_file();
+    let hnsep_found =
+        profile != KnownResampler::HifisamplerRs || model_dir.join("hnsep_model.onnx").is_file();
 
-    if model_found {
+    if model_found && hnsep_found {
+        ensure_hifisampler_environment(&exe_path);
         Ok(format!(
             "Hifisampler pronto (Modelos ONNX carregados em {})",
             model_dir.display()
         ))
     } else {
-        Ok("Hifisampler configurado (Aguardando modelo ONNX em ./resamplers/model)".to_string())
+        let missing = match (model_found, hnsep_found) {
+            (false, false) => "PC-NSF-HiFiGAN e HN-SEP",
+            (false, true) => "PC-NSF-HiFiGAN",
+            (true, false) => "HN-SEP",
+            (true, true) => unreachable!(),
+        };
+        Err(format!(
+            "Modelo(s) {missing} não encontrado(s) em {}",
+            model_dir.display()
+        ))
     }
 }
 

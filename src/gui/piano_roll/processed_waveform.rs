@@ -9,6 +9,7 @@ pub(super) fn draw(
     keyboard_width: f32,
     timeline_scroll_x: f32,
     theme: &ThemeConfig,
+    animation_policy: crate::gui::animation::AnimationPolicy,
     ruler_rect: Rect,
     bpm: f64,
     lang: crate::config::AppLanguage,
@@ -38,6 +39,25 @@ pub(super) fn draw(
 
     let painter = ui.painter_at(strip_rect);
     let mid_y = strip_rect.center().y;
+    let animation_time = ui.input(|input| input.time) as f32;
+    let playback_pulse = if state.is_playing && animation_policy.allows_motion() {
+        (animation_time * std::f32::consts::TAU * 0.9 * animation_policy.visual_speed()).sin()
+    } else {
+        0.0
+    };
+    let current_amplitude = state
+        .waveform_amplitude_at(state.playhead_ms as f32)
+        .unwrap_or(0.0)
+        .clamp(0.0, 1.0);
+    let waveform_breath = if state.is_playing {
+        if animation_policy.allows_motion() {
+            1.0 + playback_pulse * 0.10 + current_amplitude * 0.10
+        } else {
+            1.04
+        }
+    } else {
+        1.0
+    };
     let coral = theme.c32_alpha(theme.semantic.waveform, 92.0 / 255.0);
     let muted_line = theme.c32_alpha(theme.semantic.waveform_grid, 36.0 / 255.0);
 
@@ -104,12 +124,33 @@ pub(super) fn draw(
             let start_ms = ((x - timeline_origin_x) as f64 / px_per_ms) as f32;
             let end_ms = ((next_x - timeline_origin_x) as f64 / px_per_ms) as f32;
             if let Some((minimum, maximum)) = state.waveform_min_max_between(start_ms, end_ms) {
-                let top = mid_y - maximum.clamp(0.0, 1.0) * half_height;
-                let bottom = mid_y - minimum.clamp(-1.0, 0.0) * half_height;
+                let top = mid_y - maximum.clamp(0.0, 1.0) * half_height * waveform_breath;
+                let bottom = mid_y - minimum.clamp(-1.0, 0.0) * half_height * waveform_breath;
                 if bottom - top > 0.25 {
+                    let column_time_ms = ((x - timeline_origin_x) as f64 / px_per_ms) as f32;
+                    let playhead_distance_ms = (column_time_ms - state.playhead_ms as f32).abs();
+                    let band_width_ms = 90.0 / state.px_per_ms.max(0.001);
+                    let active_band = state.is_playing && playhead_distance_ms < band_width_ms;
+                    let color = if active_band {
+                        let proximity = 1.0 - playhead_distance_ms / band_width_ms;
+                        theme.c32_alpha(
+                            theme.playhead_color,
+                            0.28 + proximity.clamp(0.0, 1.0) * 0.30
+                                + playback_pulse.max(0.0) * 0.12,
+                        )
+                    } else {
+                        coral
+                    };
                     painter.line_segment(
                         [Pos2::new(x, top), Pos2::new(x, bottom)],
-                        Stroke::new(1.15_f32, coral),
+                        Stroke::new(
+                            if active_band {
+                                1.4 + playback_pulse.max(0.0) * 0.35
+                            } else {
+                                1.15
+                            },
+                            color,
+                        ),
                     );
                 }
             }
@@ -161,5 +202,17 @@ pub(super) fn draw(
             state.playhead_ms = scrubbed_ms;
             on_playhead_scrubbed(scrubbed_ms);
         }
+    } else {
+        painter.text(
+            Pos2::new(timeline_rect.left() + 8.0, mid_y),
+            egui::Align2::LEFT_CENTER,
+            if state.waveform_rendering {
+                lang.tr("Renderizando waveform vocal…", "Rendering vocal waveform…")
+            } else {
+                lang.tr("Sem áudio vocal renderizado", "No rendered vocal audio")
+            },
+            egui::FontId::proportional(10.0),
+            theme.text_muted_c32(),
+        );
     }
 }

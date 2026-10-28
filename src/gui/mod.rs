@@ -9,11 +9,14 @@ mod background_tasks;
 pub mod dialogs;
 mod editor_canvas;
 mod editor_panels;
+#[cfg(all(not(target_os = "android"), not(target_arch = "wasm32")))]
+mod engine_install;
 mod engine_setup;
 pub mod fonts;
 mod format_actions;
 pub mod fx_rack_dialog;
-mod fx_rack_ui;
+pub(super) mod fx_rack_ui;
+pub(crate) mod visual_fx;
 pub mod history;
 pub mod humanize_dialog;
 pub mod i18n;
@@ -242,7 +245,6 @@ pub struct KamafeuStudioApp {
     pub lyrics_dialog_state: lyrics_dialog::LyricsDialogState,
     pub humanize_dialog_state: humanize_dialog::HumanizeDialogState,
     pub fx_rack_dialog_state: fx_rack_dialog::FxRackDialogState,
-    pub fx_rack_config: crate::audio::FxRackConfig,
     /// A slider/knob may emit many changes during one drag; preview refresh is
     /// deferred until that gesture ends so rendering never starves the UI.
     fx_preview_refresh_pending: bool,
@@ -257,6 +259,8 @@ pub struct KamafeuStudioApp {
     pub phonemizer_warning_dismissed: bool,
     pub phonemizer_warning_expanded: bool,
     preview_waveform_cache_hash: u64,
+    preview_waveform_last_hash_check: Option<Instant>,
+    preview_waveform_pending: Option<(u64, Instant)>,
     preview_waveform_rx: Option<std::sync::mpsc::Receiver<(u64, Vec<(f32, f32, f32)>)>>,
     preview_waveform_cancel: Option<Arc<AtomicBool>>,
     workspace_snap_rect: Option<(workspace::WorkspacePane, eframe::egui::Rect)>,

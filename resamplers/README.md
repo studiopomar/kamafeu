@@ -19,15 +19,44 @@ usa a MIT do aplicativo para relicenciar esse executável.
 
 ## Instalação local do Hifisampler
 
+Quando um resampler externo não estiver no pacote, o painel **Motor** mostra o
+link do projeto e abre a pasta de destino. A pasta
+sugerida é `~/Documents/kamafeu/resamplers/<engine>/`; coloque ali o executável
+com o nome indicado pelo upstream. Resamplers `.exe` no macOS/Linux também
+precisam do Wine. O Kamafeu continua procurando instalações antigas em
+`./resamplers/` e no `PATH`.
+
 ## Catalina / NSF HiFi-GAN
 
 O executável `catalina` é construído pelo próprio projeto e mantém o protocolo
-clássico de resamplers UTAU. Ele procura um backend NSF HiFi-GAN ao lado dele,
-em `resamplers/` ou no `PATH`; também aceita `CATALINA_BACKEND=/caminho/do/backend`.
+clássico de resamplers UTAU. Coloque-o em
+`~/Documents/kamafeu/resamplers/catalina/catalina`. O modelo deve ficar na pasta
+`model/` ao lado dele:
 
-O pacote de weights recomendado é `pc_nsf_hifigan_44.1k_hop512_128bin_2025.02.oudep`,
-da release oficial do projeto vocoders. Extraia o arquivo e coloque o ONNX em
-`resamplers/model/`; o Kamafeu cria a configuração padrão automaticamente.
+```text
+Documents/kamafeu/resamplers/catalina/
+├── catalina
+├── hificonfig.ini       # criado pelo Kamafeu se estiver ausente
+└── model/
+    └── pc_nsf_hifigan_44.1k_hop512_128bin_2025.02.onnx
+```
+
+Baixe o pacote PC-NSF-HiFiGAN na
+[release oficial do OpenVPI Vocoders](https://github.com/openvpi/vocoders/releases/tag/pc-nsf-hifigan-44.1k-hop512-128bin-2025.02).
+Renomeie o sufixo `.oudep` para `.zip`, extraia e copie o ONNX para a pasta
+`model/` acima. O arquivo `.oudep` é um pacote de dependência OpenUTAU; a release
+informa que renomeá-lo para `.zip` permite extrair o ONNX. O modelo usa licença
+CC BY-NC-SA 4.0; leia o aviso incluído antes de redistribuir os pesos.
+
+Para o Hifisampler, baixe o pacote completo na
+[página de releases do projeto](https://github.com/openhachimi/hifisampler/releases)
+e preserve sua estrutura ao extraí-lo em
+`~/Documents/kamafeu/resamplers/hifisampler/`. O cliente `hifisampler` é o
+resampler chamado pelo Kamafeu; inicie o servidor do pacote conforme as
+instruções upstream antes de renderizar. O arquivo `hnsep_model.onnx` também
+deve estar em `model/` ao lado do HiFi-GAN. A release v1.1.0 do
+[Hifisampler-RS](https://github.com/Slidingwall/hifisampler-rs/releases/tag/v1.1.0)
+é somente um backend servidor, não substitui o executável cliente.
 
 Os executáveis `hifisampler`, `hifisampler-rs`, `hifiserver-rust`, o arquivo
 `hificonfig.ini` e a pasta `model/` são instalações locais opcionais e estão
@@ -35,12 +64,29 @@ ignorados pelo Git. Não são incluídos automaticamente na distribuição.
 Antes de distribuí-los, registre origem, versão, arquitetura, checksum e
 licenças dos executáveis e de cada modelo. Os arquivos locais são preservados.
 
+## Outros resamplers externos
+
+Instale cada engine em sua pasta sugerida, que o Kamafeu informa ao lado da
+seleção do resampler:
+
+| Engine | Executável esperado | Pasta sugerida | Download/instruções |
+| --- | --- | --- | --- |
+| MoReSampler | `moresampler.exe` | `~/Documents/kamafeu/resamplers/moresampler/` | [Lista de resamplers do OpenUTAU](https://github.com/openutau/OpenUtau/wiki/Resamplers-and-Wavtools) |
+| OpenMoresampler | `openmoresampler.exe` | `~/Documents/kamafeu/resamplers/openmoresampler/` | [Releases do OpenMoresampler](https://github.com/dorayakito/OpenMoresampler/releases) |
+| World4UTAU | `world4utau` ou `.exe` | `~/Documents/kamafeu/resamplers/world4utau/` | [Projeto World4UTAU](https://github.com/xrdavies/world4utau) |
+| TIPS | `TIPS.exe` | `~/Documents/kamafeu/resamplers/tips/` | [Lista de resamplers do OpenUTAU](https://github.com/openutau/OpenUtau/wiki/Resamplers-and-Wavtools) |
+
+O Kamafeu procura também executáveis já instalados diretamente em
+`resamplers/`, nos caminhos da aplicação e no `PATH`, então não é necessário
+mover instalações que já estejam funcionando.
+
 ## OpenMoresampler
 
 O Kamafeu reconhece o [OpenMoresampler](https://github.com/dorayakito/OpenMoresampler)
 como um perfil UTAU CLI separado. Coloque `openmoresampler.exe` ou o
-`moresampler.exe` gerado pelo projeto em `resamplers/` e selecione
-**OpenMoresampler** nas configurações. O upstream informa que a versão atual é
+`moresampler.exe` gerado pelo projeto em
+`~/Documents/kamafeu/resamplers/openmoresampler/` (ou mantenha-o diretamente em
+`resamplers/`) e selecione **OpenMoresampler** no painel Motor. O upstream informa que a versão atual é
 compatível com o protocolo Moresampler 0.8.4, está em validação e funciona
 somente no Windows; em macOS/Linux será necessário executá-lo via Wine.
 

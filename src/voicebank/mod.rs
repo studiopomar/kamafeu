@@ -1,4 +1,8 @@
 //! Versioned voicebank contracts. The classic loader for oto.ini banks remains in `crate::oto`.
+pub mod cantor;
+pub mod diffsinger;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod diffsinger_render;
 pub mod migration;
 pub mod native;
 pub mod package;
@@ -20,6 +24,10 @@ impl VoicebankHandle {
     /// keep using the existing loader for oto.ini banks and Copaíba.
     pub fn open(path: impl AsRef<Path>) -> Result<Self, String> {
         let path = path.as_ref();
+        if path.is_dir() && path.join("cantor.toml").exists() {
+            let bank = cantor::CantorBank::load_path(path)?;
+            return Ok(Self::NativeV2(bank.native_snapshot()?));
+        }
         match native::NativeBank::load_path(path) {
             Ok(bank) => Ok(Self::NativeV2(bank)),
             Err(native_error) => match crate::oto::Voicebank::new(path) {

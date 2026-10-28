@@ -34,6 +34,7 @@ fn frame(
                     4,
                     4,
                     crate::phonemizer::PhonemizerMode::default(),
+                    None,
                     crate::config::AppLanguage::PtBr,
                     TimelinePlaybackStatus::default(),
                     &mut |_| {},
@@ -249,4 +250,58 @@ fn radar_drag_keeps_control_until_the_pointer_is_released() {
         button(Pos2::new(1_400.0, 15.0), false),
     );
     assert_eq!(state.minimap_drag_scroll_origin, None);
+}
+
+#[test]
+fn radar_drag_accumulates_moves_and_stays_put_when_pointer_stops() {
+    for playing in [false, true] {
+        let ctx = egui::Context::default();
+        let mut state = PianoRollState {
+            initial_scrolled: true,
+            horizontal_scroll_offset: 2000.0,
+            is_playing: playing,
+            auto_scroll_mode: crate::gui::types::AutoScrollMode::Off,
+            ..Default::default()
+        };
+        let mut notes = vec![UNote::new("a", "C4", 0.0, 40_000.0)];
+        frame(&ctx, &mut state, &mut notes, 0.0, vec![]);
+        // Start over the visible viewport rectangle, not empty radar space.
+        let start = Pos2::new(190.0, 15.0);
+        frame(&ctx, &mut state, &mut notes, 0.1, button(start, true));
+        frame(
+            &ctx,
+            &mut state,
+            &mut notes,
+            0.2,
+            vec![egui::Event::PointerMoved(Pos2::new(230.0, 15.0))],
+        );
+        let first = state.horizontal_scroll_offset;
+        frame(
+            &ctx,
+            &mut state,
+            &mut notes,
+            0.3,
+            vec![egui::Event::PointerMoved(Pos2::new(270.0, 15.0))],
+        );
+        let second = state.horizontal_scroll_offset;
+        assert!(
+            second > first + 100.0,
+            "successive equal moves must continue moving the viewport"
+        );
+        frame(&ctx, &mut state, &mut notes, 0.4, vec![]);
+        assert!(
+            (state.horizontal_scroll_offset - second).abs() < 0.01,
+            "holding still must not snap back"
+        );
+        frame(
+            &ctx,
+            &mut state,
+            &mut notes,
+            0.5,
+            button(Pos2::new(270.0, 15.0), false),
+        );
+        frame(&ctx, &mut state, &mut notes, 0.6, vec![]);
+        assert!((state.horizontal_scroll_offset - second).abs() < 0.01);
+        assert!(state.minimap_drag_pointer_origin.is_none());
+    }
 }

@@ -29,6 +29,9 @@ jobs:
       - name: Cache Cargo artifacts
         uses: Swatinem/rust-cache@v2
 
+      - name: Build Tainah WORLD library and run ABI test
+        run: python3 native/tainah/build.py
+
       - name: Check formatting
         run: cargo fmt --all -- --check
 
@@ -36,6 +39,8 @@ jobs:
         run: cargo clippy --all-targets --all-features --locked
 
       - name: Run tests
+        env:
+          TAINAH_LIBRARY_PATH: target/tainah-package/libtainah_motor.so.1
         run: cargo test --all-targets --all-features --locked
 
       - name: Check release build

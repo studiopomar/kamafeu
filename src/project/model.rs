@@ -509,6 +509,16 @@ pub struct UTrack {
     pub singer: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub voicebank_path: Option<String>,
+    /// DiffSinger language and speaker are track-local so legacy projects
+    /// continue to use bank defaults when these fields are absent.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub diffsinger_language: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub diffsinger_speaker: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub diffsinger_phonemizer: Option<crate::voicebank::diffsinger::DiffSingerPhonemizer>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub diffsinger_provider: Option<crate::voicebank::diffsinger::ExecutionProvider>,
     /// Stable KFV 2 identity for this track. The legacy path above remains a
     /// location hint so older projects and imports remain readable.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -537,6 +547,10 @@ impl Default for UTrack {
             name: "Track 1".to_string(),
             singer: "Default Singer".to_string(),
             voicebank_path: None,
+            diffsinger_language: None,
+            diffsinger_speaker: None,
+            diffsinger_phonemizer: None,
+            diffsinger_provider: None,
             native_voicebank: None,
             phonemizer: None,
             resampler: None,
@@ -699,6 +713,8 @@ impl UProjectSection {
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct UProject {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub master_fx: Option<crate::audio::FxRackConfig>,
     /// Version of the native APS data contract. Missing in legacy projects.
     #[serde(default = "default_project_schema_version")]
     pub schema_version: u32,
@@ -792,6 +808,7 @@ fn is_default_imported_phoneme_policy(policy: &ImportedPhonemePolicy) -> bool {
 impl Default for UProject {
     fn default() -> Self {
         Self {
+            master_fx: None,
             schema_version: CURRENT_PROJECT_SCHEMA_VERSION,
             name: "Novo Projeto".to_string(),
             bpm: 120.0,
@@ -1189,6 +1206,24 @@ pub fn create_astro_boy_1980_project() -> UProject {
 #[cfg(test)]
 mod project_tests {
     use super::*;
+
+    #[test]
+    fn legacy_track_without_diffsinger_fields_uses_optional_defaults() {
+        let legacy_track = serde_json::json!({
+            "name": "Legacy",
+            "singer": "Old UTAU",
+            "volume_db": 0.0,
+            "pan": 0.0,
+            "mute": false,
+            "solo": false
+        });
+        let track: UTrack = serde_json::from_value(legacy_track).unwrap();
+        assert_eq!(track.diffsinger_language, None);
+        assert_eq!(track.diffsinger_speaker, None);
+        assert_eq!(track.diffsinger_phonemizer, None);
+        assert_eq!(track.diffsinger_provider, None);
+        assert_eq!(track.voicebank_path, None);
+    }
 
     #[test]
     fn normalize_restores_project_invariants() {
