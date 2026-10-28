@@ -35,7 +35,12 @@
 /resamplers/hifisampler-rs
 /resamplers/hifiserver-rust
 /resamplers/hificonfig.ini
+/resamplers/catalina/catalina*
 /resamplers/model/
+*.onnx
+*.oudep
+/.zcode/
+/umaps/
 
 *.wav
 *.mp3

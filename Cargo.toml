@@ -29,6 +29,11 @@ name = "copaiba"
 path = "src/bin/copaiba.rs"
 required-features = ["desktop"]
 
+[[bin]]
+name = "catalina"
+path = "src/bin/catalina.rs"
+required-features = ["desktop"]
+
 [package.metadata.android]
 package = "com.studiopomar.kamafeu"
 apk_name = "kamafeu"

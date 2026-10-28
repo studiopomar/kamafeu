@@ -46,9 +46,29 @@ pub(super) fn draw(
                         if ui
                             .radio_value(
                                 selected_resampler,
-                                "straycat-rs (UtaUtaUtau) [Padrão Recomendado]"
-                                    .to_string(),
-                                lang.tr("straycat-rs (Recomendado)", "straycat-rs (Recommended)"),
+                                crate::drivers::TAINAH_RESAMPLER_LABEL.to_string(),
+                                lang.tr(
+                                    "Tainah (Motor Principal Recomendado)",
+                                    "Tainah (Primary Recommended Engine)",
+                                ),
+                            )
+                            .clicked()
+                        {
+                            *custom_resampler_path = None;
+                        }
+                        ui.label(
+                            RichText::new(lang.tr("● nativo multiplataforma", "● native multi-platform"))
+                                .size(9.0)
+                                .color(theme.accent_c32()),
+                        );
+                    });
+
+                    ui.horizontal(|ui| {
+                        if ui
+                            .radio_value(
+                                selected_resampler,
+                                "straycat-rs (UtaUtaUtau)".to_string(),
+                                "straycat-rs (UtaUtaUtau)",
                             )
                             .clicked()
                         {
@@ -69,24 +89,6 @@ pub(super) fn draw(
                                     .color(theme.accent_c32()),
                             );
                         }
-                    });
-
-                    ui.horizontal(|ui| {
-                        if ui
-                            .radio_value(
-                                selected_resampler,
-                                crate::drivers::TAINAH_RESAMPLER_LABEL.to_string(),
-                                crate::drivers::TAINAH_RESAMPLER_LABEL,
-                            )
-                            .clicked()
-                        {
-                            *custom_resampler_path = None;
-                        }
-                        ui.label(
-                            RichText::new(lang.tr("incluso", "included"))
-                                .size(9.0)
-                                .color(theme.accent_c32()),
-                        );
                     });
 
                     ui.add_space(4.0);

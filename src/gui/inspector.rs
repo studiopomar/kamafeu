@@ -159,6 +159,15 @@ pub fn draw_inspector_panel(
                         &mut note.expressions.gender,
                         -100.0..=100.0,
                     ));
+                    ui.separator();
+                    ui.label("F1 Ratio:");
+                    ui.add(
+                        egui::Slider::new(&mut note.expressions.f1_ratio, 0.5..=2.0).suffix("×"),
+                    );
+                    ui.label("F2 Ratio:");
+                    ui.add(
+                        egui::Slider::new(&mut note.expressions.f2_ratio, 0.5..=2.0).suffix("×"),
+                    );
                 }
                 InspectorTab::PitchDelta => {
                     ui.label("Pitch Shift Delta (PITD):");

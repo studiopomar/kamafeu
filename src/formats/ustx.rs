@@ -1246,6 +1246,7 @@ voice_parts:
                 name: "Part 1".to_string(),
                 track_index: 0,
                 position_ms: 0.0,
+                duration_ms: 0.0,
                 notes: vec![UNote::new("ka", "C4", 0.0, 480.0)],
             }],
             ..UProject::default()

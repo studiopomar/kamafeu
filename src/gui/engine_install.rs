@@ -43,6 +43,17 @@ fn is_hifigan_engine(profile: KnownResampler) -> bool {
 }
 
 fn hifigan_model_exists(dir: &Path) -> bool {
+    #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
+    {
+        if crate::dsp::catalina::auto_extract_oudep_if_needed(dir).is_some() {
+            return true;
+        }
+        if let Some(parent) = dir.parent() {
+            if crate::dsp::catalina::auto_extract_oudep_if_needed(parent).is_some() {
+                return true;
+            }
+        }
+    }
     [HIFIGAN_MODEL_FILE, "pc-nsf-hifigan.onnx", "model.onnx"]
         .iter()
         .any(|name| dir.join(name).is_file())
@@ -99,6 +110,12 @@ pub(super) fn draw(
                     .size(9.5)
                     .color(Color32::from_rgb(105, 205, 150)),
             );
+        } else if profile == KnownResampler::Catalina {
+            ui.label(
+                RichText::new("✓ Resampler Catalina pronto (Motor neural integrado e executável CLI disponíveis)")
+                    .size(9.5)
+                    .color(Color32::from_rgb(105, 205, 150)),
+            );
         } else {
             ui.label(
                 RichText::new("Resampler externo ausente; este perfil não renderizará até ser instalado.")
@@ -135,7 +152,8 @@ pub(super) fn draw(
 
         if is_hifigan_engine(profile) {
             let model_dir = folder.join("model");
-            if hifigan_model_exists(&model_dir) {
+            let has_model = hifigan_model_exists(&model_dir);
+            if has_model {
                 ui.label(
                     RichText::new(format!("✓ Modelo PC-NSF-HiFiGAN encontrado em {}", model_dir.display()))
                         .size(9.0)
@@ -144,26 +162,56 @@ pub(super) fn draw(
             } else {
                 ui.separator();
                 ui.label(
-                    RichText::new("Modelo PC-NSF-HiFiGAN ausente. Baixe o pacote ONNX e copie o arquivo .onnx para:")
+                    RichText::new("Modelo PC-NSF-HiFiGAN ausente. Baixe o pacote ONNX/.oudep para:")
                         .size(9.0)
                         .color(ui.visuals().warn_fg_color),
                 );
                 ui.monospace(model_dir.display().to_string())
                     .on_hover_text(model_dir.display().to_string());
-                ui.horizontal_wrapped(|ui| {
+            }
+
+            ui.horizontal_wrapped(|ui| {
+                if !has_model {
                     ui.hyperlink_to("Baixar modelo PC-NSF-HiFiGAN (.oudep)", HIFIGAN_MODEL_URL);
-                    if ui.small_button("Abrir pasta do modelo").clicked() {
-                        if let Err(error) = reveal_directory(&model_dir) {
-                            eprintln!("Não foi possível abrir a pasta do modelo: {error}");
+                }
+                if ui.small_button("Abrir pasta do modelo").clicked() {
+                    if let Err(error) = reveal_directory(&model_dir) {
+                        eprintln!("Não foi possível abrir a pasta do modelo: {error}");
+                    }
+                }
+                #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
+                {
+                    let button_text = if has_model {
+                        "📦 Carregar outro pacote .oudep (.zip)..."
+                    } else {
+                        "📦 Carregar pacote .oudep (.zip)..."
+                    };
+                    if ui.small_button(button_text).clicked() {
+                        if let Some(picked) = rfd::FileDialog::new()
+                            .set_title("Selecionar pacote de vocoder OpenUTAU (.oudep ou .zip)")
+                            .add_filter("OpenUTAU Dependency / ZIP", &["oudep", "zip"])
+                            .pick_file()
+                        {
+                            match crate::dsp::catalina::unpack_oudep(&picked, &model_dir) {
+                                Ok(onnx) => {
+                                    eprintln!("Pacote .oudep extraído com sucesso: {}", onnx.display());
+                                    let _ = crate::dsp::catalina::auto_extract_oudep_if_needed(&model_dir);
+                                    crate::drivers::KnownResampler::clear_cache();
+                                }
+                                Err(e) => {
+                                    eprintln!("Falha ao extrair pacote .oudep: {e}");
+                                }
+                            }
                         }
                     }
-                });
+                }
+            });
+
+            if !has_model {
                 ui.label(
-                    RichText::new(format!(
-                        "No pacote baixado, renomeie .oudep para .zip, extraia e coloque {HIFIGAN_MODEL_FILE} nessa pasta."
-                    ))
-                    .size(8.5)
-                    .color(ui.visuals().weak_text_color()),
+                    RichText::new("Você pode carregar o arquivo .oudep diretamente pelo botão acima ou colocá-lo na pasta.")
+                        .size(8.5)
+                        .color(ui.visuals().weak_text_color()),
                 );
                 ui.hyperlink_to(
                     "Licença do modelo: CC BY-NC-SA 4.0",

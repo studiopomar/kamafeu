@@ -105,10 +105,8 @@ pub(super) fn draw(
     let color = if active || response.hovered() {
         theme.accent_c32()
     } else {
-        Color32::from_gray(190)
+        theme.text_muted_c32().linear_multiply(0.75)
     };
-    ui.painter()
-        .rect_filled(rect, Rounding::same(3.0), theme.bg_panel_c32());
     let points: Vec<_> = (0..17)
         .map(|i| {
             let t = i as f32 / 16.0;

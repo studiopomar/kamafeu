@@ -58,7 +58,33 @@ typedef struct lt_render_options {
     /* Optional ABI v2 extension: consonant duration on the output timeline. */
     double target_consonant_ms;
     uint32_t has_target_consonant;
+    /* Optional ABI v2 extension: per-note vowel formant warp. Ratios are
+       relative to the analysed F1/F2 of the source vowel; 1.0 is neutral and
+       the accepted range is 0.5 to 2.0. F3 and above stay anchored unless
+       f3_ratio is also set. */
+    double f1_ratio;
+    double f2_ratio;
+    uint32_t has_vowel_formant;
+    /* Optional ABI v2 extension: F3 ratio (0.5 to 2.0; 0.0 or 1.0 is neutral;
+       < 0.85 produces English retroflex/rhotic R 'er'), acoustic nasality
+       (0.0 to 1.0), and singer's formant (~3 kHz presence, -1.0 to 1.0). */
+    double f3_ratio;
+    double nasality;
+    double singers_formant;
 } lt_render_options;
+#define LT_FORMANT_ENVELOPE_POINTS 128u
+/* Vowel analysis of the oto region after the consonant. Optional symbol:
+   hosts must tolerate libraries that do not export lt_analyze_formants. */
+typedef struct lt_formant_analysis {
+    uint32_t struct_size;
+    double f0_hz;   /* median voiced F0 of the vowel region, 0 when unvoiced */
+    double f1_hz;
+    double f2_hz;
+    double f3_hz;
+    uint32_t envelope_len;
+    double envelope_max_hz;
+    double envelope_db[LT_FORMANT_ENVELOPE_POINTS]; /* 0..envelope_max_hz */
+} lt_formant_analysis;
 typedef struct lt_pcm {
     uint32_t struct_size;
     float *samples;
@@ -66,8 +92,10 @@ typedef struct lt_pcm {
     uint32_t sample_rate;
 } lt_pcm;
 LT_API uint32_t lt_abi_version(void);
+LT_API uint32_t lt_render_options_size(void);
 LT_API const char *lt_version(void);
 LT_API int32_t lt_render(const lt_render_options *options, lt_pcm *output, lt_error *error);
+LT_API int32_t lt_analyze_formants(const lt_render_options *options, lt_formant_analysis *output, lt_error *error);
 LT_API void lt_pcm_free(lt_pcm *pcm);
 LT_API void lt_cache_clear_memory(void);
 #ifdef __cplusplus

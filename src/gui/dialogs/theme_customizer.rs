@@ -941,7 +941,7 @@ impl KamafeuStudioApp {
                             egui::Align2::LEFT_CENTER,
                             "ka [C4]",
                             egui::FontId::proportional(11.0),
-                            self.config.theme.text_note_tag_c32(),
+                            self.config.theme.note_lyric_color(false),
                         );
 
                         // Sample Note 2 (Selected)
@@ -1001,7 +1001,7 @@ impl KamafeuStudioApp {
                             egui::Align2::LEFT_CENTER,
                             "ma [E4] *",
                             egui::FontId::proportional(11.0),
-                            self.config.theme.text_note_tag_c32(),
+                            self.config.theme.note_lyric_color(true),
                         );
 
                         // Sample Pitch curve

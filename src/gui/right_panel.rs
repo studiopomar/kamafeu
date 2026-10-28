@@ -565,6 +565,24 @@ pub fn draw_right_panel(
                         ui.add_space(4.0);
                     }
 
+                    ui.horizontal(|ui| {
+                        if ui
+                            .radio_value(
+                                selected_resampler,
+                                crate::drivers::TAINAH_RESAMPLER_LABEL.to_string(),
+                                format!("{} [Motor Principal]", crate::drivers::TAINAH_RESAMPLER_LABEL),
+                            )
+                            .clicked()
+                        {
+                            *custom_resampler_path = None;
+                        }
+                        ui.label(
+                            RichText::new("nativo")
+                                .size(9.0)
+                                .color(theme.note_fill_c32()),
+                        );
+                    });
+
                     for profile in crate::drivers::KnownResampler::ALL {
                         ui.horizontal(|ui| {
                             if ui
@@ -617,11 +635,6 @@ pub fn draw_right_panel(
                             }
                         });
                     }
-                    ui.radio_value(
-                        selected_resampler,
-                        crate::drivers::TAINAH_RESAMPLER_LABEL.to_string(),
-                        crate::drivers::TAINAH_RESAMPLER_LABEL,
-                    );
 
                     ui.add_space(4.0);
 

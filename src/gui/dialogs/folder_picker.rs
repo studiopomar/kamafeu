@@ -161,15 +161,7 @@ impl KamafeuStudioApp {
             self.folder_picker_open = is_open;
 
             if let Some(folder) = selected_dir {
-                if let Ok(vb) = crate::oto::Voicebank::new(&folder) {
-                    self.activate_voicebank(vb);
-                } else {
-                    self.transport_state.status_message = format!(
-                        "{}: {}",
-                        lang.tr("Pasta adicionada", "Folder added"),
-                        folder.display()
-                    );
-                }
+                self.activate_singer_path(&folder);
                 if !self.config.singers_paths.contains(&folder) {
                     self.config.singers_paths.push(folder);
                     self.persist_config();

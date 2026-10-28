@@ -700,6 +700,7 @@ impl TrackRenderer {
                 loop_start_ms,
                 loop_end_ms,
                 tail_start_ms,
+                vowel_formant: phone.expressions.vowel_formant(),
             };
 
             logs.push((

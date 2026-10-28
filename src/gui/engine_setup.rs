@@ -144,10 +144,17 @@ impl KamafeuStudioApp {
             if self.selected_resampler.contains("Catalina")
                 || self.selected_resampler.contains("catalina")
             {
-                return Box::new(ExternalResamplerDriver::for_known(
-                    KnownResampler::Catalina,
-                    self.custom_resampler_path.clone(),
-                ));
+                let profile = KnownResampler::Catalina;
+                let exe = self
+                    .custom_resampler_path
+                    .clone()
+                    .filter(|p| p.is_file())
+                    .or_else(|| profile.find_executable());
+                if let Some(path) = exe {
+                    return Box::new(ExternalResamplerDriver::for_known(profile, Some(path)));
+                } else {
+                    return Box::new(crate::dsp::catalina::CatalinaResamplerDriver::new());
+                }
             }
 
             if crate::drivers::is_native_world_resampler_label(&self.selected_resampler) {

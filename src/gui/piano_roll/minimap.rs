@@ -66,26 +66,6 @@ pub(super) fn draw(
             Stroke::new(1.0_f32, theme.grid_line_bar_c32().linear_multiply(0.72)),
         );
 
-        let animation_policy = crate::gui::animation::AnimationPolicy {
-            enabled: state.ui_animations_enabled,
-            reduce_motion: state.ui_reduce_motion,
-            speed: state.ui_animation_speed,
-            frame_time_ema_ms: if state.animation_quality_reduced {
-                crate::gui::animation::HIGH_FRAME_TIME_MS
-            } else {
-                16.0
-            },
-        };
-        let animation_time = ui.input(|input| input.time) as f32;
-        let pulse = if animation_policy.enabled {
-            0.5 + 0.5
-                * animation_policy.pulse_amplitude()
-                * (animation_time * std::f32::consts::TAU * 0.9 * animation_policy.visual_speed())
-                    .sin()
-        } else {
-            0.0
-        };
-
         // Corner label
         m_painter.text(
             Pos2::new(minimap_rect.min.x + 6.0, minimap_rect.center().y),
@@ -170,27 +150,15 @@ pub(super) fn draw(
         // restrained halo make the shared transport clock easy to follow.
         let playhead_norm = (state.playhead_ms / total_canvas_ms).clamp(0.0, 1.0) as f32;
         let playhead_map_x = map_origin_x + playhead_norm * map_span_x;
-        if state.is_playing && animation_policy.enabled {
-            if let Some(interval) = animation_policy.interval() {
-                ui.ctx().request_repaint_after(interval);
-            }
+        if state.is_playing {
+            ui.ctx().request_repaint();
         }
         m_painter.line_segment(
             [
                 Pos2::new(playhead_map_x, minimap_rect.min.y),
                 Pos2::new(playhead_map_x, minimap_rect.max.y),
             ],
-            Stroke::new(
-                3.0 + pulse * 2.0,
-                theme.playhead_c32().linear_multiply(0.16 + pulse * 0.12),
-            ),
-        );
-        m_painter.line_segment(
-            [
-                Pos2::new(playhead_map_x, minimap_rect.min.y),
-                Pos2::new(playhead_map_x, minimap_rect.max.y),
-            ],
-            Stroke::new(1.2 + pulse * 0.8, theme.playhead_c32()),
+            Stroke::new(1.4_f32, theme.playhead_c32()),
         );
         m_painter.add(egui::Shape::convex_polygon(
             vec![

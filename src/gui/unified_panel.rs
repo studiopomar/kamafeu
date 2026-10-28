@@ -1,4 +1,5 @@
 mod engine;
+pub mod formant_chart;
 mod note;
 mod phonemes;
 mod singer;
@@ -9,7 +10,7 @@ use crate::gui::types::RightSidebarTab;
 use crate::oto::Voicebank;
 use crate::project::model::UNote;
 pub use crate::renderer::RenderOptions as VocalModeParams;
-use eframe::egui::{self, Frame, Pos2, Rect, RichText, Rounding, Stroke, Vec2};
+use eframe::egui::{self, Color32, Frame, Pos2, Rect, RichText, Rounding, Stroke, Vec2};
 use std::path::PathBuf;
 
 pub fn draw_unified_panel(
@@ -36,6 +37,8 @@ pub fn draw_unified_panel(
     custom_resampler_path: &mut Option<PathBuf>,
     custom_wavtool_path: &mut Option<PathBuf>,
     discord_rpc_enabled: &mut bool,
+    playhead_ms: f64,
+    is_playing: bool,
     on_load_vb: &mut dyn FnMut(Option<PathBuf>),
     on_add_singers_dir: &mut dyn FnMut(),
     on_reload_singers: &mut dyn FnMut(),
@@ -57,7 +60,23 @@ pub fn draw_unified_panel(
             selected_ruler_alias,
             compact,
         );
+        ui.add_space(4.0);
+
+        // --- ALWAYS-VISIBLE VOWEL & FORMANT CONTROLLER (F1 × F2 · BRAPA & TAINAH) ---
+        draw_pinned_formant_editor(
+            ui,
+            theme,
+            lang,
+            voicebank,
+            selected_note_idx,
+            notes,
+            selected_ruler_alias,
+            selected_resampler,
+            playhead_ms,
+            is_playing,
+        );
         ui.add_space(6.0);
+
         draw_group_tabs(ui, theme, lang, active_tab);
         ui.add_space(7.0);
 
@@ -461,6 +480,123 @@ fn draw_group_description(
             .color(theme.text_muted_c32()),
     );
     ui.add_space(5.0);
+}
+
+#[allow(clippy::too_many_arguments)]
+fn draw_pinned_formant_editor(
+    ui: &mut egui::Ui,
+    theme: &ThemeConfig,
+    lang: crate::config::AppLanguage,
+    voicebank: Option<&Voicebank>,
+    selected_note_idx: Option<usize>,
+    notes: &mut [UNote],
+    selected_ruler_alias: Option<&str>,
+    selected_resampler: &str,
+    playhead_ms: f64,
+    is_playing: bool,
+) {
+    if notes.is_empty() {
+        return;
+    }
+
+    // Determine target note:
+    // 1. If currently playing, prefer the note active under the playhead for live visualizer
+    // 2. Otherwise prefer selected_note_idx
+    // 3. Fallback to the note at/after playhead or first note
+    let target_idx = if is_playing {
+        notes
+            .iter()
+            .position(|n| playhead_ms >= n.position_ms && playhead_ms < n.position_ms + n.duration_ms)
+            .or(selected_note_idx.filter(|&idx| idx < notes.len()))
+            .unwrap_or(0)
+    } else if let Some(idx) = selected_note_idx.filter(|&idx| idx < notes.len()) {
+        idx
+    } else {
+        notes
+            .iter()
+            .position(|n| playhead_ms >= n.position_ms && playhead_ms < n.position_ms + n.duration_ms)
+            .unwrap_or(0)
+    };
+
+    let note = &mut notes[target_idx];
+    let lyric = note.lyric.clone();
+    let pitch_str = note.pitch.clone();
+    let query_alias = selected_ruler_alias.unwrap_or_else(|| lyric.trim());
+    let consonant_ms = voicebank
+        .and_then(|vb| vb.find_mapped_entry(query_alias, &pitch_str).map(|e| e.consonant))
+        .unwrap_or(50.0);
+
+    let pb_state = formant_chart::PlaybackFormantState {
+        playhead_ms,
+        is_playing,
+        note_pos_ms: note.position_ms,
+        note_dur_ms: note.duration_ms,
+        consonant_ms,
+    };
+
+    let id = egui::Id::new("pinned_formant_editor_expanded");
+    let is_open = ui.data_mut(|d| *d.get_temp_mut_or(id, true));
+
+    let header_text = if is_playing {
+        format!("▶ {} · '{}' ({})", lang.tr("Formantes Ao Vivo", "Live Formants"), note.lyric, note.pitch)
+    } else {
+        format!("{} · '{}' ({})", lang.tr("Vogal & Formantes", "Vowel & Formants"), note.lyric, note.pitch)
+    };
+
+    let header_col = if is_playing {
+        Color32::from_rgb(112, 232, 192)
+    } else {
+        theme.accent_c32()
+    };
+
+    ui.horizontal(|ui| {
+        let toggle_symbol = if is_open { "▼" } else { "▶" };
+        if ui
+            .button(RichText::new(toggle_symbol).size(10.0).color(header_col))
+            .clicked()
+        {
+            ui.data_mut(|d| d.insert_temp(id, !is_open));
+        }
+        if ui
+            .link(RichText::new(&header_text).strong().size(11.0).color(header_col))
+            .clicked()
+        {
+            ui.data_mut(|d| d.insert_temp(id, !is_open));
+        }
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            if (note.expressions.f1_ratio - 1.0).abs() > 0.02
+                || (note.expressions.f2_ratio - 1.0).abs() > 0.02
+                || (note.expressions.f3_ratio - 1.0).abs() > 0.02
+                || note.expressions.nasality > 0.02
+            {
+                ui.label(
+                    RichText::new(lang.tr("MODIFICADO", "MODIFIED"))
+                        .size(8.5)
+                        .monospace()
+                        .color(Color32::from_rgb(245, 198, 92)),
+                );
+            }
+        });
+    });
+
+    if is_open {
+        ui.add_space(3.0);
+        formant_chart::draw_vowel_formant_editor(
+            ui,
+            theme,
+            lang,
+            voicebank,
+            query_alias,
+            &pitch_str,
+            selected_resampler,
+            &mut note.expressions.f1_ratio,
+            &mut note.expressions.f2_ratio,
+            &mut note.expressions.f3_ratio,
+            &mut note.expressions.nasality,
+            &mut note.expressions.singers_formant,
+            Some(pb_state),
+        );
+    }
 }
 
 #[cfg(test)]

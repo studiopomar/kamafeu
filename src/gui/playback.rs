@@ -28,12 +28,22 @@ fn progressive_chunk_ms(lookahead_ms: f32, render_chunk_bars: u32, bpm: f64) -> 
 }
 
 const PROGRESSIVE_STARTUP_BUFFER_MS: f64 = 3_000.0;
+const FAST_NATIVE_STARTUP_BUFFER_MS: f64 = 350.0;
 
+#[cfg(test)]
 pub(super) fn progressive_startup_ready(buffered_ms: f64, current_is_final: bool) -> bool {
     // A single page can be consumed before the next page finishes, especially
     // when external resamplers are busy. Prime three seconds of contiguous
     // audio before opening the sink to avoid starting playback on a thin runway.
     buffered_ms >= PROGRESSIVE_STARTUP_BUFFER_MS || current_is_final
+}
+
+fn progressive_startup_ready_with_target(
+    buffered_ms: f64,
+    current_is_final: bool,
+    target_buffer_ms: f64,
+) -> bool {
+    buffered_ms >= target_buffer_ms || current_is_final
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -43,6 +53,7 @@ fn spawn_progressive_audio_bridge(
     playback: Option<ProgressivePlaybackHandle>,
     metronome_enabled: bool,
     bpm: f64,
+    target_startup_buffer_ms: f64,
 ) {
     std::thread::Builder::new()
         .name("kamafeu-progressive-audio-bridge".to_string())
@@ -85,7 +96,11 @@ fn spawn_progressive_audio_bridge(
                         .iter()
                         .map(|(_, start_ms, end_ms, _, _, _, _)| (end_ms - start_ms).max(0.0))
                         .sum();
-                    if !progressive_startup_ready(buffered_ms, final_chunk) {
+                    if !progressive_startup_ready_with_target(
+                        buffered_ms,
+                        final_chunk,
+                        target_startup_buffer_ms,
+                    ) {
                         continue;
                     }
                     let mut queued = startup.drain(..);
@@ -196,6 +211,7 @@ impl KamafeuStudioApp {
                 self.audio_player.progressive_handle(),
                 self.transport_state.metronome_enabled,
                 self.project.bpm,
+                FAST_NATIVE_STARTUP_BUFFER_MS,
             );
 
             let resampler_driver = self.create_resampler_driver();
@@ -351,7 +367,9 @@ impl KamafeuStudioApp {
         // must not remain visible before the first note. Keep the cache for a
         // mid-project resume, where it still represents already rendered
         // audio, but reset it for a fresh timeline.
-        if playhead_ms <= f64::EPSILON {
+        let preview_cache_is_warm = self.preview_waveform_cache_hash != 0
+            && self.preview_waveform_cache_hash == self.compute_preview_waveform_hash();
+        if playhead_ms <= f64::EPSILON && !preview_cache_is_warm {
             self.piano_roll_state.rendered_waveform_peaks.clear();
             self.render_log_messages
                 .push("[Waveform] cache reset: nova geração iniciada no tempo 0ms".to_string());
@@ -409,6 +427,15 @@ impl KamafeuStudioApp {
                 self.config.dsp.render_chunk_bars,
                 project.bpm,
             );
+            let is_fast_native_engine =
+                crate::drivers::is_native_world_resampler_label(resampler_driver.name())
+                    || resampler_driver.engine_id() == "kamafeu.sola"
+                    || preview_cache_is_warm;
+            let startup_buffer_ms = if is_fast_native_engine {
+                FAST_NATIVE_STARTUP_BUFFER_MS
+            } else {
+                PROGRESSIVE_STARTUP_BUFFER_MS
+            };
             self.audio_player.begin_progressive_generation();
             spawn_progressive_audio_bridge(
                 audio_rx,
@@ -416,6 +443,7 @@ impl KamafeuStudioApp {
                 self.audio_player.progressive_handle(),
                 self.transport_state.metronome_enabled,
                 project.bpm,
+                startup_buffer_ms,
             );
             std::thread::spawn(move || {
                 let report_progress = move |progress, message: &str| {
@@ -606,9 +634,9 @@ impl KamafeuStudioApp {
             return;
         }
 
-        // Hashing the active part serializes its notes. Four checks per second
-        // are sufficient for a debounced preview and keep idle editing cheap.
-        const HASH_CHECK_INTERVAL: std::time::Duration = std::time::Duration::from_millis(250);
+        // Hashing the active part serializes its notes. Fast 100ms checks keep
+        // background synthesis responsive right after note edits like Synthesizer V.
+        const HASH_CHECK_INTERVAL: std::time::Duration = std::time::Duration::from_millis(100);
         let now = Instant::now();
         if let Some(last_check) = self.preview_waveform_last_hash_check {
             let remaining = HASH_CHECK_INTERVAL.saturating_sub(last_check.elapsed());
@@ -648,7 +676,7 @@ impl KamafeuStudioApp {
             return;
         }
 
-        const PREVIEW_DEBOUNCE: std::time::Duration = std::time::Duration::from_millis(250);
+        const PREVIEW_DEBOUNCE: std::time::Duration = std::time::Duration::from_millis(100);
         match self.preview_waveform_pending {
             Some((pending_hash, started)) if pending_hash == current_hash => {
                 let remaining = PREVIEW_DEBOUNCE.saturating_sub(started.elapsed());
@@ -805,7 +833,14 @@ mod tests {
         use crate::renderer::{ProgressiveChunk, RenderedAudio};
         let (audio_tx, audio_rx) = std::sync::mpsc::channel();
         let (ui_tx, ui_rx) = std::sync::mpsc::channel();
-        spawn_progressive_audio_bridge(audio_rx, ui_tx, None, false, 120.0);
+        spawn_progressive_audio_bridge(
+            audio_rx,
+            ui_tx,
+            None,
+            false,
+            120.0,
+            super::PROGRESSIVE_STARTUP_BUFFER_MS,
+        );
         audio_tx
             .send(ProgressiveChunk {
                 audio: RenderedAudio::failed(48_000, "WORLD failed".into()),

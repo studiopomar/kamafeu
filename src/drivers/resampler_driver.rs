@@ -26,6 +26,8 @@ pub struct ResamplerArgs {
     pub loop_start_ms: Option<f64>,
     pub loop_end_ms: Option<f64>,
     pub tail_start_ms: Option<f64>,
+    /// Optional per-note vowel formant warp and acoustic parameters for Tainah.
+    pub vowel_formant: Option<crate::project::model::VowelFormantParams>,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -49,8 +51,17 @@ pub struct ResamplerRenderOutput {
 /// It is intentionally not an executable shell command: paths are quoted for
 /// display and no interpolation is ever passed back to a shell.
 pub fn describe_resampler_command(driver: &str, args: &ResamplerArgs) -> String {
+    let formant_suffix = args
+        .vowel_formant
+        .map(|vf| {
+            format!(
+                " --formant F1x{:.2},F2x{:.2},F3x{:.2},nas={:.2},sf={:.2}",
+                vf.f1_ratio, vf.f2_ratio, vf.f3_ratio, vf.nasality, vf.singers_formant
+            )
+        })
+        .unwrap_or_default();
     format!(
-        "{driver} --input {} --output {} --pitch {} --velocity {:.0} --flags '{}' --offset-ms {:.3} --duration-ms {:.3} --consonant-ms {:.3} --cutoff-ms {:.3} --norm {} --tempo {:.3}",
+        "{driver} --input {} --output {} --pitch {} --velocity {:.0} --flags '{}' --offset-ms {:.3} --duration-ms {:.3} --consonant-ms {:.3} --cutoff-ms {:.3} --norm {} --tempo {:.3}{formant_suffix}",
         quote_path(&args.input_wav),
         quote_path(&args.output_wav),
         args.pitch_name,
@@ -587,11 +598,11 @@ impl ResamplerDriver for NativeWorldResamplerDriver {
         "kamafeu.lessampler-tainah"
     }
     fn cache_identity(&self) -> String {
-        #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
+        #[cfg(not(target_arch = "wasm32"))]
         {
             super::tainah_ffi::cache_identity()
         }
-        #[cfg(any(target_os = "android", target_arch = "wasm32"))]
+        #[cfg(target_arch = "wasm32")]
         {
             "lessampler-tainah:unsupported-platform".to_string()
         }
@@ -613,7 +624,7 @@ impl ResamplerDriver for NativeWorldResamplerDriver {
         args: &ResamplerArgs,
         cancel: Option<&AtomicBool>,
     ) -> Result<ResamplerRenderOutput, String> {
-        #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
+        #[cfg(not(target_arch = "wasm32"))]
         {
             let samples = super::tainah_ffi::render(raw_samples, sample_rate, args, cancel)
                 .map_err(|reason| format!("Tainah WORLD render failed: {reason}"))?;
@@ -631,7 +642,7 @@ impl ResamplerDriver for NativeWorldResamplerDriver {
                 },
             })
         }
-        #[cfg(any(target_os = "android", target_arch = "wasm32"))]
+        #[cfg(target_arch = "wasm32")]
         {
             let _ = (raw_samples, sample_rate, args, cancel);
             Err("Tainah WORLD library is unavailable on this platform".into())
@@ -1076,29 +1087,58 @@ pub fn ensure_hifisampler_profile_ready(profile: KnownResampler) -> Result<Strin
         return Err(format!("{} não usa o modelo HiFi-GAN", profile.label()));
     }
 
-    let Some(exe_path) = profile.find_executable() else {
+    let exe_path_opt = profile.find_executable();
+    if profile != KnownResampler::Catalina && exe_path_opt.is_none() {
         return Err(format!(
             "Executável de {} não encontrado. Instale-o em {}",
             profile.label(),
             profile.recommended_engine_dir().display()
         ));
-    };
+    }
 
-    let dir = exe_path.parent().unwrap_or_else(|| Path::new("."));
+    let dir = exe_path_opt
+        .as_ref()
+        .and_then(|p| p.parent().map(Path::to_path_buf))
+        .unwrap_or_else(|| profile.recommended_engine_dir());
     let model_dir = dir.join("model");
+
+    #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
+    {
+        crate::dsp::catalina::auto_extract_oudep_if_needed(&model_dir);
+        crate::dsp::catalina::auto_extract_oudep_if_needed(&profile.recommended_engine_dir().join("model"));
+        crate::dsp::catalina::auto_extract_oudep_if_needed(&dir);
+        crate::dsp::catalina::auto_extract_oudep_if_needed(&profile.recommended_engine_dir());
+    }
+
     let model_found = model_dir
         .join("pc_nsf_hifigan_44.1k_hop512_128bin_2025.02.onnx")
         .is_file()
         || model_dir.join("pc-nsf-hifigan.onnx").is_file()
-        || model_dir.join("model.onnx").is_file();
+        || model_dir.join("model.onnx").is_file()
+        || profile.recommended_engine_dir().join("model").join("pc_nsf_hifigan_44.1k_hop512_128bin_2025.02.onnx").is_file()
+        || profile.recommended_engine_dir().join("model").join("pc-nsf-hifigan.onnx").is_file()
+        || profile.recommended_engine_dir().join("model").join("model.onnx").is_file()
+        || (profile == KnownResampler::Catalina && {
+            #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
+            { crate::dsp::catalina::resolve_model_path().is_ok() }
+            #[cfg(any(target_os = "android", target_arch = "wasm32"))]
+            { false }
+        });
+
     let hnsep_found =
         profile != KnownResampler::HifisamplerRs || model_dir.join("hnsep_model.onnx").is_file();
 
     if model_found && hnsep_found {
-        ensure_hifisampler_environment(&exe_path);
+        if let Some(exe_path) = exe_path_opt.as_ref() {
+            ensure_hifisampler_environment(exe_path);
+        }
+        let engine_name = if profile == KnownResampler::Catalina {
+            "Catalina"
+        } else {
+            "Hifisampler"
+        };
         Ok(format!(
-            "Hifisampler pronto (Modelos ONNX carregados em {})",
-            model_dir.display()
+            "{engine_name} pronto (Modelo PC-NSF-HiFiGAN carregado)"
         ))
     } else {
         let missing = match (model_found, hnsep_found) {
@@ -1332,6 +1372,7 @@ mod tests {
             loop_start_ms: None,
             loop_end_ms: None,
             tail_start_ms: None,
+            vowel_formant: None,
         }
     }
 

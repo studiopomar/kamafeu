@@ -28,9 +28,7 @@ impl KamafeuStudioApp {
             {
                 #[cfg(not(target_os = "android"))]
                 if let Some(folder) = crate::dialogs::FileDialog::new().pick_folder() {
-                    if let Ok(vb) = Voicebank::new(&folder) {
-                        self.activate_voicebank(vb);
-                    }
+                    self.activate_singer_path(&folder);
                 } else {
                     self.folder_picker_open = true;
                 }
@@ -97,9 +95,7 @@ impl KamafeuStudioApp {
                         }
                     }
                     if let Some(vb_dir) = to_load {
-                        if let Ok(vb) = Voicebank::new(&vb_dir) {
-                            self.activate_voicebank(vb);
-                        }
+                        self.activate_singer_path(&vb_dir);
                     }
                     ui.separator();
                     if ui

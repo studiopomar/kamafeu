@@ -196,6 +196,7 @@ impl SvpFormat {
                 name: format!("Part {}", track_idx + 1),
                 track_index: track_idx,
                 position_ms: 0.0,
+                duration_ms: 0.0,
                 notes,
             });
         }
@@ -224,6 +225,7 @@ impl SvpFormat {
                 name: "Part 1".to_string(),
                 track_index: 0,
                 position_ms: 0.0,
+                duration_ms: 0.0,
                 notes,
             });
         }

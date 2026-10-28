@@ -46,17 +46,15 @@ impl KamafeuStudioApp {
         // Progressive audio still crosses the UI boundary before reaching the
         // dedicated scheduler. Keep egui polling while rendering so an idle or
         // expensive piano-roll frame cannot starve the sink.
-        if self.render_rx.is_some()
-            || self.direct_playback_rx.is_some()
-            || self.piano_roll_state.is_playing
-            || self.audio_player.scheduler_is_active()
-        {
+        if self.piano_roll_state.is_playing || self.audio_player.scheduler_is_active() {
+            ctx.request_repaint();
+        } else if self.render_rx.is_some() || self.direct_playback_rx.is_some() {
             if let Some(interval) = self.animation_policy().interval() {
                 ctx.request_repaint_after(interval);
             } else {
                 // Playback/render polling remains functional when visual
                 // animations are disabled, but does not spin continuously.
-                ctx.request_repaint_after(std::time::Duration::from_millis(33));
+                ctx.request_repaint_after(std::time::Duration::from_millis(16));
             }
         }
         #[cfg(not(target_arch = "wasm32"))]
@@ -715,11 +713,7 @@ impl KamafeuStudioApp {
                     .unwrap_or((0.0, 0.0))
             }));
 
-            ctx.request_repaint_after(
-                self.animation_policy()
-                    .interval()
-                    .unwrap_or(std::time::Duration::from_millis(33)),
-            );
+            ctx.request_repaint();
         } else {
             self.transport_state.vu_level_l = (self.transport_state.vu_level_l - 0.08).max(0.0);
             self.transport_state.vu_level_r = (self.transport_state.vu_level_r - 0.08).max(0.0);
@@ -755,11 +749,7 @@ impl KamafeuStudioApp {
             || self.export_rx.is_some()
             || self.preview_waveform_rx.is_some()
         {
-            ctx.request_repaint_after(
-                self.animation_policy()
-                    .interval()
-                    .unwrap_or(std::time::Duration::from_millis(33)),
-            );
+            ctx.request_repaint();
         }
 
         // Receive pre-rendered background waveform preview

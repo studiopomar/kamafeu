@@ -47,6 +47,33 @@ struct Options {
     consonant_adjustment: f64,
     target_consonant_ms: f64,
     has_target_consonant: u32,
+    f1_ratio: f64,
+    f2_ratio: f64,
+    has_vowel_formant: u32,
+    f3_ratio: f64,
+    nasality: f64,
+    singers_formant: f64,
+}
+const FORMANT_ENVELOPE_POINTS: usize = 128;
+#[repr(C)]
+struct FormantAnalysisRaw {
+    struct_size: u32,
+    f0_hz: f64,
+    f1_hz: f64,
+    f2_hz: f64,
+    f3_hz: f64,
+    envelope_len: u32,
+    envelope_max_hz: f64,
+    envelope_db: [f64; FORMANT_ENVELOPE_POINTS],
+}
+#[derive(Debug, Clone, PartialEq)]
+pub struct FormantAnalysis {
+    pub f0_hz: f64,
+    pub f1_hz: f64,
+    pub f2_hz: f64,
+    pub f3_hz: f64,
+    pub envelope_max_hz: f64,
+    pub envelope_db: Vec<f64>,
 }
 #[repr(C)]
 struct Pcm {
@@ -65,47 +92,173 @@ pub fn library_path() -> Option<PathBuf> {
     if let Some(path) = std::env::var_os("TAINAH_LIBRARY_PATH") {
         return Some(path.into());
     }
-    let name = if cfg!(target_os = "windows") {
-        "tainah_motor.dll"
+    let names: &[&str] = if cfg!(target_os = "windows") {
+        &["tainah_motor.dll"]
     } else if cfg!(target_os = "macos") {
-        "libtainah_motor.dylib"
+        &["libtainah_motor.dylib", "libtainah_motor.1.dylib"]
+    } else if cfg!(target_os = "android") {
+        &["libtainah_motor.so", "libtainah_motor.so.1"]
     } else {
-        "libtainah_motor.so.1"
+        &["libtainah_motor.so.1", "libtainah_motor.so"]
     };
-    let executable = std::env::current_exe().ok()?;
-    let dir = executable.parent()?;
-    for candidate in [
-        dir.join(name),
-        dir.join("../Frameworks").join(name),
-        dir.join("../lib").join(name),
-        dir.join("../lib/kamafeu").join(name),
-        // The local tainah-engine builder writes its artifact to
-        // target/tainah-package, while Cargo executables live in target/debug
-        // (or target/debug/deps for tests).
-        dir.join("../tainah-package").join(name),
-        dir.join("../../tainah-package").join(name),
-    ] {
-        if candidate.is_file() {
-            return Some(candidate);
+    if let Some(executable) = std::env::current_exe().ok() {
+        if let Some(dir) = executable.parent() {
+            for &name in names {
+                for candidate in [
+                    dir.join(name),
+                    dir.join("../Frameworks").join(name),
+                    dir.join("../lib").join(name),
+                    dir.join("../lib/kamafeu").join(name),
+                    // The local tainah-engine builder writes its artifact to
+                    // target/tainah-package, while Cargo executables live in target/debug
+                    // (or target/debug/deps for tests).
+                    dir.join("../tainah-package").join(name),
+                    dir.join("../../tainah-package").join(name),
+                ] {
+                    if candidate.is_file() {
+                        return Some(candidate);
+                    }
+                }
+            }
+            return Some(dir.join(names[0]));
         }
     }
-    Some(dir.join(name))
+    Some(PathBuf::from(names[0]))
+}
+
+type RenderFn = unsafe extern "C" fn(*const Options, *mut Pcm, *mut Error) -> i32;
+type FreeFn = unsafe extern "C" fn(*mut Pcm);
+type AnalyzeFn =
+    unsafe extern "C" fn(*const Options, *mut FormantAnalysisRaw, *mut Error) -> i32;
+
+struct CachedFingerprint {
+    path: PathBuf,
+    modified: Option<std::time::SystemTime>,
+    file_len: u64,
+    fingerprint: String,
+}
+
+struct LoadedTainah {
+    path: PathBuf,
+    modified: Option<std::time::SystemTime>,
+    file_len: u64,
+    _library: libloading::Library,
+    render_fn: RenderFn,
+    free_fn: FreeFn,
+    analyze_fn: Option<AnalyzeFn>,
+}
+
+static FINGERPRINT_CACHE: std::sync::LazyLock<std::sync::Mutex<Option<CachedFingerprint>>> =
+    std::sync::LazyLock::new(|| std::sync::Mutex::new(None));
+
+static LIBRARY_CACHE: std::sync::LazyLock<
+    std::sync::Mutex<Option<std::sync::Arc<LoadedTainah>>>,
+> = std::sync::LazyLock::new(|| std::sync::Mutex::new(None));
+
+fn file_meta(path: &std::path::Path) -> Option<(Option<std::time::SystemTime>, u64)> {
+    let meta = std::fs::metadata(path).ok()?;
+    Some((meta.modified().ok(), meta.len()))
 }
 
 pub fn cache_identity() -> String {
-    let path = library_path();
-    let fingerprint = path
-        .as_ref()
-        .and_then(|path| std::fs::read(path).ok())
-        .map(|bytes| {
-            use sha2::{Digest, Sha256};
-            format!("{:x}", Sha256::digest(bytes))
-        })
-        .unwrap_or_else(|| "missing".to_string());
+    let fingerprint = if let Some(path) = library_path() {
+        if let Some((modified, file_len)) = file_meta(&path) {
+            let mut guard = FINGERPRINT_CACHE
+                .lock()
+                .unwrap_or_else(|poisoned| poisoned.into_inner());
+            if let Some(cached) = guard.as_ref() {
+                if cached.path == path && cached.modified == modified && cached.file_len == file_len
+                {
+                    cached.fingerprint.clone()
+                } else {
+                    let fp = std::fs::read(&path)
+                        .ok()
+                        .map(|bytes| {
+                            use sha2::{Digest, Sha256};
+                            format!("{:x}", Sha256::digest(bytes))
+                        })
+                        .unwrap_or_else(|| "missing".to_string());
+                    *guard = Some(CachedFingerprint {
+                        path,
+                        modified,
+                        file_len,
+                        fingerprint: fp.clone(),
+                    });
+                    fp
+                }
+            } else {
+                let fp = std::fs::read(&path)
+                    .ok()
+                    .map(|bytes| {
+                        use sha2::{Digest, Sha256};
+                        format!("{:x}", Sha256::digest(bytes))
+                    })
+                    .unwrap_or_else(|| "missing".to_string());
+                *guard = Some(CachedFingerprint {
+                    path,
+                    modified,
+                    file_len,
+                    fingerprint: fp.clone(),
+                });
+                fp
+            }
+        } else {
+            "missing".to_string()
+        }
+    } else {
+        "missing".to_string()
+    };
     format!(
         "tainah-motor:abi2:{fingerprint}:{}",
         crate::dsp::world_resampler::cache_identity()
     )
+}
+
+fn load_or_get_library(path: &std::path::Path) -> Result<std::sync::Arc<LoadedTainah>, String> {
+    let meta = file_meta(path);
+    let modified = meta.and_then(|(m, _)| m);
+    let file_len = meta.map_or(0, |(_, l)| l);
+    let mut guard = LIBRARY_CACHE
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
+    if let Some(cached) = guard.as_ref() {
+        if cached.path == path && cached.modified == modified && cached.file_len == file_len {
+            return Ok(std::sync::Arc::clone(cached));
+        }
+    }
+    let library = unsafe { libloading::Library::new(path) }
+        .map_err(|error| format!("cannot load {}: {error}", path.display()))?;
+    let (render_fn, free_fn, analyze_fn) = unsafe {
+        let version: libloading::Symbol<unsafe extern "C" fn() -> u32> = library
+            .get(b"lt_abi_version\0")
+            .map_err(|e| e.to_string())?;
+        if version() != 2 {
+            return Err(format!(
+                "Tainah library ABI mismatch: expected 2, found {}",
+                version()
+            ));
+        }
+        let render: libloading::Symbol<RenderFn> =
+            library.get(b"lt_render\0").map_err(|e| e.to_string())?;
+        let free: libloading::Symbol<FreeFn> =
+            library.get(b"lt_pcm_free\0").map_err(|e| e.to_string())?;
+        let analyze: Option<AnalyzeFn> = library
+            .get::<AnalyzeFn>(b"lt_analyze_formants\0")
+            .ok()
+            .map(|sym| *sym);
+        (*render, *free, analyze)
+    };
+    let loaded = std::sync::Arc::new(LoadedTainah {
+        path: path.to_path_buf(),
+        modified,
+        file_len,
+        _library: library,
+        render_fn,
+        free_fn,
+        analyze_fn,
+    });
+    *guard = Some(std::sync::Arc::clone(&loaded));
+    Ok(loaded)
 }
 
 fn world_detector_method(configured: &str) -> Result<u32, String> {
@@ -133,24 +286,10 @@ pub fn render(
     cancel: Option<&AtomicBool>,
 ) -> Result<Vec<f32>, String> {
     let path = library_path().ok_or("cannot locate executable for Tainah library")?;
-    // Loading is local and synchronous. Symbols are used only while `library` is alive.
-    let library = unsafe { libloading::Library::new(&path) }
-        .map_err(|error| format!("cannot load {}: {error}", path.display()))?;
+    let loaded = load_or_get_library(&path)?;
     unsafe {
-        let version: libloading::Symbol<unsafe extern "C" fn() -> u32> = library
-            .get(b"lt_abi_version\0")
-            .map_err(|e| e.to_string())?;
-        if version() != 2 {
-            return Err(format!(
-                "Tainah library ABI mismatch: expected 2, found {}",
-                version()
-            ));
-        }
-        let render: libloading::Symbol<
-            unsafe extern "C" fn(*const Options, *mut Pcm, *mut Error) -> i32,
-        > = library.get(b"lt_render\0").map_err(|e| e.to_string())?;
-        let free: libloading::Symbol<unsafe extern "C" fn(*mut Pcm)> =
-            library.get(b"lt_pcm_free\0").map_err(|e| e.to_string())?;
+        let render = loaded.render_fn;
+        let free = loaded.free_fn;
         let mut points: Vec<PitchPoint> = args
             .pitch_points
             .iter()
@@ -226,6 +365,12 @@ pub fn render(
             consonant_adjustment,
             target_consonant_ms: args.consonant_ms.max(0.0),
             has_target_consonant: 1,
+            f1_ratio: args.vowel_formant.map_or(1.0, |vf| vf.f1_ratio.clamp(0.5, 2.0)),
+            f2_ratio: args.vowel_formant.map_or(1.0, |vf| vf.f2_ratio.clamp(0.5, 2.0)),
+            has_vowel_formant: u32::from(args.vowel_formant.is_some()),
+            f3_ratio: args.vowel_formant.map_or(1.0, |vf| vf.f3_ratio.clamp(0.5, 2.0)),
+            nasality: args.vowel_formant.map_or(0.0, |vf| vf.nasality.clamp(0.0, 1.0)),
+            singers_formant: args.vowel_formant.map_or(0.0, |vf| vf.singers_formant.clamp(-1.0, 1.0)),
         };
         let mut pcm = Pcm {
             struct_size: std::mem::size_of::<Pcm>() as u32,
@@ -255,6 +400,91 @@ pub fn render(
         let samples = std::slice::from_raw_parts(pcm.samples, expected).to_vec();
         free(&mut pcm);
         Ok(samples)
+    }
+}
+
+pub fn analyze_formants(
+    input: &[f32],
+    sample_rate: u32,
+    offset_ms: f64,
+    consonant_ms: f64,
+    cutoff_ms: f64,
+) -> Result<FormantAnalysis, String> {
+    let path = library_path().ok_or("cannot locate executable for Tainah library")?;
+    let loaded = load_or_get_library(&path)?;
+    let analyze = loaded
+        .analyze_fn
+        .ok_or_else(|| "Tainah library does not export lt_analyze_formants (recompile Tainah)".to_string())?;
+    let config = crate::dsp::world_resampler::get_runtime_config();
+    let f0_method = world_detector_method(&config.f0_detection_method)?;
+    unsafe {
+        let options = Options {
+            struct_size: std::mem::size_of::<Options>() as u32,
+            sample_rate,
+            input: input.as_ptr(),
+            input_length: input.len() as u64,
+            duration_ms: 500.0,
+            offset_ms,
+            consonant_ms,
+            cutoff_ms,
+            pitch_hz: 220.0,
+            pitch_points: std::ptr::null(),
+            pitch_point_count: 0,
+            gender: 0.0,
+            pitch_cents: 0.0,
+            breathiness: 0.0,
+            high_frequency_cutoff: 0.0,
+            frame_period_ms: config.frame_period_ms,
+            f0_floor: config.f0_floor_hz,
+            f0_ceiling: config.f0_ceil_hz,
+            f0_method,
+            loop_start_ms: f64::NAN,
+            loop_end_ms: f64::NAN,
+            tail_start_ms: f64::NAN,
+            cancel: None,
+            cancel_user_data: std::ptr::null_mut(),
+            formant_shift: 0.0,
+            consonant_adjustment: 0.0,
+            target_consonant_ms: consonant_ms.max(0.0),
+            has_target_consonant: 1,
+            f1_ratio: 1.0,
+            f2_ratio: 1.0,
+            has_vowel_formant: 0,
+            f3_ratio: 1.0,
+            nasality: 0.0,
+            singers_formant: 0.0,
+        };
+        let mut raw = FormantAnalysisRaw {
+            struct_size: std::mem::size_of::<FormantAnalysisRaw>() as u32,
+            f0_hz: 0.0,
+            f1_hz: 0.0,
+            f2_hz: 0.0,
+            f3_hz: 0.0,
+            envelope_len: 0,
+            envelope_max_hz: 0.0,
+            envelope_db: [0.0; FORMANT_ENVELOPE_POINTS],
+        };
+        let mut error = Error {
+            struct_size: std::mem::size_of::<Error>() as u32,
+            code: 0,
+            message: [0; 256],
+        };
+        let status = analyze(&options, &mut raw, &mut error);
+        if status != 0 {
+            return Err(format!(
+                "WORLD analysis code {status}: {}",
+                CStr::from_ptr(error.message.as_ptr()).to_string_lossy()
+            ));
+        }
+        let len = (raw.envelope_len as usize).min(FORMANT_ENVELOPE_POINTS);
+        Ok(FormantAnalysis {
+            f0_hz: raw.f0_hz,
+            f1_hz: raw.f1_hz,
+            f2_hz: raw.f2_hz,
+            f3_hz: raw.f3_hz,
+            envelope_max_hz: raw.envelope_max_hz,
+            envelope_db: raw.envelope_db[..len].to_vec(),
+        })
     }
 }
 

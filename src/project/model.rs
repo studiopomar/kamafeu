@@ -203,6 +203,101 @@ pub struct UExpressions {
     pub overlap_override_ms: Option<f64>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub start_point_ms: Option<f64>,
+    /// Per-note vowel F1 formant warp ratio (0.5 to 2.0, neutral 1.0).
+    #[serde(default = "default_ratio_one", skip_serializing_if = "is_ratio_one")]
+    pub f1_ratio: f64,
+    /// Per-note vowel F2 formant warp ratio (0.5 to 2.0, neutral 1.0).
+    #[serde(default = "default_ratio_one", skip_serializing_if = "is_ratio_one")]
+    pub f2_ratio: f64,
+    /// Per-note vowel F3 formant warp ratio (0.5 to 2.0, neutral 1.0; < 0.85 produces English retroflex R 'er').
+    #[serde(default = "default_ratio_one", skip_serializing_if = "is_ratio_one")]
+    pub f3_ratio: f64,
+    /// Per-note acoustic vowel nasality (0.0 to 1.0, neutral 0.0).
+    #[serde(default, skip_serializing_if = "is_zero_f64")]
+    pub nasality: f64,
+    /// Per-note Singer's Formant (~3 kHz presence/ring, -1.0 to 1.0, neutral 0.0).
+    #[serde(default, skip_serializing_if = "is_zero_f64")]
+    pub singers_formant: f64,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
+pub struct VowelFormantParams {
+    pub f1_ratio: f64,
+    pub f2_ratio: f64,
+    pub f3_ratio: f64,
+    pub nasality: f64,
+    pub singers_formant: f64,
+}
+
+impl Default for VowelFormantParams {
+    fn default() -> Self {
+        Self {
+            f1_ratio: 1.0,
+            f2_ratio: 1.0,
+            f3_ratio: 1.0,
+            nasality: 0.0,
+            singers_formant: 0.0,
+        }
+    }
+}
+
+fn default_ratio_one() -> f64 {
+    1.0
+}
+
+fn is_ratio_one(val: &f64) -> bool {
+    (*val - 1.0).abs() <= 1e-6
+}
+
+fn is_zero_f64(val: &f64) -> bool {
+    val.abs() <= 1e-6
+}
+
+impl UExpressions {
+    /// Returns `Some(VowelFormantParams)` when any formant ratio or nasal/presence control is active.
+    pub fn vowel_formant(&self) -> Option<VowelFormantParams> {
+        let r1 = if self.f1_ratio.is_finite() {
+            self.f1_ratio.clamp(0.5, 2.0)
+        } else {
+            1.0
+        };
+        let r2 = if self.f2_ratio.is_finite() {
+            self.f2_ratio.clamp(0.5, 2.0)
+        } else {
+            1.0
+        };
+        let r3 = if self.f3_ratio.is_finite() {
+            self.f3_ratio.clamp(0.5, 2.0)
+        } else {
+            1.0
+        };
+        let nas = if self.nasality.is_finite() {
+            self.nasality.clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+        let sf = if self.singers_formant.is_finite() {
+            self.singers_formant.clamp(-1.0, 1.0)
+        } else {
+            0.0
+        };
+        if (r1 - 1.0).abs() > 1e-6
+            || (r2 - 1.0).abs() > 1e-6
+            || (r3 - 1.0).abs() > 1e-6
+            || nas > 1e-6
+            || sf.abs() > 1e-6
+        {
+            Some(VowelFormantParams {
+                f1_ratio: r1,
+                f2_ratio: r2,
+                f3_ratio: r3,
+                nasality: nas,
+                singers_formant: sf,
+            })
+        } else {
+            None
+        }
+    }
 }
 
 fn default_expression_percent() -> f64 {
@@ -244,6 +339,11 @@ impl Default for UExpressions {
             preutter_override_ms: None,
             overlap_override_ms: None,
             start_point_ms: None,
+            f1_ratio: 1.0,
+            f2_ratio: 1.0,
+            f3_ratio: 1.0,
+            nasality: 0.0,
+            singers_formant: 0.0,
         }
     }
 }
@@ -539,6 +639,8 @@ pub struct UTrack {
     pub solo: bool,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub fx_rack: Option<crate::audio::FxRackConfig>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub color_rgb: Option<[u8; 3]>,
 }
 
 impl Default for UTrack {
@@ -561,6 +663,7 @@ impl Default for UTrack {
             mute: false,
             solo: false,
             fx_rack: None,
+            color_rgb: None,
         }
     }
 }
@@ -570,6 +673,8 @@ pub struct UVoicePart {
     pub name: String,
     pub track_index: usize,
     pub position_ms: f64,
+    #[serde(default)]
+    pub duration_ms: f64,
     pub notes: Vec<UNote>,
 }
 
@@ -579,7 +684,21 @@ impl UVoicePart {
             name: name.into(),
             track_index,
             position_ms: 0.0,
+            duration_ms: 0.0,
             notes: Vec::new(),
+        }
+    }
+
+    pub fn effective_duration_ms(&self) -> f64 {
+        let notes_end = self
+            .notes
+            .iter()
+            .map(|n| n.position_ms + n.duration_ms)
+            .fold(0.0, f64::max);
+        if self.duration_ms > 0.0 {
+            self.duration_ms.max(notes_end).max(200.0)
+        } else {
+            notes_end.max(500.0)
         }
     }
 }
@@ -1095,6 +1214,26 @@ impl UProject {
                 if !note.expressions.decay.is_finite() {
                     note.expressions.decay = 0.0;
                 }
+                if !note.expressions.f1_ratio.is_finite() {
+                    note.expressions.f1_ratio = 1.0;
+                }
+                if !note.expressions.f2_ratio.is_finite() {
+                    note.expressions.f2_ratio = 1.0;
+                }
+                if !note.expressions.f3_ratio.is_finite() {
+                    note.expressions.f3_ratio = 1.0;
+                }
+                if !note.expressions.nasality.is_finite() {
+                    note.expressions.nasality = 0.0;
+                }
+                if !note.expressions.singers_formant.is_finite() {
+                    note.expressions.singers_formant = 0.0;
+                }
+                note.expressions.f1_ratio = note.expressions.f1_ratio.clamp(0.5, 2.0);
+                note.expressions.f2_ratio = note.expressions.f2_ratio.clamp(0.5, 2.0);
+                note.expressions.f3_ratio = note.expressions.f3_ratio.clamp(0.5, 2.0);
+                note.expressions.nasality = note.expressions.nasality.clamp(0.0, 1.0);
+                note.expressions.singers_formant = note.expressions.singers_formant.clamp(-1.0, 1.0);
                 note.expressions.velocity = note.expressions.velocity.clamp(0.0, 200.0);
                 note.expressions.dynamics = note.expressions.dynamics.clamp(-240.0, 120.0);
                 note.expressions.pitch_delta = note.expressions.pitch_delta.clamp(-1200.0, 1200.0);
@@ -1235,6 +1374,7 @@ mod project_tests {
                 name: "Part".to_string(),
                 track_index: 2,
                 position_ms: -50.0,
+                duration_ms: 0.0,
                 notes: vec![UNote::new("ka", "C4", -10.0, -20.0)],
             }],
             ..UProject::default()

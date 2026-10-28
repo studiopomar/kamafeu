@@ -62,12 +62,24 @@ if current_engine_revision != ENGINE_REVISION:
 run(["git", "submodule", "update", "--init", "--recursive"], cwd=engine)
 shutil.copy2(ROOT / "native" / "tainah" / "patches" / "LOG.h", engine / "src" / "Utils" / "LOG.h")
 
+# Make WORLD's randn() state thread-local so concurrent multi-core renders
+# execute in parallel without global mutex contention while remaining deterministic.
+matlab_fn = engine / "lib" / "World" / "src" / "matlabfunctions.cpp"
+if matlab_fn.exists():
+    matlab_text = matlab_fn.read_text(encoding="utf-8")
+    if "static thread_local uint32_t g_randn_" not in matlab_text:
+        matlab_text = matlab_text.replace(
+            "static uint32_t g_randn_",
+            "static thread_local uint32_t g_randn_",
+        )
+        matlab_fn.write_text(matlab_text, encoding="utf-8")
+
 # The upstream checkout is pinned independently from this application. Keep
 # the shipped ABI adapter in sync with the source maintained in this repo.
 adapter = ROOT / "native" / "tainah"
 adapter_source = SOURCE / "src" / "Tainah"
 adapter_source.mkdir(parents=True, exist_ok=True)
-for name in ("tainah.h", "tainah.cpp", "tainah_cli.cpp", "tainah_timing.h"):
+for name in ("tainah.h", "tainah.cpp", "tainah_cli.cpp", "tainah_abi_test.cpp", "tainah_timing.h"):
     shutil.copy2(adapter / name, adapter_source / name)
 
 # The pinned Tainah-rt builder copies a fixed file list into lessampler-ng.

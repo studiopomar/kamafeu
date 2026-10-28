@@ -81,8 +81,14 @@ impl eframe::App for KamafeuStudioApp {
         let now = Instant::now();
         let frame_ms = now.duration_since(self.last_frame_instant).as_secs_f32() * 1_000.0;
         self.last_frame_instant = now;
-        if frame_ms.is_finite() && frame_ms < 1_000.0 {
+        if self.piano_roll_state.is_playing
+            && !self.piano_roll_state.animation_quality_reduced
+            && frame_ms.is_finite()
+            && frame_ms < 50.0
+        {
             self.frame_time_ema_ms = self.frame_time_ema_ms * 0.9 + frame_ms * 0.1;
+        } else {
+            self.frame_time_ema_ms = self.frame_time_ema_ms * 0.85 + 16.0 * 0.15;
         }
         let animation_policy = self.animation_policy();
         self.piano_roll_state.animation_quality_reduced = matches!(

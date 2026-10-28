@@ -67,6 +67,25 @@ pub enum PlaybackSchedulerEvent {
 }
 
 #[cfg(not(target_arch = "wasm32"))]
+#[derive(Clone, Copy, Default)]
+struct SchedulerClockAnchor {
+    position_ms: f64,
+    last_tick: Option<std::time::Instant>,
+    playback_speed: f64,
+    end_ms: f64,
+    running: bool,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
+#[derive(Clone, Copy)]
+struct DirectClockAnchor {
+    last_sink_pos_ms: f64,
+    last_sink_change: std::time::Instant,
+    smooth_pos_ms: f64,
+    duration_ms: f64,
+}
+
+#[cfg(not(target_arch = "wasm32"))]
 pub struct AudioPlayer {
     master_settings: Settings,
     master_state: State,
@@ -79,6 +98,8 @@ pub struct AudioPlayer {
     scheduler_state: Arc<std::sync::atomic::AtomicU8>,
     scheduler_position_ms: Arc<std::sync::atomic::AtomicU64>,
     scheduler_queued_until_ms: Arc<std::sync::atomic::AtomicU64>,
+    scheduler_clock: Arc<Mutex<SchedulerClockAnchor>>,
+    direct_clock: Mutex<Option<DirectClockAnchor>>,
     playback_generation: Arc<std::sync::atomic::AtomicU64>,
     scheduler_events: Arc<Mutex<VecDeque<PlaybackSchedulerEvent>>>,
 }
@@ -292,12 +313,14 @@ impl AudioPlayer {
         ));
         let scheduler_position_ms = Arc::new(std::sync::atomic::AtomicU64::new(0));
         let scheduler_queued_until_ms = Arc::new(std::sync::atomic::AtomicU64::new(0));
+        let scheduler_clock = Arc::new(Mutex::new(SchedulerClockAnchor::default()));
         let playback_generation = Arc::new(std::sync::atomic::AtomicU64::new(0));
         let scheduler_events = Arc::new(Mutex::new(VecDeque::new()));
         let (scheduler_tx, scheduler_rx) = mpsc::channel();
         let worker_state = scheduler_state.clone();
         let worker_position_ms = scheduler_position_ms.clone();
         let worker_queued_until_ms = scheduler_queued_until_ms.clone();
+        let worker_clock = scheduler_clock.clone();
         let worker_generation = playback_generation.clone();
         let worker_events = scheduler_events.clone();
         let worker_handle = stream_handle.clone();
@@ -326,9 +349,25 @@ impl AudioPlayer {
                 let mut timeline_end_ms = 0.0_f64;
                 let mut timeline_start_ms = 0.0_f64;
                 let mut timeline = PlaybackTimeline::default();
+                let publish_clock = |has_sink: bool,
+                                     pos_ms: f64,
+                                     tick: std::time::Instant,
+                                     speed: f64,
+                                     end_ms: f64| {
+                    let running = has_sink
+                        && PlaybackSchedulerState::from_raw(worker_state.load(Ordering::Acquire))
+                            == PlaybackSchedulerState::Running;
+                    if let Ok(mut clock) = worker_clock.lock() {
+                        clock.position_ms = pos_ms.max(0.0);
+                        clock.last_tick = running.then_some(tick);
+                        clock.playback_speed = speed;
+                        clock.end_ms = end_ms.max(0.0);
+                        clock.running = running;
+                    }
+                };
                 loop {
                     let command =
-                        match scheduler_rx.recv_timeout(std::time::Duration::from_millis(20)) {
+                        match scheduler_rx.recv_timeout(std::time::Duration::from_millis(5)) {
                             Ok(command) => Some(command),
                             Err(mpsc::RecvTimeoutError::Timeout) => None,
                             Err(mpsc::RecvTimeoutError::Disconnected) => break,
@@ -404,6 +443,7 @@ impl AudioPlayer {
                                     timeline = PlaybackTimeline::default();
                                     worker_position_ms.store(0, Ordering::Release);
                                     worker_queued_until_ms.store(0, Ordering::Release);
+                                    publish_clock(false, 0.0, last_clock_tick, playback_speed, 0.0);
                                     continue;
                                 }
                                 if timeline.start(TimelineChunk {
@@ -434,6 +474,7 @@ impl AudioPlayer {
                                         PlaybackSchedulerState::Stopped as u8,
                                         Ordering::Release,
                                     );
+                                    publish_clock(false, 0.0, last_clock_tick, playback_speed, 0.0);
                                     continue;
                                 }
                                 match Sink::try_new(&worker_handle) {
@@ -778,6 +819,13 @@ impl AudioPlayer {
                             }
                         }
                     }
+                    publish_clock(
+                        sink.is_some(),
+                        timeline_position_ms,
+                        last_clock_tick,
+                        playback_speed,
+                        timeline_end_ms,
+                    );
                 }
             })
             .ok();
@@ -794,6 +842,8 @@ impl AudioPlayer {
             scheduler_state,
             scheduler_position_ms,
             scheduler_queued_until_ms,
+            scheduler_clock,
+            direct_clock: Mutex::new(None),
             playback_generation,
             scheduler_events,
         }
@@ -846,6 +896,8 @@ impl AudioPlayer {
         }
         self.stop_scheduler();
         Self::sanitize_samples(&mut samples);
+        let duration_ms = samples.len() as f64 * 1000.0
+            / (sample_rate.max(1) as f64 * channels.max(1) as f64);
 
         if let Some(old_sink) = self.active_sink.take() {
             old_sink.pause();
@@ -869,6 +921,14 @@ impl AudioPlayer {
         sink.set_volume(self.volume);
         sink.set_speed(self.speed);
         sink.play();
+        if let Ok(mut guard) = self.direct_clock.lock() {
+            *guard = Some(DirectClockAnchor {
+                last_sink_pos_ms: 0.0,
+                last_sink_change: std::time::Instant::now(),
+                smooth_pos_ms: 0.0,
+                duration_ms,
+            });
+        }
         self.active_sink = Some(sink);
         Ok(())
     }
@@ -884,6 +944,8 @@ impl AudioPlayer {
             return;
         }
         Self::sanitize_scheduler_samples(&mut samples);
+        let chunk_duration_ms = samples.len() as f64 * 1000.0
+            / (sample_rate.max(1) as f64 * channels.max(1) as f64);
 
         if self.active_sink.as_ref().is_some_and(|sink| sink.empty()) {
             // A sink can become empty between UI frames while the renderer
@@ -899,6 +961,11 @@ impl AudioPlayer {
                 self.master_settings.clone(),
                 self.master_state.clone(),
             ));
+            if let Ok(mut guard) = self.direct_clock.lock() {
+                if let Some(anchor) = guard.as_mut() {
+                    anchor.duration_ms += chunk_duration_ms;
+                }
+            }
         } else {
             self.play_samples_with_channels(samples, sample_rate, channels);
         }
@@ -968,6 +1035,9 @@ impl AudioPlayer {
         // may still be unwinding and must not be able to enqueue audio after
         // an explicit pause/stop or a new playback generation.
         self.playback_generation.fetch_add(1, Ordering::AcqRel);
+        if let Ok(mut clock) = self.scheduler_clock.lock() {
+            *clock = SchedulerClockAnchor::default();
+        }
         if let Some(tx) = &self.scheduler_tx {
             let _ = tx.send(SchedulerCommand::Stop {
                 generation: self.playback_generation.load(Ordering::Acquire),
@@ -993,6 +1063,21 @@ impl AudioPlayer {
     }
 
     pub fn scheduler_position_ms(&self) -> f64 {
+        if let Ok(clock) = self.scheduler_clock.lock() {
+            if clock.running {
+                if let Some(tick) = clock.last_tick {
+                    let elapsed_ms = std::time::Instant::now()
+                        .saturating_duration_since(tick)
+                        .as_secs_f64()
+                        * 1000.0
+                        * clock.playback_speed;
+                    return (clock.position_ms + elapsed_ms)
+                        .min(clock.end_ms)
+                        .max(0.0);
+                }
+            }
+            return clock.position_ms.max(0.0);
+        }
         self.scheduler_position_ms.load(Ordering::Acquire) as f64
     }
 
@@ -1003,9 +1088,34 @@ impl AudioPlayer {
     /// Position of the currently playing direct buffer, relative to its start.
     /// Rodio's position already accounts for Sink::set_speed().
     pub fn playback_position_ms(&self) -> Option<f64> {
-        self.active_sink
-            .as_ref()
-            .map(|sink| sink.get_pos().as_secs_f64() * 1000.0)
+        let sink = self.active_sink.as_ref()?;
+        let raw_ms = sink.get_pos().as_secs_f64() * 1000.0;
+        if let Ok(mut guard) = self.direct_clock.lock() {
+            if let Some(anchor) = guard.as_mut() {
+                let now = std::time::Instant::now();
+                if (raw_ms - anchor.last_sink_pos_ms).abs() > 0.05 {
+                    anchor.last_sink_pos_ms = raw_ms;
+                    anchor.last_sink_change = now;
+                }
+                if raw_ms <= 0.0 {
+                    return Some(0.0);
+                }
+                let speed = f64::from(self.speed.max(0.01));
+                let extra_ms = now
+                    .saturating_duration_since(anchor.last_sink_change)
+                    .as_secs_f64()
+                    * 1000.0
+                    * speed;
+                // Allow extrapolation across standard OS audio buffer intervals (up to 150 ms)
+                // so the playhead advances smoothly without freezing between audio buffer callbacks.
+                let max_extrapolation_ms = 150.0 * speed;
+                let interpolated = (anchor.last_sink_pos_ms + extra_ms.min(max_extrapolation_ms))
+                    .min(anchor.duration_ms.max(raw_ms));
+                anchor.smooth_pos_ms = anchor.smooth_pos_ms.max(interpolated);
+                return Some(anchor.smooth_pos_ms);
+            }
+        }
+        Some(raw_ms)
     }
 
     pub fn drain_scheduler_events(&self) -> Vec<PlaybackSchedulerEvent> {
@@ -1045,6 +1155,9 @@ impl AudioPlayer {
 
     pub fn stop(&mut self) {
         self.stop_scheduler();
+        if let Ok(mut guard) = self.direct_clock.lock() {
+            *guard = None;
+        }
         if let Some(sink) = self.active_sink.take() {
             sink.pause();
             sink.detach();

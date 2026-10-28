@@ -2,7 +2,6 @@ use crate::gui::arrangement::draw_arrangement_view;
 use crate::gui::toolbar::draw_unified_toolbar;
 use crate::gui::unified_panel::draw_unified_panel;
 use crate::gui::KamafeuStudioApp;
-use crate::oto::Voicebank;
 use crate::project::model::UNote;
 use crate::renderer::{PreviewTarget, ProjectRenderer, TrackRenderer};
 use eframe::egui;
@@ -662,7 +661,6 @@ impl KamafeuStudioApp {
             .position(|p| p.track_index == active_track)
             .unwrap_or(0);
 
-        let mut loaded_vb: Option<Voicebank> = None;
         let mut preview_alias: Option<String> = None;
         let mut insert_alias: Option<String> = None;
         let mut palette_edit_alias: Option<String> = None;
@@ -673,11 +671,13 @@ impl KamafeuStudioApp {
                 .and_then(|reference| reference.source_path_hint.clone())
                 .or_else(|| track.voicebank_path.clone()))
             .and_then(|path| {
+                let p = std::path::PathBuf::from(&path);
                 self.singers_list
                     .iter()
-                    .find(|singer| singer.path == std::path::PathBuf::from(&path))
-            })
-            .cloned();
+                    .find(|singer| singer.path == p || std::fs::canonicalize(&singer.path).ok() == std::fs::canonicalize(&p).ok())
+                    .cloned()
+                    .or_else(|| crate::oto::SingerScanner::inspect_singer_directory(&p))
+            });
         let pointer_down = ui.input(|i| i.pointer.primary_down() || i.pointer.secondary_down());
         let mut notes_to_watch = selected_indices.clone();
         if let Some(index) = selected_idx {
@@ -701,7 +701,7 @@ impl KamafeuStudioApp {
         let mut reload_singers_flag = false;
         let mut add_singers_dir_flag = false;
         let mut open_folder_picker = false;
-        let mut selected_diffsinger: Option<std::path::PathBuf> = None;
+        let mut singer_to_load: Option<std::path::PathBuf> = None;
         let phonemizer_before_panel = self.vocal_mode_params.phonemizer_mode;
 
         draw_unified_panel(
@@ -730,26 +730,16 @@ impl KamafeuStudioApp {
             &mut self.custom_resampler_path,
             &mut self.custom_wavtool_path,
             &mut self.config.discord_rpc_enabled,
+            self.piano_roll_state.playhead_ms,
+            self.piano_roll_state.is_playing,
             &mut |opt_path| {
                 if let Some(p) = opt_path {
-                    if crate::oto::SingerScanner::inspect_singer_directory(&p)
-                        .is_some_and(|singer| singer.voice_type.starts_with("DiffSinger"))
-                    {
-                        selected_diffsinger = Some(p);
-                    } else if let Ok(vb) = Voicebank::new(&p) {
-                        loaded_vb = Some(vb);
-                    }
+                    singer_to_load = Some(p);
                 } else {
                     #[cfg(not(target_os = "android"))]
                     {
                         if let Some(folder) = crate::dialogs::FileDialog::new().pick_folder() {
-                            if crate::oto::SingerScanner::inspect_singer_directory(&folder)
-                                .is_some_and(|singer| singer.voice_type.starts_with("DiffSinger"))
-                            {
-                                selected_diffsinger = Some(folder);
-                            } else if let Ok(vb) = Voicebank::new(&folder) {
-                                loaded_vb = Some(vb);
-                            }
+                            singer_to_load = Some(folder);
                         } else {
                             open_folder_picker = true;
                         }
@@ -769,31 +759,8 @@ impl KamafeuStudioApp {
             &mut || selected_ruler_alias_to_edit = selected_ruler_alias.clone(),
         );
 
-        if let Some(path) = selected_diffsinger {
-            if let Some(track) = self.project.tracks.get_mut(self.active_track_index) {
-                if let Ok(bank) = crate::voicebank::diffsinger::DiffSingerBank::inspect(&path) {
-                    track.singer = bank.name;
-                    track.voicebank_path = Some(path.display().to_string());
-                    track.native_voicebank = None;
-                    track.diffsinger_language = bank.language_ids.contains_key("pt").then(|| "pt".into())
-                        .or_else(|| bank.language_ids.contains_key("en").then(|| "en".into()))
-                        .or_else(|| bank.languages.first().cloned());
-                    track.diffsinger_speaker = bank.speakers.first().cloned();
-                    track.diffsinger_phonemizer = Some(if bank.language_ids.contains_key("pt") {
-                        crate::voicebank::diffsinger::DiffSingerPhonemizer::BrapaPhonetic
-                    } else {
-                        crate::voicebank::diffsinger::DiffSingerPhonemizer::Automatic
-                    });
-                    track.diffsinger_provider = Some(crate::voicebank::diffsinger::ExecutionProvider::Cpu);
-                    self.is_dirty = true;
-                    self.piano_roll_state.show_phoneme_ruler = true;
-                    self.config.layout.show_phoneme_ruler = true;
-                    self.piano_roll_state.phoneme_cache_hash = 0;
-                    self.piano_roll_state.phoneme_cache.clear();
-                    self.piano_roll_state.note_phonemes_cache.clear();
-                }
-            }
-            self.persist_config();
+        if let Some(path) = singer_to_load {
+            self.activate_singer_path(&path);
         }
 
         let mut diffsinger_settings_changed = false;
@@ -965,10 +932,6 @@ impl KamafeuStudioApp {
 
         self.persist_config();
 
-        if let Some(vb) = loaded_vb {
-            self.activate_voicebank(vb);
-        }
-
         if let Some(alias) = preview_alias {
             let mut played = false;
             if let (Some(note_index), Some(vb)) = (selected_idx, self.voicebank.as_ref()) {
@@ -1086,6 +1049,19 @@ impl KamafeuStudioApp {
 
         let mut master_fx = self.project.master_fx.clone().unwrap_or_default();
         let original_master_fx = master_fx.clone();
+
+        let mut available_singers: Vec<String> = self
+            .config
+            .recent_voicebanks
+            .iter()
+            .filter_map(|p| p.file_name().and_then(|n| n.to_str()).map(|s| s.to_string()))
+            .collect();
+        for t in &self.project.tracks {
+            if !t.singer.is_empty() && !available_singers.contains(&t.singer) {
+                available_singers.push(t.singer.clone());
+            }
+        }
+
         let arrangement_changed = draw_arrangement_view(
             ui,
             &self.config.theme,
@@ -1105,6 +1081,7 @@ impl KamafeuStudioApp {
             &mut self.fx_rack_dialog_state,
             self.config.language,
             &mut master_fx,
+            &available_singers,
         );
         if master_fx != original_master_fx {
             self.project.master_fx = Some(master_fx);

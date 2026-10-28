@@ -706,7 +706,7 @@ mod tests {
         assert!(bank.validate_language("ja").is_err());
         assert_eq!(
             bank.validate_speaker("speaker").unwrap(),
-            dir.path().join("speaker.emb")
+            fs::canonicalize(dir.path()).unwrap().join("speaker.emb")
         );
     }
 }

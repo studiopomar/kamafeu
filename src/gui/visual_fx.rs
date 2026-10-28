@@ -95,6 +95,7 @@ pub fn paint_glow(
 
 /// Horizontal multi-stop gradient. `phase` rotates the stops (0..1), which
 /// produces a flowing effect when driven by time.
+#[allow(dead_code)]
 pub fn paint_horizontal_gradient(painter: &Painter, rect: Rect, stops: &[Color32], phase: f32) {
     if stops.is_empty() || rect.width() <= 0.0 {
         return;

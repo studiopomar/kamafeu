@@ -495,8 +495,6 @@ pub(super) fn draw(
                 }
 
                 if page == NoteInspectorSection::Expressions {
-                    ui.add_space(6.0);
-
                     // --- 2. EXPRESSÕES & DINÂMICA (DYN, GEN, PITD, VEL, BRE) ---
                     Frame::none()
                         .fill(theme.elevated_surface_c32())
@@ -1265,6 +1263,7 @@ pub(super) fn draw(
                                 loop_start_ms: None,
                                 loop_end_ms: None,
                                 tail_start_ms: None,
+                                vowel_formant: notes[target_idx].expressions.vowel_formant(),
                             };
                             ui.collapsing(
                                 lang.tr("Comandos finais (prévia)", "Final commands (preview)"),

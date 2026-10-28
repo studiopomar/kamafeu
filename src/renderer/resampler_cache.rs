@@ -520,6 +520,11 @@ fn cache_key(
     hash_optional_f64(args.loop_start_ms, &mut hasher);
     hash_optional_f64(args.loop_end_ms, &mut hasher);
     hash_optional_f64(args.tail_start_ms, &mut hasher);
+    hash_optional_f64(args.vowel_formant.map(|vf| vf.f1_ratio), &mut hasher);
+    hash_optional_f64(args.vowel_formant.map(|vf| vf.f2_ratio), &mut hasher);
+    hash_optional_f64(args.vowel_formant.map(|vf| vf.f3_ratio), &mut hasher);
+    hash_optional_f64(args.vowel_formant.map(|vf| vf.nasality), &mut hasher);
+    hash_optional_f64(args.vowel_formant.map(|vf| vf.singers_formant), &mut hasher);
     hasher.finish()
 }
 
@@ -727,6 +732,7 @@ mod tests {
             loop_start_ms: None,
             loop_end_ms: None,
             tail_start_ms: None,
+            vowel_formant: None,
         }
     }
 

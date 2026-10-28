@@ -313,6 +313,21 @@ pub fn meets_text_contrast(foreground: [u8; 3], background: [u8; 3]) -> bool {
     contrast_ratio_rgb(foreground, background) >= 4.5
 }
 
+/// Escolhe automaticamente entre tom claro de alto brilho ou carvão escuro
+/// para garantir a máxima legibilidade (maior razão de contraste WCAG)
+/// sobre a cor de fundo fornecida.
+pub fn readable_text_on_rgb(bg: [u8; 3]) -> [u8; 3] {
+    let light = [252, 252, 254];
+    let dark = [22, 24, 28];
+    let c_light = contrast_ratio_rgb(light, bg);
+    let c_dark = contrast_ratio_rgb(dark, bg);
+    if c_light >= c_dark {
+        light
+    } else {
+        dark
+    }
+}
+
 impl ThemeConfig {
     pub fn validate(&self) -> Result<(), String> {
         let finite_in =
@@ -373,9 +388,9 @@ impl ThemeConfig {
                 note_selected_fill: [186, 111, 116],
                 note_selected_stroke: [242, 218, 212],
                 note_hover: [168, 119, 139],
-                note_corner_radius: 5.0,
-                note_stroke_width: 1.2,
-                note_opacity: 0.78,
+                note_corner_radius: 2.0,
+                note_stroke_width: 1.0,
+                note_opacity: 1.0,
                 note_waveform_opacity: 0.3,
                 note_waveform_color: [230, 211, 208],
                 pitch_curve_color: [211, 174, 205],
@@ -405,9 +420,9 @@ impl ThemeConfig {
                 note_selected_fill: [111, 128, 79],
                 note_selected_stroke: [211, 216, 193],
                 note_hover: [121, 139, 88],
-                note_corner_radius: 3.0,
+                note_corner_radius: 2.0,
                 note_stroke_width: 1.0,
-                note_opacity: 0.58,
+                note_opacity: 1.0,
                 note_waveform_opacity: 0.30,
                 note_waveform_color: [205, 205, 205],
                 pitch_curve_color: [190, 190, 190],
@@ -437,9 +452,9 @@ impl ThemeConfig {
                 note_selected_fill: [235, 185, 90],
                 note_selected_stroke: [250, 240, 210],
                 note_hover: [218, 162, 60],
-                note_corner_radius: 8.0,
-                note_stroke_width: 1.5,
-                note_opacity: 0.72,
+                note_corner_radius: 2.0,
+                note_stroke_width: 1.0,
+                note_opacity: 1.0,
                 note_waveform_opacity: 0.30,
                 note_waveform_color: [50, 30, 0],
                 pitch_curve_color: [225, 115, 80],
@@ -448,7 +463,7 @@ impl ThemeConfig {
                 playhead_color: [220, 95, 75],
                 text_primary: [235, 235, 240],
                 text_muted: [145, 145, 158],
-                text_note_tag: [255, 255, 255],
+                text_note_tag: [24, 20, 16],
                 ui_corner_radius: 5.0,
                 panel_opacity: 1.0,
                 semantic: ThemeSemanticColors::default(),
@@ -469,9 +484,9 @@ impl ThemeConfig {
                 note_selected_fill: [240, 100, 160],
                 note_selected_stroke: [100, 225, 240],
                 note_hover: [225, 70, 135],
-                note_corner_radius: 4.0,
-                note_stroke_width: 1.8,
-                note_opacity: 0.72,
+                note_corner_radius: 2.0,
+                note_stroke_width: 1.0,
+                note_opacity: 1.0,
                 note_waveform_opacity: 0.35,
                 note_waveform_color: [240, 240, 250],
                 pitch_curve_color: [70, 205, 230],
@@ -501,9 +516,9 @@ impl ThemeConfig {
                 note_selected_fill: [130, 185, 188],
                 note_selected_stroke: [236, 239, 244],
                 note_hover: [125, 182, 200],
-                note_corner_radius: 6.0,
-                note_stroke_width: 1.5,
-                note_opacity: 0.72,
+                note_corner_radius: 2.0,
+                note_stroke_width: 1.0,
+                note_opacity: 1.0,
                 note_waveform_opacity: 0.30,
                 note_waveform_color: [20, 35, 45],
                 pitch_curve_color: [165, 132, 160],
@@ -512,7 +527,7 @@ impl ThemeConfig {
                 playhead_color: [185, 95, 105],
                 text_primary: [225, 230, 238],
                 text_muted: [140, 150, 170],
-                text_note_tag: [255, 255, 255],
+                text_note_tag: [18, 28, 36],
                 ui_corner_radius: 6.0,
                 panel_opacity: 1.0,
                 semantic: ThemeSemanticColors::default(),
@@ -533,9 +548,9 @@ impl ThemeConfig {
                 note_selected_fill: [85, 208, 198],
                 note_selected_stroke: [240, 252, 250],
                 note_hover: [60, 180, 172],
-                note_corner_radius: 8.0,
-                note_stroke_width: 1.6,
-                note_opacity: 0.72,
+                note_corner_radius: 2.0,
+                note_stroke_width: 1.0,
+                note_opacity: 1.0,
                 note_waveform_opacity: 0.30,
                 note_waveform_color: [10, 45, 42],
                 pitch_curve_color: [225, 115, 150],
@@ -544,7 +559,7 @@ impl ThemeConfig {
                 playhead_color: [225, 115, 150],
                 text_primary: [230, 242, 245],
                 text_muted: [128, 165, 175],
-                text_note_tag: [255, 255, 255],
+                text_note_tag: [14, 32, 34],
                 ui_corner_radius: 6.0,
                 panel_opacity: 1.0,
                 semantic: ThemeSemanticColors::default(),
@@ -565,9 +580,9 @@ impl ThemeConfig {
                 note_selected_fill: [190, 75, 28],
                 note_selected_stroke: [245, 238, 220],
                 note_hover: [182, 140, 20],
-                note_corner_radius: 5.0,
-                note_stroke_width: 1.5,
-                note_opacity: 0.72,
+                note_corner_radius: 2.0,
+                note_stroke_width: 1.0,
+                note_opacity: 1.0,
                 note_waveform_opacity: 0.30,
                 note_waveform_color: [40, 25, 0],
                 pitch_curve_color: [45, 150, 142],
@@ -576,7 +591,7 @@ impl ThemeConfig {
                 playhead_color: [205, 58, 54],
                 text_primary: [240, 234, 215],
                 text_muted: [125, 142, 142],
-                text_note_tag: [255, 255, 255],
+                text_note_tag: [10, 30, 36],
                 ui_corner_radius: 4.0,
                 panel_opacity: 1.0,
                 semantic: ThemeSemanticColors::default(),
@@ -594,12 +609,12 @@ impl ThemeConfig {
                 grid_line_sub: [220, 225, 234],
                 note_fill: [45, 135, 172],
                 note_stroke: [32, 115, 150],
-                note_selected_fill: [55, 155, 195],
-                note_selected_stroke: [15, 75, 100],
+                note_selected_fill: [32, 105, 140],
+                note_selected_stroke: [15, 60, 85],
                 note_hover: [50, 145, 182],
-                note_corner_radius: 6.0,
-                note_stroke_width: 1.6,
-                note_opacity: 0.72,
+                note_corner_radius: 2.0,
+                note_stroke_width: 1.0,
+                note_opacity: 1.0,
                 note_waveform_opacity: 0.30,
                 note_waveform_color: [255, 255, 255],
                 pitch_curve_color: [205, 70, 110],
@@ -741,7 +756,7 @@ impl ThemeConfig {
     }
 
     pub fn note_rounding(&self) -> Rounding {
-        Rounding::same(self.note_corner_radius.max(0.0))
+        Rounding::same(self.note_corner_radius.clamp(0.0, 2.5))
     }
 
     pub fn note_stroke(&self, selected: bool) -> Stroke {
@@ -823,6 +838,28 @@ impl ThemeConfig {
 
     pub fn text_note_tag_c32(&self) -> Color32 {
         self.c32(self.text_note_tag)
+    }
+
+    /// Retorna a melhor cor para texto legível contra a cor RGB de fundo fornecida.
+    pub fn readable_text_on(&self, bg: [u8; 3]) -> Color32 {
+        self.c32(readable_text_on_rgb(bg))
+    }
+
+    /// Retorna a cor da letra da nota garantindo alto contraste legível.
+    /// Se a cor configurada no tema (`text_note_tag`) mantiver contraste satisfatório (>= 4.0:1)
+    /// contra o preenchimento da nota, ela é preservada; caso contrário, seleciona
+    /// automaticamente a melhor cor (clara ou escura) para legibilidade absoluta.
+    pub fn note_lyric_color(&self, is_selected: bool) -> Color32 {
+        let bg = if is_selected {
+            self.note_selected_fill
+        } else {
+            self.note_fill
+        };
+        if contrast_ratio_rgb(self.text_note_tag, bg) >= 4.8 {
+            self.text_note_tag_c32()
+        } else {
+            self.readable_text_on(bg)
+        }
     }
 
     pub fn ui_rounding(&self) -> Rounding {
@@ -1256,5 +1293,43 @@ mod tests {
                 "{preset:?}: primary text must contrast with panel"
             );
         }
+    }
+
+    #[test]
+    fn preset_note_lyric_text_keeps_readable_contrast() {
+        for preset in ThemePreset::ALL {
+            let theme = ThemeConfig::from_preset(preset);
+            let normal_lyric_c32 = theme.note_lyric_color(false);
+            let normal_lyric_rgb = [normal_lyric_c32.r(), normal_lyric_c32.g(), normal_lyric_c32.b()];
+            let selected_lyric_c32 = theme.note_lyric_color(true);
+            let selected_lyric_rgb = [selected_lyric_c32.r(), selected_lyric_c32.g(), selected_lyric_c32.b()];
+
+            let ratio_normal = contrast_ratio_rgb(normal_lyric_rgb, theme.note_fill);
+            assert!(
+                ratio_normal >= 4.0,
+                "{preset:?}: normal note lyric contrast {ratio_normal:.2} < 4.0 on note_fill {:?}",
+                theme.note_fill
+            );
+
+            let ratio_selected = contrast_ratio_rgb(selected_lyric_rgb, theme.note_selected_fill);
+            assert!(
+                ratio_selected >= 4.0,
+                "{preset:?}: selected note lyric contrast {ratio_selected:.2} < 4.0 on note_selected_fill {:?}",
+                theme.note_selected_fill
+            );
+        }
+    }
+
+    #[test]
+    fn readable_text_on_rgb_guarantees_high_contrast() {
+        let white_bg = [255, 255, 255];
+        let black_bg = [0, 0, 0];
+        let yellow_bg = [240, 200, 50];
+        let dark_blue_bg = [20, 30, 50];
+
+        assert!(contrast_ratio_rgb(readable_text_on_rgb(white_bg), white_bg) >= 10.0);
+        assert!(contrast_ratio_rgb(readable_text_on_rgb(black_bg), black_bg) >= 15.0);
+        assert!(contrast_ratio_rgb(readable_text_on_rgb(yellow_bg), yellow_bg) >= 7.0);
+        assert!(contrast_ratio_rgb(readable_text_on_rgb(dark_blue_bg), dark_blue_bg) >= 8.0);
     }
 }

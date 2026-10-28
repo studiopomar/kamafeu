@@ -11,5 +11,5 @@ pub use wavtool_driver::{
     ExternalWavtoolDriver, GalapagosWavtoolDriver, KnownWavtool, NativeWavtoolDriver,
     OpenUtauWavtoolDriver, WavtoolArgs, WavtoolDriver, WavtoolMixStrategy, WavtoolYawuDriver,
 };
-#[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
-mod tainah_ffi;
+#[cfg(not(target_arch = "wasm32"))]
+pub mod tainah_ffi;

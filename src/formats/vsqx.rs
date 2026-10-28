@@ -202,6 +202,7 @@ impl VsqxFormat {
                     name: format!("Part {}", track_idx + 1),
                     track_index: track_idx,
                     position_ms: 0.0,
+                    duration_ms: 0.0,
                     notes,
                 });
             }

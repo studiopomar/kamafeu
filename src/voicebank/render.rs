@@ -538,6 +538,7 @@ fn render_unit(
         loop_start_ms: source_sustain.map(|r| ms(r.0)),
         loop_end_ms: source_sustain.map(|r| ms(r.1)),
         tail_start_ms: source.release_start_frame.map(ms),
+        vowel_formant: None,
     };
     let (output, execution) = match backend {
         PreviewBackend::Sola => {

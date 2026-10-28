@@ -43,7 +43,10 @@ public:
 protected:
     std::string name;
     Yall_LEVEL logLevel;
-    std::mutex streamMtx;
+    static std::mutex &globalStreamMtx() {
+        static std::mutex mtx;
+        return mtx;
+    }
 };
 
 class Yall_Instance : Yall_Inst {
@@ -54,7 +57,7 @@ public:
         // Tainah is called in-process by Kamafeu. Direct C++ writes bypass
         // Rust's dashboard and corrupt Ratatui's alternate screen.
         if (KamafeuTuiOwnsTerminal()) return;
-        std::lock_guard<std::mutex> lock(streamMtx);
+        std::lock_guard<std::mutex> lock(globalStreamMtx());
         switch (logLevel) {
             case Yall_LEVEL::LOG_OK: std::cout << cc::green << "[OKAY]" << cc::reset; break;
             case Yall_LEVEL::LOG_INFO: std::cout << cc::cyan << "[INFO]" << cc::reset; break;
@@ -74,6 +77,7 @@ class Yall_Debug_Instance : Yall_Inst {
 public:
     explicit Yall_Debug_Instance(Yall_LEVEL logLevel) : Yall_Inst(logLevel), enable(false) {}
     void SetDebugInfo(const std::string &file, const std::string &func, int line) {
+        if (!enable) return;
         FILE = file; FUNC = func; LINE = line;
     }
     [[maybe_unused]] void EnableDebug() { enable = true; }
@@ -81,7 +85,7 @@ public:
 
     void operator<<(const std::string &msg) override {
         if (!enable || KamafeuTuiOwnsTerminal()) return;
-        std::lock_guard<std::mutex> lock(streamMtx);
+        std::lock_guard<std::mutex> lock(globalStreamMtx());
         switch (logLevel) {
 #if DUMP_DATA
             case LOG_DUMP:
@@ -141,8 +145,8 @@ private:
     std::unordered_map<Yall_LEVEL, Yall_Instance *> yall_inst;
     std::unordered_map<Yall_LEVEL, Yall_Debug_Instance *> yall_debug_inst;
     Yall() = default;
-    static Yall &GetInstance() { static Yall inst; return inst; }
-    static Yall &GetDebugInstance() { static Yall inst; return inst; }
+    static Yall &GetInstance() { thread_local Yall inst; return inst; }
+    static Yall &GetDebugInstance() { thread_local Yall inst; return inst; }
 };
 
 #if __GNUC__

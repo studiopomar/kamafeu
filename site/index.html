@@ -1,18 +1,585 @@
 <!doctype html>
 <html lang="pt-BR">
 <head>
-  <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="theme-color" content="#1b1b1d">
-  <meta name="description" content="Conheça o Kamafeu, editor de síntese vocal do Studio Pomar para projetos UTAU e OpenUtau.">
-  <title>Kamafeu Studio ✿ Studio Pomar</title><link rel="icon" href="assets/icon.png"><link rel="stylesheet" href="style.css"><script defer src="script.js"></script>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#09080d">
+  <meta name="description" content="Kamafeu Studio: Editor e sintetizador de voz livre feito em Rust para projetos de UTAU e OpenUtau.">
+  <title>Kamafeu Studio · Estação de Síntese Vocal Aberta em Rust</title>
+  <link rel="icon" type="image/png" href="assets/icon.png">
+  <link rel="stylesheet" href="style.css">
+  <script defer src="script.js"></script>
 </head>
 <body>
-<header class="site-header"><a class="brand" href="#top" aria-label="Kamafeu Studio"><span class="brand-mark"><img src="assets/icon.png" alt=""></span><span>kamafeu<span class="brand-small"> by studio pomar</span></span></a><button class="menu-toggle" type="button" aria-expanded="false" aria-controls="main-nav" data-i18n="menu">Menu</button><nav id="main-nav" class="main-nav" aria-label="Navegação principal"><a href="#studio" data-i18n="nav.studio">Studio</a><a href="#equipe" data-i18n="nav.team">Equipe</a><a href="#kamafeu" data-i18n="nav.kamafeu">Kamafeu</a><a href="https://github.com/studiopomar/kamafeu" target="_blank" rel="noopener">GitHub ↗</a></nav><label class="language"><span class="sr-only">Language</span><select id="languageSelect" aria-label="Language"><option value="pt-BR">PT</option><option value="en">EN</option></select></label></header>
-<main id="top">
-<section class="hero" id="studio"><div class="hero-inner"><div class="hero-copy"><p class="eyebrow"><span class="dot"></span><span data-i18n="hero.kicker">UM ESTÚDIO CRIATIVO DO STUDIO POMAR</span></p><h1 data-i18n="hero.title">A voz é sua.<br><em>Faça música.</em></h1><p class="hero-lede" data-i18n="hero.lede">Ferramentas abertas para criar com voz sintetizada. Do primeiro fonema ao último acorde, sua ideia conduz a sessão.</p><div class="hero-ctas"><a class="button button-dark" href="https://github.com/studiopomar/kamafeu/releases" target="_blank" rel="noopener"><span data-i18n="hero.download">Conheça o Kamafeu</span><span aria-hidden="true">↗</span></a><a class="plain-link" href="#equipe" data-i18n="hero.team">Quem faz isso acontecer ↓</a></div><p class="hero-note"><span data-i18n="hero.open">CÓDIGO ABERTO</span><span>·</span><span>Rust</span><span>·</span><span>UTAU / OpenUtau</span></p></div><div class="hero-visual"><img class="sound-art" src="assets/hero-sound.svg" alt="Ondas sonoras, notas e traços vocais em coral, violeta e verde"><div class="editor-window"><div class="window-bar"><span class="window-dots"><i></i><i></i><i></i></span><span>KAMAFEU STUDIO / PIANO ROLL</span><span>CAPTURA DO EDITOR</span></div><img src="assets/editor-capture.png" alt="Captura real da interface do editor vocal Kamafeu Studio"></div><span class="visual-stamp" data-i18n="hero.stamp">FAÇA DO SEU JEITO</span></div></div><div class="hero-ribbon"><span data-i18n="ribbon">IDEIAS QUE GANHAM VOZ</span><span>✳</span><span>IDEAS THAT FIND A VOICE</span><span>✳</span><span data-i18n="ribbon">IDEIAS QUE GANHAM VOZ</span></div></section>
-<section class="intro section-wrap"><p class="eyebrow section-eyebrow" data-i18n="intro.kicker">UM POMAR DE POSSIBILIDADES</p><h2 data-i18n="intro.title">Criado para quem<br>cria com <em>voz.</em></h2><p class="intro-copy" data-i18n="intro.body">Studio Pomar é uma equipe independente que desenvolve ferramentas para música e síntese vocal. Kamafeu é nosso espaço de criação: um editor open source para UTAU e OpenUtau, feito para deixar o processo musical mais próximo de quem está compondo.</p></section>
-<section class="team section-wrap" id="equipe"><div class="section-heading"><div><p class="eyebrow section-eyebrow" data-i18n="team.kicker">AS PESSOAS POR TRÁS DO POMAR</p><h2 data-i18n="team.title">Pequena equipe.<br><em>Muitas vozes.</em></h2></div><a class="text-arrow" href="https://github.com/studiopomar" target="_blank" rel="noopener" data-i18n="team.link">Acompanhe no GitHub ↗</a></div><div class="team-grid"><article class="team-card team-lead"><span class="team-index">01 / CÓDIGO</span><div class="avatar avatar-violet">x</div><h3>xiao</h3><p data-i18n="team.xiao">Programação · QA macOS</p></article><article class="team-card"><span class="team-index">02 / ARTE</span><div class="avatar avatar-orange">m</div><h3>mori-p</h3><p data-i18n="team.mori">Direção de arte</p></article><article class="team-card"><span class="team-index">03 / QA</span><div class="avatar avatar-green">m</div><h3>makki</h3><p data-i18n="team.makki">Bug reports · QA Linux</p></article><article class="team-card"><span class="team-index">04 / QA</span><div class="avatar avatar-blue">z</div><h3>zoneryth</h3><p data-i18n="team.zoneryth">Testes · QA Windows e Linux</p></article></div><p class="team-footnote" data-i18n="team.note">Papéis conforme publicados no README do projeto. xiao também realiza testes em macOS.</p></section>
-<section class="product" id="kamafeu"><div class="product-inner section-wrap"><div class="product-copy"><p class="eyebrow" data-i18n="product.kicker">CONHEÇA O KAMAFEU</p><h2 data-i18n="product.title">Uma sessão<br>cheia de <em>possibilidades.</em></h2><p data-i18n="product.body">Componha, ajuste pitch e fonemas e renderize com seu voicebank. Uma workstation vocal aberta, construída em Rust para projetos UTAU e OpenUtau.</p><a class="button button-light" href="https://github.com/studiopomar/kamafeu" target="_blank" rel="noopener"><span data-i18n="product.explore">Explore o projeto</span><span>↗</span></a></div><div class="screenshots"><figure class="shot shot-main"><img src="assets/editor-capture.png" alt="Piano roll e editor de pitch do Kamafeu Studio"><figcaption data-i18n="shot.edit">EDIÇÃO / PIANO ROLL E PITCH</figcaption></figure><figure class="shot shot-small"><img src="assets/hero-sound.svg" alt="Ilustração original com ondas sonoras e notas musicais"><figcaption data-i18n="shot.render">STUDIO POMAR / VOZ E MÚSICA</figcaption></figure><div class="shot-note"><span>3.0</span><span>CALAFATE<br>OPEN SOURCE</span></div></div><div class="feature-list"><article><span>01</span><h3 data-i18n="feature.compose">Composição & pitch</h3><p data-i18n="feature.composeBody">Notas, portamentos, vibrato e curvas de pitch contínuas.</p></article><article><span>02</span><h3 data-i18n="feature.phonemes">Fonemas & voicebanks</h3><p data-i18n="feature.phonemesBody">Controle de fonemas, oto.ini e ferramentas de fonemização.</p></article><article><span>03</span><h3 data-i18n="feature.render">Renderização</h3><p data-i18n="feature.renderBody">Motores nativos e suporte a ferramentas externas compatíveis.</p></article><article><span>04</span><h3 data-i18n="feature.formats">Seus formatos</h3><p data-i18n="feature.formatsBody">Importe e exporte formatos usados na criação vocal.</p></article></div></div></section>
-<section class="download section-wrap" id="downloads"><div class="download-intro"><p class="eyebrow section-eyebrow" data-i18n="download.kicker">ENCONTRE SEU PRÓXIMO PASSO</p><h2 data-i18n="download.title">Abra. Explore.<br><em>Faça música.</em></h2><p data-i18n="download.body">Kamafeu 3.0 Calafate está em estabilização e é distribuído como pré-release. Consulte notas e pacotes disponíveis para sua plataforma.</p><div class="download-links"><a href="https://github.com/studiopomar/kamafeu/releases" target="_blank" rel="noopener"><span>macOS</span><small>Intel · Apple Silicon</small><b>↗</b></a><a href="https://github.com/studiopomar/kamafeu/releases" target="_blank" rel="noopener"><span>Windows</span><small>x64</small><b>↗</b></a><a href="https://github.com/studiopomar/kamafeu/releases" target="_blank" rel="noopener"><span>Linux</span><small>x86_64</small><b>↗</b></a></div><a class="web-link" href="https://studiopomar.github.io/kamafeu/web" target="_blank" rel="noopener"><span data-i18n="download.web">Ou experimente Kamafeu Web</span><b>↗</b></a></div><div class="download-art"><img src="assets/hero-sound.svg" alt="Composição abstrata de linhas sonoras"><span>v3.0<br>CALAFATE</span><p data-i18n="download.note">Código aberto para compor, experimentar e compartilhar.</p></div></section>
-</main>
-<footer class="footer"><div class="section-wrap footer-inner"><a class="brand footer-brand" href="#top"><span class="brand-mark">k</span><span>kamafeu<span class="brand-small"> by studio pomar</span></span></a><p data-i18n="footer.made">Feito com cuidado pelo Studio Pomar.</p><div class="footer-links"><a href="https://github.com/studiopomar/kamafeu" target="_blank" rel="noopener">GitHub ↗</a><a href="https://github.com/studiopomar/kamafeu/releases" target="_blank" rel="noopener" data-i18n="footer.downloads">Downloads</a><a href="tainah.html">Tainah</a><a href="https://studiopomar.github.io/pomar-lts/" target="_blank" rel="noopener">Studio Pomar ↗</a></div><small>MIT · 2026</small></div></footer>
-</body></html>
+
+  <!-- Barra de Navegação -->
+  <header class="site-header">
+    <div class="container header-inner">
+      <a class="brand" href="#top" aria-label="Kamafeu Studio - Início">
+        <img class="brand-icon" src="assets/icon.png" alt="Logotipo Kamafeu">
+        <span>Kamafeu <span class="brand-version">v3.0 Calafate</span></span>
+      </a>
+
+      <nav class="nav-links" aria-label="Navegação do site">
+        <a href="#recursos">Recursos</a>
+        <a href="#sintese">Síntese e DSP</a>
+        <a href="#temas">Temas</a>
+        <a href="#downloads">Downloads</a>
+        <a href="#equipe">Equipe</a>
+        <a href="https://studiopomar.github.io/kamafeu/web" target="_blank" rel="noopener">Kamafeu Web ↗</a>
+      </nav>
+
+      <div class="nav-actions">
+        <a class="header-btn header-btn-github" href="https://github.com/studiopomar/kamafeu" target="_blank" rel="noopener" aria-label="Ver repositório no GitHub">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+            <path d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.53 1.032 1.53 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z"/>
+          </svg>
+          <span>GitHub</span>
+        </a>
+
+        <a class="header-btn header-btn-primary" href="#downloads">
+          <span>Baixar</span>
+        </a>
+
+        <button class="mobile-toggle" id="mobileMenuBtn" type="button" aria-expanded="false" aria-label="Abrir menu de navegação">
+          <svg class="icon-menu" width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+            <line x1="3" y1="12" x2="21" y2="12"></line>
+            <line x1="3" y1="6" x2="21" y2="6"></line>
+            <line x1="3" y1="18" x2="21" y2="18"></line>
+          </svg>
+        </button>
+      </div>
+    </div>
+  </header>
+
+  <main id="top">
+    <!-- Seção Principal / Hero -->
+    <section class="hero-section">
+      <div class="container">
+        <div class="hero-pill">
+          <span class="dot"></span>
+          <span>LINHA 3.0 CALAFATE · SOFTWARE LIVRE FEITO EM RUST</span>
+        </div>
+
+        <h1 class="hero-title">
+          <span>Edição vocal ágil.</span><br>
+          <span class="gradient-text">Do primeiro fonema à mixagem.</span>
+        </h1>
+
+        <p class="hero-subtitle">
+          O Kamafeu é um editor de voz cantada feito pelo Studio Pomar para projetos de UTAU e OpenUtau. Construído para ser leve e estável, ele dá controle total sobre afinação, fonemas e múltiplos resamplers com playback em tempo real.
+        </p>
+
+        <div class="hero-ctas">
+          <a class="btn btn-primary" id="heroDownloadBtn" href="https://github.com/studiopomar/kamafeu/releases/latest" target="_blank" rel="noopener">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <line x1="12" y1="5" x2="12" y2="19"></line>
+              <polyline points="19 12 12 19 5 12"></polyline>
+            </svg>
+            <span id="heroDownloadText">Baixar Kamafeu 3.0</span>
+          </a>
+
+          <a class="btn btn-secondary" href="https://github.com/studiopomar/kamafeu" target="_blank" rel="noopener">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+              <path d="M12 2C6.477 2 2 6.484 2 12.017c0 4.425 2.865 8.18 6.839 9.504.5.092.682-.217.682-.483 0-.237-.008-.868-.013-1.703-2.782.605-3.369-1.343-3.369-1.343-.454-1.158-1.11-1.466-1.11-1.466-.908-.62.069-.608.069-.608 1.003.07 1.53 1.032 1.53 1.032.892 1.53 2.341 1.088 2.91.832.092-.647.35-1.088.636-1.338-2.22-.253-4.555-1.113-4.555-4.951 0-1.093.39-1.988 1.029-2.688-.103-.253-.446-1.272.098-2.65 0 0 .84-.27 2.75 1.026A9.564 9.564 0 0112 6.844c.85.004 1.705.115 2.504.337 1.909-1.296 2.747-1.027 2.747-1.027.546 1.379.202 2.398.1 2.651.64.7 1.028 1.595 1.028 2.688 0 3.848-2.339 4.695-4.566 4.943.359.309.678.92.678 1.855 0 1.338-.012 2.419-.012 2.747 0 .268.18.58.688.482A10.019 10.019 0 0022 12.017C22 6.484 17.522 2 12 2z"/>
+            </svg>
+            <span>Código no GitHub</span>
+          </a>
+
+          <a class="btn btn-ghost" href="https://studiopomar.github.io/kamafeu/web" target="_blank" rel="noopener">
+            <span>Abrir no Navegador (WASM)</span>
+            <span aria-hidden="true">→</span>
+          </a>
+        </div>
+
+        <!-- Janela de Demonstração do Editor -->
+        <div class="daw-window">
+          <div class="daw-titlebar">
+            <div class="traffic-lights" aria-hidden="true">
+              <span class="traffic-light red"></span>
+              <span class="traffic-light yellow"></span>
+              <span class="traffic-light green"></span>
+            </div>
+            <div class="daw-center-info">
+              <span class="daw-transport-chip">TEMPO: <b>120.00 BPM</b></span>
+              <span class="daw-transport-chip">POSIÇÃO: <b>00:01:24.08</b></span>
+              <span class="daw-transport-chip">RESAMPLER: <b>TAINAH / WORLD</b></span>
+            </div>
+            <div class="daw-status-badge">
+              <span class="dot"></span>
+              <span>ÁUDIO: ATIVO (44.1 kHz)</span>
+            </div>
+          </div>
+
+          <!-- Visualizador Espectral em Canvas -->
+          <div class="daw-canvas-wrap">
+            <canvas id="audioVisualizerCanvas" width="1080" height="70"></canvas>
+            <div class="canvas-overlay-labels">
+              <span>MONITOR ESPECTRAL DE FORMANTES</span>
+              <span>DSP EM TEMPO REAL</span>
+            </div>
+          </div>
+
+          <div class="daw-screenshot-wrap">
+            <img src="assets/editor-capture.png" alt="Captura de tela real do Kamafeu Studio com o piano roll e as notas" loading="eager">
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Barra de Destaques -->
+    <section class="metrics-strip">
+      <div class="container">
+        <div class="metrics-grid">
+          <div class="metric-item">
+            <div class="metric-val">100% Rust</div>
+            <div class="metric-title">Desempenho Nativo</div>
+            <div class="metric-desc">Sem pausas de garbage collection e com baixo consumo de memória durante o playback.</div>
+          </div>
+          <div class="metric-item">
+            <div class="metric-val">Livre & MIT</div>
+            <div class="metric-title">Código Aberto</div>
+            <div class="metric-desc">Zero telemetria, sem necessidade de login e sem bloqueios na sua música.</div>
+          </div>
+          <div class="metric-item">
+            <div class="metric-val">Multi-Motor</div>
+            <div class="metric-title">Resamplers Flexíveis</div>
+            <div class="metric-desc">Resampler nativo Tainah baseado em vocoder WORLD e compatibilidade com resamplers legados.</div>
+          </div>
+          <div class="metric-item">
+            <div class="metric-val">Compatível</div>
+            <div class="metric-title">Formatos da Comunidade</div>
+            <div class="metric-desc">Abre e exporta arquivos .ust e .ustx, e lê voicebanks com oto.ini sem conversões manuais.</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Recursos Principais (com ícones SVG) -->
+    <section class="section-pad" id="recursos">
+      <div class="container">
+        <div class="section-head">
+          <span class="section-tag">FERRAMENTAS DE EDIÇÃO</span>
+          <h2 class="section-title">Feito para o fluxo real de trabalho com voz</h2>
+          <p class="section-desc">
+            Recursos pensados para quem afina, fonemiza e renderiza músicas vocais no computador todos os dias.
+          </p>
+        </div>
+
+        <div class="features-grid">
+          <!-- Card 1: Piano Roll -->
+          <div class="feature-card">
+            <div class="feature-icon-box" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="3" y="4" width="18" height="16" rx="2"></rect>
+                <path d="M7 4v16"></path>
+                <path d="M11 4v16"></path>
+                <path d="M15 4v16"></path>
+                <path d="M3 10h4"></path>
+                <path d="M7 14h4"></path>
+                <path d="M11 8h4"></path>
+                <path d="M15 12h6"></path>
+              </svg>
+            </div>
+            <h3 class="feature-title">Piano Roll e Curvas de Pitch</h3>
+            <p class="feature-text">
+              Desenhe notas com encaixe harmônico, ajuste portamentos contínuos e configure vibratos com amplitude e frequência naturais.
+            </p>
+          </div>
+
+          <!-- Card 2: Tainah & WORLD -->
+          <div class="feature-card">
+            <div class="feature-icon-box" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M2 12h2l3-7 4 14 3-10 3 6 2-3h3"></path>
+              </svg>
+            </div>
+            <h3 class="feature-title">Motor Nativo Tainah (WORLD)</h3>
+            <p class="feature-text">
+              Resampler integrado que analisa F0, formantes e ruído com o vocoder WORLD. Estica vogais longas sem distorcer o timbre do cantor.
+            </p>
+          </div>
+
+          <!-- Card 3: OTO.ini & Fonemas -->
+          <div class="feature-card">
+            <div class="feature-icon-box" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M2 6h20"></path>
+                <path d="M6 6v4"></path>
+                <path d="M12 6v6"></path>
+                <path d="M18 6v4"></path>
+                <path d="M4 16c2-4 4 4 6 0s4-4 6 0 3-2 4-1"></path>
+                <line x1="8" y1="12" x2="8" y2="20" stroke-dasharray="2 2"></line>
+                <line x1="16" y1="12" x2="16" y2="20" stroke-dasharray="2 2"></line>
+              </svg>
+            </div>
+            <h3 class="feature-title">Régua de Fonemas e OTO.ini</h3>
+            <p class="feature-text">
+              Inspeção visual de consoantes, preutterance, overlap e cutoff na timeline. Suporte direto a voicebanks CV, VCV e esquemas VCCV.
+            </p>
+          </div>
+
+          <!-- Card 4: Arranjo em Faixas -->
+          <div class="feature-card">
+            <div class="feature-icon-box" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <line x1="4" y1="6" x2="20" y2="6"></line>
+                <rect x="4" y="9" width="7" height="3" rx="1"></rect>
+                <rect x="13" y="9" width="7" height="3" rx="1"></rect>
+                <rect x="4" y="14" width="11" height="3" rx="1"></rect>
+                <rect x="8" y="19" width="12" height="3" rx="1"></rect>
+              </svg>
+            </div>
+            <h3 class="feature-title">Arranjo em Faixas e Minimapa</h3>
+            <p class="feature-text">
+              Organize arranjos com várias vozes, harmonias e dobras vocais. O minimapa permite saltar rapidamente para qualquer compasso da música.
+            </p>
+          </div>
+
+          <!-- Card 5: Interoperabilidade -->
+          <div class="feature-card">
+            <div class="feature-icon-box" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"></path>
+                <polyline points="14 2 14 8 20 8"></polyline>
+                <path d="M9 15l3 3 3-3"></path>
+                <path d="M12 11v7"></path>
+              </svg>
+            </div>
+            <h3 class="feature-title">Projetos .UST e .USTX</h3>
+            <p class="feature-text">
+              Abra suas sessões vindas do UTAU ou OpenUtau, continue compondo no Kamafeu e exporte arquivos de áudio WAV para a sua mixagem final.
+            </p>
+          </div>
+
+          <!-- Card 6: Aceleração Gráfica -->
+          <div class="feature-card">
+            <div class="feature-icon-box" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <rect x="3" y="3" width="18" height="18" rx="2"></rect>
+                <line x1="3" y1="9" x2="21" y2="9"></line>
+                <line x1="9" y1="21" x2="9" y2="9"></line>
+              </svg>
+            </div>
+            <h3 class="feature-title">Interface Leve e Fluida</h3>
+            <p class="feature-text">
+              Construído sobre a biblioteca egui com renderização direta pela placa de vídeo. Rolagem rápida e sem engasgos mesmo em projetos densos.
+            </p>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Síntese e Áudio DSP -->
+    <section class="section-pad dsp-showcase" id="sintese">
+      <div class="container">
+        <div class="dsp-grid">
+          <div class="dsp-info">
+            <span class="section-tag">COMO FUNCIONA O ÁUDIO</span>
+            <h3>Síntese espectral que respeita o timbre da voz</h3>
+            <p>
+              Em vez de apenas acelerar ou diminuir a velocidade dos arquivos de áudio (o que costuma deixar a voz fina ou robotizada), o Kamafeu decompõe cada nota em frequência fundamental (F0), envoltória espectral e ruído afilado. Assim, o cantor mantém suas características vocais em qualquer afinação.
+            </p>
+
+            <ul class="dsp-features-list">
+              <li>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
+                <span>Respeito rigoroso aos pontos de corte, consoante e overlap do <code>oto.ini</code>.</span>
+              </li>
+              <li>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
+                <span>Curvas de pitch calculadas ponto a ponto para transições suaves entre notas vizinhas.</span>
+              </li>
+              <li>
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" aria-hidden="true"><polyline points="20 6 9 17 4 12"/></svg>
+                <span>Suporte a flags clássicas (g, t, B, H) para ajustes de brilho, afinação e soprosidade.</span>
+              </li>
+            </ul>
+
+            <a class="btn btn-secondary" href="tainah.html">
+              <span>Notas técnicas do resampler Tainah ↗</span>
+            </a>
+          </div>
+
+          <div class="dsp-card">
+            <div class="code-header">
+              <span>FLUXO DE PROCESSAMENTO DE ÁUDIO</span>
+              <span>RUST DSP</span>
+            </div>
+            <div class="dsp-diagram">
+              <div class="diagram-step">
+                <span class="step-label">01. Recorte do Fonema</span>
+                <span class="step-val">Leitura de offset, consoante e cutoff</span>
+              </div>
+              <div class="diagram-arrow">↓</div>
+              <div class="diagram-step">
+                <span class="step-label">02. Decomposição WORLD</span>
+                <span class="step-val">Separação de tom (F0), formantes e ruído</span>
+              </div>
+              <div class="diagram-arrow">↓</div>
+              <div class="diagram-step">
+                <span class="step-label">03. Curva de Pitch e Vibrato</span>
+                <span class="step-val">Interpolação contínua da melodia</span>
+              </div>
+              <div class="diagram-arrow">↓</div>
+              <div class="diagram-step">
+                <span class="step-label">04. Síntese e Junção</span>
+                <span class="step-val">Reconstrução em 44.1 kHz com crossfade</span>
+              </div>
+              <div class="diagram-arrow">↓</div>
+              <div class="diagram-step">
+                <span class="step-label">05. Saída Master</span>
+                <span class="step-val">Reprodução de áudio sem travamentos via CPAL</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <!-- Galeria de Temas -->
+    <section class="section-pad" id="temas">
+      <div class="container">
+        <div class="section-head">
+          <span class="section-tag">INTERFACE PERSONALIZADA</span>
+          <h2 class="section-title">Temas para todo ambiente</h2>
+          <p class="section-desc">
+            Trabalhe no estilo visual que você preferir. O Kamafeu vem com paletas de cores balanceadas para você compor de dia ou passar a noite mixando sem cansar a visão.
+          </p>
+        </div>
+
+        <div class="theme-selector-wrap" role="tablist" aria-label="Escolher tema visual">
+          <button class="theme-pill-btn active" role="tab" aria-selected="true" data-theme="pomar">Pomar Neon (Padrão)</button>
+          <button class="theme-pill-btn" role="tab" aria-selected="false" data-theme="cyberpunk">Cyberpunk</button>
+          <button class="theme-pill-btn" role="tab" aria-selected="false" data-theme="melodyne">Melodyne Gold</button>
+          <button class="theme-pill-btn" role="tab" aria-selected="false" data-theme="mikan">Mikan Teal</button>
+          <button class="theme-pill-btn" role="tab" aria-selected="false" data-theme="nordic">Nordic Slate</button>
+        </div>
+
+        <div class="theme-preview-box">
+          <img id="themePreviewImage" class="theme-preview-img" src="assets/themes/theme_pomar_neon.png" alt="Prévia da interface do Kamafeu com o tema visual selecionado">
+        </div>
+      </div>
+    </section>
+
+    <!-- Downloads (com ícones SVG nos sistemas) -->
+    <section class="section-pad downloads-section" id="downloads">
+      <div class="container">
+        <div class="section-head">
+          <span class="section-tag">INSTALAÇÃO</span>
+          <h2 class="section-title">Baixe o Kamafeu Studio</h2>
+          <p class="section-desc">
+            Disponível para macOS, Windows e Linux. Escolha a versão para o seu computador ou experimente direto no navegador.
+          </p>
+        </div>
+
+        <div class="download-cards-grid">
+          <!-- macOS -->
+          <div class="dl-card" id="cardMac">
+            <span class="dl-badge-detected" style="display:none;" id="badgeMac">SEU COMPUTADOR</span>
+            <div class="dl-platform-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="currentColor">
+                <path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.81-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M15.97 6.37c.63-.78 1.06-1.85.94-2.94-.92.04-2.03.62-2.69 1.4-.58.67-1.09 1.76-.96 2.83 1.03.08 2.08-.51 2.71-1.29z"/>
+              </svg>
+            </div>
+            <h3 class="dl-card-title">macOS</h3>
+            <div class="dl-card-subtitle">macOS 12.0 ou mais recente</div>
+            <div class="dl-formats">
+              <span class="dl-format-tag">Apple Silicon (.dmg)</span>
+              <span class="dl-format-tag">Intel x86_64 (.dmg)</span>
+            </div>
+            <a class="dl-btn" href="https://github.com/studiopomar/kamafeu/releases/latest" target="_blank" rel="noopener">
+              <span>Baixar para macOS</span>
+              <span aria-hidden="true">↗</span>
+            </a>
+          </div>
+
+          <!-- Windows -->
+          <div class="dl-card" id="cardWin">
+            <span class="dl-badge-detected" style="display:none;" id="badgeWin">SEU COMPUTADOR</span>
+            <div class="dl-platform-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="currentColor">
+                <path d="M3 5.45l7.35-1v7.15H3V5.45zm0 13.1l7.35 1.01V12.6H3v5.95zm8.45 1.15L21 21.2V12.6h-9.55v7.1zm0-15.3v7.2H21V2.8l-9.55 1.4z"/>
+              </svg>
+            </div>
+            <h3 class="dl-card-title">Windows</h3>
+            <div class="dl-card-subtitle">Windows 10 ou 11 (64-bit)</div>
+            <div class="dl-formats">
+              <span class="dl-format-tag">Instalador (.exe)</span>
+              <span class="dl-format-tag">Versão portátil (.zip)</span>
+            </div>
+            <a class="dl-btn" href="https://github.com/studiopomar/kamafeu/releases/latest" target="_blank" rel="noopener">
+              <span>Baixar para Windows</span>
+              <span aria-hidden="true">↗</span>
+            </a>
+          </div>
+
+          <!-- Linux -->
+          <div class="dl-card" id="cardLinux">
+            <span class="dl-badge-detected" style="display:none;" id="badgeLinux">SEU COMPUTADOR</span>
+            <div class="dl-platform-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="currentColor">
+                <path d="M12 2C9.5 2 8 4 8 6.5v2.8C6.3 10.3 5 12.6 5 15.2c0 2.2 1 3.8 2.8 4.3-.2.6-.8 1.3-1.8 1.5-.4.1-.6.5-.4.9.1.3.4.5.7.5.3 0 1.9-.2 3.2-1.4 1 .3 1.7.4 2.5.4s1.5-.1 2.5-.4c1.3 1.2 2.9 1.4 3.2 1.4.3 0 .6-.2.7-.5.2-.4 0-.8-.4-.9-1-.2-1.6-.9-1.8-1.5 1.8-.5 2.8-2.1 2.8-4.3 0-2.6-1.3-4.9-3-5.9V6.5C16 4 14.5 2 12 2zm-1.8 4.2c.4 0 .8.4.8.8s-.4.8-.8.8-.8-.4-.8-.8.4-.8.8-.8zm3.6 0c.4 0 .8.4.8.8s-.4.8-.8.8-.8-.4-.8-.8.4-.8.8-.8z"/>
+              </svg>
+            </div>
+            <h3 class="dl-card-title">Linux</h3>
+            <div class="dl-card-subtitle">Distribuições x86_64 modernas</div>
+            <div class="dl-formats">
+              <span class="dl-format-tag">AppImage</span>
+              <span class="dl-format-tag">.deb</span>
+              <span class="dl-format-tag">.rpm</span>
+              <span class="dl-format-tag">.tar.gz</span>
+            </div>
+            <a class="dl-btn" href="https://github.com/studiopomar/kamafeu/releases/latest" target="_blank" rel="noopener">
+              <span>Baixar para Linux</span>
+              <span aria-hidden="true">↗</span>
+            </a>
+          </div>
+
+          <!-- Web WASM -->
+          <div class="dl-card" id="cardWeb">
+            <div class="dl-platform-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="12" r="10"></circle>
+                <line x1="2" y1="12" x2="22" y2="12"></line>
+                <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path>
+              </svg>
+            </div>
+            <h3 class="dl-card-title">Kamafeu Web</h3>
+            <div class="dl-card-subtitle">Sem instalação, direto no navegador</div>
+            <div class="dl-formats">
+              <span class="dl-format-tag">WebAssembly</span>
+              <span class="dl-format-tag">Demonstração</span>
+            </div>
+            <a class="dl-btn" href="https://studiopomar.github.io/kamafeu/web" target="_blank" rel="noopener">
+              <span>Abrir Web Studio</span>
+              <span aria-hidden="true">↗</span>
+            </a>
+          </div>
+        </div>
+
+        <div class="dl-note-box">
+          <p>
+            <b>Linha 3.0 (Calafate):</b> Esta é a versão de desenvolvimento ativa e recebe correções frequentes. Você pode conferir os instaladores, notas completas de cada atualização e os códigos de verificação SHA-256 diretamente no GitHub Releases.
+          </p>
+          <a href="https://github.com/studiopomar/kamafeu/releases" target="_blank" rel="noopener">
+            Ver todas as versões e notas no GitHub ↗
+          </a>
+        </div>
+      </div>
+    </section>
+
+    <!-- Equipe e Studio Pomar -->
+    <section class="section-pad" id="equipe">
+      <div class="container">
+        <div class="section-head">
+          <span class="section-tag">CRÉDITOS DO PROJETO</span>
+          <h2 class="section-title">Quem faz o Kamafeu</h2>
+          <p class="section-desc">
+            Um projeto colaborativo e independente mantido pelo Studio Pomar.
+          </p>
+        </div>
+
+        <div class="team-grid">
+          <div class="team-card">
+            <div class="team-avatar team-avatar-purple">x</div>
+            <div class="team-meta">
+              <h4>xiao</h4>
+              <p>Programação principal, motor de áudio em Rust e testes no macOS</p>
+            </div>
+          </div>
+
+          <div class="team-card">
+            <div class="team-avatar team-avatar-pink">m</div>
+            <div class="team-meta">
+              <h4>mori-p</h4>
+              <p>Direção de arte, identidade visual e design de temas</p>
+            </div>
+          </div>
+
+          <div class="team-card">
+            <div class="team-avatar team-avatar-cyan">m</div>
+            <div class="team-meta">
+              <h4>makki</h4>
+              <p>Relatórios de bugs e testes em ambiente Linux</p>
+            </div>
+          </div>
+
+          <div class="team-card">
+            <div class="team-avatar team-avatar-amber">z</div>
+            <div class="team-meta">
+              <h4>zoneryth</h4>
+              <p>Testes de compatibilidade e QA no Windows e Linux</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="studio-manifesto">
+          <h3>Sobre o Studio Pomar</h3>
+          <p>
+            O Studio Pomar é um coletivo independente que constrói ferramentas abertas para música e áudio no computador. Nosso objetivo com o Kamafeu é oferecer uma estação de síntese vocal prática, livre de burocracias e que pertença de verdade à comunidade que cria com voz sintética.
+          </p>
+          <a class="btn btn-secondary" href="https://studiopomar.github.io/pomar-lts/" target="_blank" rel="noopener">
+            Conhecer mais projetos do Studio Pomar ↗
+          </a>
+        </div>
+      </div>
+    </section>
+  </main>
+
+  <!-- Rodapé -->
+  <footer class="site-footer">
+    <div class="container">
+      <div class="footer-top">
+        <div class="footer-brand">
+          <a class="brand" href="#top">
+            <img class="brand-icon" src="assets/icon.png" alt="">
+            <span>Kamafeu Studio</span>
+          </a>
+          <p>
+            Editor e sintetizador vocal de código aberto para a criação de música independente.
+          </p>
+        </div>
+
+        <div class="footer-nav-cols">
+          <div class="footer-col">
+            <h5>Navegação</h5>
+            <ul>
+              <li><a href="#recursos">Recursos</a></li>
+              <li><a href="#sintese">Síntese e DSP</a></li>
+              <li><a href="#temas">Temas Visuais</a></li>
+              <li><a href="#downloads">Downloads</a></li>
+              <li><a href="https://studiopomar.github.io/kamafeu/web" target="_blank" rel="noopener">Kamafeu Web</a></li>
+            </ul>
+          </div>
+
+          <div class="footer-col">
+            <h5>Documentação</h5>
+            <ul>
+              <li><a href="tainah.html">Resampler Tainah (WORLD)</a></li>
+              <li><a href="https://github.com/studiopomar/kamafeu/blob/main/README.md" target="_blank" rel="noopener">README do Projeto</a></li>
+              <li><a href="https://github.com/studiopomar/kamafeu/blob/main/CHANGELOG.md" target="_blank" rel="noopener">Histórico de Alterações</a></li>
+              <li><a href="https://github.com/studiopomar/kamafeu/blob/main/docs/kfv2/engine-audit.md" target="_blank" rel="noopener">Auditoria do Motor</a></li>
+            </ul>
+          </div>
+
+          <div class="footer-col">
+            <h5>Comunidade</h5>
+            <ul>
+              <li><a href="https://github.com/studiopomar/kamafeu" target="_blank" rel="noopener">Repositório no GitHub</a></li>
+              <li><a href="https://github.com/studiopomar/kamafeu/issues" target="_blank" rel="noopener">Relatar Problema</a></li>
+              <li><a href="https://studiopomar.github.io/pomar-lts/" target="_blank" rel="noopener">Studio Pomar</a></li>
+            </ul>
+          </div>
+        </div>
+      </div>
+
+      <div class="footer-bottom">
+        <span>© 2026 Studio Pomar · Distribuído sob os termos da Licença MIT.</span>
+        <span>Desenvolvido em Rust com carinho pela música aberta.</span>
+      </div>
+    </div>
+  </footer>
+
+</body>
+</html>

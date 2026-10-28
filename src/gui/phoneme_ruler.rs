@@ -181,7 +181,7 @@ pub fn draw_phoneme_ruler(
                             egui::Align2::LEFT_BOTTOM,
                             format!("{}", bar + 1),
                             egui::FontId::proportional(9.0),
-                            ui.visuals().text_color().linear_multiply(0.72),
+                            theme.text_muted_c32(),
                         );
                     }
                 }
@@ -199,18 +199,12 @@ pub fn draw_phoneme_ruler(
                 for (level, color, width) in [
                     (
                         0.0_f32,
-                        ui.visuals()
-                            .text_color()
-                            .linear_multiply(0.72)
-                            .linear_multiply(90.0 / 255.0),
+                        theme.text_muted_c32().linear_multiply(0.40),
                         1.0_f32,
                     ),
                     (
                         0.5_f32,
-                        ui.visuals()
-                            .text_color()
-                            .linear_multiply(0.72)
-                            .linear_multiply(95.0 / 255.0),
+                        theme.text_muted_c32().linear_multiply(0.45),
                         1.0_f32,
                     ),
                     (
@@ -233,14 +227,14 @@ pub fn draw_phoneme_ruler(
                     egui::Align2::LEFT_BOTTOM,
                     "200%",
                     egui::FontId::proportional(8.0),
-                    ui.visuals().text_color().linear_multiply(150.0 / 255.0),
+                    theme.text_muted_c32(),
                 );
                 painter.text(
                     Pos2::new(strip_rect.min.x + 4.0, y_bottom - envelope_height * 0.5),
                     egui::Align2::LEFT_CENTER,
                     "100%",
                     egui::FontId::proportional(8.0),
-                    ui.visuals().text_color().linear_multiply(130.0 / 255.0),
+                    theme.text_muted_c32(),
                 );
 
                 let mut previous_note_end_ms: Option<f64> = None;
@@ -670,7 +664,7 @@ pub fn draw_phoneme_ruler(
                                         let text_shape = painter.layout_no_wrap(
                                             tooltip.to_string(),
                                             egui::FontId::proportional(10.0),
-                                            theme.text_note_tag_c32().linear_multiply(0.82),
+                                            theme.text_primary_c32(),
                                         );
                                         let pill_rect = Rect::from_center_size(
                                             Pos2::new(clamped_x, strip_rect.min.y + 10.0),
@@ -692,7 +686,7 @@ pub fn draw_phoneme_ruler(
                                                 pill_rect.center().y - text_shape.size().y * 0.5,
                                             ),
                                             text_shape,
-                                            theme.text_note_tag_c32().linear_multiply(0.82),
+                                            theme.text_primary_c32(),
                                         );
                                         if is_primary_down
                                             && state.dragging_phoneme_handle.is_none()
@@ -842,7 +836,7 @@ pub fn draw_phoneme_ruler(
                                         let text_shape = painter.layout_no_wrap(
                                             tooltip.to_string(),
                                             egui::FontId::proportional(10.0),
-                                            theme.text_note_tag_c32().linear_multiply(0.82),
+                                            theme.text_primary_c32(),
                                         );
                                         let pill_rect = Rect::from_center_size(
                                             Pos2::new(clamped_x, strip_rect.min.y + 10.0),
@@ -864,7 +858,7 @@ pub fn draw_phoneme_ruler(
                                                 pill_rect.center().y - text_shape.size().y * 0.5,
                                             ),
                                             text_shape,
-                                            theme.text_note_tag_c32().linear_multiply(0.82),
+                                            theme.text_primary_c32(),
                                         );
                                         if is_primary_down
                                             && state.dragging_envelope_pt.is_none()
@@ -939,7 +933,7 @@ pub fn draw_phoneme_ruler(
                                         let text_shape = painter.layout_no_wrap(
                                             tooltip,
                                             egui::FontId::proportional(10.0),
-                                            theme.text_note_tag_c32().linear_multiply(0.82),
+                                            theme.text_primary_c32(),
                                         );
                                         let pill_rect = Rect::from_center_size(
                                             Pos2::new(clamped_x, strip_rect.min.y + 10.0),
@@ -961,7 +955,7 @@ pub fn draw_phoneme_ruler(
                                                 pill_rect.center().y - text_shape.size().y * 0.5,
                                             ),
                                             text_shape,
-                                            theme.text_note_tag_c32().linear_multiply(0.82),
+                                            theme.text_primary_c32(),
                                         );
                                         if is_primary_down
                                             && state.dragging_envelope_pt.is_none()
@@ -1410,7 +1404,7 @@ pub fn draw_phoneme_ruler(
                                             egui::Align2::CENTER_BOTTOM,
                                             format!("Início {:+.0}ms", offset_ms),
                                             egui::FontId::proportional(9.0),
-                                            theme.text_note_tag_c32(),
+                                            theme.text_primary_c32(),
                                         );
                                     }
                                     if hit.drag_started()
@@ -1475,11 +1469,7 @@ pub fn draw_phoneme_ruler(
                                 let text_shape = painter.layout_no_wrap(
                                     label.clone(),
                                     egui::FontId::proportional(10.0),
-                                    theme.text_note_tag_c32().linear_multiply(if is_selected {
-                                        0.82
-                                    } else {
-                                        0.72
-                                    }),
+                                    theme.text_primary_c32(),
                                 );
                                 let pill_w = (text_shape.size().x + 12.0).max(28.0);
                                 let pill_rect = Rect::from_center_size(
@@ -1528,11 +1518,7 @@ pub fn draw_phoneme_ruler(
                                                 );
                                                 ui.label(
                                                     RichText::new(label)
-                                                        .color(
-                                                            theme
-                                                                .text_note_tag_c32()
-                                                                .linear_multiply(0.82),
-                                                        )
+                                                        .color(theme.text_primary_c32())
                                                         .size(10.0),
                                                 );
                                             });
@@ -1661,9 +1647,7 @@ pub fn draw_phoneme_ruler(
                                         edit_rect,
                                         egui::TextEdit::singleline(&mut state.phoneme_buffer)
                                             .id(text_id)
-                                            .text_color(
-                                                theme.text_note_tag_c32().linear_multiply(0.9),
-                                            )
+                                            .text_color(theme.text_primary_c32())
                                             .desired_width(edit_rect.width())
                                             .font(egui::FontId::proportional(11.0))
                                             .margin(egui::Margin::symmetric(4.0, 1.0)),
@@ -1714,13 +1698,22 @@ pub fn draw_phoneme_ruler(
                                             },
                                         ),
                                     );
+                                    let pill_text_color = if is_selected {
+                                        theme.readable_text_on([
+                                            ui.visuals().hyperlink_color.r(),
+                                            ui.visuals().hyperlink_color.g(),
+                                            ui.visuals().hyperlink_color.b(),
+                                        ])
+                                    } else {
+                                        theme.text_primary_c32()
+                                    };
                                     painter.galley(
                                         Pos2::new(
                                             badge_x - text_shape.size().x * 0.5,
                                             badge_y - text_shape.size().y * 0.5,
                                         ),
                                         text_shape,
-                                        theme.text_note_tag_c32().linear_multiply(0.82),
+                                        pill_text_color,
                                     );
                                 }
                             }
@@ -1814,7 +1807,7 @@ pub fn draw_phoneme_ruler(
                                                     boundary_offset_ms
                                                 ),
                                                 egui::FontId::proportional(10.0),
-                                                theme.text_note_tag_c32().linear_multiply(0.82),
+                                                theme.text_primary_c32(),
                                             );
                                             if separator_response
                                                 .drag_started_by(egui::PointerButton::Primary)
@@ -1889,11 +1882,7 @@ pub fn draw_phoneme_ruler(
                         let text_shape = painter.layout_no_wrap(
                             badge_text,
                             egui::FontId::proportional(10.0),
-                            theme.text_note_tag_c32().linear_multiply(if is_selected {
-                                0.82
-                            } else {
-                                0.72
-                            }),
+                            theme.text_primary_c32(),
                         );
                         let pill_w = (text_shape.size().x + 12.0).max(28.0);
                         let pill_rect = Rect::from_center_size(
@@ -1944,9 +1933,7 @@ pub fn draw_phoneme_ruler(
                                         );
                                         ui.label(
                                             RichText::new(&lyric_trimmed)
-                                                .color(
-                                                    theme.text_note_tag_c32().linear_multiply(0.82),
-                                                )
+                                                .color(theme.text_primary_c32())
                                                 .size(10.0),
                                         );
                                     });
@@ -2070,7 +2057,7 @@ pub fn draw_phoneme_ruler(
                                 edit_rect,
                                 egui::TextEdit::singleline(&mut state.phoneme_buffer)
                                     .id(text_id)
-                                    .text_color(theme.text_note_tag_c32().linear_multiply(0.9))
+                                    .text_color(theme.text_primary_c32())
                                     .desired_width(edit_rect.width())
                                     .font(egui::FontId::proportional(11.0))
                                     .margin(egui::Margin::symmetric(4.0, 1.0)),
@@ -2124,7 +2111,7 @@ pub fn draw_phoneme_ruler(
                                     badge_y - text_shape.size().y * 0.5,
                                 ),
                                 text_shape,
-                                theme.text_note_tag_c32().linear_multiply(0.82),
+                                theme.text_primary_c32(),
                             );
                         }
                     }

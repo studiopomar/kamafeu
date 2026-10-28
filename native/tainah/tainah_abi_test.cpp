@@ -86,6 +86,26 @@ int main() {
     variant = options; variant.breathiness = 50; differs(variant);
     variant = options; variant.high_frequency_cutoff = 3000; differs(variant);
     variant = options; variant.loop_start_ms = 70; variant.loop_end_ms = 350; variant.tail_start_ms = 450; differs(variant);
+    // Vowel formant warp: neutral ratios are bit-identical, moved ratios differ,
+    // out-of-range ratios are rejected.
+    variant = options; variant.has_vowel_formant = 1; variant.f1_ratio = 1.0; variant.f2_ratio = 1.0;
+    assert(lt_render(&variant, &output, &error) == 0);
+    assert(output.length == baseline.size());
+    for (size_t i = 0; i < output.length; ++i) assert(output.samples[i] == baseline[i]);
+    lt_pcm_free(&output);
+    variant.f1_ratio = 0.7; variant.f2_ratio = 1.4; differs(variant);
+    variant = options; variant.has_vowel_formant = 1; variant.f1_ratio = 1.0; variant.f2_ratio = 1.0;
+    variant.f3_ratio = 0.68; differs(variant);
+    variant = options; variant.has_vowel_formant = 1; variant.f1_ratio = 1.0; variant.f2_ratio = 1.0;
+    variant.nasality = 0.85; differs(variant);
+    variant = options; variant.has_vowel_formant = 1; variant.f1_ratio = 1.0; variant.f2_ratio = 1.0;
+    variant.singers_formant = 0.75; differs(variant);
+    variant.f1_ratio = 3.0;
+    assert(lt_render(&variant, &output, &error) == 1 && error.code == 1);
+    lt_formant_analysis analysis{}; analysis.struct_size = sizeof(analysis);
+    assert(lt_analyze_formants(&options, &analysis, &error) == 0);
+    assert(analysis.f1_hz > 0 && analysis.f1_hz < analysis.f2_hz && analysis.f2_hz < analysis.f3_hz);
+    assert(analysis.envelope_len == LT_FORMANT_ENVELOPE_POINTS && analysis.envelope_max_hz > 0);
     variant = options; variant.f0_method = 2;
     const int dio_status = lt_render(&variant, &output, &error);
     // This pure sine is a pathological DIO fixture for WORLD synthesis. The ABI
@@ -97,6 +117,20 @@ int main() {
     assert(lt_render(&options, &output, &error) == 0);
     lt_pcm_free(&output);
     assert(std::distance(std::filesystem::directory_iterator(cache_dir), std::filesystem::directory_iterator{}) == 3);
+    std::vector<float> harmonic_sample(22050, 0.0f);
+    for (size_t i = 0; i < harmonic_sample.size(); ++i) {
+        const double t = double(i) / 44100.0;
+        double s = 0.0;
+        for (int k = 1; k <= 12; ++k) {
+            s += (0.25 / k) * std::sin(2 * 3.141592653589793 * 220.0 * k * t + k * 0.37);
+        }
+        harmonic_sample[i] = static_cast<float>(s);
+    }
+    auto harmonic_opts = options;
+    harmonic_opts.input = harmonic_sample.data();
+    harmonic_opts.input_length = harmonic_sample.size();
+    assert(lt_analyze_formants(&harmonic_opts, &analysis, &error) == 0);
+    assert(analysis.f0_hz > 200 && analysis.f0_hz < 240);
     lt_pitch_point curve[] = {{0, 0}, {1500, 700}};
     options.pitch_points = curve; options.pitch_point_count = 2;
     options.gender = 50; options.breathiness = 30; options.high_frequency_cutoff = 4000;

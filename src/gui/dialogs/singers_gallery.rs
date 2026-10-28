@@ -7,7 +7,6 @@ impl KamafeuStudioApp {
             let lang = self.config.language;
             let mut is_open = self.singers_gallery_window_open;
             let mut singer_to_load: Option<std::path::PathBuf> = None;
-            let mut native_singer_to_bind: Option<std::path::PathBuf> = None;
             let mut trigger_add_dir = false;
             let mut trigger_reload = false;
             let mut trigger_install_kfv2 = false;
@@ -112,16 +111,29 @@ impl KamafeuStudioApp {
                                                     active_track
                                                         .and_then(|track| track.native_voicebank.as_ref())
                                                         .and_then(|reference| reference.source_path_hint.as_deref())
-                                                        .is_some_and(|path| std::path::Path::new(path) == singer.path)
+                                                        .is_some_and(|path| {
+                                                            let p = std::path::Path::new(path);
+                                                            p == singer.path
+                                                                || std::fs::canonicalize(p).ok()
+                                                                    == std::fs::canonicalize(&singer.path).ok()
+                                                        })
                                                 } else {
                                                     active_track
                                                         .and_then(|track| track.voicebank_path.as_deref())
                                                         .map(std::path::Path::new)
-                                                        .is_some_and(|path| path == singer.path)
+                                                        .is_some_and(|path| {
+                                                            path == singer.path
+                                                                || std::fs::canonicalize(path).ok()
+                                                                    == std::fs::canonicalize(&singer.path).ok()
+                                                        })
                                                         || (active_track
                                                             .and_then(|track| track.voicebank_path.as_deref())
                                                             .is_none()
-                                                            && self.voicebank.as_ref().is_some_and(|v| v.root_path == singer.path))
+                                                            && self.voicebank.as_ref().is_some_and(|v| {
+                                                                v.root_path == singer.path
+                                                                    || std::fs::canonicalize(&v.root_path).ok()
+                                                                        == std::fs::canonicalize(&singer.path).ok()
+                                                            }))
                                                 };
 
                                                 let bg_color = if is_current {
@@ -232,11 +244,7 @@ impl KamafeuStudioApp {
                                                                             .color(self.config.theme.success_c32()),
                                                                     );
                                                                 } else if singer.selectable && ui.small_button(lang.tr("Selecionar", "Select")).clicked() {
-                                                                    if singer.is_native_kfv2 {
-                                                                        native_singer_to_bind = Some(singer.path.clone());
-                                                                    } else {
-                                                                        singer_to_load = Some(singer.path.clone());
-                                                                    }
+                                                                    singer_to_load = Some(singer.path.clone());
                                                                 } else if !singer.selectable {
                                                                     ui.add_enabled(false, egui::Button::new(lang.tr("Formato indisponível", "Format unavailable")));
                                                                 }
@@ -327,71 +335,8 @@ impl KamafeuStudioApp {
             }
 
             if let Some(path) = singer_to_load {
-                match crate::oto::Voicebank::new(&path) {
-                    Ok(vb) => {
-                        if let Some(track) = self.project.tracks.get_mut(self.active_track_index) {
-                            track.native_voicebank = None;
-                            track.voicebank_path = Some(path.display().to_string());
-                            track.singer = vb.name.clone();
-                            self.is_dirty = true;
-                            self.project.render_state = Some(Default::default());
-                        }
-                        self.activate_voicebank(vb);
-                        self.piano_roll_state.phoneme_cache_hash = 0;
-                        self.piano_roll_state.phoneme_cache.clear();
-                        self.piano_roll_state.note_phonemes_cache.clear();
-                        is_open = false;
-                    }
-                    Err(error) => {
-                        self.transport_state.status_message = format!(
-                            "{}: {}",
-                            lang.tr(
-                                "Não foi possível usar o voicebank",
-                                "Could not use voicebank"
-                            ),
-                            error
-                        );
-                    }
-                }
-            }
-
-            if let Some(path) = native_singer_to_bind {
-                match crate::voicebank::native::NativeBank::load_path(&path).and_then(|bank| {
-                    let reference = bank.project_reference(Some(path.display().to_string()))?;
-                    let coverage =
-                        bank.coverage_summary(&reference.phonetic_profile_id, &reference.style_id)?;
-                    Ok((bank.manifest.display_name.clone(), reference, coverage))
-                }) {
-                    Ok((display_name, reference, coverage)) => {
-                        if let Some(track) = self.project.tracks.get_mut(self.active_track_index) {
-                            track.native_voicebank = Some(reference);
-                            track.voicebank_path = Some(path.display().to_string());
-                            track.singer = display_name.clone();
-                            track.phonemizer = Some(crate::phonemizer::PhonemizerMode::None);
-                            self.is_dirty = true;
-                            self.project.render_state = Some(Default::default());
-                            self.piano_roll_state.phoneme_cache_hash = 0;
-                            self.piano_roll_state.phoneme_cache.clear();
-                            self.piano_roll_state.note_phonemes_cache.clear();
-                            self.transport_state.status_message = format!(
-                                "{} vinculada à faixa {} · cobertura estrutural: {}/{} phones, {} unidades, {} revisadas · preview SOLA experimental",
-                                display_name,
-                                track.name,
-                                coverage.covered_phone_symbols,
-                                coverage.total_phone_symbols,
-                                coverage.unit_count,
-                                coverage.reviewed_unit_count
-                            );
-                        } else {
-                            self.transport_state.status_message =
-                                "Não há faixa ativa para vincular o KFV 2".into();
-                        }
-                    }
-                    Err(error) => {
-                        self.transport_state.status_message =
-                            format!("Falha ao vincular KFV 2: {error}");
-                    }
-                }
+                self.activate_singer_path(&path);
+                is_open = false;
             }
 
             self.singers_gallery_window_open = is_open;

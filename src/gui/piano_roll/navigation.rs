@@ -173,14 +173,19 @@ pub(crate) fn update_playhead_scroll(
             let target = (playhead_x
                 - visible_width * state.follow_cursor_pct.clamp(0.0, 100.0) / 100.0)
                 .max(0.0);
-            let dt = ui.input(|input| input.stable_dt).clamp(0.0005, 0.05);
-            let tau = (state.horizontal_follow_smoothing_ms / 1000.0).max(0.0);
-            let alpha = if tau <= f32::EPSILON {
-                1.0
+            let diff = target - state.horizontal_scroll_offset;
+            if diff.abs() <= 48.0 || state.horizontal_follow_smoothing_ms <= 1.0 {
+                state.horizontal_scroll_offset = target;
             } else {
-                1.0 - (-dt / tau).exp()
-            };
-            state.horizontal_scroll_offset += (target - state.horizontal_scroll_offset) * alpha;
+                let dt = ui.input(|input| input.stable_dt).clamp(0.0005, 0.05);
+                let tau = (state.horizontal_follow_smoothing_ms / 1000.0).max(0.0);
+                let alpha = if tau <= f32::EPSILON {
+                    1.0
+                } else {
+                    1.0 - (-dt / tau).exp()
+                };
+                state.horizontal_scroll_offset += diff * alpha;
+            }
         }
         AutoScrollMode::PageScroll => {
             let current = state.horizontal_scroll_offset;
@@ -189,15 +194,7 @@ pub(crate) fn update_playhead_scroll(
             if playhead_x > current + visible_width * max
                 || playhead_x < current + visible_width * min
             {
-                let target = (playhead_x - visible_width * min).max(0.0);
-                let dt = ui.input(|input| input.stable_dt).clamp(0.0005, 0.05);
-                let tau = (state.horizontal_follow_smoothing_ms / 1000.0).max(0.0);
-                let alpha = if tau <= f32::EPSILON {
-                    1.0
-                } else {
-                    1.0 - (-dt / tau).exp()
-                };
-                state.horizontal_scroll_offset += (target - current) * alpha;
+                state.horizontal_scroll_offset = (playhead_x - visible_width * min).max(0.0);
             }
         }
         AutoScrollMode::Off => {}

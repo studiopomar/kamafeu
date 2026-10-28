@@ -105,8 +105,35 @@ impl KamafeuStudioApp {
 
         let mut native_voicebank_name = None;
         let mut native_voicebank_path = None;
+        let mut diffsinger_name = None;
+        let mut diffsinger_path = None;
         if let Some(path) = config.last_voicebank.as_ref().filter(|path| path.is_dir()) {
-            if path.join("cantor.toml").is_file() {
+            if path.join("character.yaml").is_file()
+                && (path.join("dsconfig.yaml").is_file() || path.join("configs/dsconfig.yaml").is_file())
+            {
+                if let Ok(bank) = crate::voicebank::diffsinger::DiffSingerBank::inspect(path) {
+                    if let Some(track) = project.tracks.first_mut() {
+                        track.name = bank.name.clone();
+                        track.singer = bank.name.clone();
+                        track.voicebank_path = Some(path.display().to_string());
+                        track.native_voicebank = None;
+                        track.diffsinger_language = bank.language_ids.contains_key("pt").then(|| "pt".into())
+                            .or_else(|| bank.language_ids.contains_key("en").then(|| "en".into()))
+                            .or_else(|| bank.languages.first().cloned());
+                        track.diffsinger_speaker = bank.speakers.first().cloned();
+                        track.diffsinger_phonemizer = Some(if bank.language_ids.contains_key("pt") {
+                            crate::voicebank::diffsinger::DiffSingerPhonemizer::BrapaPhonetic
+                        } else {
+                            crate::voicebank::diffsinger::DiffSingerPhonemizer::Automatic
+                        });
+                        track.diffsinger_provider = Some(crate::voicebank::diffsinger::ExecutionProvider::Cpu);
+                    }
+                    project.voicebank = Some(bank.name.clone());
+                    project.voicebank_path = Some(path.display().to_string());
+                    diffsinger_name = Some(bank.name);
+                    diffsinger_path = Some(path.clone());
+                }
+            } else if path.join("cantor.toml").is_file() {
                 match crate::voicebank::native::NativeBank::load_path(path).and_then(|bank| {
                     let reference = bank.project_reference(Some(path.display().to_string()))?;
                     Ok((bank.manifest.display_name.clone(), reference))
@@ -132,7 +159,7 @@ impl KamafeuStudioApp {
         }
 
         let mut voicebank: Option<Voicebank> = None;
-        if native_voicebank_name.is_none() {
+        if native_voicebank_name.is_none() && diffsinger_name.is_none() {
             if let Some(ref last_path) = config.last_voicebank {
                 if last_path.exists() {
                     if let Ok(vb) = Voicebank::new(last_path) {
@@ -192,9 +219,9 @@ impl KamafeuStudioApp {
             transport_state.voicebank_name = vb.name.clone();
             transport_state.voicebank_path = Some(vb.root_path.clone());
         }
-        if let Some(name) = native_voicebank_name {
+        if let Some(name) = native_voicebank_name.or(diffsinger_name) {
             transport_state.voicebank_name = name;
-            transport_state.voicebank_path = native_voicebank_path;
+            transport_state.voicebank_path = native_voicebank_path.or(diffsinger_path);
         }
         let voicebank_oto_signature = voicebank
             .as_ref()

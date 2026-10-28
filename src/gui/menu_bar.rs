@@ -20,7 +20,6 @@ mod view;
 mod vocal_modes;
 use super::KamafeuStudioApp;
 use crate::gui::types::EditTool;
-use crate::oto::Voicebank;
 use eframe::egui::{self, Frame, TopBottomPanel};
 use std::path::PathBuf;
 

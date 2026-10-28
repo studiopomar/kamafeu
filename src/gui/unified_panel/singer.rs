@@ -315,9 +315,17 @@ pub(super) fn draw(
                         } else {
                             for singer in filtered_singers {
                                 let is_current = active_native_singer
-                                    .is_some_and(|active| active.path == singer.path)
+                                    .is_some_and(|active| {
+                                        active.path == singer.path
+                                            || std::fs::canonicalize(&active.path).ok()
+                                                == std::fs::canonicalize(&singer.path).ok()
+                                    })
                                     || (active_native_singer.is_none()
-                                        && voicebank.is_some_and(|v| v.root_path == singer.path));
+                                        && voicebank.is_some_and(|v| {
+                                            v.root_path == singer.path
+                                                || std::fs::canonicalize(&v.root_path).ok()
+                                                    == std::fs::canonicalize(&singer.path).ok()
+                                        }));
                                 let item_bg = if is_current {
                                     theme.accent_c32().linear_multiply(0.2)
                                 } else {

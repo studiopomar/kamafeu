@@ -226,14 +226,7 @@ impl Default for AudioDeviceConfig {
 }
 
 fn default_resampler_str() -> String {
-    #[cfg(any(target_arch = "wasm32", target_os = "android"))]
-    {
-        "Tainah".to_string()
-    }
-    #[cfg(not(any(target_arch = "wasm32", target_os = "android")))]
-    {
-        "straycat-rs (UtaUtaUtau)".to_string()
-    }
+    "Tainah".to_string()
 }
 
 fn default_wavtool_str() -> String {

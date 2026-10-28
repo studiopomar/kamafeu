@@ -546,14 +546,22 @@ impl KamafeuStudioApp {
                 &self.config.recent_voicebanks,
                 &self.config.singers_paths,
             ) {
-                if let Ok(vb) = Voicebank::new(&found_path) {
+                let is_diffsinger = found_path.join("character.yaml").is_file()
+                    && (found_path.join("dsconfig.yaml").is_file() || found_path.join("configs/dsconfig.yaml").is_file());
+                if is_diffsinger {
+                    crate::terminal_log::info(
+                        "Import",
+                        format!("DiffSinger voicebank resolved: format={format} source={source} requested={target:?} path={found_path:?}"),
+                    );
+                    self.activate_singer_path(&found_path);
+                    self.persist_imported_voicebank_context();
+                    return;
+                } else if let Ok(vb) = Voicebank::new(&found_path) {
                     crate::terminal_log::info(
                         "Import",
                         format!("voicebank resolved: format={format} source={source} requested={target:?} path={:?}", vb.root_path),
                     );
-                    self.transport_state.voicebank_name = vb.name.clone();
-                    self.config.add_recent_voicebank(vb.root_path.clone());
-                    self.voicebank = Some(vb);
+                    self.activate_voicebank(vb);
                     self.persist_imported_voicebank_context();
                     return;
                 }
