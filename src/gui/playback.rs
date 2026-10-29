@@ -319,23 +319,6 @@ impl KamafeuStudioApp {
             (self.render_threads.clamp(1, 16) as usize).min(cpu_count.saturating_sub(6).max(1));
         let mut project = self.project.clone();
         project.bpm = self.transport_state.bpm;
-        // Piano-roll note positions are displayed relative to the active
-        // voice part. Render previews use the same local timeline so a
-        // non-zero clip position does not make the audio and waveform appear
-        // late by exactly that offset (common in imported DiffSinger APSes).
-        let timeline_origin_ms = project
-            .parts
-            .iter()
-            .find(|part| part.track_index == self.active_track_index)
-            .or_else(|| project.parts.first())
-            .map(|part| part.position_ms)
-            .unwrap_or(0.0);
-        for part in &mut project.parts {
-            part.position_ms -= timeline_origin_ms;
-        }
-        for wave_part in &mut project.wave_parts {
-            wave_part.position_ms -= timeline_origin_ms;
-        }
         if self.transport_state.preview_selection_only {
             let selected = &self.piano_roll_state.selected_note_indices;
             if !selected.is_empty() {
@@ -468,12 +451,10 @@ impl KamafeuStudioApp {
                 self.config.dsp.render_chunk_bars,
                 project.bpm,
             );
-            // Tainah is in-process, but WORLD analysis is still expensive and
-            // can take longer than a short first chunk to render. Wait for a
-            // useful runway before opening the sink, just as for external
-            // engines, so playback does not start with one short note fragment.
-            let is_fast_native_engine = resampler_driver.engine_id() == "kamafeu.sola"
-                || preview_cache_is_warm;
+            let is_fast_native_engine =
+                crate::drivers::is_native_world_resampler_label(resampler_driver.name())
+                    || resampler_driver.engine_id() == "kamafeu.sola"
+                    || preview_cache_is_warm;
             let startup_buffer_ms = if is_fast_native_engine {
                 FAST_NATIVE_STARTUP_BUFFER_MS
             } else {
@@ -758,14 +739,6 @@ impl KamafeuStudioApp {
         project
             .parts
             .retain(|part| part.track_index == self.active_track_index);
-        let timeline_origin_ms = project
-            .parts
-            .first()
-            .map(|part| part.position_ms)
-            .unwrap_or(0.0);
-        for part in &mut project.parts {
-            part.position_ms -= timeline_origin_ms;
-        }
         project.wave_parts.clear();
         // Master processing and mixer controls are intentionally absent from
         // this vocal-only reference render.

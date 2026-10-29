@@ -995,6 +995,7 @@ impl JapanesePhonemizer {
 
     fn apply_raw_passthrough(notes: &[UNote], vb: &Voicebank) -> Vec<RenderPhone> {
         let mut phones: Vec<RenderPhone> = Vec::new();
+        let mut global_prev_vowel: Option<String> = None;
         for (i, note) in notes.iter().enumerate() {
             let raw_lyric = note.lyric.trim();
             if raw_lyric.is_empty() || raw_lyric == "R" || raw_lyric == "r" || raw_lyric == "+" {
@@ -1046,6 +1047,7 @@ impl JapanesePhonemizer {
                         resolved
                     };
                     let mut sub_position_ms = note.position_ms;
+                    let mut prev_vowel: Option<String> = None;
                     for (part_idx, part) in parts.into_iter().enumerate() {
                         let sub_duration_ms = durations[part_idx];
                         let mut sub_envelope = note.envelope.clone();
@@ -1064,9 +1066,69 @@ impl JapanesePhonemizer {
                             sub_envelope.v4 = 100.0;
                             sub_envelope.v5 = 0.0;
                         }
+
+                        // Resolver contra o voicebank e encadear transições VCV se existirem
+                        let mut resolved_alias = None;
+                        let mut coda_trunc = false;
+                        let mut phone_lyric = part.to_string();
+
+                        // 1. Tentar VCV se houver vogal anterior
+                        if let Some(pv) = prev_vowel.as_deref() {
+                            let vcv_cands = [
+                                format!("{pv} {part}"),
+                                format!("{pv}_{part}"),
+                                format!("* {part}"),
+                                part.to_string(),
+                            ];
+                            for cand in &vcv_cands {
+                                for spelling in crate::phonemizer::romaji::lyric_candidates(cand) {
+                                    if let Some(entry) = vb.find_mapped_entry(&spelling, &note.pitch) {
+                                        resolved_alias = Some(entry.alias.clone());
+                                        phone_lyric = entry.alias.clone();
+                                        break;
+                                    }
+                                }
+                                if resolved_alias.is_some() {
+                                    break;
+                                }
+                            }
+                        }
+
+                        // 2. Tentar candidatos diretos ou romaji/kana
+                        if resolved_alias.is_none() {
+                            for cand in [part, &format!("- {part}")] {
+                                for spelling in crate::phonemizer::romaji::lyric_candidates(cand) {
+                                    if let Some(entry) = vb.find_mapped_entry(&spelling, &note.pitch) {
+                                        resolved_alias = Some(entry.alias.clone());
+                                        phone_lyric = entry.alias.clone();
+                                        break;
+                                    }
+                                }
+                                if resolved_alias.is_some() {
+                                    break;
+                                }
+                            }
+                        }
+
+                        // 3. Fallback inteligente de coda com corte de vogal posterior (coda truncation)
+                        if resolved_alias.is_none() {
+                            let pv = prev_vowel.as_deref().unwrap_or("");
+                            if let Some((entry, is_trunc)) = Self::find_coda_fallback_entry(vb, pv, part, &note.pitch) {
+                                resolved_alias = Some(entry.alias.clone());
+                                coda_trunc = is_trunc;
+                                phone_lyric = if is_trunc && !pv.is_empty() {
+                                    format!("{pv} {part}")
+                                } else {
+                                    entry.alias.clone()
+                                };
+                            }
+                        }
+
+                        prev_vowel = Self::extract_vowel(part).map(str::to_owned);
+
                         phones.push(RenderPhone {
                             note_index: i,
-                            lyric: part.to_string(),
+                            lyric: phone_lyric,
                             pitch: note.pitch.clone(),
                             position_ms: sub_position_ms,
                             duration_ms: sub_duration_ms,
@@ -1075,9 +1137,9 @@ impl JapanesePhonemizer {
                             pitch_bend: note.pitch_bend.clone(),
                             vibrato: note.vibrato.clone(),
                             flags: note.flags.clone(),
-                            resolved_alias: None,
-                            resolved_timbre: None,
-                            coda_truncation: false,
+                            resolved_alias,
+                            resolved_timbre: note.timbre.clone(),
+                            coda_truncation: coda_trunc,
                         });
                         sub_position_ms += sub_duration_ms;
                     }
@@ -1085,9 +1147,66 @@ impl JapanesePhonemizer {
                 }
             }
 
+            let mut resolved_alias = None;
+            let mut coda_trunc = false;
+            let mut phone_lyric = raw_lyric.to_string();
+
+            // 1. Tentar VCV se houver vogal anterior
+            if let Some(pv) = global_prev_vowel.as_deref() {
+                let vcv_cands = [
+                    format!("{pv} {raw_lyric}"),
+                    format!("{pv}_{raw_lyric}"),
+                    format!("* {raw_lyric}"),
+                ];
+                for cand in &vcv_cands {
+                    for spelling in crate::phonemizer::romaji::lyric_candidates(cand) {
+                        if let Some(entry) = vb.find_mapped_entry(&spelling, &note.pitch) {
+                            resolved_alias = Some(entry.alias.clone());
+                            phone_lyric = entry.alias.clone();
+                            break;
+                        }
+                    }
+                    if resolved_alias.is_some() {
+                        break;
+                    }
+                }
+            }
+
+            // 2. Tentar candidatos diretos ou romaji/kana (ex: "- こ" ou "こ" para "ko")
+            if resolved_alias.is_none() {
+                for cand in [raw_lyric, &format!("- {raw_lyric}")] {
+                    for spelling in crate::phonemizer::romaji::lyric_candidates(cand) {
+                        if let Some(entry) = vb.find_mapped_entry(&spelling, &note.pitch) {
+                            resolved_alias = Some(entry.alias.clone());
+                            phone_lyric = entry.alias.clone();
+                            break;
+                        }
+                    }
+                    if resolved_alias.is_some() {
+                        break;
+                    }
+                }
+            }
+
+            // 3. Fallback inteligente de Coda com corte de vogal posterior
+            if resolved_alias.is_none() {
+                let pv = global_prev_vowel.as_deref().unwrap_or("");
+                if let Some((entry, is_trunc)) = Self::find_coda_fallback_entry(vb, pv, raw_lyric, &note.pitch) {
+                    resolved_alias = Some(entry.alias.clone());
+                    coda_trunc = is_trunc;
+                    phone_lyric = if is_trunc && !pv.is_empty() {
+                        format!("{pv} {raw_lyric}")
+                    } else {
+                        entry.alias.clone()
+                    };
+                }
+            }
+
+            global_prev_vowel = Self::extract_vowel(raw_lyric).map(str::to_owned);
+
             phones.push(RenderPhone {
                 note_index: i,
-                lyric: raw_lyric.to_string(),
+                lyric: phone_lyric,
                 pitch: note.pitch.clone(),
                 position_ms: note.position_ms,
                 duration_ms: note.duration_ms,
@@ -1096,9 +1215,9 @@ impl JapanesePhonemizer {
                 pitch_bend: note.pitch_bend.clone(),
                 vibrato: note.vibrato.clone(),
                 flags: note.flags.clone(),
-                resolved_alias: None,
-                resolved_timbre: None,
-                coda_truncation: false,
+                resolved_alias,
+                resolved_timbre: note.timbre.clone(),
+                coda_truncation: coda_trunc,
             });
         }
         phones
@@ -1904,6 +2023,7 @@ impl JapanesePhonemizer {
         if cons.is_empty() {
             return None;
         }
+        let pv_kana = crate::phonemizer::romaji::romaji_to_hiragana(pv);
 
         // 1. Candidatos diretos de coda
         let direct_candidates = if !pv.is_empty() {
@@ -1912,6 +2032,9 @@ impl JapanesePhonemizer {
                 format!("{pv}_{cons}"),
                 format!("{pv}-{cons}"),
                 format!("{pv} {cons}・"),
+                format!("{pv_kana} {cons}"),
+                format!("{pv_kana}_{cons}"),
+                format!("{pv_kana}-{cons}"),
                 format!("_{cons}"),
                 cons.to_string(),
             ]
@@ -1951,6 +2074,9 @@ impl JapanesePhonemizer {
                     format!("{pv} {syl}"),
                     format!("{pv}_{syl}"),
                     format!("{pv}-{syl}"),
+                    format!("{pv_kana} {syl}"),
+                    format!("{pv_kana}_{syl}"),
+                    format!("{pv_kana}-{syl}"),
                 ];
                 for cand in &vcv_cands {
                     if let Some(entry) = vb.find_mapped_entry(cand, pitch_name) {
@@ -2014,9 +2140,14 @@ impl JapanesePhonemizer {
             }
 
             let mut coda_trunc = false;
-            let mut entry = candidates
-                .iter()
-                .find_map(|candidate| vb.find_mapped_entry(candidate, &note.pitch));
+            let mut entry = candidates.iter().find_map(|candidate| {
+                for spelling in crate::phonemizer::romaji::lyric_candidates(candidate) {
+                    if let Some(entry) = vb.find_mapped_entry(&spelling, &note.pitch) {
+                        return Some(entry);
+                    }
+                }
+                None
+            });
 
             if entry.is_none() {
                 if let Some(pv) = previous_vowel.as_deref() {
@@ -3667,5 +3798,80 @@ mod tests {
         assert_eq!(phones[2].lyric, "e s");
         assert_eq!(phones[2].resolved_alias.as_deref(), Some("e sa"));
         assert!(phones[2].coda_truncation, "Deveria ter coda_truncation ativado");
+    }
+
+    #[test]
+    fn test_intra_note_split_ko_e_s_with_hiragana_bank_and_mode_none() {
+        let mut entries = std::collections::HashMap::new();
+        // Banco no formato japonês tradicional com Hiragana (ex: Yamine Renri VCV)
+        entries.insert(
+            "- こ".to_string(),
+            crate::oto::OtoEntry {
+                alias: "- こ".to_string(),
+                wav_filename: "ko.wav".to_string(),
+                offset: 10.0,
+                consonant: 50.0,
+                cutoff: -120.0,
+                preutterance: 30.0,
+                overlap: 15.0,
+                ..Default::default()
+            },
+        );
+        entries.insert(
+            "o え".to_string(),
+            crate::oto::OtoEntry {
+                alias: "o え".to_string(),
+                wav_filename: "oe.wav".to_string(),
+                offset: 10.0,
+                consonant: 40.0,
+                cutoff: -100.0,
+                preutterance: 25.0,
+                overlap: 10.0,
+                ..Default::default()
+            },
+        );
+        entries.insert(
+            "e さ".to_string(),
+            crate::oto::OtoEntry {
+                alias: "e さ".to_string(),
+                wav_filename: "esa.wav".to_string(),
+                offset: 10.0,
+                consonant: 60.0,
+                cutoff: -150.0,
+                preutterance: 35.0,
+                overlap: 12.0,
+                ..Default::default()
+            },
+        );
+
+        let vb = Voicebank {
+            root_path: std::path::PathBuf::from("/tmp"),
+            name: "Renri Style Bank".to_string(),
+            author: "Author".to_string(),
+            character_info: String::new(),
+            readme_info: String::new(),
+            image_path: None,
+            entries,
+            case_insensitive_entries: Default::default(),
+            prefix_map: crate::oto::PrefixMap::default(),
+            temp_dir: None,
+        };
+
+        let note = UNote::new("ko.e.s", "C4", 1000.0, 480.0);
+        // Testando com PhonemizerMode::None (o padrão ao abrir o software!)
+        let phones_none = JapanesePhonemizer::apply_phonemizer(&[note.clone()], &vb, PhonemizerMode::None);
+        assert_eq!(phones_none.len(), 3);
+        assert_eq!(phones_none[0].resolved_alias.as_deref(), Some("- こ"));
+        assert_eq!(phones_none[1].resolved_alias.as_deref(), Some("o え"));
+        assert_eq!(phones_none[2].resolved_alias.as_deref(), Some("e さ"));
+        assert!(phones_none[2].coda_truncation);
+
+        // Testando com PhonemizerMode::VCV
+        let phones_vcv = JapanesePhonemizer::apply_phonemizer(&[note], &vb, PhonemizerMode::VCV);
+        assert_eq!(phones_vcv.len(), 3);
+        assert_eq!(phones_vcv[0].resolved_alias.as_deref(), Some("- こ"));
+        assert_eq!(phones_vcv[1].resolved_alias.as_deref(), Some("o え"));
+        assert_eq!(phones_vcv[2].resolved_alias.as_deref(), Some("e さ"));
+        assert!(phones_vcv[2].coda_truncation);
     }
 }

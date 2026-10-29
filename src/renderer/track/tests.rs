@@ -75,6 +75,7 @@ fn unavailable_phonemes_are_silent_without_muting_valid_notes() {
         let voicebank = Voicebank::new(directory.path()).unwrap();
         let options = RenderOptions {
             phonemizer_mode: PhonemizerMode::BasicCV,
+            preview_skip_failed_phones: true,
             ..Default::default()
         };
         let warnings = std::sync::Mutex::new(Vec::new());

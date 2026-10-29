@@ -155,7 +155,7 @@ pub(super) fn draw(
                 }
             }
         }
-    } else {
+    } else if state.rendered_waveform_peaks.is_empty() {
         painter.text(
             Pos2::new(timeline_rect.left() + 8.0, strip_rect.top() + 4.0),
             egui::Align2::LEFT_TOP,
@@ -202,7 +202,7 @@ pub(super) fn draw(
             state.playhead_ms = scrubbed_ms;
             on_playhead_scrubbed(scrubbed_ms);
         }
-    } else {
+    } else if state.rendered_waveform_peaks.is_empty() {
         painter.text(
             Pos2::new(timeline_rect.left() + 8.0, mid_y),
             egui::Align2::LEFT_CENTER,

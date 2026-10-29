@@ -310,7 +310,7 @@ pub fn hz_from_note(note: &str) -> f32 {
     }
 
     let octave = octave_str.parse::<i32>().unwrap_or(4);
-    440.0 * 2.0_f32.powf(((octave * 12 + semitone) as f32 - 69.0) / 12.0)
+    440.0 * 2.0_f32.powf((((octave + 1) * 12 + semitone) as f32 - 69.0) / 12.0)
 }
 
 fn b64_val(c: char) -> Option<u16> {
