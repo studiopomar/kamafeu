@@ -23,6 +23,9 @@ class Options(c.Structure):
         ("cancel", c.c_void_p), ("cancel_user_data", c.c_void_p),
         *[(name, c.c_double) for name in ("formant_shift", "consonant_adjustment", "target_consonant_ms")],
         ("has_target_consonant", c.c_uint32),
+        *[(name, c.c_double) for name in ("f1_ratio", "f2_ratio")],
+        ("has_vowel_formant", c.c_uint32),
+        *[(name, c.c_double) for name in ("f3_ratio", "nasality", "singers_formant")],
     ]
 
 class Pcm(c.Structure):

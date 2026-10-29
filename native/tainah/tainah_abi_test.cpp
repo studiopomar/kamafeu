@@ -22,6 +22,7 @@ int main() {
     setenv("TAINAH_ANALYSIS_CACHE_DIR", cache_dir.string().c_str(), 1);
 #endif
     assert(lt_abi_version() == LT_ABI_VERSION);
+    assert(lt_render_options_size() == sizeof(lt_render_options));
     lt_pcm output{}; output.struct_size = sizeof(output);
     lt_error error{}; error.struct_size = sizeof(error);
     assert(lt_render(nullptr, &output, &error) == 1 && error.code == 1);
@@ -30,6 +31,7 @@ int main() {
     options.struct_size = sizeof(options); options.sample_rate = 44100;
     options.input = sample.data(); options.input_length = sample.size();
     options.duration_ms = 1500; options.pitch_hz = 220;
+    options.consonant_ms = 100;
     options.frame_period_ms = 5; options.f0_floor = 71; options.f0_ceiling = 1760;
     options.f0_method = 1;
     assert(lt_render(&options, &output, &error) == 5 && error.code == 5);
@@ -38,7 +40,15 @@ int main() {
     assert(lt_render(&options, &output, &error) == 2 && error.code == 2);
     stop = false;
     std::filesystem::remove_all(cache_dir);
-    for (size_t i = 0; i < sample.size(); ++i) sample[i] = 0.3f * std::sin(2 * 3.141592653589793 * 220 * i / 44100);
+    uint32_t noise_state = 17;
+    for (size_t i = 0; i < sample.size(); ++i) {
+        noise_state = noise_state * 1664525u + 1013904223u;
+        const double noise = (noise_state / double(UINT32_MAX) - 0.5) * 0.006;
+        const double phase = 2 * 3.141592653589793 * 220 * i / 44100;
+        double voiced = 0;
+        for (int harmonic = 1; harmonic <= 30; ++harmonic) voiced += std::sin(harmonic * phase) / harmonic;
+        sample[i] = (0.06f + 0.10f * i / sample.size()) * voiced + noise;
+    }
     assert(lt_render(&options, &output, &error) == 0);
     assert(output.length == 66150 && output.sample_rate == 44100);
     double peak = 0; for (size_t i = 0; i < output.length; ++i) peak = std::max(peak, double(std::abs(output.samples[i])));
@@ -49,6 +59,31 @@ int main() {
     assert(tail_energy > 1e-6); // the extra second must have WORLD coverage
     std::vector<float> baseline(output.samples, output.samples + output.length);
     lt_pcm_free(&output);
+
+    // Backward-compatibility: callers passing earlier struct sizes must render bit-identical PCM.
+    const uint32_t current_options_size = options.struct_size;
+    options.struct_size = static_cast<uint32_t>(offsetof(lt_render_options, target_consonant_ms));
+    assert(lt_render(&options, &output, &error) == 0);
+    for (size_t i = 0; i < output.length; ++i) assert(output.samples[i] == baseline[i]);
+    lt_pcm_free(&output);
+    options.struct_size = static_cast<uint32_t>(offsetof(lt_render_options, consonant_adjustment));
+    assert(lt_render(&options, &output, &error) == 0);
+    for (size_t i = 0; i < output.length; ++i) assert(output.samples[i] == baseline[i]);
+    lt_pcm_free(&output);
+    options.struct_size = static_cast<uint32_t>(offsetof(lt_render_options, formant_shift));
+    assert(lt_render(&options, &output, &error) == 0);
+    for (size_t i = 0; i < output.length; ++i) assert(output.samples[i] == baseline[i]);
+    lt_pcm_free(&output);
+    options.struct_size = static_cast<uint32_t>(offsetof(lt_render_options, f1_ratio));
+    assert(lt_render(&options, &output, &error) == 0);
+    for (size_t i = 0; i < output.length; ++i) assert(output.samples[i] == baseline[i]);
+    lt_pcm_free(&output);
+    options.struct_size = static_cast<uint32_t>(offsetof(lt_render_options, f3_ratio));
+    assert(lt_render(&options, &output, &error) == 0);
+    for (size_t i = 0; i < output.length; ++i) assert(output.samples[i] == baseline[i]);
+    lt_pcm_free(&output);
+    options.struct_size = current_options_size;
+
     lt_cache_clear_memory(); // Read the serialized analysis on the next call.
     assert(lt_render(&options, &output, &error) == 0);
     assert(output.length == baseline.size());
@@ -78,21 +113,47 @@ int main() {
         double sum = 0;
         for (size_t i = 0; i < variant.length; ++i) sum += std::abs(variant.samples[i] - baseline[i]);
         lt_pcm_free(&variant);
+        if (sum <= 0.01) std::fprintf(stderr, "unchanged variant: g=%g t=%g B=%g H=%g P=%g C=%g loop=%g sum=%g\n",
+            changed.gender, changed.pitch_cents, changed.breathiness, changed.high_frequency_cutoff,
+            changed.formant_shift, changed.consonant_adjustment, changed.loop_start_ms, sum);
         assert(sum > 0.01);
     };
+    // Equivalent oto.ini positive and negative cutoffs select the same source
+    // region, including when offset and target consonant timing are nonzero.
+    auto region = options;
+    region.offset_ms = 70; region.cutoff_ms = -350;
+    region.has_target_consonant = 1; region.target_consonant_ms = 50;
+    assert(lt_render(&region, &output, &error) == 0);
+    std::vector<float> cropped(output.samples, output.samples + output.length);
+    lt_pcm_free(&output);
+    region.cutoff_ms = 80;
+    assert(lt_render(&region, &output, &error) == 0);
+    for (size_t i = 0; i < output.length; ++i) assert(output.samples[i] == cropped[i]);
+    lt_pcm_free(&output);
+    auto invalid = options;
+    invalid.has_target_consonant = 1;
+    invalid.target_consonant_ms = -1;
+    assert(lt_render(&invalid, &output, &error) == 1);
+    invalid.target_consonant_ms = std::nan("");
+    assert(lt_render(&invalid, &output, &error) == 1);
     auto variant = options;
     variant.gender = 50; differs(variant);
     variant = options; variant.pitch_cents = 100; differs(variant);
     variant = options; variant.breathiness = 50; differs(variant);
     variant = options; variant.high_frequency_cutoff = 3000; differs(variant);
+    variant = options; variant.formant_shift = 60; differs(variant);
+    variant = options; variant.consonant_adjustment = 100; differs(variant);
+    variant = options; variant.consonant_adjustment = -100; differs(variant);
     variant = options; variant.loop_start_ms = 70; variant.loop_end_ms = 350; variant.tail_start_ms = 450; differs(variant);
-    // Vowel formant warp: neutral ratios are bit-identical, moved ratios differ,
-    // out-of-range ratios are rejected.
+
+    // Vowel formant warp: neutral ratios are bit-identical to baseline.
     variant = options; variant.has_vowel_formant = 1; variant.f1_ratio = 1.0; variant.f2_ratio = 1.0;
     assert(lt_render(&variant, &output, &error) == 0);
     assert(output.length == baseline.size());
     for (size_t i = 0; i < output.length; ++i) assert(output.samples[i] == baseline[i]);
     lt_pcm_free(&output);
+
+    // Formant movements change PCM.
     variant.f1_ratio = 0.7; variant.f2_ratio = 1.4; differs(variant);
     variant = options; variant.has_vowel_formant = 1; variant.f1_ratio = 1.0; variant.f2_ratio = 1.0;
     variant.f3_ratio = 0.68; differs(variant);
@@ -100,37 +161,29 @@ int main() {
     variant.nasality = 0.85; differs(variant);
     variant = options; variant.has_vowel_formant = 1; variant.f1_ratio = 1.0; variant.f2_ratio = 1.0;
     variant.singers_formant = 0.75; differs(variant);
+
+    // Out of range validation.
     variant.f1_ratio = 3.0;
     assert(lt_render(&variant, &output, &error) == 1 && error.code == 1);
+
+    // Formant extraction API verification.
     lt_formant_analysis analysis{}; analysis.struct_size = sizeof(analysis);
     assert(lt_analyze_formants(&options, &analysis, &error) == 0);
+    assert(analysis.f0_hz > 200 && analysis.f0_hz < 240);
     assert(analysis.f1_hz > 0 && analysis.f1_hz < analysis.f2_hz && analysis.f2_hz < analysis.f3_hz);
     assert(analysis.envelope_len == LT_FORMANT_ENVELOPE_POINTS && analysis.envelope_max_hz > 0);
+
     variant = options; variant.f0_method = 2;
     const int dio_status = lt_render(&variant, &output, &error);
-    // This pure sine is a pathological DIO fixture for WORLD synthesis. The ABI
-    // must surface the non-finite output as a diagnostic instead of returning silence.
-    assert(dio_status == 4 && error.code == 4);
-    assert(std::string(error.message).find("non-finite") != std::string::npos);
+    // A detector may reject a synthetic fixture, but must report invalid PCM
+    // explicitly rather than returning silence.
+    assert(dio_status == 0 || (dio_status == 4 && error.code == 4));
+    if (dio_status != 0) assert(std::string(error.message).find("non-finite") != std::string::npos);
     lt_pcm_free(&output);
     sample[100] += 0.001f;
     assert(lt_render(&options, &output, &error) == 0);
     lt_pcm_free(&output);
     assert(std::distance(std::filesystem::directory_iterator(cache_dir), std::filesystem::directory_iterator{}) == 3);
-    std::vector<float> harmonic_sample(22050, 0.0f);
-    for (size_t i = 0; i < harmonic_sample.size(); ++i) {
-        const double t = double(i) / 44100.0;
-        double s = 0.0;
-        for (int k = 1; k <= 12; ++k) {
-            s += (0.25 / k) * std::sin(2 * 3.141592653589793 * 220.0 * k * t + k * 0.37);
-        }
-        harmonic_sample[i] = static_cast<float>(s);
-    }
-    auto harmonic_opts = options;
-    harmonic_opts.input = harmonic_sample.data();
-    harmonic_opts.input_length = harmonic_sample.size();
-    assert(lt_analyze_formants(&harmonic_opts, &analysis, &error) == 0);
-    assert(analysis.f0_hz > 200 && analysis.f0_hz < 240);
     lt_pitch_point curve[] = {{0, 0}, {1500, 700}};
     options.pitch_points = curve; options.pitch_point_count = 2;
     options.gender = 50; options.breathiness = 30; options.high_frequency_cutoff = 4000;

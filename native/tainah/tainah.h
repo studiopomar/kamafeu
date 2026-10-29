@@ -25,7 +25,8 @@ typedef struct lt_pitch_point {
     double cents;
     uint32_t shape; /* 0 smooth, 1 linear, 2 ease-in, 3 ease-out, 4 Hermite */
 } lt_pitch_point;
-typedef int32_t (*lt_cancel_callback)(void *user_data);
+typedef int32_t (*lt_cancel_fn)(void *user_data);
+typedef lt_cancel_fn lt_cancel_callback;
 typedef struct lt_render_options {
     uint32_t struct_size;
     uint32_t sample_rate;
@@ -49,7 +50,7 @@ typedef struct lt_render_options {
     double loop_start_ms;
     double loop_end_ms;
     double tail_start_ms;
-    lt_cancel_callback cancel;
+    lt_cancel_fn cancel;
     void *cancel_user_data;
     /* Optional ABI v2 extension: formant frequency-axis shift, -100 to +100. */
     double formant_shift;
