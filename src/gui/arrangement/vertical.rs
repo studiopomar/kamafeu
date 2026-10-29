@@ -223,6 +223,12 @@ pub fn draw_arrangement_view(
 ) -> bool {
     let mut changed = false;
     meters.resize(tracks.len(), ArrangementMeterState::default());
+
+    let show_track_mixer_id = ui.id().with("arrangement_show_track_mixer");
+    let mut show_track_mixer = ui
+        .ctx()
+        .data_mut(|d| d.get_persisted::<bool>(show_track_mixer_id).unwrap_or(false));
+
     ui.horizontal(|ui| {
         ui.heading(
             RichText::new(lang.tr("Arranjo", "Arrangement"))
@@ -230,6 +236,23 @@ pub fn draw_arrangement_view(
                 .strong()
                 .color(theme.text_primary_c32()),
         );
+
+        if ui
+            .button(RichText::new("+ Faixa").size(10.0).strong())
+            .on_hover_text(lang.tr("Nova faixa", "New track"))
+            .clicked()
+        {
+            tracks.push(UTrack {
+                name: format!("Track {}", tracks.len() + 1),
+                ..Default::default()
+            });
+            *active = tracks.len() - 1;
+            let mut part = UVoicePart::new(format!("Parte vocal {}", tracks.len()), *active);
+            part.position_ms = *playhead;
+            part.duration_ms = 30_000.0;
+            parts.push(part);
+            changed = true;
+        }
 
         let badge_text = if tracks.len() == 1 {
             lang.tr("1 faixa", "1 track").to_string()
@@ -272,21 +295,16 @@ pub fn draw_arrangement_view(
                 fx.is_open = true;
             }
 
-            if ui
-                .button(RichText::new("+ Faixa").size(10.0).strong())
-                .on_hover_text(lang.tr("Nova faixa", "New track"))
-                .clicked()
-            {
-                tracks.push(UTrack {
-                    name: format!("Track {}", tracks.len() + 1),
-                    ..Default::default()
-                });
-                *active = tracks.len() - 1;
-                let mut part = UVoicePart::new(format!("Parte vocal {}", tracks.len()), *active);
-                part.position_ms = *playhead;
-                part.duration_ms = 30_000.0;
-                parts.push(part);
-                changed = true;
+            let mixer_btn = ui.selectable_label(
+                show_track_mixer,
+                RichText::new(lang.tr("🎚 Mixer", "🎚 Mixer")).size(10.0),
+            ).on_hover_text(lang.tr(
+                "Alternar mixer rápido e EQ de faixas no arranjo",
+                "Toggle quick track mixer and EQ in arrangement",
+            ));
+            if mixer_btn.clicked() {
+                show_track_mixer = !show_track_mixer;
+                ui.ctx().data_mut(|d| d.insert_persisted(show_track_mixer_id, show_track_mixer));
             }
         });
     });
@@ -300,15 +318,17 @@ pub fn draw_arrangement_view(
     widths.resize(tracks.len(), default_width);
     let mut common_width = widths.first().copied().unwrap_or(default_width);
     ui.horizontal(|ui| {
-        ui.label(RichText::new(lang.tr("Largura", "Width")).size(9.5).color(theme.text_muted_c32()));
-        ui.spacing_mut().slider_width = 75.0;
         if ui
-            .add(egui::Slider::new(&mut common_width, 48.0..=600.0).suffix("px").show_value(false))
-            .changed()
+            .small_button(lang.tr("Ajustar", "Fit"))
+            .on_hover_text(lang.tr(
+                "Ajustar largura das faixas para preencher a janela",
+                "Fit track widths to fill window",
+            ))
+            .clicked()
         {
-            widths.fill(common_width);
+            let fit_w = ((ui.available_width() - 36.0) / tracks.len().max(1) as f32).clamp(64.0, 480.0);
+            widths.fill(fit_w);
         }
-        ui.label(RichText::new(format!("{:.0}px", common_width)).size(9.0).monospace().color(theme.text_muted_c32()));
         if ui
             .small_button(lang.tr("Padrão", "Reset"))
             .on_hover_text(lang.tr(
@@ -319,6 +339,34 @@ pub fn draw_arrangement_view(
         {
             widths.fill(default_width);
         }
+
+        ui.spacing_mut().slider_width = 56.0;
+        if ui
+            .add(egui::Slider::new(&mut common_width, 48.0..=600.0).show_value(false))
+            .on_hover_text(format!("{} {:.0}px", lang.tr("Largura:", "Width:"), common_width))
+            .changed()
+        {
+            widths.fill(common_width);
+        }
+
+        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+            if ui
+                .small_button("🔍+")
+                .on_hover_text(lang.tr("Aumentar zoom vertical", "Zoom in vertically"))
+                .clicked()
+            {
+                *zoom = (*zoom * 1.25).clamp(0.005, 0.5);
+                *manual = true;
+            }
+            if ui
+                .small_button("🔍-")
+                .on_hover_text(lang.tr("Diminuir zoom vertical", "Zoom out vertically"))
+                .clicked()
+            {
+                *zoom = (*zoom / 1.25).clamp(0.005, 0.5);
+                *manual = true;
+            }
+        });
     });
     let offsets: Vec<f32> = widths
         .iter()
@@ -344,8 +392,14 @@ pub fn draw_arrangement_view(
         .ctx()
         .data_mut(|d| d.get_persisted::<f32>(timeline_height_ratio_id).unwrap_or(0.55));
     let available_h = ui.available_height();
-    let lower_height = (available_h * (1.0 - timeline_ratio)).clamp(90.0, (available_h - 110.0).max(90.0));
-    let height = (available_h - lower_height - 78.0).max(60.0);
+    let (height, lower_height) = if show_track_mixer {
+        let lh = (available_h * (1.0 - timeline_ratio)).clamp(90.0, (available_h - 110.0).max(90.0));
+        let h = (available_h - lh - 78.0).max(60.0);
+        (h, lh)
+    } else {
+        let h = (available_h - 66.0 - 48.0).max(60.0);
+        (h, 0.0)
+    };
     let (area, _) = ui.allocate_exact_size(
         Vec2::new(ui.available_width(), height + 66.0),
         egui::Sense::hover(),
@@ -462,13 +516,13 @@ pub fn draw_arrangement_view(
 
         // Fundo do card do cabeçalho da faixa
         let card_bg = if is_selected {
-            theme.card_bg_c32().linear_multiply(1.18)
+            track_color.gamma_multiply(0.20)
         } else {
             theme.card_bg_c32()
         };
         painter.with_clip_rect(header.intersect(area)).rect_filled(
             header_inner,
-            Rounding::same(4.0),
+            Rounding::same(6.0),
             card_bg,
         );
         let card_stroke = if is_selected {
@@ -480,23 +534,23 @@ pub fn draw_arrangement_view(
         };
         painter.with_clip_rect(header.intersect(area)).rect_stroke(
             header_inner,
-            Rounding::same(4.0),
+            Rounding::same(6.0),
             card_stroke,
         );
 
         // Tarja colorida de identificação da faixa à esquerda
         let stripe_rect = Rect::from_min_size(
             header_inner.min,
-            Vec2::new(3.5, header_inner.height()),
+            Vec2::new(4.0, header_inner.height()),
         );
         painter.with_clip_rect(header.intersect(area)).rect_filled(
             stripe_rect,
-            Rounding { nw: 4.0, sw: 4.0, ne: 0.0, se: 0.0 },
+            Rounding { nw: 6.0, sw: 6.0, ne: 0.0, se: 0.0 },
             track_color,
         );
 
         let content_rect = Rect::from_min_max(
-            header_inner.min + Vec2::new(6.0, 3.0),
+            header_inner.min + Vec2::new(6.5, 3.0),
             header_inner.max - Vec2::new(4.0, 3.0),
         );
         let mut child = ui.new_child(
@@ -510,122 +564,177 @@ pub fn draw_arrangement_view(
         let renaming = ui
             .ctx()
             .data_mut(|d| d.get_temp::<bool>(rename_id).unwrap_or(false));
-        if renaming {
-            let r = child.add_sized(
-                [content_rect.width(), 18.0],
-                egui::TextEdit::singleline(&mut track.name),
+
+        // Linha 1: Badge #N + Nome da Faixa
+        child.horizontal(|ui| {
+            let badge_bg = if is_selected {
+                track_color.gamma_multiply(0.35)
+            } else {
+                theme.bg_canvas_c32()
+            };
+            let (num_rect, _) = ui.allocate_exact_size(Vec2::new(18.0, 15.0), egui::Sense::hover());
+            ui.painter().rect_filled(num_rect, Rounding::same(3.0), badge_bg);
+            ui.painter().text(
+                num_rect.center(),
+                egui::Align2::CENTER_CENTER,
+                format!("#{}", i + 1),
+                egui::FontId::monospace(8.5),
+                if is_selected { Color32::WHITE } else { theme.text_muted_c32() },
             );
-            changed |= r.changed();
-            if !r.has_focus() && !r.lost_focus() {
-                r.request_focus();
-            }
-            if r.lost_focus() {
-                ui.ctx().data_mut(|d| d.insert_temp(rename_id, false));
-            }
-        } else {
-            let r = child
-                .add(
-                    egui::Label::new(
-                        egui::RichText::new(&track.name)
-                            .strong()
-                            .size(11.0)
-                            .color(theme.text_primary_c32()),
-                    )
-                    .truncate()
-                    .sense(egui::Sense::click()),
-                )
-                .on_hover_text(&track.name);
-            if r.clicked() {
-                *active = i;
-            }
-            if r.double_clicked() {
-                ui.ctx().data_mut(|d| d.insert_temp(rename_id, true));
-            }
-            r.context_menu(|ui| {
-                ui.label(
-                    RichText::new(&track.name)
-                        .strong()
-                        .color(theme.text_primary_c32()),
+
+            if renaming {
+                let r = ui.add_sized(
+                    [ui.available_width(), 16.0],
+                    egui::TextEdit::singleline(&mut track.name),
                 );
-                ui.separator();
-                if ui.button(lang.tr("Renomear faixa", "Rename track")).clicked() {
-                    ui.ctx().data_mut(|d| d.insert_temp(rename_id, true));
-                    ui.close_menu();
+                changed |= r.changed();
+                if !r.has_focus() && !r.lost_focus() {
+                    r.request_focus();
                 }
-                if !available_singers.is_empty() {
-                    ui.menu_button(lang.tr("Mudar cantor", "Change singer"), |ui| {
-                        for s in available_singers {
-                            let is_curr = &track.singer == s;
-                            if ui.selectable_label(is_curr, s).clicked() {
-                                track.singer = s.clone();
-                                changed = true;
+                if r.lost_focus() {
+                    ui.ctx().data_mut(|d| d.insert_temp(rename_id, false));
+                }
+            } else {
+                let r = ui
+                    .add(
+                        egui::Label::new(
+                            egui::RichText::new(&track.name)
+                                .strong()
+                                .size(11.0)
+                                .color(if is_selected { Color32::WHITE } else { theme.text_primary_c32() }),
+                        )
+                        .truncate()
+                        .sense(egui::Sense::click()),
+                    )
+                    .on_hover_text(&track.name);
+                if r.clicked() {
+                    *active = i;
+                }
+                if r.double_clicked() {
+                    ui.ctx().data_mut(|d| d.insert_temp(rename_id, true));
+                }
+                r.context_menu(|ui| {
+                    ui.label(
+                        RichText::new(&track.name)
+                            .strong()
+                            .color(theme.text_primary_c32()),
+                    );
+                    ui.separator();
+                    if ui.button(lang.tr("Renomear faixa", "Rename track")).clicked() {
+                        ui.ctx().data_mut(|d| d.insert_temp(rename_id, true));
+                        ui.close_menu();
+                    }
+                    if !available_singers.is_empty() {
+                        ui.menu_button(lang.tr("Mudar cantor", "Change singer"), |ui| {
+                            for s in available_singers {
+                                let is_curr = &track.singer == s;
+                                if ui.selectable_label(is_curr, s).clicked() {
+                                    track.singer = s.clone();
+                                    changed = true;
+                                    ui.close_menu();
+                                }
+                            }
+                        });
+                    }
+                    ui.menu_button(lang.tr("Cor da faixa", "Track color"), |ui| {
+                        if draw_color_palette(ui, &mut track.color_rgb) {
+                            changed = true;
+                            ui.close_menu();
+                        }
+                    });
+                    ui.separator();
+                    if ui
+                        .button(lang.tr("Nova parte vocal (30s)", "New vocal part (30s)"))
+                        .clicked()
+                    {
+                        new_part = Some((i, 30_000.0));
+                        ui.close_menu();
+                    }
+                    ui.menu_button(lang.tr("Nova parte (duração...)", "New part (duration...)"), |ui| {
+                        for (label, dur_ms) in [
+                            ("5 segundos", 5_000.0),
+                            ("10 segundos", 10_000.0),
+                            ("30 segundos", 30_000.0),
+                            ("1 minuto", 60_000.0),
+                            ("2 minutos", 120_000.0),
+                            ("5 minutos", 300_000.0),
+                        ] {
+                            if ui.button(label).clicked() {
+                                new_part = Some((i, dur_ms));
                                 ui.close_menu();
                             }
                         }
                     });
-                }
-                ui.menu_button(lang.tr("Cor da faixa", "Track color"), |ui| {
-                    if draw_color_palette(ui, &mut track.color_rgb) {
-                        changed = true;
+                    ui.separator();
+                    if ui.button(lang.tr("Duplicar faixa", "Duplicate track")).clicked() {
+                        duplicate_track = Some(i);
+                        ui.close_menu();
+                    }
+                    if ui.button(lang.tr("Excluir faixa", "Delete track")).clicked() {
+                        delete_track = Some(i);
                         ui.close_menu();
                     }
                 });
-                ui.separator();
-                if ui
-                    .button(lang.tr("Nova parte vocal (30s)", "New vocal part (30s)"))
-                    .clicked()
-                {
-                    new_part = Some((i, 30_000.0));
-                    ui.close_menu();
-                }
-                ui.menu_button(lang.tr("Nova parte (duração...)", "New part (duration...)"), |ui| {
-                    for (label, dur_ms) in [
-                        ("5 segundos", 5_000.0),
-                        ("10 segundos", 10_000.0),
-                        ("30 segundos", 30_000.0),
-                        ("1 minuto", 60_000.0),
-                        ("2 minutos", 120_000.0),
-                        ("5 minutos", 300_000.0),
-                    ] {
-                        if ui.button(label).clicked() {
-                            new_part = Some((i, dur_ms));
-                            ui.close_menu();
-                        }
-                    }
-                });
-                ui.separator();
-                if ui.button(lang.tr("Duplicar faixa", "Duplicate track")).clicked() {
-                    duplicate_track = Some(i);
-                    ui.close_menu();
-                }
-                if ui.button(lang.tr("Excluir faixa", "Delete track")).clicked() {
-                    delete_track = Some(i);
-                    ui.close_menu();
-                }
-            });
-        }
+            }
+        });
+
+        // Linha 2: Cantor / Voicebank
+        let singer_text = if track.singer.is_empty() {
+            lang.tr("Sem cantor", "No singer").to_string()
+        } else {
+            format!("🎤 {}", track.singer)
+        };
         child
             .add(
                 egui::Label::new(
-                    egui::RichText::new(&track.singer)
-                        .size(9.5)
+                    egui::RichText::new(singer_text)
+                        .size(9.0)
                         .color(theme.text_muted_c32()),
                 )
                 .truncate(),
             )
-            .on_hover_text(&track.singer);
+            .on_hover_text(if track.singer.is_empty() { "Nenhum cantor selecionado" } else { &track.singer });
 
+        // Linha 3: Controles rápidos (M, S, FX, Reorder)
         child.horizontal(|ui| {
+            // Mute
+            let (m_rect, m_resp) = ui.allocate_exact_size(Vec2::new(18.0, 15.0), egui::Sense::click());
+            if m_resp.clicked() {
+                track.mute = !track.mute;
+                changed = true;
+            }
+            let (m_bg, m_fg) = if track.mute {
+                (Color32::from_rgb(215, 55, 55), Color32::WHITE)
+            } else {
+                (theme.bg_canvas_c32(), theme.text_muted_c32())
+            };
+            ui.painter().rect_filled(m_rect, Rounding::same(3.0), m_bg);
+            ui.painter().text(m_rect.center(), egui::Align2::CENTER_CENTER, "M", egui::FontId::proportional(9.0), m_fg);
+
+            // Solo
+            let (s_rect, s_resp) = ui.allocate_exact_size(Vec2::new(18.0, 15.0), egui::Sense::click());
+            if s_resp.clicked() {
+                track.solo = !track.solo;
+                changed = true;
+            }
+            let (s_bg, s_fg) = if track.solo {
+                (Color32::from_rgb(235, 185, 45), Color32::from_rgb(20, 20, 20))
+            } else {
+                (theme.bg_canvas_c32(), theme.text_muted_c32())
+            };
+            ui.painter().rect_filled(s_rect, Rounding::same(3.0), s_bg);
+            ui.painter().text(s_rect.center(), egui::Align2::CENTER_CENTER, "S", egui::FontId::proportional(9.0), s_fg);
+
             let has_fx = track.fx_rack.is_some();
             let (fx_bg, fx_fg) = if has_fx {
                 (Color32::from_rgb(60, 140, 215), Color32::WHITE)
             } else {
                 (theme.bg_canvas_c32(), theme.text_muted_c32())
             };
-            let (fx_rect, fx_resp) = ui.allocate_exact_size(Vec2::new(24.0, 16.0), egui::Sense::click());
+            let (fx_rect, fx_resp) = ui.allocate_exact_size(Vec2::new(22.0, 15.0), egui::Sense::click());
             ui.painter().rect_filled(fx_rect, Rounding::same(3.0), fx_bg);
             ui.painter().rect_stroke(fx_rect, Rounding::same(3.0), Stroke::new(0.5_f32, theme.grid_line_sub_c32()));
-            ui.painter().text(fx_rect.center(), egui::Align2::CENTER_CENTER, "FX", egui::FontId::proportional(9.0), fx_fg);
+            ui.painter().text(fx_rect.center(), egui::Align2::CENTER_CENTER, "FX", egui::FontId::proportional(8.5), fx_fg);
             if fx_resp.clicked() {
                 fx.target_track = Some(i);
                 fx.is_open = true;
@@ -635,7 +744,7 @@ pub fn draw_arrangement_view(
                 .add(
                     egui::Label::new(
                         RichText::new("⠿")
-                            .size(12.0)
+                            .size(11.0)
                             .color(theme.text_muted_c32()),
                     )
                     .sense(egui::Sense::drag()),
@@ -766,67 +875,81 @@ pub fn draw_arrangement_view(
             .unwrap_or_else(|| track_accent_color(part.track_index, theme));
         let is_part_selected = *active == part.track_index;
         let clip_bg = if is_part_selected {
-            track_color.gamma_multiply(0.38)
+            track_color.gamma_multiply(0.28)
         } else {
-            track_color.gamma_multiply(0.24)
+            track_color.gamma_multiply(0.18)
         };
-        p.rect_filled(rect, Rounding::same(4.0), clip_bg);
+        p.rect_filled(rect, Rounding::same(6.0), clip_bg);
         p.rect_stroke(
             rect,
-            Rounding::same(4.0),
+            Rounding::same(6.0),
             Stroke::new(
-                1.0_f32,
+                if is_part_selected { 1.5_f32 } else { 1.0_f32 },
                 if is_part_selected {
                     track_color
                 } else {
-                    track_color.gamma_multiply(0.55)
+                    track_color.gamma_multiply(0.45)
                 },
             ),
         );
 
-        // Cabeçalho do clipe vocal
-        let clip_hdr_rect = Rect::from_min_size(rect.min, Vec2::new(rect.width(), 16.0));
+        // Cabeçalho do clipe vocal com nome e duração
+        let clip_hdr_rect = Rect::from_min_size(rect.min, Vec2::new(rect.width(), 17.0));
         p.rect_filled(
             clip_hdr_rect,
             Rounding {
-                nw: 4.0,
-                ne: 4.0,
+                nw: 6.0,
+                ne: 6.0,
                 sw: 0.0,
                 se: 0.0,
             },
-            track_color.gamma_multiply(0.55),
+            track_color.gamma_multiply(0.60),
         );
+        let title_label = format!("🎵 {}", part.name);
         p.text(
-            Pos2::new(clip_hdr_rect.left() + 4.0, clip_hdr_rect.center().y),
+            Pos2::new(clip_hdr_rect.left() + 5.0, clip_hdr_rect.center().y),
             egui::Align2::LEFT_CENTER,
-            &part.name,
+            title_label,
             egui::FontId::proportional(9.0),
             Color32::WHITE,
         );
         let dur_str = format_time_sec_min(duration);
+        let dur_w = dur_str.len() as f32 * 5.5 + 8.0;
+        let dur_rect = Rect::from_min_size(
+            Pos2::new(clip_hdr_rect.right() - dur_w - 3.0, clip_hdr_rect.center().y - 6.0),
+            Vec2::new(dur_w, 12.0),
+        );
+        p.rect_filled(dur_rect, Rounding::same(3.0), Color32::from_black_alpha(70));
         p.text(
-            Pos2::new(clip_hdr_rect.right() - 4.0, clip_hdr_rect.center().y),
-            egui::Align2::RIGHT_CENTER,
+            dur_rect.center(),
+            egui::Align2::CENTER_CENTER,
             dur_str,
-            egui::FontId::monospace(8.5),
+            egui::FontId::monospace(8.0),
             Color32::from_white_alpha(220),
         );
 
+        // Mini piano roll com mini notas em blocos arredondados
+        let note_w = (rect.width() / 42.0).clamp(3.5, 7.0);
         for n in &part.notes {
             let nx = rect.left()
-                + 4.0
-                + (n.midi_key() as f32 / 127.0) * (rect.width() - 8.0).max(1.0);
-            let y = rect.top() + 17.0 + n.position_ms as f32 * *zoom;
-            let note_len = (n.duration_ms as f32 * *zoom).max(2.0);
-            p.line_segment(
-                [Pos2::new(nx, y), Pos2::new(nx, y + note_len)],
-                Stroke::new(2.5_f32, Color32::from_rgb(250, 248, 240)),
+                + 6.0
+                + (n.midi_key() as f32 / 127.0) * (rect.width() - 12.0).max(1.0);
+            let y = rect.top() + 18.0 + n.position_ms as f32 * *zoom;
+            let note_len = (n.duration_ms as f32 * *zoom).max(3.0);
+            let note_rect = Rect::from_min_size(
+                Pos2::new(nx - note_w * 0.5, y),
+                Vec2::new(note_w, note_len),
+            );
+            p.rect_filled(
+                note_rect,
+                Rounding::same(1.5),
+                Color32::from_rgb(252, 250, 246),
             );
         }
 
-        // Alça inferior de redimensionamento de duração (bottom 7px)
+        // Alça inferior de redimensionamento de duração (bottom 8px)
         let bottom_handle_rect = Rect::from_min_max(
-            Pos2::new(rect.left(), rect.bottom() - 7.0),
+            Pos2::new(rect.left(), rect.bottom() - 8.0),
             rect.max,
         );
         let bottom_resp = ui
@@ -841,20 +964,17 @@ pub fn draw_arrangement_view(
                 "Drag to resize duration (double-click to fit to notes)",
             ));
 
-        let grip_w = (rect.width() * 0.35).clamp(12.0, 40.0);
-        let grip_y = rect.bottom() - 3.5;
+        let grip_w = (rect.width() * 0.35).clamp(14.0, 48.0);
+        let grip_rect = Rect::from_center_size(
+            Pos2::new(rect.center().x, rect.bottom() - 4.0),
+            Vec2::new(grip_w, 3.0),
+        );
         let grip_color = if bottom_resp.hovered() || bottom_resp.dragged() {
             theme.accent_c32()
         } else {
-            track_color.gamma_multiply(0.75)
+            track_color.gamma_multiply(0.85)
         };
-        p.line_segment(
-            [
-                Pos2::new(rect.center().x - grip_w * 0.5, grip_y),
-                Pos2::new(rect.center().x + grip_w * 0.5, grip_y),
-            ],
-            Stroke::new(2.0_f32, grip_color),
-        );
+        p.rect_filled(grip_rect, Rounding::same(1.5), grip_color);
 
         if bottom_resp.double_clicked() {
             part.duration_ms = 0.0;
@@ -876,7 +996,7 @@ pub fn draw_arrangement_view(
         // Corpo do clipe (área acima da alça inferior)
         let body_rect = Rect::from_min_max(
             rect.min,
-            Pos2::new(rect.right(), (rect.bottom() - 7.0).max(rect.top())),
+            Pos2::new(rect.right(), (rect.bottom() - 8.0).max(rect.top())),
         );
         let r = ui.interact(
             body_rect.intersect(timeline),
@@ -887,13 +1007,29 @@ pub fn draw_arrangement_view(
         if r.clicked() {
             *active = part.track_index;
         }
+        let acc_id = ui.id().with(("voice_drag_accum", i));
+        if r.drag_started() {
+            ui.ctx().data_mut(|d| d.insert_temp(acc_id, part.position_ms));
+        }
         if r.dragged() {
-            part.position_ms = move_clip_by_frame_delta(
-                part.position_ms,
-                ui.input(|inp| inp.pointer.delta().y),
-                *zoom,
-            );
+            let mut accum = ui.ctx().data_mut(|d| d.get_temp::<f64>(acc_id)).unwrap_or(part.position_ms);
+            let delta_ms = ui.input(|inp| inp.pointer.delta().y) as f64 / (*zoom).max(0.001) as f64;
+            accum = (accum + delta_ms).max(0.0);
+            ui.ctx().data_mut(|d| d.insert_temp(acc_id, accum));
+
+            let snap_ms = 60000.0 / bpm.max(1.0) * 0.5; // colcheia (1/8)
+            let bypass_snap = ui.input(|inp| inp.modifiers.shift || inp.modifiers.alt);
+            part.position_ms = if !bypass_snap && snap_ms > 0.0 {
+                ((accum / snap_ms).round() * snap_ms).max(0.0)
+            } else {
+                accum
+            };
             changed = true;
+        }
+        if r.drag_stopped() {
+            ui.ctx().data_mut(|d| {
+                d.remove_temp::<f64>(acc_id);
+            });
         }
         r.context_menu(|ui| {
             ui.label(
@@ -1047,31 +1183,37 @@ pub fn draw_arrangement_view(
             .get(w.track_index)
             .map(|t| track_color(t, w.track_index, theme))
             .unwrap_or_else(|| track_accent_color(w.track_index, theme));
-        p.rect_filled(rect, Rounding::same(4.0), track_color.gamma_multiply(0.22));
+        p.rect_filled(rect, Rounding::same(6.0), track_color.gamma_multiply(0.22));
         p.rect_stroke(
             rect,
-            Rounding::same(4.0),
+            Rounding::same(6.0),
             Stroke::new(1.0_f32, track_color.gamma_multiply(0.55)),
         );
-        let clip_hdr_rect = Rect::from_min_size(rect.min, Vec2::new(rect.width(), 16.0));
+        let clip_hdr_rect = Rect::from_min_size(rect.min, Vec2::new(rect.width(), 17.0));
         p.rect_filled(
             clip_hdr_rect,
-            Rounding { nw: 4.0, ne: 4.0, sw: 0.0, se: 0.0 },
+            Rounding { nw: 6.0, ne: 6.0, sw: 0.0, se: 0.0 },
             track_color.gamma_multiply(0.48),
         );
         p.text(
-            Pos2::new(clip_hdr_rect.left() + 4.0, clip_hdr_rect.center().y),
+            Pos2::new(clip_hdr_rect.left() + 5.0, clip_hdr_rect.center().y),
             egui::Align2::LEFT_CENTER,
-            &w.name,
+            format!("🌊 {}", w.name),
             egui::FontId::proportional(9.0),
             Color32::WHITE,
         );
         let wave_dur_str = format_time_sec_min(w.duration_ms);
+        let dur_w = wave_dur_str.len() as f32 * 5.5 + 8.0;
+        let dur_rect = Rect::from_min_size(
+            Pos2::new(clip_hdr_rect.right() - dur_w - 3.0, clip_hdr_rect.center().y - 6.0),
+            Vec2::new(dur_w, 12.0),
+        );
+        p.rect_filled(dur_rect, Rounding::same(3.0), Color32::from_black_alpha(70));
         p.text(
-            Pos2::new(clip_hdr_rect.right() - 4.0, clip_hdr_rect.center().y),
-            egui::Align2::RIGHT_CENTER,
+            dur_rect.center(),
+            egui::Align2::CENTER_CENTER,
             wave_dur_str,
-            egui::FontId::monospace(8.5),
+            egui::FontId::monospace(8.0),
             Color32::from_white_alpha(220),
         );
         if let Some(preview) = cached_waveform(&w.file_path) {
@@ -1108,10 +1250,29 @@ pub fn draw_arrangement_view(
         if r.clicked() {
             *active = w.track_index;
         }
+        let acc_id = ui.id().with(("wave_drag_accum", i));
+        if r.drag_started() {
+            ui.ctx().data_mut(|d| d.insert_temp(acc_id, w.position_ms));
+        }
         if r.dragged() {
-            w.position_ms =
-                move_clip_by_frame_delta(w.position_ms, ui.input(|i| i.pointer.delta().y), *zoom);
+            let mut accum = ui.ctx().data_mut(|d| d.get_temp::<f64>(acc_id)).unwrap_or(w.position_ms);
+            let delta_ms = ui.input(|i| i.pointer.delta().y) as f64 / (*zoom).max(0.001) as f64;
+            accum = (accum + delta_ms).max(0.0);
+            ui.ctx().data_mut(|d| d.insert_temp(acc_id, accum));
+
+            let snap_ms = 60000.0 / bpm.max(1.0) * 0.5;
+            let bypass_snap = ui.input(|i| i.modifiers.shift || i.modifiers.alt);
+            w.position_ms = if !bypass_snap && snap_ms > 0.0 {
+                ((accum / snap_ms).round() * snap_ms).max(0.0)
+            } else {
+                accum
+            };
             changed = true;
+        }
+        if r.drag_stopped() {
+            ui.ctx().data_mut(|d| {
+                d.remove_temp::<f64>(acc_id);
+            });
         }
         r.context_menu(|ui| {
             if ui.button("Duplicar").clicked() {
@@ -1150,131 +1311,133 @@ pub fn draw_arrangement_view(
         waves.remove(i);
         changed = true;
     }
-    let (splitter_rect, splitter) = ui.allocate_exact_size(
-        Vec2::new(ui.available_width(), 7.0),
-        egui::Sense::click_and_drag(),
-    );
-    let splitter = splitter
-        .on_hover_cursor(egui::CursorIcon::ResizeVertical)
-        .on_hover_text(lang.tr(
-            "Arraste para ajustar o tamanho da timeline e controles da faixa (duplo clique para redefinir)",
-            "Drag to resize timeline vs track controls (double-click to reset)",
-        ));
-    let splitter_hover = splitter.hovered() || splitter.dragged();
-    ui.painter().rect_filled(
-        splitter_rect,
-        1.0,
-        if splitter_hover {
-            theme.accent_c32().gamma_multiply(0.35)
-        } else {
-            theme.grid_line_sub_c32().gamma_multiply(0.30)
-        },
-    );
-    ui.painter().line_segment(
-        [
-            Pos2::new(splitter_rect.center().x - 20.0, splitter_rect.center().y),
-            Pos2::new(splitter_rect.center().x + 20.0, splitter_rect.center().y),
-        ],
-        Stroke::new(1.5_f32, if splitter_hover { theme.accent_c32() } else { theme.text_muted_c32() }),
-    );
-    if splitter.double_clicked() {
-        timeline_ratio = 0.55;
-        ui.ctx().data_mut(|d| d.insert_persisted(timeline_height_ratio_id, timeline_ratio));
-        ui.ctx().request_repaint();
-    } else if splitter.dragged() {
-        let delta_y = splitter.drag_delta().y;
-        let total_avail = (available_h - 78.0).max(100.0);
-        let cur_h = height + delta_y;
-        timeline_ratio = (cur_h / total_avail).clamp(0.15, 0.85);
-        ui.ctx().data_mut(|d| d.insert_persisted(timeline_height_ratio_id, timeline_ratio));
-        ui.ctx().request_repaint();
+    if show_track_mixer {
+        let (splitter_rect, splitter) = ui.allocate_exact_size(
+            Vec2::new(ui.available_width(), 7.0),
+            egui::Sense::click_and_drag(),
+        );
+        let splitter = splitter
+            .on_hover_cursor(egui::CursorIcon::ResizeVertical)
+            .on_hover_text(lang.tr(
+                "Arraste para ajustar o tamanho da timeline e controles da faixa (duplo clique para redefinir)",
+                "Drag to resize timeline vs track controls (double-click to reset)",
+            ));
+        let splitter_hover = splitter.hovered() || splitter.dragged();
+        ui.painter().rect_filled(
+            splitter_rect,
+            1.0,
+            if splitter_hover {
+                theme.accent_c32().gamma_multiply(0.35)
+            } else {
+                theme.grid_line_sub_c32().gamma_multiply(0.30)
+            },
+        );
+        ui.painter().line_segment(
+            [
+                Pos2::new(splitter_rect.center().x - 20.0, splitter_rect.center().y),
+                Pos2::new(splitter_rect.center().x + 20.0, splitter_rect.center().y),
+            ],
+            Stroke::new(1.5_f32, if splitter_hover { theme.accent_c32() } else { theme.text_muted_c32() }),
+        );
+        if splitter.double_clicked() {
+            timeline_ratio = 0.55;
+            ui.ctx().data_mut(|d| d.insert_persisted(timeline_height_ratio_id, timeline_ratio));
+            ui.ctx().request_repaint();
+        } else if splitter.dragged() {
+            let delta_y = splitter.drag_delta().y;
+            let total_avail = (available_h - 78.0).max(100.0);
+            let cur_h = height + delta_y;
+            timeline_ratio = (cur_h / total_avail).clamp(0.15, 0.85);
+            ui.ctx().data_mut(|d| d.insert_persisted(timeline_height_ratio_id, timeline_ratio));
+            ui.ctx().request_repaint();
+        }
+        egui::ScrollArea::vertical()
+            .id_salt("arrangement_lower_controls")
+            .max_height(lower_height)
+            .auto_shrink([false, true])
+            .show(ui, |ui| {
+                let (controls_area, _) = ui
+                    .allocate_exact_size(Vec2::new(ui.available_width(), 166.0), egui::Sense::hover());
+                let any_solo = tracks.iter().any(|track| track.solo);
+                for (i, track) in tracks.iter_mut().enumerate() {
+                    let width = widths[i];
+                    let x = timeline.left() + offsets[i] - *scroll_x;
+                    if x + width < timeline.left() || x > area.right() {
+                        continue;
+                    }
+                    let controls =
+                        Rect::from_min_size(Pos2::new(x, controls_area.top()), Vec2::new(width, 166.0));
+                    let mut child = ui.new_child(
+                        egui::UiBuilder::new()
+                            .id_salt(("track_controls", i))
+                            .max_rect(controls)
+                            .layout(egui::Layout::top_down(egui::Align::Min)),
+                    );
+                    child.set_clip_rect(controls.intersect(controls_area).intersect(ui.clip_rect()));
+                    child.spacing_mut().slider_width = width - 16.0;
+                    child.horizontal(|ui| {
+                        changed |= draw_track_mute_btn(ui, &mut track.mute, theme);
+                        changed |= draw_track_solo_btn(ui, &mut track.solo, theme);
+                    });
+                    child.add_space(2.0);
+                    child.horizontal(|ui| {
+                        ui.label(RichText::new(lang.tr("VOL", "VOL")).size(9.0).color(theme.text_muted_c32()));
+                        let vol_str = if track.volume_db <= -59.0 {
+                            "-∞ dB".to_string()
+                        } else {
+                            format!("{:+.1} dB", track.volume_db).replace('-', "−").replace('.', ",")
+                        };
+                        ui.label(RichText::new(vol_str).size(9.0).monospace().color(theme.text_primary_c32()));
+                    });
+                    changed |= child
+                        .add(egui::Slider::new(&mut track.volume_db, -60.0..=12.0).show_value(false))
+                        .on_hover_text(format!("{:.1} dB", track.volume_db))
+                        .changed();
+
+                    child.horizontal(|ui| {
+                        ui.label(RichText::new(lang.tr("PAN", "PAN")).size(9.0).color(theme.text_muted_c32()));
+                        let pan_str = if track.pan.abs() < 0.03 {
+                            "C".to_string()
+                        } else if track.pan < 0.0 {
+                            format!("L{:.0}%", -track.pan * 100.0)
+                        } else {
+                            format!("R{:.0}%", track.pan * 100.0)
+                        };
+                        ui.label(RichText::new(pan_str).size(9.0).monospace().color(theme.text_primary_c32()));
+                    });
+                    changed |= child
+                        .add(egui::Slider::new(&mut track.pan, -1.0..=1.0).show_value(false))
+                        .on_hover_text(format!("Pan {:.2}", track.pan))
+                        .changed();
+
+                    let audible = !track.mute && (!any_solo || track.solo);
+                    let pan = track.pan.clamp(-1.0, 1.0) as f32;
+                    let pan_gain = if pan < 0.0 { (1.0 + pan).sqrt() } else { (1.0 - pan).sqrt() };
+                    let level = if audible {
+                        waves
+                            .iter()
+                            .filter(|w| w.track_index == i)
+                            .filter_map(|w| audio_part_level(w, track, *playhead))
+                            .fold(0.0, f32::max) * pan_gain
+                    } else {
+                        0.0
+                    };
+                    let meter = &mut meters[i];
+                    if playing {
+                        meter.level = meter.level.max(level);
+                        meter.peak = meter.peak.max(meter.level);
+                    }
+                    let level = if playing { meter.level } else { 0.0 };
+                    child.label(RichText::new(lang.tr("NÍVEL", "LEVEL")).size(9.0).color(theme.text_muted_c32()));
+                    draw_vu_meter_led(&mut child, level, meter.peak, width - 12.0, theme);
+                }
+                egui::CollapsingHeader::new("EQ global")
+                    .default_open(true)
+                    .show(ui, |ui| {
+                        changed |= draw_eq(ui, theme, master);
+                    });
+            });
     }
-    egui::ScrollArea::vertical()
-        .id_salt("arrangement_lower_controls")
-        .max_height(lower_height)
-        .auto_shrink([false, true])
-        .show(ui, |ui| {
-            let (controls_area, _) = ui
-                .allocate_exact_size(Vec2::new(ui.available_width(), 166.0), egui::Sense::hover());
-            let any_solo = tracks.iter().any(|track| track.solo);
-            for (i, track) in tracks.iter_mut().enumerate() {
-                let width = widths[i];
-                let x = timeline.left() + offsets[i] - *scroll_x;
-                if x + width < timeline.left() || x > area.right() {
-                    continue;
-                }
-                let controls =
-                    Rect::from_min_size(Pos2::new(x, controls_area.top()), Vec2::new(width, 166.0));
-                let mut child = ui.new_child(
-                    egui::UiBuilder::new()
-                        .id_salt(("track_controls", i))
-                        .max_rect(controls)
-                        .layout(egui::Layout::top_down(egui::Align::Min)),
-                );
-                child.set_clip_rect(controls.intersect(controls_area).intersect(ui.clip_rect()));
-                child.spacing_mut().slider_width = width - 16.0;
-                child.horizontal(|ui| {
-                    changed |= draw_track_mute_btn(ui, &mut track.mute, theme);
-                    changed |= draw_track_solo_btn(ui, &mut track.solo, theme);
-                });
-                child.add_space(2.0);
-                child.horizontal(|ui| {
-                    ui.label(RichText::new(lang.tr("VOL", "VOL")).size(9.0).color(theme.text_muted_c32()));
-                    let vol_str = if track.volume_db <= -59.0 {
-                        "-∞ dB".to_string()
-                    } else {
-                        format!("{:+.1} dB", track.volume_db).replace('-', "−").replace('.', ",")
-                    };
-                    ui.label(RichText::new(vol_str).size(9.0).monospace().color(theme.text_primary_c32()));
-                });
-                changed |= child
-                    .add(egui::Slider::new(&mut track.volume_db, -60.0..=12.0).show_value(false))
-                    .on_hover_text(format!("{:.1} dB", track.volume_db))
-                    .changed();
-
-                child.horizontal(|ui| {
-                    ui.label(RichText::new(lang.tr("PAN", "PAN")).size(9.0).color(theme.text_muted_c32()));
-                    let pan_str = if track.pan.abs() < 0.03 {
-                        "C".to_string()
-                    } else if track.pan < 0.0 {
-                        format!("L{:.0}%", -track.pan * 100.0)
-                    } else {
-                        format!("R{:.0}%", track.pan * 100.0)
-                    };
-                    ui.label(RichText::new(pan_str).size(9.0).monospace().color(theme.text_primary_c32()));
-                });
-                changed |= child
-                    .add(egui::Slider::new(&mut track.pan, -1.0..=1.0).show_value(false))
-                    .on_hover_text(format!("Pan {:.2}", track.pan))
-                    .changed();
-
-                let audible = !track.mute && (!any_solo || track.solo);
-                let pan = track.pan.clamp(-1.0, 1.0) as f32;
-                let pan_gain = if pan < 0.0 { (1.0 + pan).sqrt() } else { (1.0 - pan).sqrt() };
-                let level = if audible {
-                    waves
-                        .iter()
-                        .filter(|w| w.track_index == i)
-                        .filter_map(|w| audio_part_level(w, track, *playhead))
-                        .fold(0.0, f32::max) * pan_gain
-                } else {
-                    0.0
-                };
-                let meter = &mut meters[i];
-                if playing {
-                    meter.level = meter.level.max(level);
-                    meter.peak = meter.peak.max(meter.level);
-                }
-                let level = if playing { meter.level } else { 0.0 };
-                child.label(RichText::new(lang.tr("NÍVEL", "LEVEL")).size(9.0).color(theme.text_muted_c32()));
-                draw_vu_meter_led(&mut child, level, meter.peak, width - 12.0, theme);
-            }
-            egui::CollapsingHeader::new("EQ global")
-                .default_open(true)
-                .show(ui, |ui| {
-                    changed |= draw_eq(ui, theme, master);
-                });
-        });
     if let Some((i, dur)) = new_part {
         let mut p = UVoicePart::new(format!("Parte vocal {}", parts.len() + 1), i);
         p.position_ms = *playhead;
@@ -1346,6 +1509,18 @@ pub fn draw_arrangement_view(
         ],
         Stroke::new(2.0_f32, theme.playhead_c32()),
     );
+    if y >= timeline.top() && y <= timeline.bottom() {
+        let tri = vec![
+            Pos2::new(timeline.left(), y - 4.5),
+            Pos2::new(timeline.left() + 7.0, y),
+            Pos2::new(timeline.left(), y + 4.5),
+        ];
+        painter.with_clip_rect(area).add(egui::Shape::convex_polygon(
+            tri,
+            theme.playhead_c32(),
+            Stroke::NONE,
+        ));
+    }
     changed
 }
 

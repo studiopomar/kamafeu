@@ -449,7 +449,7 @@ impl TrackRenderer {
                 phone.find_entry(voicebank).is_none_or(|entry| {
                     let path = voicebank.root_path.join(&entry.wav_filename);
                     if LAZY_WAV_LOADING.load(Ordering::Relaxed) {
-                        !path.is_file()
+                        !path.is_file() || crate::audio::loader::probe_audio_file(&path).is_none()
                     } else {
                         wav_cache.get(&path).is_none_or(|audio| audio.0.is_empty())
                     }
@@ -477,7 +477,7 @@ impl TrackRenderer {
                 Some(entry) => {
                     let path = voicebank.root_path.join(&entry.wav_filename);
                     let available = if LAZY_WAV_LOADING.load(Ordering::Relaxed) {
-                        path.is_file()
+                        path.is_file() && crate::audio::loader::probe_audio_file(&path).is_some()
                     } else {
                         wav_cache
                             .get(&path)

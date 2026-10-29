@@ -28,6 +28,7 @@ fn horizontal_gesture_delta(delta: Vec2, shift: bool) -> f32 {
     delta.x + if shift { delta.y } else { 0.0 }
 }
 
+#[allow(dead_code)]
 fn move_clip_by_frame_delta(position_ms: f64, delta_x: f32, px_per_ms: f32) -> f64 {
     (position_ms + (delta_x / px_per_ms.max(f32::EPSILON)) as f64).max(0.0)
 }
