@@ -657,6 +657,7 @@ impl VccvBrapaPhonemizer {
                         flags: note.flags.clone(),
                         resolved_alias: None,
                         resolved_timbre: None,
+                        coda_truncation: false,
                     });
                 } else {
                     let mut total_trans_dur = 0.0;
@@ -736,6 +737,7 @@ impl VccvBrapaPhonemizer {
                                 flags: note.flags.clone(),
                                 resolved_alias: None,
                                 resolved_timbre: None,
+                        coda_truncation: false,
                             });
                             trans_pos += dur;
                         }
@@ -765,6 +767,7 @@ impl VccvBrapaPhonemizer {
                             flags: note.flags.clone(),
                             resolved_alias: None,
                             resolved_timbre: None,
+                        coda_truncation: false,
                         });
                     } else {
                         if let Some(last_p) = note_phones.last_mut() {
@@ -799,6 +802,7 @@ impl VccvBrapaPhonemizer {
                                 flags: note.flags.clone(),
                                 resolved_alias: None,
                                 resolved_timbre: None,
+                        coda_truncation: false,
                             });
                             trans_pos += dur;
                         }
@@ -828,6 +832,7 @@ impl VccvBrapaPhonemizer {
                             flags: note.flags.clone(),
                             resolved_alias: None,
                             resolved_timbre: None,
+                        coda_truncation: false,
                         });
                     }
                 }
@@ -876,6 +881,7 @@ impl VccvBrapaPhonemizer {
                                     flags: note.flags.clone(),
                                     resolved_alias: None,
                                     resolved_timbre: None,
+                        coda_truncation: false,
                                 });
                             }
                         }

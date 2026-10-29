@@ -25,6 +25,7 @@ fn frame(
                     0.0,
                     &[],
                     &[],
+                    &mut Vec::new(),
                     state,
                     &ThemeConfig::default(),
                     None,

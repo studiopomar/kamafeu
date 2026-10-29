@@ -488,6 +488,7 @@ pub fn draw_vowel_formant_editor(
     nasality: &mut f64,
     singers_formant: &mut f64,
     playback: Option<PlaybackFormantState>,
+    animate_controls: bool,
 ) -> bool {
     let mut changed = false;
     let base_symbol = infer_base_vowel_symbol(query_alias);
@@ -666,6 +667,11 @@ pub fn draw_vowel_formant_editor(
             let chart_h = (avail_w * 0.62).clamp(142.0, 196.0);
             let (chart_rect, chart_resp) =
                 ui.allocate_exact_size(Vec2::new(avail_w, chart_h), Sense::click_and_drag());
+            let animation_time = ui.input(|input| input.time);
+            if animate_controls {
+                ui.ctx()
+                    .request_repaint_after(std::time::Duration::from_millis(33));
+            }
 
             let mut target_f1 = (src_f1 * *f1_ratio).clamp(F1_MIN_HZ, F1_MAX_HZ);
             let mut target_f2 = (src_f2 * *f2_ratio).clamp(F2_MIN_HZ, F2_MAX_HZ);
@@ -836,10 +842,20 @@ pub fn draw_vowel_formant_editor(
                 .unwrap_or(canonical);
 
             // Draw all target vowels with distinct category colors
-            for v in BRAPA_VOWEL_TARGETS {
+            for (index, v) in BRAPA_VOWEL_TARGETS.iter().enumerate() {
                 let vf1 = (v.f1_hz * singer_scale_f1).clamp(F1_MIN_HZ, F1_MAX_HZ);
                 let vf2 = (v.f2_hz * singer_scale_f2).clamp(F2_MIN_HZ, F2_MAX_HZ);
                 let vpos = formant_to_pos(chart_rect, vf1, vf2);
+                let phase = animation_time * 1.35 + index as f64 * 0.91;
+                let dance = if animate_controls {
+                    Vec2::new(
+                        (phase.sin() * 2.8 + (phase * 0.63).cos() * 1.0) as f32,
+                        ((phase * 0.82).cos() * 2.4 + (phase * 0.51).sin() * 0.8) as f32,
+                    )
+                } else {
+                    Vec2::ZERO
+                };
+                let animated_pos = vpos + dance;
                 let is_closest = v.symbol == closest_vowel.symbol;
 
                 let (dot_col, text_col) = match v.category {
@@ -861,9 +877,24 @@ pub fn draw_vowel_formant_editor(
                     }
                 };
 
-                painter.circle_filled(vpos, if is_closest { 3.4 } else { 2.2 }, dot_col);
+                if animate_controls {
+                    let breathe = ((phase * 0.72).sin() * 0.5 + 0.5) as f32;
+                    painter.circle_stroke(
+                        animated_pos,
+                        4.0 + breathe * 1.8,
+                        Stroke::new(
+                            0.8_f32,
+                            dot_col.gamma_multiply(0.25 + breathe * 0.25),
+                        ),
+                    );
+                }
+                painter.circle_filled(
+                    animated_pos,
+                    if is_closest { 3.4 } else { 2.2 },
+                    dot_col,
+                );
                 painter.text(
-                    Pos2::new(vpos.x, vpos.y - 8.5),
+                    Pos2::new(animated_pos.x, animated_pos.y - 8.5),
                     egui::Align2::CENTER_CENTER,
                     v.display_label,
                     FontId::monospace(if is_closest { 11.0 } else { 9.0 }),

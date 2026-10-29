@@ -532,27 +532,37 @@ pub fn draw_unified_toolbar(
                         (
                             EditTool::Pointer,
                             "Pnt",
-                            lang.tr("Selecionar / Mover (V)", "Select / Move (V)"),
+                            lang.tr("Selecionar / Mover (1 / V)", "Select / Move (1 / V)"),
                         ),
                         (
                             EditTool::Pencil,
                             "Pen",
-                            lang.tr("Inserir / Desenhar Nota (N)", "Insert / Draw Note (N)"),
+                            lang.tr("Inserir / Desenhar Nota (2 / N)", "Insert / Draw Note (2 / N)"),
+                        ),
+                        (
+                            EditTool::Brush,
+                            "Bru",
+                            lang.tr("Pincel Contínuo Quantizado (3 / B)", "Continuous Quantized Brush (3 / B)"),
                         ),
                         (
                             EditTool::PitchDraw,
                             "Pit",
-                            lang.tr("Desenhar Pitch / Curva (P)", "Draw Pitch / Curve (P)"),
+                            lang.tr("Desenhar Pitch / Curva (4 / P)", "Draw Pitch / Curve (4 / P)"),
                         ),
                         (
                             EditTool::Slice,
                             "Cut",
-                            lang.tr("Cortar / Dividir Nota (C)", "Cut / Split Note (C)"),
+                            lang.tr("Cortar / Dividir Nota (5 / C)", "Cut / Split Note (5 / C)"),
                         ),
                         (
                             EditTool::Eraser,
                             "Del",
-                            lang.tr("Apagar Notas (E)", "Delete Notes (E)"),
+                            lang.tr("Apagar Notas (6 / E)", "Delete Notes (6 / E)"),
+                        ),
+                        (
+                            EditTool::Annotation,
+                            "Ann",
+                            lang.tr("Anotações e Desenhos (7 / D)", "Annotations & Drawing (7 / D)"),
                         ),
                     ];
 

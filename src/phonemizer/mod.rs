@@ -420,6 +420,10 @@ pub struct RenderPhone {
     pub resolved_alias: Option<String>,
     /// Timbre/subbank used to resolve `resolved_alias`, for diagnostics.
     pub resolved_timbre: Option<String>,
+    /// Indicates that this phone was borrowed from a CV/VCV syllable to extract
+    /// a terminal coda consonant (e.g. borrowing `e sa` for coda `s`), requiring
+    /// truncation of the trailing vowel in rendering.
+    pub coda_truncation: bool,
 }
 
 impl RenderPhone {
@@ -668,6 +672,67 @@ impl JapanesePhonemizer {
                         normalized_notes.push((orig_idx, fallback_note));
                         continue;
                     }
+                }
+            }
+
+            // Intra-note multi-phoneme split (ex: "ko.e.s", "ko;e;s", "ko,e,s")
+            if mode != PhonemizerMode::None
+                && (lyric_trimmed.contains('.')
+                    || lyric_trimmed.contains(';')
+                    || lyric_trimmed.contains(','))
+            {
+                let parts: Vec<&str> = lyric_trimmed
+                    .split(['.', ';', ','])
+                    .map(str::trim)
+                    .filter(|s| !s.is_empty())
+                    .collect();
+
+                if parts.len() > 1 {
+                    let num_parts = parts.len();
+                    let durations = if note.phoneme_durations_ms.len() == num_parts {
+                        note.resolved_phoneme_durations(num_parts)
+                    } else {
+                        let last_part = parts[num_parts - 1];
+                        let is_last_coda = last_part.len() <= 2
+                            && ![
+                                "a", "i", "u", "e", "o", "n", "nn", "あ", "い", "う", "え", "お",
+                                "ん",
+                            ]
+                            .contains(&last_part);
+
+                        let coda_dur = if is_last_coda {
+                            (note.duration_ms * 0.25).clamp(40.0, 90.0)
+                        } else {
+                            note.duration_ms / num_parts as f64
+                        };
+
+                        let remaining_dur = (note.duration_ms
+                            - if is_last_coda { coda_dur } else { 0.0 })
+                        .max(10.0);
+                        let prior_count = if is_last_coda {
+                            num_parts - 1
+                        } else {
+                            num_parts
+                        };
+                        let per_prior = remaining_dur / prior_count.max(1) as f64;
+
+                        let mut res = vec![per_prior; num_parts];
+                        if is_last_coda {
+                            res[num_parts - 1] = coda_dur;
+                        }
+                        res
+                    };
+
+                    let mut sub_pos = note.position_ms;
+                    for (i, part) in parts.into_iter().enumerate() {
+                        let mut sub_note = note.clone();
+                        sub_note.lyric = part.to_string();
+                        sub_note.position_ms = sub_pos;
+                        sub_note.duration_ms = durations[i];
+                        normalized_notes.push((orig_idx, sub_note));
+                        sub_pos += durations[i];
+                    }
+                    continue;
                 }
             }
 
@@ -1012,6 +1077,7 @@ impl JapanesePhonemizer {
                             flags: note.flags.clone(),
                             resolved_alias: None,
                             resolved_timbre: None,
+                            coda_truncation: false,
                         });
                         sub_position_ms += sub_duration_ms;
                     }
@@ -1032,6 +1098,7 @@ impl JapanesePhonemizer {
                 flags: note.flags.clone(),
                 resolved_alias: None,
                 resolved_timbre: None,
+                coda_truncation: false,
             });
         }
         phones
@@ -1114,6 +1181,7 @@ impl JapanesePhonemizer {
                                     flags: note.flags.clone(),
                                     resolved_alias: None,
                                     resolved_timbre: None,
+                                    coda_truncation: false,
                                 });
                             }
                         }
@@ -1144,6 +1212,7 @@ impl JapanesePhonemizer {
                     flags: note.flags.clone(),
                     resolved_alias: None,
                     resolved_timbre: None,
+                    coda_truncation: false,
                 });
             }
             if cvvc {
@@ -1824,6 +1893,82 @@ impl JapanesePhonemizer {
         CoreJapanesePhonemizer::apply_japanese(notes, vb, mode)
     }
 
+    pub fn find_coda_fallback_entry<'a>(
+        vb: &'a Voicebank,
+        prev_vowel: &str,
+        consonant: &str,
+        pitch_name: &str,
+    ) -> Option<(&'a crate::oto::OtoEntry, bool)> {
+        let cons = consonant.trim();
+        let pv = prev_vowel.trim();
+        if cons.is_empty() {
+            return None;
+        }
+
+        // 1. Candidatos diretos de coda
+        let direct_candidates = if !pv.is_empty() {
+            vec![
+                format!("{pv} {cons}"),
+                format!("{pv}_{cons}"),
+                format!("{pv}-{cons}"),
+                format!("{pv} {cons}・"),
+                format!("_{cons}"),
+                cons.to_string(),
+            ]
+        } else {
+            vec![cons.to_string(), format!("- {cons}")]
+        };
+
+        for cand in &direct_candidates {
+            if let Some(entry) = vb.find_mapped_entry(cand, pitch_name) {
+                return Some((entry, false));
+            }
+        }
+
+        // 2. Fallback de Coda Truncation para voicebanks sem alias VC puro
+        let syllables: &[&str] = match cons {
+            "s" => &["sa", "se", "su", "so", "si", "さ", "せ", "す", "そ", "し"],
+            "k" => &["ka", "ke", "ku", "ko", "ki", "か", "け", "く", "こ", "き"],
+            "t" => &["ta", "te", "to", "tsu", "chi", "た", "て", "と", "つ", "ち"],
+            "p" => &["pa", "pe", "pu", "po", "pi", "ぱ", "ぺ", "ぷ", "ぽ", "pi", "ぴ"],
+            "f" | "h" => &["ha", "he", "fu", "ho", "hi", "fa", "fe", "fo", "fi", "は", "へ", "ふ", "ほ", "ひ"],
+            "m" => &["ma", "me", "mu", "mo", "mi", "ま", "me", "mu", "mo", "mi", "ま", "め", "む", "も", "み"],
+            "n" => &["na", "ne", "nu", "no", "ni", "n", "ん", "な", "ね", "ぬ", "の", "に"],
+            "r" | "l" => &["ra", "re", "ru", "ro", "ri", "la", "le", "lu", "lo", "li", "ら", "れ", "る", "ろ", "り"],
+            "z" | "j" => &["za", "ze", "zu", "zo", "ji", "ざ", "ぜ", "ず", "ぞ", "じ"],
+            "b" => &["ba", "be", "bu", "bo", "bi", "ば", "べ", "ぶ", "ぼ", "び"],
+            "d" => &["da", "de", "do", "だ", "で", "ど"],
+            "g" => &["ga", "ge", "gu", "go", "gi", "が", "げ", "ぐ", "ご", "ぎ"],
+            "sh" => &["sha", "she", "shu", "sho", "shi", "しゃ", "しぇ", "しゅ", "しょ", "し"],
+            "ch" => &["cha", "che", "chu", "cho", "chi", "ちゃ", "ちぇ", "ちゅ", "ちょ", "ち"],
+            "ts" => &["tsa", "tse", "tsu", "tso", "tsi", "つ"],
+            _ => &[],
+        };
+
+        if !pv.is_empty() {
+            for syl in syllables {
+                let vcv_cands = [
+                    format!("{pv} {syl}"),
+                    format!("{pv}_{syl}"),
+                    format!("{pv}-{syl}"),
+                ];
+                for cand in &vcv_cands {
+                    if let Some(entry) = vb.find_mapped_entry(cand, pitch_name) {
+                        return Some((entry, true));
+                    }
+                }
+            }
+        }
+
+        for syl in syllables {
+            if let Some(entry) = vb.find_mapped_entry(syl, pitch_name) {
+                return Some((entry, true));
+            }
+        }
+
+        None
+    }
+
     /// Port of OpenUtau's legacy `JapaneseVCVPhonemizer.Process` candidate
     /// order.  This intentionally does not use the larger Kamafeu presamp
     /// resolver: presamp is a different OpenUtau phonemizer and must not
@@ -1868,16 +2013,38 @@ impl JapanesePhonemizer {
                 }
             }
 
-            let entry = candidates
+            let mut coda_trunc = false;
+            let mut entry = candidates
                 .iter()
                 .find_map(|candidate| vb.find_mapped_entry(candidate, &note.pitch));
+
+            if entry.is_none() {
+                if let Some(pv) = previous_vowel.as_deref() {
+                    if let Some((fallback, is_trunc)) =
+                        Self::find_coda_fallback_entry(vb, pv, lyric, &note.pitch)
+                    {
+                        entry = Some(fallback);
+                        coda_trunc = is_trunc;
+                    }
+                } else if let Some((fallback, is_trunc)) =
+                    Self::find_coda_fallback_entry(vb, "", lyric, &note.pitch)
+                {
+                    entry = Some(fallback);
+                    coda_trunc = is_trunc;
+                }
+            }
+
             let alias = entry
                 .map(|entry| entry.alias.clone())
                 .unwrap_or_else(|| lyric.to_string());
             let current_vowel = Self::extract_vowel(lyric).map(str::to_owned);
             phones.push(RenderPhone {
                 note_index,
-                lyric: alias.clone(),
+                lyric: if coda_trunc && previous_vowel.is_some() {
+                    format!("{} {}", previous_vowel.as_deref().unwrap(), lyric)
+                } else {
+                    alias.clone()
+                },
                 pitch: note.pitch.clone(),
                 position_ms: note.position_ms,
                 duration_ms: note.duration_ms,
@@ -1888,6 +2055,7 @@ impl JapanesePhonemizer {
                 flags: note.flags.clone(),
                 resolved_alias: entry.map(|entry| entry.alias.clone()),
                 resolved_timbre: note.timbre.clone(),
+                coda_truncation: coda_trunc,
             });
             previous_vowel = current_vowel;
             previous_end_ms = Some(note.position_ms + note.duration_ms);
@@ -1970,6 +2138,7 @@ impl JapanesePhonemizer {
                 flags: note.flags.clone(),
                 resolved_alias: entry.map(|entry| entry.alias.clone()),
                 resolved_timbre: note.timbre.clone(),
+                coda_truncation: false,
             });
             previous_vowel = current_vowel;
             previous_end_ms = Some(note.position_ms + note.duration_ms);
@@ -2001,6 +2170,7 @@ impl JapanesePhonemizer {
                 flags: note.flags.clone(),
                 resolved_alias: Some(alias),
                 resolved_timbre: note.timbre.clone(),
+                coda_truncation: false,
             }
         }
 
@@ -2243,6 +2413,7 @@ impl JapanesePhonemizer {
                                         flags: note.flags.clone(),
                                         resolved_alias: None,
                                         resolved_timbre: None,
+                                        coda_truncation: false,
                                     });
                                 }
                             }
@@ -2323,6 +2494,7 @@ impl JapanesePhonemizer {
                     flags: note.flags.clone(),
                     resolved_alias: None,
                     resolved_timbre: None,
+                    coda_truncation: false,
                 });
             }
 
@@ -2404,6 +2576,7 @@ impl JapanesePhonemizer {
                     flags: note.flags.clone(),
                     resolved_alias: None,
                     resolved_timbre: note.timbre.clone(),
+                    coda_truncation: false,
                 });
             }
 
@@ -2423,6 +2596,7 @@ impl JapanesePhonemizer {
                     flags: note.flags.clone(),
                     resolved_alias: None,
                     resolved_timbre: note.timbre.clone(),
+                    coda_truncation: false,
                 });
             }
 
@@ -2532,6 +2706,7 @@ impl JapanesePhonemizer {
                                         flags: note.flags.clone(),
                                         resolved_alias: None,
                                         resolved_timbre: None,
+                                        coda_truncation: false,
                                     });
                                 }
                             }
@@ -2560,6 +2735,7 @@ impl JapanesePhonemizer {
                     flags: note.flags.clone(),
                     resolved_alias: None,
                     resolved_timbre: None,
+                    coda_truncation: false,
                 });
             }
 
@@ -2896,6 +3072,7 @@ mod tests {
             flags: String::new(),
             resolved_alias: Some("a_missing".to_string()),
             resolved_timbre: Some("Soft".to_string()),
+            coda_truncation: false,
         };
         assert!(phone.find_entry(&vb).is_none());
     }
@@ -3417,5 +3594,78 @@ mod tests {
             PhonemizerMode::FrenchG2P.info().source,
             "OpenUtau (portado)"
         );
+    }
+
+    #[test]
+    fn test_intra_note_split_ko_e_s_with_coda_truncation() {
+        let mut entries = std::collections::HashMap::new();
+        // Em um voicebank VCV tradicional japonês, "e s" não existe, mas "e sa" existe
+        entries.insert(
+            "- ko".to_string(),
+            crate::oto::OtoEntry {
+                alias: "- ko".to_string(),
+                wav_filename: "ko.wav".to_string(),
+                offset: 10.0,
+                consonant: 50.0,
+                cutoff: -120.0,
+                preutterance: 30.0,
+                overlap: 15.0,
+                ..Default::default()
+            },
+        );
+        entries.insert(
+            "o e".to_string(),
+            crate::oto::OtoEntry {
+                alias: "o e".to_string(),
+                wav_filename: "oe.wav".to_string(),
+                offset: 10.0,
+                consonant: 40.0,
+                cutoff: -100.0,
+                preutterance: 25.0,
+                overlap: 10.0,
+                ..Default::default()
+            },
+        );
+        entries.insert(
+            "e sa".to_string(),
+            crate::oto::OtoEntry {
+                alias: "e sa".to_string(),
+                wav_filename: "esa.wav".to_string(),
+                offset: 10.0,
+                consonant: 60.0,
+                cutoff: -150.0,
+                preutterance: 35.0,
+                overlap: 12.0,
+                ..Default::default()
+            },
+        );
+
+        let vb = Voicebank {
+            root_path: std::path::PathBuf::from("/tmp"),
+            name: "VCV Voicebank".to_string(),
+            author: "Author".to_string(),
+            character_info: String::new(),
+            readme_info: String::new(),
+            image_path: None,
+            entries,
+            case_insensitive_entries: Default::default(),
+            prefix_map: crate::oto::PrefixMap::default(),
+            temp_dir: None,
+        };
+
+        let note = UNote::new("ko.e.s", "C4", 1000.0, 480.0);
+        let phones = JapanesePhonemizer::apply_phonemizer(&[note], &vb, PhonemizerMode::VCV);
+
+        assert_eq!(phones.len(), 3, "Deveria decompor ko.e.s em 3 fonemas intra-nota: {:?}", phones);
+        assert_eq!(phones[0].note_index, 0);
+        assert_eq!(phones[0].lyric, "- ko");
+
+        assert_eq!(phones[1].note_index, 0);
+        assert_eq!(phones[1].lyric, "o e");
+
+        assert_eq!(phones[2].note_index, 0);
+        assert_eq!(phones[2].lyric, "e s");
+        assert_eq!(phones[2].resolved_alias.as_deref(), Some("e sa"));
+        assert!(phones[2].coda_truncation, "Deveria ter coda_truncation ativado");
     }
 }

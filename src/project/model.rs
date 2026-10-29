@@ -879,6 +879,36 @@ pub struct UProject {
     pub markers: Vec<UProjectMarker>,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub sections: Vec<UProjectSection>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub annotations: Vec<UPianoRollAnnotation>,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct UPianoRollAnnotation {
+    pub id: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub track_index: Option<usize>,
+    pub kind: AnnotationKind,
+    #[serde(default)]
+    pub created_at_ms: f64,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "type")]
+pub enum AnnotationKind {
+    Drawing {
+        points: Vec<(f64, f64)>, // (time_ms, midi_pitch)
+        color: [u8; 4],
+        width: f32,
+        #[serde(default)]
+        is_highlighter: bool,
+    },
+    TextNote {
+        time_ms: f64,
+        midi_pitch: f64,
+        text: String,
+        color: [u8; 4],
+    },
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -949,6 +979,7 @@ impl Default for UProject {
             wave_parts: Vec::new(),
             markers: Vec::new(),
             sections: Vec::new(),
+            annotations: Vec::new(),
         }
     }
 }
@@ -1009,6 +1040,19 @@ impl UProject {
         for section in &mut self.sections {
             section.start_ms *= time_scale;
             section.end_ms *= time_scale;
+        }
+        for annotation in &mut self.annotations {
+            annotation.created_at_ms *= time_scale;
+            match &mut annotation.kind {
+                AnnotationKind::Drawing { points, .. } => {
+                    for pt in points {
+                        pt.0 *= time_scale;
+                    }
+                }
+                AnnotationKind::TextNote { time_ms, .. } => {
+                    *time_ms *= time_scale;
+                }
+            }
         }
 
         self.bpm = new_bpm;

@@ -102,3 +102,4 @@ yarn-error.log*
 ._*
 Thumbs.db
 Desktop.ini
+.openclaude/

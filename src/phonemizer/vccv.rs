@@ -123,6 +123,7 @@ fn phone_with_pitch(
         flags: note.flags.clone(),
         resolved_alias: None,
         resolved_timbre: None,
+        coda_truncation: false,
     }
 }
 

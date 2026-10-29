@@ -47,7 +47,7 @@ impl GridSnapOption {
                     beat_ms / 32.0, // 1/128
                 ];
                 let px_zoom = (px_per_ms as f64).max(0.001);
-                let min_px = 18.0;
+                let min_px = 30.0;
                 let mut chosen = candidates[0];
                 for &cand in &candidates {
                     if cand * px_zoom >= min_px {
@@ -217,9 +217,20 @@ pub enum EditTool {
     #[default]
     Pointer, // Select / Move / Resize
     Pencil,    // Draw new notes
+    Brush,     // Continuous note brush (paint consecutive quantized notes on drag)
     PitchDraw, // Draw pitch curve splines
     Slice,     // Split note into two
     Eraser,    // Delete notes
+    Annotation, // Annotations / freehand drawings on piano roll
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum AnnotationSubTool {
+    #[default]
+    Pen,         // Opaque ink pen
+    Highlighter, // Translucent highlighter marker
+    TextNote,    // Sticky note / text callout
+    Eraser,      // Erase annotation strokes
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]

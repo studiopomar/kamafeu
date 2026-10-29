@@ -4,7 +4,7 @@ mod phone_result;
 mod phrase_pitch;
 mod slots;
 mod wav_io;
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, OnceLock, RwLock};
 use std::time::Instant;
@@ -313,6 +313,8 @@ impl TrackRenderer {
             crate::phonemizer::PhonemizerMode::BasicCV
         };
         let mix_strategy = wavtool_driver.mix_strategy();
+        let preview_skip_failed_phones = vocal_mode
+            .is_some_and(|options| options.preview_skip_failed_phones);
         log(
             0.0,
             &format!(
@@ -599,7 +601,11 @@ impl TrackRenderer {
                 .ok_or_else(|| format!("Alias indisponível: {}", phone.lyric))?;
             let offset_ms = entry.offset + phone.expressions.start_point_ms.unwrap_or(0.0).max(0.0);
             let consonant_ms = entry.consonant;
-            let cutoff_ms = entry.cutoff;
+            let mut cutoff_ms = entry.cutoff;
+            if phone.coda_truncation {
+                let safe_coda_len = (consonant_ms.max(20.0) + 25.0).max(45.0);
+                cutoff_ms = -(offset_ms + safe_coda_len);
+            }
             let loop_start_ms = entry.loop_start;
             let loop_end_ms = entry.loop_end;
             let tail_start_ms = entry.tail_start;
@@ -645,7 +651,10 @@ impl TrackRenderer {
                 (phone.duration_ms + duration_correction_ms + timing.skip_over_ms)
                     .max(consonant_ms.max(0.0))
                     .max(1.0);
-            let dur_required = quantized_render_duration_ms(target_render_ms);
+            let mut dur_required = quantized_render_duration_ms(target_render_ms);
+            if phone.coda_truncation {
+                dur_required = dur_required.min(consonant_ms + 40.0).max(30.0);
+            }
             logs.push((
                 progress,
                 format!(
@@ -1112,12 +1121,16 @@ impl TrackRenderer {
         };
 
         #[cfg(not(target_arch = "wasm32"))]
-        let phone_results: Result<Vec<PhoneResult>, String> =
-            render_order.into_par_iter().map(render_phone_fn).collect();
+        let rendered_phones: Vec<(usize, Result<PhoneResult, String>)> = render_order
+            .into_par_iter()
+            .map(|(idx, phone)| (idx, render_phone_fn((idx, phone))))
+            .collect();
 
         #[cfg(target_arch = "wasm32")]
-        let phone_results: Result<Vec<PhoneResult>, String> =
-            render_order.into_iter().map(render_phone_fn).collect();
+        let rendered_phones: Vec<(usize, Result<PhoneResult, String>)> = render_order
+            .into_iter()
+            .map(|(idx, phone)| (idx, render_phone_fn((idx, phone))))
+            .collect();
 
         // ------------------------------------------------------------------
         // Phase 2: Sequential merge.
@@ -1130,8 +1143,40 @@ impl TrackRenderer {
             return Err("Renderização cancelada".to_string());
         }
 
-        let mut phone_results = phone_results?;
+        let mut phone_results = Vec::with_capacity(rendered_phones.len());
+        let mut failed_phone_indices = HashSet::new();
+        for (idx, result) in rendered_phones {
+            match result {
+                Ok(result) => phone_results.push(result),
+                Err(error) if preview_skip_failed_phones => {
+                    failed_phone_indices.insert(idx);
+                    let done = completed_ref.fetch_add(1, Ordering::Relaxed) + 1;
+                    if let Some(callback) = on_progress_event {
+                        callback(crate::renderer::RenderProgressEvent::counted(
+                            crate::renderer::RenderStage::Rendering,
+                            done,
+                            total_phones,
+                        ));
+                    }
+                    let progress = (done as f32 / total_phones as f32).min(0.99);
+                    log(
+                        progress,
+                        &format!(
+                            "[Preview] Fonema #{} ignorado para manter o playback: {}",
+                            idx + 1,
+                            error
+                        ),
+                    );
+                }
+                Err(error) => return Err(error),
+            }
+        }
         phone_results.sort_unstable_by_key(|r| r.idx);
+        for result in &mut phone_results {
+            if result.idx > 0 && failed_phone_indices.contains(&(result.idx - 1)) {
+                result.adjacent = false;
+            }
+        }
 
         if let Some(executable) = wavtool_driver.phrase_executable() {
             let mut begin = 0;

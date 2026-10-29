@@ -475,120 +475,217 @@ impl KamafeuStudioApp {
                     ui.separator();
                     match self.config.layout.bottom_dock_tab {
                         0 => {
-                            egui::ScrollArea::vertical()
-                                .id_salt("mixer_track_cascade")
+                            egui::ScrollArea::horizontal()
+                                .id_salt("mixer_track_strips_h")
                                 .auto_shrink([false, false])
                                 .show(ui, |ui| {
-                                    let mut mix_changed = false;
-                                    for (index, track) in self.project.tracks.iter_mut().enumerate()
-                                    {
-                                        ui.group(|ui| {
-                                            ui.set_width(ui.available_width());
-                                            ui.horizontal(|ui| {
-                                                ui.label(egui::RichText::new(&track.name).strong());
-                                                ui.separator();
-                                                mix_changed |= ui
-                                                    .checkbox(
-                                                        &mut track.mute,
-                                                        self.config.language.tr("Mudo", "Mute"),
-                                                    )
-                                                    .changed();
-                                                mix_changed |=
-                                                    ui.checkbox(&mut track.solo, "Solo").changed();
-                                                if ui.small_button("FX").clicked() {
-                                                    self.active_track_index = index;
-                                                    self.config.layout.right_dock_tab = 1;
-                                                }
-                                            });
-                                            let slider_width = ui.available_width();
-                                            mix_changed |= ui
-                                                .add_sized(
-                                                    [slider_width, 22.0],
-                                                    egui::Slider::new(
-                                                        &mut track.volume_db,
-                                                        -60.0..=12.0,
-                                                    )
-                                                    .text(
-                                                        self.config
-                                                            .language
-                                                            .tr("Volume (dB)", "Volume (dB)"),
-                                                    ),
-                                                )
-                                                .changed();
-                                            mix_changed |= ui
-                                                .add_sized(
-                                                    [slider_width, 22.0],
-                                                    egui::Slider::new(&mut track.pan, -1.0..=1.0)
-                                                        .text("Pan"),
-                                                )
-                                                .changed();
-                                            // Track VU meter
-                                            let track_meter = self.piano_roll_state.arrangement_track_meters.get(index);
-                                            let level = track_meter.map(|m| m.level).unwrap_or(0.0);
-                                            let peak = track_meter.map(|m| m.peak).unwrap_or(0.0);
-                                            let (meter_rect, _) = ui.allocate_exact_size(egui::Vec2::new(slider_width, 6.0), egui::Sense::hover());
-                                            let painter = ui.painter_at(meter_rect);
-                                            let palette = crate::gui::visual_fx::MeterPalette {
-                                                low: self.config.theme.meter_c32(),
-                                                mid: self.config.theme.warning_c32(),
-                                                high: self.config.theme.danger_c32(),
-                                                off: self.config.theme.c32_alpha(self.config.theme.grid_line_sub, 0.22),
+                                    ui.horizontal(|ui| {
+                                        let mut mix_changed = false;
+                                        for (index, track) in self.project.tracks.iter_mut().enumerate()
+                                        {
+                                            let is_active_track = self.active_track_index == index;
+                                            let strip_bg = if is_active_track {
+                                                self.config.theme.c32_alpha(self.config.theme.accent_color, 0.12)
+                                            } else {
+                                                self.config.theme.c32_alpha(self.config.theme.bg_panel, 0.75)
                                             };
-                                            crate::gui::visual_fx::paint_led_meter(&painter, meter_rect, level, peak, &palette);
-                                        });
-                                    }
-                                    if mix_changed {
-                                        self.is_dirty = true;
-                                        self.fx_preview_refresh_pending = true;
-                                    }
-                                    ui.group(|ui| {
-                                        ui.set_width(ui.available_width());
-                                        ui.horizontal(|ui| {
-                                            ui.label(egui::RichText::new("Master").strong());
-                                            ui.separator();
-                                            // Live Scope preview in master mixer channel
-                                            let (scope_rect, _) = ui.allocate_exact_size(egui::Vec2::new(120.0, 20.0), egui::Sense::hover());
-                                            let painter = ui.painter_at(scope_rect);
-                                            crate::gui::visual_fx::paint_vertical_gradient(
-                                                &painter,
-                                                scope_rect,
-                                                self.config.theme.c32_alpha(self.config.theme.bg_canvas, 0.95),
-                                                self.config.theme.c32_alpha(self.config.theme.bg_header, 0.95),
-                                            );
-                                            crate::gui::visual_fx::paint_scope(
-                                                &painter,
-                                                scope_rect.shrink(1.0),
-                                                &self.transport_state.scope,
-                                                self.config.theme.waveform_c32(),
-                                                1.5,
-                                            );
-                                            painter.rect_stroke(
-                                                scope_rect,
-                                                self.config.theme.ui_rounding(),
-                                                egui::Stroke::new(1.0_f32, self.config.theme.c32_alpha(self.config.theme.grid_line_sub, 0.6)),
-                                            );
-                                        });
-                                        ui.add_sized(
-                                            [ui.available_width(), 22.0],
-                                            egui::Slider::new(
-                                                &mut self.transport_state.master_volume,
-                                                0.0..=2.0,
-                                            )
-                                            .text(self.config.language.tr("Volume", "Volume")),
-                                        );
-                                        // Master Stereo LED Meter
-                                        let (meter_rect_l, _) = ui.allocate_exact_size(egui::Vec2::new(ui.available_width(), 5.0), egui::Sense::hover());
-                                        let painter_l = ui.painter_at(meter_rect_l);
-                                        let (meter_rect_r, _) = ui.allocate_exact_size(egui::Vec2::new(ui.available_width(), 5.0), egui::Sense::hover());
-                                        let painter_r = ui.painter_at(meter_rect_r);
-                                        let palette = crate::gui::visual_fx::MeterPalette {
-                                            low: self.config.theme.meter_c32(),
-                                            mid: self.config.theme.warning_c32(),
-                                            high: self.config.theme.danger_c32(),
-                                            off: self.config.theme.c32_alpha(self.config.theme.grid_line_sub, 0.22),
-                                        };
-                                        crate::gui::visual_fx::paint_led_meter(&painter_l, meter_rect_l, self.transport_state.vu_level_l, self.transport_state.vu_peak_l, &palette);
-                                        crate::gui::visual_fx::paint_led_meter(&painter_r, meter_rect_r, self.transport_state.vu_level_r, self.transport_state.vu_peak_r, &palette);
+                                            let border_color = if is_active_track {
+                                                self.config.theme.accent_c32()
+                                            } else {
+                                                self.config.theme.c32_alpha(self.config.theme.grid_line_sub, 0.4)
+                                            };
+
+                                            egui::Frame::none()
+                                                .fill(strip_bg)
+                                                .stroke(egui::Stroke::new(1.0_f32, border_color))
+                                                .rounding(egui::Rounding::same(6.0))
+                                                .inner_margin(egui::Margin::symmetric(6.0, 6.0))
+                                                .show(ui, |ui| {
+                                                    ui.set_width(118.0);
+                                                    ui.vertical_centered(|ui| {
+                                                        // Track Title / Number
+                                                        let track_num = format!("#{}", index + 1);
+                                                        ui.horizontal(|ui| {
+                                                            ui.label(
+                                                                egui::RichText::new(track_num)
+                                                                    .size(9.0)
+                                                                    .color(self.config.theme.text_muted_c32()),
+                                                            );
+                                                            ui.label(
+                                                                egui::RichText::new(&track.name)
+                                                                    .strong()
+                                                                    .size(11.0)
+                                                                    .color(self.config.theme.text_primary_c32()),
+                                                            );
+                                                        });
+
+                                                        ui.add_space(2.0);
+
+                                                        // Mute, Solo & FX buttons
+                                                        ui.horizontal(|ui| {
+                                                            let m_bg = if track.mute {
+                                                                self.config.theme.danger_c32()
+                                                            } else {
+                                                                self.config.theme.c32_alpha(self.config.theme.bg_canvas, 0.6)
+                                                            };
+                                                            let m_btn = egui::Button::new(
+                                                                egui::RichText::new("M")
+                                                                    .strong()
+                                                                    .size(10.0)
+                                                                    .color(if track.mute { egui::Color32::WHITE } else { self.config.theme.text_muted_c32() }),
+                                                            )
+                                                            .min_size(egui::Vec2::new(22.0, 18.0))
+                                                            .fill(m_bg)
+                                                            .rounding(egui::Rounding::same(3.0));
+                                                            if ui.add(m_btn).clicked() {
+                                                                track.mute = !track.mute;
+                                                                mix_changed = true;
+                                                            }
+
+                                                            let s_bg = if track.solo {
+                                                                self.config.theme.warning_c32()
+                                                            } else {
+                                                                self.config.theme.c32_alpha(self.config.theme.bg_canvas, 0.6)
+                                                            };
+                                                            let s_btn = egui::Button::new(
+                                                                egui::RichText::new("S")
+                                                                    .strong()
+                                                                    .size(10.0)
+                                                                    .color(if track.solo { egui::Color32::BLACK } else { self.config.theme.text_muted_c32() }),
+                                                            )
+                                                            .min_size(egui::Vec2::new(22.0, 18.0))
+                                                            .fill(s_bg)
+                                                            .rounding(egui::Rounding::same(3.0));
+                                                            if ui.add(s_btn).clicked() {
+                                                                track.solo = !track.solo;
+                                                                mix_changed = true;
+                                                            }
+
+                                                            let fx_btn = egui::Button::new(
+                                                                egui::RichText::new("FX")
+                                                                    .size(9.0)
+                                                                    .color(self.config.theme.accent_c32()),
+                                                            )
+                                                            .min_size(egui::Vec2::new(26.0, 18.0))
+                                                            .rounding(egui::Rounding::same(3.0));
+                                                            if ui.add(fx_btn).clicked() {
+                                                                self.active_track_index = index;
+                                                                self.config.layout.right_dock_tab = 1;
+                                                            }
+                                                        });
+
+                                                        ui.add_space(4.0);
+
+                                                        // Pan Slider
+                                                        mix_changed |= ui
+                                                            .add_sized(
+                                                                [106.0, 16.0],
+                                                                egui::Slider::new(&mut track.pan, -1.0..=1.0)
+                                                                    .show_value(false)
+                                                                    .prefix("Pan: "),
+                                                            )
+                                                            .changed();
+
+                                                        ui.add_space(2.0);
+
+                                                        // Volume Slider
+                                                        mix_changed |= ui
+                                                            .add_sized(
+                                                                [106.0, 18.0],
+                                                                egui::Slider::new(&mut track.volume_db, -60.0..=12.0)
+                                                                    .suffix(" dB"),
+                                                            )
+                                                            .changed();
+
+                                                        ui.add_space(2.0);
+
+                                                        // Track VU Meter
+                                                        let track_meter = self.piano_roll_state.arrangement_track_meters.get(index);
+                                                        let level = track_meter.map(|m| m.level).unwrap_or(0.0);
+                                                        let peak = track_meter.map(|m| m.peak).unwrap_or(0.0);
+                                                        let (meter_rect, _) = ui.allocate_exact_size(egui::Vec2::new(106.0, 6.0), egui::Sense::hover());
+                                                        let painter = ui.painter_at(meter_rect);
+                                                        let palette = crate::gui::visual_fx::MeterPalette {
+                                                            low: self.config.theme.meter_c32(),
+                                                            mid: self.config.theme.warning_c32(),
+                                                            high: self.config.theme.danger_c32(),
+                                                            off: self.config.theme.c32_alpha(self.config.theme.grid_line_sub, 0.22),
+                                                        };
+                                                        crate::gui::visual_fx::paint_led_meter(&painter, meter_rect, level, peak, &palette);
+                                                    });
+                                                });
+                                        }
+
+                                        if mix_changed {
+                                            self.is_dirty = true;
+                                            self.fx_preview_refresh_pending = true;
+                                        }
+
+                                        // Master Channel Strip
+                                        egui::Frame::none()
+                                            .fill(self.config.theme.c32_alpha(self.config.theme.bg_header, 0.85))
+                                            .stroke(egui::Stroke::new(1.5_f32, self.config.theme.accent_c32()))
+                                            .rounding(egui::Rounding::same(6.0))
+                                            .inner_margin(egui::Margin::symmetric(8.0, 6.0))
+                                            .show(ui, |ui| {
+                                                ui.set_width(136.0);
+                                                ui.vertical_centered(|ui| {
+                                                    ui.label(
+                                                        egui::RichText::new("MASTER")
+                                                            .strong()
+                                                            .size(11.0)
+                                                            .color(self.config.theme.accent_c32()),
+                                                    );
+
+                                                    ui.add_space(2.0);
+
+                                                    // Live Scope preview in master mixer channel
+                                                    let (scope_rect, _) = ui.allocate_exact_size(egui::Vec2::new(120.0, 24.0), egui::Sense::hover());
+                                                    let painter = ui.painter_at(scope_rect);
+                                                    crate::gui::visual_fx::paint_vertical_gradient(
+                                                        &painter,
+                                                        scope_rect,
+                                                        self.config.theme.c32_alpha(self.config.theme.bg_canvas, 0.95),
+                                                        self.config.theme.c32_alpha(self.config.theme.bg_header, 0.95),
+                                                    );
+                                                    crate::gui::visual_fx::paint_scope(
+                                                        &painter,
+                                                        scope_rect.shrink(1.0),
+                                                        &self.transport_state.scope,
+                                                        self.config.theme.waveform_c32(),
+                                                        1.5,
+                                                    );
+                                                    painter.rect_stroke(
+                                                        scope_rect,
+                                                        self.config.theme.ui_rounding(),
+                                                        egui::Stroke::new(1.0_f32, self.config.theme.c32_alpha(self.config.theme.grid_line_sub, 0.6)),
+                                                    );
+
+                                                    ui.add_space(4.0);
+
+                                                    ui.add_sized(
+                                                        [120.0, 18.0],
+                                                        egui::Slider::new(&mut self.transport_state.master_volume, 0.0..=2.0)
+                                                            .prefix("Vol: "),
+                                                    );
+
+                                                    ui.add_space(2.0);
+
+                                                    // Master Stereo LED Meter
+                                                    let (meter_rect_l, _) = ui.allocate_exact_size(egui::Vec2::new(120.0, 4.0), egui::Sense::hover());
+                                                    let painter_l = ui.painter_at(meter_rect_l);
+                                                    let (meter_rect_r, _) = ui.allocate_exact_size(egui::Vec2::new(120.0, 4.0), egui::Sense::hover());
+                                                    let painter_r = ui.painter_at(meter_rect_r);
+                                                    let palette = crate::gui::visual_fx::MeterPalette {
+                                                        low: self.config.theme.meter_c32(),
+                                                        mid: self.config.theme.warning_c32(),
+                                                        high: self.config.theme.danger_c32(),
+                                                        off: self.config.theme.c32_alpha(self.config.theme.grid_line_sub, 0.22),
+                                                    };
+                                                    crate::gui::visual_fx::paint_led_meter(&painter_l, meter_rect_l, self.transport_state.vu_level_l, self.transport_state.vu_peak_l, &palette);
+                                                    crate::gui::visual_fx::paint_led_meter(&painter_r, meter_rect_r, self.transport_state.vu_level_r, self.transport_state.vu_peak_r, &palette);
+                                                });
+                                            });
                                     });
                                 });
                         }
@@ -695,6 +792,8 @@ impl KamafeuStudioApp {
             })
             .unwrap_or_default();
 
+        let formant_animation_allowed = self.animation_policy().allows_motion();
+
         let notes = &mut self.project.parts[part_idx].notes[..];
 
         let mut open_singers_gallery = false;
@@ -703,6 +802,16 @@ impl KamafeuStudioApp {
         let mut open_folder_picker = false;
         let mut singer_to_load: Option<std::path::PathBuf> = None;
         let phonemizer_before_panel = self.vocal_mode_params.phonemizer_mode;
+        let inspector_persist_state_before = (
+            self.config.singers_paths.clone(),
+            self.vocal_mode_params.clone(),
+            self.render_threads,
+            self.selected_resampler.clone(),
+            self.selected_wavtool.clone(),
+            self.custom_resampler_path.clone(),
+            self.custom_wavtool_path.clone(),
+            self.config.discord_rpc_enabled,
+        );
 
         draw_unified_panel(
             ui,
@@ -732,6 +841,7 @@ impl KamafeuStudioApp {
             &mut self.config.discord_rpc_enabled,
             self.piano_roll_state.playhead_ms,
             self.piano_roll_state.is_playing,
+            formant_animation_allowed,
             &mut |opt_path| {
                 if let Some(p) = opt_path {
                     singer_to_load = Some(p);
@@ -909,7 +1019,6 @@ impl KamafeuStudioApp {
             if let Some(folder) = crate::dialogs::FileDialog::new().pick_folder() {
                 if !self.config.singers_paths.contains(&folder) {
                     self.config.singers_paths.push(folder);
-                    self.persist_config();
                     self.reload_singers();
                 }
             } else {
@@ -922,7 +1031,6 @@ impl KamafeuStudioApp {
         }
 
         if reload_singers_flag {
-            self.persist_config();
             self.reload_singers();
         }
 
@@ -930,7 +1038,22 @@ impl KamafeuStudioApp {
             self.singers_gallery_window_open = true;
         }
 
-        self.persist_config();
+        let inspector_persist_state_after = (
+            self.config.singers_paths.clone(),
+            self.vocal_mode_params.clone(),
+            self.render_threads,
+            self.selected_resampler.clone(),
+            self.selected_wavtool.clone(),
+            self.custom_resampler_path.clone(),
+            self.custom_wavtool_path.clone(),
+            self.config.discord_rpc_enabled,
+        );
+        // The inspector is drawn every frame. Persist only when one of its
+        // settings actually changed, otherwise each frame forces a config
+        // serialization, file sync, and atomic rename on the UI thread.
+        if inspector_persist_state_after != inspector_persist_state_before {
+            self.persist_config();
+        }
 
         if let Some(alias) = preview_alias {
             let mut played = false;
@@ -1026,18 +1149,20 @@ impl KamafeuStudioApp {
                 .or(input.pointer.interact_pos())
                 .is_some_and(|pos| ui.max_rect().contains(pos))
         });
+        let text_input_owns_keyboard = ui.ctx().wants_keyboard_input();
         let mut arrangement_snapshot_before = if self.pending_edit_snapshot.is_none()
             && ui.input(|i| {
                 (pointer_is_over_arrangement
                     && (i.pointer.primary_down()
                         || i.pointer.secondary_down()
                         || i.pointer.any_released()))
-                    || i.events.iter().any(|event| {
-                        matches!(
-                            event,
-                            egui::Event::Key { pressed: true, .. } | egui::Event::Text(_)
-                        )
-                    })
+                    || (!text_input_owns_keyboard
+                        && i.events.iter().any(|event| {
+                            matches!(
+                                event,
+                                egui::Event::Key { pressed: true, .. } | egui::Event::Text(_)
+                            )
+                        }))
             }) {
             Some(self.project.clone())
         } else {

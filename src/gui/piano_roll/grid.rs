@@ -42,6 +42,7 @@ pub fn draw_piano_keys(
     grid_end_y: f32,
     first_visible_key: usize,
     last_visible_key: usize,
+    canvas_hovered: bool,
     on_preview_freq: &mut dyn FnMut(f64),
 ) {
     let sticky_key_x = rect.min.x.max(visible_clip.min.x);
@@ -54,7 +55,9 @@ pub fn draw_piano_keys(
     );
     painter.rect_filled(keys_bg_rect, Rounding::ZERO, theme.bg_panel_c32());
 
-    let mouse_pos = ui.input(|i| i.pointer.interact_pos());
+    let mouse_pos = canvas_hovered
+        .then(|| ui.input(|i| i.pointer.interact_pos()))
+        .flatten();
     let mouse_down = ui.input(|i| i.pointer.primary_down() || i.pointer.primary_pressed());
 
     // 1. Flat key surfaces: color and labels carry the hierarchy; avoid

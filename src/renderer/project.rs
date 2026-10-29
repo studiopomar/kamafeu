@@ -1497,7 +1497,7 @@ impl ProjectRenderer {
         let context_start =
             Self::preview_context_start_with_lookahead(project, cursor, 0.0, lookahead_ms);
         let first_render_end = (first_end + lookahead_ms).min(max_end_ms);
-        let priority_audio = Self::render_project_range_with_drivers_cancellable(
+        let mut priority_audio = Self::render_project_range_with_drivers_cancellable(
             project,
             voicebank,
             sample_rate,
@@ -1512,14 +1512,19 @@ impl ProjectRenderer {
         if cancel.is_some_and(|c| c.load(Ordering::Relaxed)) {
             return;
         }
-        if priority_audio.error.is_some() {
-            let _ = chunk_tx.send(ProgressiveChunk {
-                audio: priority_audio,
-                chunk_start_ms: cursor,
-                chunk_index: 0,
-                is_final: true,
-            });
-            return;
+        if let Some(error) = priority_audio.error.take() {
+            if let Some(callback) = on_progress {
+                callback(
+                    0.0,
+                    &format!("[Playback] bloco inicial em silêncio; render continua: {error}"),
+                );
+            }
+            let channels = usize::from(priority_audio.channels.max(1));
+            let sample_count = (((first_render_end - context_start).max(0.0) / 1000.0)
+                * sample_rate as f64)
+                .round() as usize
+                * channels;
+            priority_audio.samples = vec![0.0; sample_count];
         }
 
         let channels = usize::from(priority_audio.channels.max(1));
@@ -1574,7 +1579,7 @@ impl ProjectRenderer {
             let context_start =
                 Self::preview_context_start_with_lookahead(project, cursor, 0.0, lookahead_ms);
             let render_end = (end + lookahead_ms).min(max_end_ms);
-            let page_audio = Self::render_project_range_with_drivers_cancellable(
+            let mut page_audio = Self::render_project_range_with_drivers_cancellable(
                 project,
                 voicebank,
                 sample_rate,
@@ -1586,14 +1591,22 @@ impl ProjectRenderer {
                 on_progress,
                 cancel,
             );
-            if page_audio.error.is_some() {
-                let _ = chunk_tx.send(ProgressiveChunk {
-                    audio: page_audio,
-                    chunk_start_ms: cursor,
-                    chunk_index,
-                    is_final: true,
-                });
-                return;
+            if let Some(error) = page_audio.error.take() {
+                if let Some(callback) = on_progress {
+                    callback(
+                        0.0,
+                        &format!(
+                            "[Playback] bloco {} em silêncio; render continua: {error}",
+                            chunk_index + 1
+                        ),
+                    );
+                }
+                let channels = usize::from(page_audio.channels.max(1));
+                let sample_count = (((render_end - context_start).max(0.0) / 1000.0)
+                    * sample_rate as f64)
+                    .round() as usize
+                    * channels;
+                page_audio.samples = vec![0.0; sample_count];
             }
             let channels = usize::from(page_audio.channels.max(1));
             let offset = (((cursor - context_start).max(0.0) / 1000.0) * sample_rate as f64).round()

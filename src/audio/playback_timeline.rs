@@ -128,6 +128,21 @@ impl PlaybackTimeline {
         }
     }
 
+    /// Marks the end of a producer's available audio. If playback has already
+    /// reached that boundary, finish now; otherwise `advance` will finish it
+    /// after the queued audio drains.
+    pub fn finish(&mut self) -> TimelineDecision {
+        self.final_received = true;
+        if matches!(self.state, TimelineState::Waiting | TimelineState::Underrun)
+            && self.played_until_ms + 5.0 >= self.queued_until_ms
+        {
+            self.state = TimelineState::Finished;
+            TimelineDecision::Finished
+        } else {
+            TimelineDecision::Accepted
+        }
+    }
+
     pub fn stop(&mut self) {
         self.state = TimelineState::Stopped;
     }

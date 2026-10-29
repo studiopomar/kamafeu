@@ -5,6 +5,7 @@
 
 #include <algorithm>
 #include <atomic>
+#include <cerrno>
 #include <chrono>
 #include <cstddef>
 #include <cstdlib>
@@ -18,8 +19,10 @@
 #ifdef _WIN32
 #include <winsock2.h>
 #include <ws2tcpip.h>
+#include <windows.h>
 #else
 #include <arpa/inet.h>
+#include <csignal>
 #include <sys/socket.h>
 #include <sys/time.h>
 #include <unistd.h>
@@ -123,7 +126,7 @@ using Socket =
 #endif
 
 void ReadEvents(State& state, ScreenInteractive& screen, std::atomic<bool>& done,
-                Socket socket) {
+                Socket socket, unsigned long parent_pid) {
   char buffer[8192];
   while (!done.load()) {
 #ifdef _WIN32
@@ -132,6 +135,22 @@ void ReadEvents(State& state, ScreenInteractive& screen, std::atomic<bool>& done
     const int length = static_cast<int>(recv(socket, buffer, sizeof(buffer), 0));
 #endif
     if (length <= 0) {
+      bool parent_alive = true;
+#ifdef _WIN32
+      HANDLE parent = OpenProcess(SYNCHRONIZE, FALSE, static_cast<DWORD>(parent_pid));
+      if (parent == nullptr) {
+        parent_alive = GetLastError() == ERROR_ACCESS_DENIED;
+      } else {
+        parent_alive = WaitForSingleObject(parent, 0) == WAIT_TIMEOUT;
+        CloseHandle(parent);
+      }
+#else
+      if (kill(static_cast<pid_t>(parent_pid), 0) != 0) parent_alive = errno == EPERM;
+#endif
+      if (!parent_alive) {
+        screen.PostEvent(Event::q);
+        break;
+      }
       std::this_thread::sleep_for(std::chrono::milliseconds(30));
       continue;
     }
@@ -225,9 +244,10 @@ void CloseSocket(Socket socket) {
 }  // namespace
 
 int main(int argc, char** argv) {
-  if (argc != 2) return 2;
+  if (argc != 3) return 2;
   const auto parent_port = std::strtoul(argv[1], nullptr, 10);
-  if (parent_port == 0 || parent_port > 65535) return 2;
+  const auto parent_pid = std::strtoul(argv[2], nullptr, 10);
+  if (parent_port == 0 || parent_port > 65535 || parent_pid == 0) return 2;
   const Socket socket = OpenSocket(static_cast<unsigned short>(parent_port));
 #ifdef _WIN32
   if (socket == INVALID_SOCKET) return 3;
@@ -237,7 +257,8 @@ int main(int argc, char** argv) {
   State state;
   auto screen = ScreenInteractive::Fullscreen();
   std::atomic<bool> done{false};
-  std::thread reader(ReadEvents, std::ref(state), std::ref(screen), std::ref(done), socket);
+  std::thread reader(ReadEvents, std::ref(state), std::ref(screen), std::ref(done), socket,
+                     parent_pid);
   auto component = Renderer([&] { return BuildView(state); });
   component |= CatchEvent([&](Event event) {
     if (event == Event::Custom) {

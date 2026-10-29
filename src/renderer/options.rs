@@ -44,6 +44,11 @@ pub struct RenderOptions {
     /// Number of resampler jobs that may synthesize at the same time.
     /// `0` is treated as one safe instance.
     pub resampler_instances: u32,
+    /// During GUI playback, keep the transport moving when an individual
+    /// phone cannot be synthesized. The failed phone is left silent and the
+    /// failure is logged; offline renders remain strict by default.
+    #[serde(default)]
+    pub preview_skip_failed_phones: bool,
     pub phonemizer_mode: PhonemizerMode,
 }
 
@@ -61,6 +66,7 @@ impl Default for RenderOptions {
             tone_shift: 0.0,
             crossfade_ms: 0.0,
             resampler_instances: 2,
+            preview_skip_failed_phones: false,
             phonemizer_mode: PhonemizerMode::None,
         }
     }
@@ -107,6 +113,7 @@ mod tests {
             tone_shift: 1.0,
             crossfade_ms: 42.0,
             resampler_instances: 3,
+            preview_skip_failed_phones: false,
             phonemizer_mode: crate::phonemizer::PhonemizerMode::PortugueseG2P,
         };
         let serialized = serde_json::to_string(&options).expect("serialize render profile");

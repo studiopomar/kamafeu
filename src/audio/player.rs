@@ -58,10 +58,11 @@ pub enum PlaybackSchedulerEvent {
     PlaybackStopped {
         generation: u64,
         played_ms: f64,
+        requested_by: String,
     },
     ProducerClosed {
         generation: u64,
-        final_chunk_received: bool,
+        drain_queued_audio: bool,
         played_ms: f64,
     },
 }
@@ -115,15 +116,14 @@ pub struct ProgressivePlaybackHandle {
 
 #[cfg(not(target_arch = "wasm32"))]
 impl ProgressivePlaybackHandle {
-    /// Informa ao scheduler que a thread produtora terminou. Um chunk final
-    /// aceito encerra normalmente; sem ele, a geração é incompleta e não
-    /// pode permanecer indefinidamente em `Waiting`.
-    pub fn producer_closed(&self, final_chunk_received: bool) {
+    /// Informa ao scheduler que a produção terminou. Quando há áudio válido na
+    /// fila, ele termina de tocá-lo antes de encerrar o transporte.
+    pub fn producer_closed(&self, drain_queued_audio: bool) {
         if self
             .tx
             .send(SchedulerCommand::ProducerClosed {
                 generation: self.generation,
-                final_chunk_received,
+                drain_queued_audio,
             })
             .is_err()
         {
@@ -259,10 +259,11 @@ enum SchedulerCommand {
     SetSpeed(f32),
     Stop {
         generation: u64,
+        requested_by: String,
     },
     ProducerClosed {
         generation: u64,
-        final_chunk_received: bool,
+        drain_queued_audio: bool,
     },
 }
 
@@ -687,7 +688,10 @@ impl AudioPlayer {
                                 // twice when the transport rate changes.
                                 last_clock_tick = std::time::Instant::now();
                             }
-                            SchedulerCommand::Stop { generation } => {
+                            SchedulerCommand::Stop {
+                                generation,
+                                requested_by,
+                            } => {
                                 if generation != worker_generation.load(Ordering::Acquire) {
                                     continue;
                                 }
@@ -718,6 +722,7 @@ impl AudioPlayer {
                                         PlaybackSchedulerEvent::PlaybackStopped {
                                             generation,
                                             played_ms,
+                                            requested_by,
                                         },
                                     );
                                 }
@@ -733,7 +738,7 @@ impl AudioPlayer {
                             }
                             SchedulerCommand::ProducerClosed {
                                 generation,
-                                final_chunk_received,
+                                drain_queued_audio,
                             } => {
                                 // A bridge from an older render may close
                                 // after a new generation has already started.
@@ -744,7 +749,28 @@ impl AudioPlayer {
                                 {
                                     continue;
                                 }
-                                if !final_chunk_received {
+                                if drain_queued_audio {
+                                    if active_generation == generation && sink.is_some() {
+                                        final_chunk = true;
+                                        if timeline.finish() == TimelineDecision::Finished
+                                            && PlaybackSchedulerState::from_raw(
+                                                worker_state.load(Ordering::Acquire),
+                                            ) != PlaybackSchedulerState::Finished
+                                        {
+                                            worker_state.store(
+                                                PlaybackSchedulerState::Finished as u8,
+                                                Ordering::Release,
+                                            );
+                                            push_scheduler_event(
+                                                &worker_events,
+                                                PlaybackSchedulerEvent::PlaybackFinished {
+                                                    generation,
+                                                    played_ms: timeline_position_ms,
+                                                },
+                                            );
+                                        }
+                                    }
+                                } else {
                                     if let Some(active) = sink.take() {
                                         active.stop();
                                     }
@@ -757,7 +783,7 @@ impl AudioPlayer {
                                         &worker_events,
                                         PlaybackSchedulerEvent::ProducerClosed {
                                             generation,
-                                            final_chunk_received,
+                                            drain_queued_audio,
                                             played_ms: timeline_position_ms,
                                         },
                                     );
@@ -766,6 +792,7 @@ impl AudioPlayer {
                                         PlaybackSchedulerEvent::PlaybackStopped {
                                             generation,
                                             played_ms: timeline_position_ms,
+                                            requested_by: "producer_closed(drain=false)".into(),
                                         },
                                     );
                                 }
@@ -894,7 +921,7 @@ impl AudioPlayer {
         if samples.is_empty() {
             return Err("O render não contém amostras de áudio.".to_string());
         }
-        self.stop_scheduler();
+        self.stop_scheduler("direct playback start".to_string());
         Self::sanitize_samples(&mut samples);
         let duration_ms = samples.len() as f64 * 1000.0
             / (sample_rate.max(1) as f64 * channels.max(1) as f64);
@@ -1030,7 +1057,7 @@ impl AudioPlayer {
         }
     }
 
-    fn stop_scheduler(&mut self) {
+    fn stop_scheduler(&mut self, requested_by: String) {
         // Invalidate producers before stopping the sink. A renderer thread
         // may still be unwinding and must not be able to enqueue audio after
         // an explicit pause/stop or a new playback generation.
@@ -1041,6 +1068,7 @@ impl AudioPlayer {
         if let Some(tx) = &self.scheduler_tx {
             let _ = tx.send(SchedulerCommand::Stop {
                 generation: self.playback_generation.load(Ordering::Acquire),
+                requested_by,
             });
         }
     }
@@ -1153,8 +1181,10 @@ impl AudioPlayer {
         }
     }
 
+    #[track_caller]
     pub fn stop(&mut self) {
-        self.stop_scheduler();
+        let caller = std::panic::Location::caller();
+        self.stop_scheduler(format!("{}:{}", caller.file(), caller.line()));
         if let Ok(mut guard) = self.direct_clock.lock() {
             *guard = None;
         }
@@ -1516,7 +1546,7 @@ mod tests {
     fn stopping_an_inactive_scheduler_does_not_emit_a_transport_stop() {
         let mut player = AudioPlayer::new();
         let _ = player.drain_scheduler_events();
-        player.stop_scheduler();
+        player.stop_scheduler("unit test".to_string());
         std::thread::sleep(std::time::Duration::from_millis(30));
         assert!(player.drain_scheduler_events().is_empty());
     }

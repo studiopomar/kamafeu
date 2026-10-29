@@ -6,6 +6,7 @@ use eframe::egui::Frame;
 
 impl KamafeuStudioApp {
     pub(super) fn update_editor_canvas(&mut self, ctx: &egui::Context) {
+        let text_input_owns_keyboard = ctx.wants_keyboard_input();
         // Capture o projeto antes do evento que pode iniciar uma edição. O
         // callback do piano roll é processado depois do desenho do frame, quando
         // a nota já pode ter sido alterada; clonar ali produzia estados parciais.
@@ -13,7 +14,7 @@ impl KamafeuStudioApp {
             .input(|input| {
                 let pointer_started =
                     input.pointer.primary_pressed() || input.pointer.secondary_pressed();
-                let edit_key_started = [
+                let edit_key_started = !text_input_owns_keyboard && [
                     egui::Key::Enter,
                     egui::Key::Tab,
                     egui::Key::Delete,
@@ -261,6 +262,7 @@ impl KamafeuStudioApp {
             active_part_position_ms,
             &markers,
             &sections,
+            &mut self.project.annotations,
             &mut self.piano_roll_state,
             &self.config.theme,
             self.voicebank.as_ref(),

@@ -566,7 +566,9 @@ fn real_main() -> Result<(), Box<dyn std::error::Error>> {
             let options = NativeOptions {
                 viewport,
                 hardware_acceleration: HardwareAcceleration::Preferred,
-                vsync: false,
+                // Let the display pace idle UI paints. Uncapped WGPU redraws
+                // kept the main thread busy even when the editor was idle.
+                vsync: true,
                 multisampling: 0,
                 renderer,
                 ..Default::default()
@@ -586,7 +588,7 @@ fn real_main() -> Result<(), Box<dyn std::error::Error>> {
                     let fallback_options = NativeOptions {
                         viewport: fallback_viewport,
                         hardware_acceleration: HardwareAcceleration::Preferred,
-                        vsync: false,
+                        vsync: true,
                         multisampling: 0,
                         renderer: Renderer::Glow,
                         ..Default::default()

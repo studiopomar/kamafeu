@@ -125,16 +125,17 @@ impl KamafeuStudioApp {
                 crate::audio::PlaybackSchedulerEvent::PlaybackStopped {
                     generation,
                     played_ms,
+                    ..
                 } => {
                     scheduler_stopped = true;
                     (*generation, "stopped", *played_ms)
                 }
                 crate::audio::PlaybackSchedulerEvent::ProducerClosed {
                     generation,
-                    final_chunk_received,
+                    drain_queued_audio,
                     played_ms,
                 } => {
-                    if !final_chunk_received {
+                    if !drain_queued_audio {
                         scheduler_stopped = true;
                     }
                     (*generation, "producer_closed", *played_ms)
@@ -173,9 +174,11 @@ impl KamafeuStudioApp {
                     crate::audio::PlaybackSchedulerEvent::PlaybackFinished {
                         played_ms, ..
                     } => format!("Áudio finalizado em {:.0} ms", played_ms),
-                    crate::audio::PlaybackSchedulerEvent::PlaybackStopped { played_ms, .. } => {
-                        format!("Áudio parado em {:.0} ms", played_ms)
-                    }
+                    crate::audio::PlaybackSchedulerEvent::PlaybackStopped {
+                        played_ms,
+                        requested_by,
+                        ..
+                    } => format!("Áudio parado em {:.0} ms ({requested_by})", played_ms),
                     crate::audio::PlaybackSchedulerEvent::Underrun { played_ms, .. } => {
                         format!("Dispositivo de áudio sem dados em {:.0} ms", played_ms)
                     }
@@ -505,12 +508,29 @@ impl KamafeuStudioApp {
                                     chunk.end_ms(),
                                     chunk.is_final,
                                 ));
-                                self.audio_player.stop();
-                                self.piano_roll_state.is_playing = false;
-                                self.progressive_playback_started = false;
-                                self.progressive_startup_audio.clear();
-                                self.transport_state.status_message =
-                                    format!("Erro no render: {error}");
+                                let has_ready_audio = self
+                                    .project
+                                    .render_state
+                                    .as_ref()
+                                    .is_some_and(|state| {
+                                        state.chunks.iter().any(|stored| {
+                                            stored.status == "ready"
+                                                && stored.index < chunk.chunk_index
+                                        })
+                                    });
+                                if has_ready_audio {
+                                    self.transport_state.status_message = format!(
+                                        "Trecho {} falhou; reproduzindo o áudio já renderizado: {error}",
+                                        chunk.chunk_index + 1
+                                    );
+                                } else {
+                                    self.audio_player.stop();
+                                    self.piano_roll_state.is_playing = false;
+                                    self.progressive_playback_started = false;
+                                    self.progressive_startup_audio.clear();
+                                    self.transport_state.status_message =
+                                        format!("Erro no render: {error}");
+                                }
                                 self.render_log_messages
                                     .push(format!("Chunk #{}: {error}", chunk.chunk_index));
                                 drop_rx = true;

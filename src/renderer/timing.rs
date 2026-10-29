@@ -357,6 +357,7 @@ mod tests {
             flags: String::new(),
             resolved_alias: None,
             resolved_timbre: None,
+            coda_truncation: false,
         }
     }
 
@@ -478,6 +479,7 @@ mod tests {
             flags: String::new(),
             resolved_alias: None,
             resolved_timbre: None,
+            coda_truncation: false,
         };
 
         // Even when global crossfade_ms is 15.0, the calibrated 100ms overlap must NOT be overwritten.
@@ -499,6 +501,7 @@ mod tests {
             flags: String::new(),
             resolved_alias: None,
             resolved_timbre: None,
+            coda_truncation: false,
         };
         let cv_inputs = plan_inputs(
             &[
@@ -540,6 +543,7 @@ mod tests {
             flags: String::new(),
             resolved_alias: None,
             resolved_timbre: None,
+            coda_truncation: false,
         };
         let mut second = first.clone();
         second.note_index = 1;
@@ -566,6 +570,7 @@ mod tests {
                 flags: String::new(),
                 resolved_alias: None,
                 resolved_timbre: None,
+                coda_truncation: false,
             },
             crate::phonemizer::RenderPhone {
                 note_index: 0,
@@ -580,6 +585,7 @@ mod tests {
                 flags: String::new(),
                 resolved_alias: None,
                 resolved_timbre: None,
+                coda_truncation: false,
             },
         ];
         let dir = tempfile::tempdir().unwrap();
@@ -614,6 +620,7 @@ mod tests {
                 flags: String::new(),
                 resolved_alias: None,
                 resolved_timbre: None,
+                coda_truncation: false,
             });
         }
 

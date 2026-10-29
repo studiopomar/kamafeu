@@ -63,14 +63,14 @@ fn spawn_progressive_audio_bridge(
             let mut final_chunk_received = false;
             for mut chunk in audio_rx {
                 let _ = ui_tx.send(chunk.clone());
-                if chunk.audio.error.is_some() {
-                    // A failed render leaves a hole in the indexed timeline.
-                    // Stop this generation so a later chunk cannot be sent as
-                    // Start or Append with no accepted initial format.
+                let final_chunk = chunk.is_final;
+                let chunk_failed = chunk.audio.error.is_some();
+                final_chunk_received |= final_chunk || chunk_failed;
+                if chunk_failed {
+                    // The renderer will not produce later chunks. Preserve
+                    // already rendered audio and let the scheduler drain it.
                     break;
                 }
-                let final_chunk = chunk.is_final;
-                final_chunk_received |= final_chunk;
                 let chunk_end_ms = chunk.end_ms();
                 let mut samples = std::mem::take(&mut chunk.audio.samples);
                 if metronome_enabled {
@@ -133,8 +133,28 @@ fn spawn_progressive_audio_bridge(
                     }
                 }
             }
+            // If the producer failed before reaching the startup threshold,
+            // play the valid audio it did produce. The last queued chunk now
+            // closes the timeline so the scheduler can finish after draining.
+            if !started && !startup.is_empty() {
+                let startup_len = startup.len();
+                for (position, (index, start_ms, end_ms, samples, rate, channels, was_final)) in
+                    startup.drain(..).enumerate()
+                {
+                    let is_final = was_final || position + 1 == startup_len;
+                    if position == 0 {
+                        if let Some(playback) = &playback {
+                            playback.start(index, start_ms, end_ms, samples, rate, channels, is_final);
+                        }
+                    } else if let Some(playback) = &playback {
+                        playback.append(index, start_ms, end_ms, samples, rate, channels, is_final);
+                    }
+                }
+                started = true;
+                final_chunk_received = true;
+            }
             if let Some(playback) = &playback {
-                playback.producer_closed(final_chunk_received);
+                playback.producer_closed(final_chunk_received || started);
             }
         })
         .ok();
@@ -285,16 +305,37 @@ impl KamafeuStudioApp {
         let active_vb = self.voicebank.clone().unwrap_or(dummy_vb);
         let mut vocal_mode_params = self.vocal_mode_params.clone();
         vocal_mode_params.resampler_instances = self.config.dsp.resampler_instances.max(1);
-        // Keep one logical CPU available for egui/CoreAudio.  Using every
-        // core for synthesis makes scrolling the piano roll starve the UI
-        // thread long enough to empty the audio queue.
+        // A preview must keep its timeline audible when one phone fails.
+        // The track renderer logs and skips only the affected phone; exports
+        // retain strict error handling.
+        vocal_mode_params.preview_skip_failed_phones = true;
+        // Leave at least six logical CPUs for egui, CoreAudio, and the rest
+        // of the system. Even four WORLD workers caused audio callback
+        // overruns while this project's first playback chunk was synthesized.
         let cpu_count = std::thread::available_parallelism()
             .map(std::num::NonZeroUsize::get)
             .unwrap_or(2);
         let render_threads =
-            (self.render_threads.clamp(1, 16) as usize).min(cpu_count.saturating_sub(1).max(1));
+            (self.render_threads.clamp(1, 16) as usize).min(cpu_count.saturating_sub(6).max(1));
         let mut project = self.project.clone();
         project.bpm = self.transport_state.bpm;
+        // Piano-roll note positions are displayed relative to the active
+        // voice part. Render previews use the same local timeline so a
+        // non-zero clip position does not make the audio and waveform appear
+        // late by exactly that offset (common in imported DiffSinger APSes).
+        let timeline_origin_ms = project
+            .parts
+            .iter()
+            .find(|part| part.track_index == self.active_track_index)
+            .or_else(|| project.parts.first())
+            .map(|part| part.position_ms)
+            .unwrap_or(0.0);
+        for part in &mut project.parts {
+            part.position_ms -= timeline_origin_ms;
+        }
+        for wave_part in &mut project.wave_parts {
+            wave_part.position_ms -= timeline_origin_ms;
+        }
         if self.transport_state.preview_selection_only {
             let selected = &self.piano_roll_state.selected_note_indices;
             if !selected.is_empty() {
@@ -427,10 +468,12 @@ impl KamafeuStudioApp {
                 self.config.dsp.render_chunk_bars,
                 project.bpm,
             );
-            let is_fast_native_engine =
-                crate::drivers::is_native_world_resampler_label(resampler_driver.name())
-                    || resampler_driver.engine_id() == "kamafeu.sola"
-                    || preview_cache_is_warm;
+            // Tainah is in-process, but WORLD analysis is still expensive and
+            // can take longer than a short first chunk to render. Wait for a
+            // useful runway before opening the sink, just as for external
+            // engines, so playback does not start with one short note fragment.
+            let is_fast_native_engine = resampler_driver.engine_id() == "kamafeu.sola"
+                || preview_cache_is_warm;
             let startup_buffer_ms = if is_fast_native_engine {
                 FAST_NATIVE_STARTUP_BUFFER_MS
             } else {
@@ -715,6 +758,14 @@ impl KamafeuStudioApp {
         project
             .parts
             .retain(|part| part.track_index == self.active_track_index);
+        let timeline_origin_ms = project
+            .parts
+            .first()
+            .map(|part| part.position_ms)
+            .unwrap_or(0.0);
+        for part in &mut project.parts {
+            part.position_ms -= timeline_origin_ms;
+        }
         project.wave_parts.clear();
         // Master processing and mixer controls are intentionally absent from
         // this vocal-only reference render.
@@ -751,7 +802,9 @@ impl KamafeuStudioApp {
         let wavtool_driver = self.create_wavtool_driver();
         let mut vocal_mode_params = self.vocal_mode_params.clone();
         vocal_mode_params.resampler_instances = self.config.dsp.resampler_instances.max(1);
-        let render_threads = self.render_threads.max(1) as usize;
+        // Background waveform synthesis must not occupy the same CPU budget
+        // needed to start or maintain real-time playback.
+        let render_threads = 1;
 
         #[cfg(not(target_arch = "wasm32"))]
         std::thread::spawn(move || {

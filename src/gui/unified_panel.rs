@@ -39,6 +39,7 @@ pub fn draw_unified_panel(
     discord_rpc_enabled: &mut bool,
     playhead_ms: f64,
     is_playing: bool,
+    animate_controls: bool,
     on_load_vb: &mut dyn FnMut(Option<PathBuf>),
     on_add_singers_dir: &mut dyn FnMut(),
     on_reload_singers: &mut dyn FnMut(),
@@ -74,6 +75,7 @@ pub fn draw_unified_panel(
             selected_resampler,
             playhead_ms,
             is_playing,
+            animate_controls,
         );
         ui.add_space(6.0);
 
@@ -494,6 +496,7 @@ fn draw_pinned_formant_editor(
     selected_resampler: &str,
     playhead_ms: f64,
     is_playing: bool,
+    animate_controls: bool,
 ) {
     if notes.is_empty() {
         return;
@@ -595,6 +598,7 @@ fn draw_pinned_formant_editor(
             &mut note.expressions.nasality,
             &mut note.expressions.singers_formant,
             Some(pb_state),
+            animate_controls,
         );
     }
 }

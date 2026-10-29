@@ -84,6 +84,7 @@ fn phone(
         flags: note.flags.clone(),
         resolved_alias: None,
         resolved_timbre: note.timbre.clone(),
+        coda_truncation: false,
     }
 }
 

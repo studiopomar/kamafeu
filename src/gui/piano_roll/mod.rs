@@ -1,3 +1,4 @@
+pub mod annotations;
 mod context_menu;
 #[cfg(test)]
 mod interaction_tests;
@@ -16,6 +17,10 @@ use crate::gui::types::{AutoScrollMode, EditTool, GridSnapOption, PitchSubTool};
 use crate::oto::Voicebank;
 use crate::project::model::{UNote, UPitchBendPoint, UProjectMarker, UProjectSection, UVoicePart};
 use eframe::egui::{self, Color32, Key, Pos2, Rect, Rounding, Sense, Stroke, Vec2};
+
+fn piano_roll_owns_pointer(ctx: &egui::Context, layer_id: egui::LayerId, pos: Pos2) -> bool {
+    ctx.layer_id_at(pos) == Some(layer_id)
+}
 
 /// One fifth is intentionally reserved for deliberate imported pitch bends,
 /// but mouse editing should not let a tiny vertical miss jump an octave.
@@ -43,6 +48,7 @@ pub(crate) fn draw_piano_roll(
     active_part_position_ms: f64,
     markers: &[UProjectMarker],
     sections: &[UProjectSection],
+    project_annotations: &mut Vec<crate::project::model::UPianoRollAnnotation>,
     state: &mut PianoRollState,
     theme: &ThemeConfig,
     voicebank: Option<&Voicebank>,
@@ -66,6 +72,7 @@ pub(crate) fn draw_piano_roll(
     on_playhead_scrubbed: &mut dyn FnMut(f64),
     on_edit_oto_alias: &mut dyn FnMut(&str, &str),
 ) {
+    let piano_roll_layer_id = ui.layer_id();
     let was_editing_lyric = state.editing_lyric_index.is_some();
     let key_count = (state.max_midi - state.min_midi + 1) as usize;
     let ruler_height = 28.0f32;
@@ -313,7 +320,11 @@ pub(crate) fn draw_piano_roll(
         }
     }
 
-    // Draw Loop Region on Ruler
+    // Draw Loop Region on Ruler with Draggable In/Out Pins
+    let mut loop_in_pin_rect = None;
+    let mut loop_out_pin_rect = None;
+    let mut loop_window_rect = None;
+
     if state.loop_end_ms > state.loop_start_ms {
         let loop_start_x = ruler_rect.min.x
             + keyboard_width
@@ -334,56 +345,87 @@ pub(crate) fn draw_piano_roll(
                 Pos2::new(visible_loop_left, ruler_rect.min.y + 1.0),
                 Pos2::new(visible_loop_right, ruler_rect.max.y - 1.0),
             );
+            loop_window_rect = Some(loop_banner_rect);
             let banner_bg = if state.loop_enabled {
-                theme.c32_alpha(theme.semantic.loop_region, 0.18)
+                theme.c32_alpha(theme.semantic.loop_region, 0.20)
             } else {
                 theme.c32_alpha(theme.text_muted, 0.10)
             };
             ruler_painter.rect_filled(loop_banner_rect, theme.ui_rounding(), banner_bg);
-        }
 
-        // Loop Start Marker [A
-        if loop_start_x >= left_bound && loop_start_x <= right_bound {
-            let marker_color = if state.loop_enabled {
+            // Shimmer / linha de topo na janela de loop
+            let top_strip = Rect::from_min_max(
+                Pos2::new(visible_loop_left, ruler_rect.min.y + 1.0),
+                Pos2::new(visible_loop_right, ruler_rect.min.y + 3.5),
+            );
+            let strip_color = if state.loop_enabled {
                 theme.loop_region_c32()
             } else {
                 theme.text_muted_c32()
             };
+            ruler_painter.rect_filled(top_strip, Rounding::same(1.0), strip_color);
+        }
+
+        let marker_color = if state.loop_enabled {
+            theme.loop_region_c32()
+        } else {
+            theme.text_muted_c32()
+        };
+
+        // Loop Start Pin [
+        if loop_start_x >= left_bound - 8.0 && loop_start_x <= right_bound + 8.0 {
+            let pin_rect = Rect::from_min_size(
+                Pos2::new(loop_start_x - 1.0, ruler_rect.min.y + 1.0),
+                Vec2::new(14.0, ruler_rect.height() - 2.0),
+            );
+            loop_in_pin_rect = Some(pin_rect);
+
+            ruler_painter.rect_filled(
+                pin_rect,
+                Rounding { nw: 3.0, ne: 0.0, sw: 3.0, se: 0.0 },
+                Color32::from_rgba_unmultiplied(marker_color.r(), marker_color.g(), marker_color.b(), 90),
+            );
             ruler_painter.line_segment(
                 [
-                    Pos2::new(loop_start_x, ruler_rect.min.y + 2.0),
+                    Pos2::new(loop_start_x, ruler_rect.min.y + 1.0),
                     Pos2::new(loop_start_x, ruler_rect.max.y - 1.0),
                 ],
-                Stroke::new(2.0_f32, marker_color),
+                Stroke::new(2.5_f32, marker_color),
             );
             ruler_painter.text(
-                Pos2::new(loop_start_x + 3.0, ruler_rect.min.y + 2.0),
+                Pos2::new(loop_start_x + 3.0, ruler_rect.min.y + 3.0),
                 egui::Align2::LEFT_TOP,
-                "A",
-                egui::FontId::monospace(9.0),
+                "[",
+                egui::FontId::monospace(11.0),
                 marker_color,
             );
         }
 
-        // Loop End Marker B]
-        if loop_end_x >= left_bound && loop_end_x <= right_bound {
-            let marker_color = if state.loop_enabled {
-                theme.loop_region_c32()
-            } else {
-                theme.text_muted_c32()
-            };
+        // Loop End Pin ]
+        if loop_end_x >= left_bound - 8.0 && loop_end_x <= right_bound + 8.0 {
+            let pin_rect = Rect::from_min_size(
+                Pos2::new(loop_end_x - 13.0, ruler_rect.min.y + 1.0),
+                Vec2::new(14.0, ruler_rect.height() - 2.0),
+            );
+            loop_out_pin_rect = Some(pin_rect);
+
+            ruler_painter.rect_filled(
+                pin_rect,
+                Rounding { nw: 0.0, ne: 3.0, sw: 0.0, se: 3.0 },
+                Color32::from_rgba_unmultiplied(marker_color.r(), marker_color.g(), marker_color.b(), 90),
+            );
             ruler_painter.line_segment(
                 [
-                    Pos2::new(loop_end_x, ruler_rect.min.y + 2.0),
+                    Pos2::new(loop_end_x, ruler_rect.min.y + 1.0),
                     Pos2::new(loop_end_x, ruler_rect.max.y - 1.0),
                 ],
-                Stroke::new(2.0_f32, marker_color),
+                Stroke::new(2.5_f32, marker_color),
             );
             ruler_painter.text(
-                Pos2::new(loop_end_x - 3.0, ruler_rect.min.y + 2.0),
+                Pos2::new(loop_end_x - 4.0, ruler_rect.min.y + 3.0),
                 egui::Align2::RIGHT_TOP,
-                "B",
-                egui::FontId::monospace(9.0),
+                "]",
+                egui::FontId::monospace(11.0),
                 marker_color,
             );
         }
@@ -513,7 +555,84 @@ pub(crate) fn draw_piano_roll(
         });
     }
 
-    if !jumped_to_marker && (ruler_response.clicked() || ruler_response.dragged()) {
+    let mouse_hover = ui.input(|i| i.pointer.hover_pos());
+    let mouse_primary_pressed = ui.input(|i| i.pointer.primary_pressed());
+    let mouse_primary_down = ui.input(|i| i.pointer.primary_down());
+
+    if let Some(mpos) = mouse_hover {
+        if ruler_rect.contains(mpos) {
+            if let Some(in_rect) = loop_in_pin_rect {
+                if in_rect.contains(mpos) {
+                    ui.output_mut(|o| o.cursor_icon = egui::CursorIcon::ResizeHorizontal);
+                    if mouse_primary_pressed {
+                        state.dragging_loop_pin_in = true;
+                    }
+                }
+            }
+            if let Some(out_rect) = loop_out_pin_rect {
+                if out_rect.contains(mpos) {
+                    ui.output_mut(|o| o.cursor_icon = egui::CursorIcon::ResizeHorizontal);
+                    if mouse_primary_pressed {
+                        state.dragging_loop_pin_out = true;
+                    }
+                }
+            }
+            if !state.dragging_loop_pin_in && !state.dragging_loop_pin_out {
+                if let Some(win_rect) = loop_window_rect {
+                    if win_rect.contains(mpos) && mpos.y <= ruler_rect.min.y + 7.0 {
+                        ui.output_mut(|o| o.cursor_icon = egui::CursorIcon::Grab);
+                        if mouse_primary_pressed {
+                            state.dragging_loop_window = true;
+                            state.loop_window_drag_start_x = Some(mpos.x);
+                            state.loop_drag_initial_start_ms = state.loop_start_ms;
+                            state.loop_drag_initial_end_ms = state.loop_end_ms;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    if mouse_primary_down {
+        if let Some(mpos) = ui.input(|i| i.pointer.interact_pos().or_else(|| i.pointer.hover_pos())) {
+            let raw_t = (mpos.x - (ruler_rect.min.x + keyboard_width) + timeline_scroll_x) as f64
+                / state.px_per_ms as f64;
+            let scrubbed_t =
+                apply_snap_with_zoom(raw_t.max(0.0), snap_option, bpm, state.px_per_ms);
+
+            if state.dragging_loop_pin_in {
+                state.loop_start_ms = scrubbed_t.min(state.loop_end_ms - 20.0).max(0.0);
+                state.loop_enabled = true;
+                ui.output_mut(|o| o.cursor_icon = egui::CursorIcon::ResizeHorizontal);
+            } else if state.dragging_loop_pin_out {
+                state.loop_end_ms = scrubbed_t.max(state.loop_start_ms + 20.0);
+                state.loop_enabled = true;
+                ui.output_mut(|o| o.cursor_icon = egui::CursorIcon::ResizeHorizontal);
+            } else if state.dragging_loop_window {
+                if let Some(start_x) = state.loop_window_drag_start_x {
+                    let delta_px = mpos.x - start_x;
+                    let delta_ms = delta_px as f64 / state.px_per_ms as f64;
+                    let loop_len = state.loop_drag_initial_end_ms - state.loop_drag_initial_start_ms;
+                    let new_start = (state.loop_drag_initial_start_ms + delta_ms).max(0.0);
+                    state.loop_start_ms = apply_snap_with_zoom(new_start, snap_option, bpm, state.px_per_ms);
+                    state.loop_end_ms = state.loop_start_ms + loop_len;
+                    state.loop_enabled = true;
+                    ui.output_mut(|o| o.cursor_icon = egui::CursorIcon::Grabbing);
+                }
+            }
+        }
+    } else {
+        state.dragging_loop_pin_in = false;
+        state.dragging_loop_pin_out = false;
+        state.dragging_loop_window = false;
+        state.loop_window_drag_start_x = None;
+    }
+
+    let is_dragging_loop = state.dragging_loop_pin_in
+        || state.dragging_loop_pin_out
+        || state.dragging_loop_window;
+
+    if !is_dragging_loop && !jumped_to_marker && (ruler_response.clicked() || ruler_response.dragged()) {
         if let Some(mpos) = ruler_response.interact_pointer_pos() {
             let shift_held = ui.input(|i| i.modifiers.shift);
             let raw_t = (mpos.x - (ruler_rect.min.x + keyboard_width) + timeline_scroll_x) as f64
@@ -628,7 +747,9 @@ pub(crate) fn draw_piano_roll(
     }
 
     let is_primary_down = ui.input(|i| i.pointer.primary_down());
-    let latest_pointer = ui.input(|i| i.pointer.latest_pos().or(i.pointer.hover_pos()));
+    let latest_pointer = ui
+        .input(|i| i.pointer.latest_pos().or(i.pointer.hover_pos()))
+        .filter(|pos| piano_roll_owns_pointer(ui.ctx(), piano_roll_layer_id, *pos));
     let is_dragging =
         (state.marquee_start.is_some() || state.dragging_note_idx.is_some()) && is_primary_down;
 
@@ -855,7 +976,12 @@ pub(crate) fn draw_piano_roll(
                     && button.left() >= visible_clip.left() + keyboard_width
             })
             .collect();
-        let pointer = ui.input(|i| i.pointer.interact_pos());
+        let pointer = ui
+            .input(|i| i.pointer.interact_pos())
+            .filter(|pos| {
+                response.hovered()
+                    && piano_roll_owns_pointer(ui.ctx(), piano_roll_layer_id, *pos)
+            });
         let vibrato_interaction = ui.memory(|memory| memory.any_popup_open())
             || pointer
                 .is_some_and(|pos| vibrato_buttons.iter().any(|(_, rect)| rect.contains(pos)));
@@ -1455,7 +1581,8 @@ pub(crate) fn draw_piano_roll(
                                 i.key_pressed(egui::Key::Enter)
                                     && !i.modifiers.command
                                     && !i.modifiers.alt
-                            });
+                            })
+                            && !ui.ctx().wants_keyboard_input();
                         if is_double_clicked || is_enter_on_note {
                             state.editing_lyric_index = Some(idx);
                             state.lyric_buffer = note.lyric.clone();
@@ -2726,15 +2853,23 @@ pub(crate) fn draw_piano_roll(
         }
 
         if !was_editing_lyric && state.editing_lyric_index.is_none() {
+            let keyboard_owned_by_widget = ui.ctx().wants_keyboard_input();
             let (select_all, delete_sel, arrow_up, arrow_down, is_shift, press_enter) =
                 ui.input(|i| {
                     (
-                        i.modifiers.command && i.key_pressed(egui::Key::A),
-                        i.key_pressed(egui::Key::Delete) || i.key_pressed(egui::Key::Backspace),
-                        i.key_pressed(egui::Key::ArrowUp),
-                        i.key_pressed(egui::Key::ArrowDown),
+                        !keyboard_owned_by_widget
+                            && i.modifiers.command
+                            && i.key_pressed(egui::Key::A),
+                        !keyboard_owned_by_widget
+                            && (i.key_pressed(egui::Key::Delete)
+                                || i.key_pressed(egui::Key::Backspace)),
+                        !keyboard_owned_by_widget && i.key_pressed(egui::Key::ArrowUp),
+                        !keyboard_owned_by_widget && i.key_pressed(egui::Key::ArrowDown),
                         i.modifiers.shift,
-                        i.key_pressed(egui::Key::Enter) && !i.modifiers.command && !i.modifiers.alt,
+                        !keyboard_owned_by_widget
+                            && i.key_pressed(egui::Key::Enter)
+                            && !i.modifiers.command
+                            && !i.modifiers.alt,
                     )
                 });
 
@@ -2796,8 +2931,11 @@ pub(crate) fn draw_piano_roll(
                 (state.dragging_note_idx, state.drag_start_pos)
             {
                 if ui.input(|i| i.pointer.primary_down()) {
-                    if let Some(current_screen_pos) =
-                        ui.input(|i| i.pointer.interact_pos().or(i.pointer.latest_pos()))
+                    if let Some(current_screen_pos) = ui
+                        .input(|i| i.pointer.interact_pos().or(i.pointer.latest_pos()))
+                        .filter(|pos| {
+                            piano_roll_owns_pointer(ui.ctx(), piano_roll_layer_id, *pos)
+                        })
                     {
                         let current_canvas_x = current_screen_pos.x - rect.min.x;
                         let current_canvas_y = current_screen_pos.y - rect.min.y;
@@ -2974,7 +3112,10 @@ pub(crate) fn draw_piano_roll(
         }
 
         let is_primary_down = ui.input(|i| i.pointer.primary_down());
-        let latest_pointer_pos = ui.input(|i| i.pointer.latest_pos()).or(mouse_interact_pos);
+        let latest_pointer_pos = ui
+            .input(|i| i.pointer.latest_pos())
+            .or(mouse_interact_pos)
+            .filter(|pos| piano_roll_owns_pointer(ui.ctx(), piano_roll_layer_id, *pos));
 
         // Edge autoscroll for piano roll marquee selection and note dragging
         let is_marquee_dragging = state.marquee_start.is_some() && is_primary_down;
@@ -3136,6 +3277,163 @@ pub(crate) fn draw_piano_roll(
                             on_preview_freq(freq);
                         }
                     }
+
+                    EditTool::Brush => {
+                        if ui.input(|i| i.pointer.primary_down()) && !interacted_with_note_or_ui {
+                            let click_x = mpos.x - (rect.min.x + keyboard_width);
+                            let raw_start_ms = (click_x / state.px_per_ms) as f64;
+                            let snap_step_ms = snap_option.step_ms_with_zoom(bpm, state.px_per_ms).unwrap_or(250.0);
+                            let snapped_ms = apply_snap_with_zoom(
+                                raw_start_ms,
+                                snap_option,
+                                bpm,
+                                state.px_per_ms,
+                            ).max(0.0);
+                            let key_idx =
+                                ((mpos.y - grid_start_y) / state.row_height).floor() as u8;
+                            let click_midi = (state.max_midi.saturating_sub(key_idx))
+                                .clamp(state.min_midi, state.max_midi);
+
+                            if state.brush_last_painted_key_and_time != Some((click_midi, snapped_ms)) {
+                                state.brush_last_painted_key_and_time = Some((click_midi, snapped_ms));
+                                let exists = notes.iter().any(|n| {
+                                    n.midi_key() == click_midi
+                                        && (n.position_ms - snapped_ms).abs() < (snap_step_ms * 0.45)
+                                });
+                                if !exists {
+                                    on_before_change();
+                                    let mut new_note = UNote::new(
+                                        &state.default_note_lyric,
+                                        midi_to_note_name(click_midi),
+                                        snapped_ms,
+                                        snap_step_ms.max(20.0),
+                                    );
+                                    new_note.expressions.dynamics = state.default_note_dynamics;
+                                    new_note.expressions.volume = state.default_note_volume;
+                                    notes.push(new_note);
+                                    let freq = midi_to_freq(click_midi as f64);
+                                    on_preview_freq(freq);
+                                    on_note_changed();
+                                }
+                            }
+                        } else if !ui.input(|i| i.pointer.primary_down()) {
+                            state.brush_last_painted_key_and_time = None;
+                        }
+                    }
+
+                    EditTool::Eraser => {
+                        if ui.input(|i| i.pointer.primary_down()) && !interacted_with_note_or_ui {
+                            let click_x = mpos.x - (rect.min.x + keyboard_width);
+                            let mouse_ms = (click_x / state.px_per_ms) as f64;
+                            let key_idx =
+                                ((mpos.y - grid_start_y) / state.row_height).floor() as u8;
+                            let click_midi = (state.max_midi.saturating_sub(key_idx))
+                                .clamp(state.min_midi, state.max_midi);
+
+                            let initial_len = notes.len();
+                            notes.retain(|n| {
+                                let matches_key = n.midi_key() == click_midi;
+                                let matches_time = mouse_ms >= n.position_ms
+                                    && mouse_ms <= n.position_ms + n.duration_ms;
+                                !(matches_key && matches_time)
+                            });
+                            if notes.len() != initial_len {
+                                on_before_change();
+                                state.selected_note_indices.clear();
+                                state.selected_note_index = None;
+                                on_note_changed();
+                            }
+                        }
+                    }
+
+                    EditTool::Annotation => {
+                        let click_x = mpos.x - (rect.min.x + keyboard_width);
+                        let mouse_ms = (click_x / state.px_per_ms) as f64;
+                        let midi_f = (state.max_midi as f64) - ((mpos.y - grid_start_y) / state.row_height) as f64;
+
+                        if ui.input(|i| i.pointer.primary_pressed()) {
+                            match state.active_annotation_tool {
+                                crate::gui::types::AnnotationSubTool::Pen
+                                | crate::gui::types::AnnotationSubTool::Highlighter => {
+                                    state.active_drawing_stroke = Some(vec![(mouse_ms, midi_f)]);
+                                }
+                                crate::gui::types::AnnotationSubTool::TextNote => {
+                                    on_before_change();
+                                    let now_ms = ui.input(|i| i.time) * 1000.0;
+                                    let id = format!("note_{}", now_ms as u64);
+                                    project_annotations.push(crate::project::model::UPianoRollAnnotation {
+                                        id,
+                                        track_index: None,
+                                        kind: crate::project::model::AnnotationKind::TextNote {
+                                            time_ms: mouse_ms,
+                                            midi_pitch: midi_f,
+                                            text: "Anotação...".to_string(),
+                                            color: state.active_annotation_color,
+                                        },
+                                        created_at_ms: now_ms,
+                                    });
+                                    on_note_changed();
+                                }
+                                crate::gui::types::AnnotationSubTool::Eraser => {
+                                    let initial_len = project_annotations.len();
+                                    project_annotations.retain(|ann| {
+                                        match &ann.kind {
+                                            crate::project::model::AnnotationKind::Drawing { points, .. } => {
+                                                !points.iter().any(|pt| {
+                                                    let dt = (pt.0 - mouse_ms).abs() * state.px_per_ms as f64;
+                                                    let dy = (pt.1 - midi_f).abs() * state.row_height as f64;
+                                                    (dt * dt + dy * dy).sqrt() < 24.0
+                                                })
+                                            }
+                                            crate::project::model::AnnotationKind::TextNote { time_ms, midi_pitch, .. } => {
+                                                let dt = (time_ms - mouse_ms).abs() * state.px_per_ms as f64;
+                                                let dy = (midi_pitch - midi_f).abs() * state.row_height as f64;
+                                                (dt * dt + dy * dy).sqrt() >= 30.0
+                                            }
+                                        }
+                                    });
+                                    if project_annotations.len() != initial_len {
+                                        on_before_change();
+                                        on_note_changed();
+                                    }
+                                }
+                            }
+                        } else if ui.input(|i| i.pointer.primary_down()) {
+                            if let Some(ref mut stroke) = state.active_drawing_stroke {
+                                if let Some(last) = stroke.last() {
+                                    let dt = (last.0 - mouse_ms).abs() * state.px_per_ms as f64;
+                                    let dy = (last.1 - midi_f).abs() * state.row_height as f64;
+                                    if dt * dt + dy * dy > 8.0 {
+                                        stroke.push((mouse_ms, midi_f));
+                                    }
+                                }
+                            }
+                        } else if ui.input(|i| i.pointer.primary_released()) {
+                            if let Some(stroke) = state.active_drawing_stroke.take() {
+                                if stroke.len() >= 2 {
+                                    on_before_change();
+                                    let now_ms = ui.input(|i| i.time) * 1000.0;
+                                    let id = format!("ann_{}", now_ms as u64);
+                                    let is_highlighter = matches!(
+                                        state.active_annotation_tool,
+                                        crate::gui::types::AnnotationSubTool::Highlighter
+                                    );
+                                    project_annotations.push(crate::project::model::UPianoRollAnnotation {
+                                        id,
+                                        track_index: None,
+                                        kind: crate::project::model::AnnotationKind::Drawing {
+                                            points: stroke,
+                                            color: state.active_annotation_color,
+                                            width: state.active_annotation_width,
+                                            is_highlighter,
+                                        },
+                                        created_at_ms: now_ms,
+                                    });
+                                    on_note_changed();
+                                }
+                            }
+                        }
+                    }
                     _ => {}
                 }
 
@@ -3246,6 +3544,59 @@ pub(crate) fn draw_piano_roll(
         let keys_y_min = visible_clip.min.y.max(grid_start_y);
         let keys_y_max = visible_clip.max.y.min(grid_end_y);
 
+        // Renderiza as anotações do projeto e o traço ativo
+        annotations::draw_annotations(
+            &painter,
+            visible_clip,
+            project_annotations,
+            state,
+            rect.min,
+            keyboard_width,
+            0.0,
+            state.px_per_ms,
+            grid_start_y,
+            state.max_midi,
+            state.row_height,
+        );
+
+        // Se o loop estiver ativo ou os pins sendo arrastados, desenha linhas guia verticais pelo grid
+        if state.dragging_loop_pin_in
+            || state.dragging_loop_pin_out
+            || state.dragging_loop_window
+            || state.loop_enabled
+        {
+            let loop_in_x = rect.min.x
+                + keyboard_width
+                + (state.loop_start_ms * state.px_per_ms as f64) as f32;
+            let loop_out_x = rect.min.x
+                + keyboard_width
+                + (state.loop_end_ms * state.px_per_ms as f64) as f32;
+            let is_dragging = state.dragging_loop_pin_in
+                || state.dragging_loop_pin_out
+                || state.dragging_loop_window;
+            let guide_color = if state.loop_enabled {
+                theme.c32_alpha(
+                    theme.semantic.loop_region,
+                    if is_dragging { 0.85 } else { 0.22 },
+                )
+            } else {
+                theme.c32_alpha(theme.text_muted, 0.20)
+            };
+
+            if loop_in_x >= sticky_key_x + keyboard_width && loop_in_x <= visible_clip.max.x {
+                painter.line_segment(
+                    [Pos2::new(loop_in_x, keys_y_min), Pos2::new(loop_in_x, keys_y_max)],
+                    Stroke::new(if is_dragging { 1.5_f32 } else { 1.0_f32 }, guide_color),
+                );
+            }
+            if loop_out_x >= sticky_key_x + keyboard_width && loop_out_x <= visible_clip.max.x {
+                painter.line_segment(
+                    [Pos2::new(loop_out_x, keys_y_min), Pos2::new(loop_out_x, keys_y_max)],
+                    Stroke::new(if is_dragging { 1.5_f32 } else { 1.0_f32 }, guide_color),
+                );
+            }
+        }
+
         grid::draw_piano_keys(
             &painter,
             ui,
@@ -3258,6 +3609,7 @@ pub(crate) fn draw_piano_roll(
             grid_end_y,
             first_visible_key,
             last_visible_key,
+            response.hovered(),
             on_preview_freq,
         );
 

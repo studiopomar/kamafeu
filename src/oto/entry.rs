@@ -1,7 +1,7 @@
 use serde::{Deserialize, Serialize};
 
 /// Represents an entry in an UTAU voicebank `oto.ini` file.
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 pub struct OtoEntry {
     /// The filename of the audio sample (e.g. `_ka.wav` or `ka.wav`)
     pub wav_filename: String,

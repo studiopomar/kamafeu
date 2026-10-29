@@ -170,6 +170,7 @@ pub(super) fn start() -> Option<TuiHandle> {
     let parent_port = socket.local_addr().ok()?.port();
     let mut child = Command::new(path)
         .arg(parent_port.to_string())
+        .arg(std::process::id().to_string())
         .stdin(Stdio::inherit())
         .stdout(Stdio::inherit())
         .stderr(Stdio::inherit())

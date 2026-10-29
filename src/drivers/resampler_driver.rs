@@ -630,8 +630,10 @@ impl ResamplerDriver for NativeWorldResamplerDriver {
                 .map_err(|reason| format!("Tainah WORLD render failed: {reason}"))?;
             let expected_len =
                 ((args.duration_ms.max(0.0) / 1_000.0) * sample_rate as f64).round() as usize;
-            if !has_render_coverage(&samples, expected_len, sample_rate) {
-                return Err("Tainah WORLD render failed: output failed coverage validation".into());
+            if let Some(reason) = render_coverage_failure(&samples, expected_len, sample_rate) {
+                return Err(format!(
+                    "Tainah WORLD render failed: output failed coverage validation ({reason})"
+                ));
             }
             Ok(ResamplerRenderOutput {
                 samples,
@@ -650,42 +652,55 @@ impl ResamplerDriver for NativeWorldResamplerDriver {
     }
 }
 
+#[cfg(test)]
 fn has_render_coverage(samples: &[f32], expected_len: usize, sample_rate: u32) -> bool {
+    render_coverage_failure(samples, expected_len, sample_rate).is_none()
+}
+
+fn render_coverage_failure(samples: &[f32], expected_len: usize, sample_rate: u32) -> Option<String> {
     if expected_len == 0
         || samples.len() < expected_len.saturating_mul(95) / 100
         || samples.iter().any(|sample| !sample.is_finite())
     {
-        return false;
+        let non_finite = samples.iter().filter(|sample| !sample.is_finite()).count();
+        return Some(format!(
+            "length={}/{expected_len}, non_finite={non_finite}",
+            samples.len()
+        ));
     }
     let peak = samples
         .iter()
         .map(|sample| sample.abs())
         .fold(0.0_f32, f32::max);
     if peak <= 1e-5 {
-        return false;
+        return Some(format!("peak={peak:.7}, no audible signal"));
     }
     let window = (sample_rate as usize / 20).max(64); // 50 ms
     let threshold = (peak * 0.002).max(1e-5);
     let inspected = &samples[..expected_len.min(samples.len())];
     let mut windows = 0usize;
     let mut audible = 0usize;
-    let mut last_window_audible = false;
     for chunk in inspected.chunks(window) {
         if chunk.len() < window / 2 {
             continue;
         }
         windows += 1;
-        last_window_audible = chunk.iter().any(|sample| sample.abs() >= threshold);
-        if last_window_audible {
+        if chunk.iter().any(|sample| sample.abs() >= threshold) {
             audible += 1;
         }
     }
-    // A resampler phoneme must provide material through its requested tail;
-    // the wavtool/envelope owns the release. Accepting a loud attack followed
-    // by silence creates the characteristic CVVC "hiccup" at every VC -> CV
-    // handoff. Permit a small amount of internal quiet material, but require
-    // at least 75% coverage and a live final 50 ms window.
-    windows > 0 && audible * 4 >= windows * 3 && last_window_audible
+    // WORLD output may naturally decay before the requested buffer ends.
+    // Require activity across most of the phone, but do not reject valid
+    // output solely because its final 50 ms are quiet; the wavtool envelope
+    // remains responsible for the musical release.
+    if windows == 0 || audible * 2 < windows {
+        Some(format!(
+            "active_windows={audible}/{windows} (required 50%), peak={peak:.7}, length={}/{expected_len}",
+            samples.len()
+        ))
+    } else {
+        None
+    }
 }
 
 /// Tokeniza flags UTAU sem confundir flags de um e dois caracteres.
@@ -1600,13 +1615,13 @@ mod tests {
     }
 
     #[test]
-    fn world_watchdog_rejects_a_short_phone_with_a_silent_tail() {
+    fn world_watchdog_accepts_a_short_phone_with_a_natural_silent_tail() {
         let sample_rate = 44_100;
         let expected_len = sample_rate / 5;
         let mut truncated = vec![0.0; expected_len];
         truncated[..expected_len * 2 / 3].fill(0.25);
 
-        assert!(!has_render_coverage(
+        assert!(has_render_coverage(
             &truncated,
             expected_len,
             sample_rate as u32

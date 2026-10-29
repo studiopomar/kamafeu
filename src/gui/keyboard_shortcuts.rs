@@ -6,6 +6,13 @@ use eframe::egui::Key;
 impl KamafeuStudioApp {
     pub(super) fn update_keyboard_shortcuts(&mut self, ctx: &egui::Context) {
         let is_editing_lyric = self.piano_roll_state.editing_lyric_index.is_some();
+        // Text widgets own the keyboard whenever they have focus. Checking
+        // this before dispatching any shortcut prevents ordinary typed keys,
+        // Backspace, and Space from leaking into editor commands.
+        if is_editing_lyric || ctx.wants_keyboard_input() {
+            return;
+        }
+
         if !is_editing_lyric {
             let mut toggle_play = false;
             ctx.input(|i| {
@@ -85,46 +92,98 @@ impl KamafeuStudioApp {
                 if has_cmd_or_ctrl && i.key_pressed(Key::N) {
                     do_new = true;
                 } else if i.key_pressed(Key::N) || i.key_pressed(Key::Num2) {
-                    if self.piano_roll_state.active_tool == EditTool::Pencil {
-                        self.piano_roll_state.active_tool = EditTool::Pointer;
-                    } else {
-                        self.piano_roll_state.active_tool = EditTool::Pencil;
-                    }
+                    self.piano_roll_state.active_tool = EditTool::Pencil;
                 }
                 if i.key_pressed(Key::V) || i.key_pressed(Key::Num1) {
-                    if self.piano_roll_state.active_tool != EditTool::Pointer {
-                        self.piano_roll_state.active_tool = EditTool::Pointer;
-                    } else {
-                        // Multi-press on 1 / V cycles playback/selection modes: Loop -> Sel -> Normal
-                        if !self.transport_state.loop_enabled
-                            && !self.transport_state.preview_selection_only
-                        {
-                            self.transport_state.loop_enabled = true;
-                            self.transport_state.preview_selection_only = false;
-                        } else if self.transport_state.loop_enabled {
-                            self.transport_state.loop_enabled = false;
-                            self.transport_state.preview_selection_only = true;
-                        } else {
-                            self.transport_state.loop_enabled = false;
-                            self.transport_state.preview_selection_only = false;
+                    self.piano_roll_state.active_tool = EditTool::Pointer;
+                }
+                if i.key_pressed(Key::B) && !has_cmd_or_ctrl || i.key_pressed(Key::Num3) {
+                    self.piano_roll_state.active_tool = EditTool::Brush;
+                }
+                if i.key_pressed(Key::P) || i.key_pressed(Key::Num4) {
+                    self.piano_roll_state.active_tool = EditTool::PitchDraw;
+                }
+                if i.key_pressed(Key::C) && !has_cmd_or_ctrl || i.key_pressed(Key::Num5) {
+                    self.piano_roll_state.active_tool = EditTool::Slice;
+                }
+                if i.key_pressed(Key::E) && !has_cmd_or_ctrl || i.key_pressed(Key::Num6) {
+                    self.piano_roll_state.active_tool = EditTool::Eraser;
+                }
+                if (i.key_pressed(Key::D) && !has_cmd_or_ctrl && !i.modifiers.alt)
+                    || i.key_pressed(Key::Num7)
+                {
+                    self.piano_roll_state.active_tool = EditTool::Annotation;
+                }
+
+                // Atalhos de Loop In / Out com I/O ou [/]
+                if (!has_cmd_or_ctrl && i.key_pressed(Key::I))
+                    || i.key_pressed(Key::OpenBracket)
+                {
+                    let playhead = self.piano_roll_state.playhead_ms;
+                    self.piano_roll_state.loop_start_ms = playhead.min(self.piano_roll_state.loop_end_ms - 20.0).max(0.0);
+                    self.piano_roll_state.loop_enabled = true;
+                    self.transport_state.loop_enabled = true;
+                }
+                if (!has_cmd_or_ctrl && i.key_pressed(Key::O))
+                    || i.key_pressed(Key::CloseBracket)
+                {
+                    let playhead = self.piano_roll_state.playhead_ms;
+                    self.piano_roll_state.loop_end_ms = playhead.max(self.piano_roll_state.loop_start_ms + 20.0);
+                    self.piano_roll_state.loop_enabled = true;
+                    self.transport_state.loop_enabled = true;
+                }
+
+                // Home para rebobinar até 0 ms
+                if i.key_pressed(Key::Home) {
+                    self.piano_roll_state.playhead_ms = 0.0;
+                    self.pause_audio();
+                }
+
+                // Ctrl+L: Define o Loop exatamente para cobrir as notas selecionadas
+                if has_cmd_or_ctrl && !i.modifiers.shift && !i.modifiers.alt && i.key_pressed(Key::L) {
+                    if let Some(part) = self.project.parts.get(self.active_track_index) {
+                        let selected_notes: Vec<&crate::project::model::UNote> = self
+                            .piano_roll_state
+                            .selected_note_indices
+                            .iter()
+                            .filter_map(|&idx| part.notes.get(idx))
+                            .collect();
+                        if !selected_notes.is_empty() {
+                            let min_pos = selected_notes.iter().map(|n| n.position_ms).fold(f64::INFINITY, f64::min);
+                            let max_end = selected_notes.iter().map(|n| n.position_ms + n.duration_ms).fold(f64::NEG_INFINITY, f64::max);
+                            if max_end > min_pos {
+                                self.piano_roll_state.loop_start_ms = min_pos;
+                                self.piano_roll_state.loop_end_ms = max_end;
+                                self.piano_roll_state.loop_enabled = true;
+                                self.transport_state.loop_enabled = true;
+                            }
                         }
                     }
                 }
-                if i.key_pressed(Key::P) || i.key_pressed(Key::Num3) {
-                    self.piano_roll_state.active_tool = EditTool::PitchDraw;
+
+                // Ctrl+G: Alterna ciclicamente o Grid Snap (Auto -> 1/16 -> 1/8 -> 1/4 -> Freeform)
+                if has_cmd_or_ctrl && i.key_pressed(Key::G) {
+                    self.transport_state.grid_snap = match self.transport_state.grid_snap {
+                        crate::gui::types::GridSnapOption::Auto => crate::gui::types::GridSnapOption::Snap1_16,
+                        crate::gui::types::GridSnapOption::Snap1_16 => crate::gui::types::GridSnapOption::Snap1_8,
+                        crate::gui::types::GridSnapOption::Snap1_8 => crate::gui::types::GridSnapOption::Snap1_4,
+                        crate::gui::types::GridSnapOption::Snap1_4 => crate::gui::types::GridSnapOption::Freeform,
+                        _ => crate::gui::types::GridSnapOption::Auto,
+                    };
                 }
-                if i.key_pressed(Key::C) && !has_cmd_or_ctrl || i.key_pressed(Key::Num4) {
-                    self.piano_roll_state.active_tool = EditTool::Slice;
+
+                // Alt+D: Limpa a última anotação ou desenho
+                if i.modifiers.alt && i.key_pressed(Key::D) {
+                    self.project.annotations.pop();
                 }
-                if i.key_pressed(Key::E) && !has_cmd_or_ctrl || i.key_pressed(Key::Num5) {
-                    self.piano_roll_state.active_tool = EditTool::Eraser;
-                }
+
                 if i.key_pressed(Key::L)
                     && !has_cmd_or_ctrl
                     && !i.modifiers.alt
                     && !i.modifiers.shift
                 {
                     self.transport_state.loop_enabled = !self.transport_state.loop_enabled;
+                    self.piano_roll_state.loop_enabled = self.transport_state.loop_enabled;
                 }
                 if i.key_pressed(Key::S)
                     && !has_cmd_or_ctrl
