@@ -217,7 +217,8 @@ pub fn draw_arrangement_view(
     fx: &mut crate::gui::fx_rack_dialog::FxRackDialogState,
     lang: crate::config::AppLanguage,
     master: &mut crate::audio::FxRackConfig,
-    available_singers: &[String],
+    available_singers: &[crate::oto::SingerInfo],
+    singer_to_activate: &mut Option<(usize, String, Option<std::path::PathBuf>)>,
 ) -> bool {
     let mut changed = false;
     meters.resize(tracks.len(), ArrangementMeterState::default());
@@ -493,6 +494,14 @@ pub fn draw_arrangement_view(
     if seek.clicked() {
         if let Some(p) = seek.interact_pointer_pos() {
             *playhead = ((p.y - timeline.top() + *scroll_y) / *zoom) as f64;
+            let track_x = p.x - timeline.left() + *scroll_x;
+            for (idx, &off) in offsets.iter().enumerate() {
+                let w = widths.get(idx).copied().unwrap_or(default_width);
+                if track_x >= off && track_x < off + w {
+                    *active = idx;
+                    break;
+                }
+            }
         }
     }
     let mut new_part: Option<(usize, f64)> = None;
@@ -577,14 +586,71 @@ pub fn draw_arrangement_view(
             .ctx()
             .data_mut(|d| d.get_temp::<bool>(rename_id).unwrap_or(false));
 
-        // Linha 1: Badge #N + Nome da Faixa
+        // Linha 1: Avatar do Cantor + Badge #N + Nome da Faixa
         child.horizontal(|ui| {
+            let avatar_size = 18.0f32;
+            let (avatar_rect, avatar_resp) =
+                ui.allocate_exact_size(Vec2::splat(avatar_size), egui::Sense::click());
+            if avatar_resp.clicked() {
+                *active = i;
+            }
+            let avatar_center = avatar_rect.center();
+            let avatar_radius = avatar_size * 0.5;
+
+            ui.painter().circle_filled(
+                avatar_center,
+                avatar_radius,
+                if is_selected {
+                    track_color.gamma_multiply(0.85)
+                } else {
+                    theme.bg_canvas_c32()
+                },
+            );
+            let initial = if track.singer.is_empty() {
+                "🎤".to_string()
+            } else {
+                track
+                    .singer
+                    .chars()
+                    .next()
+                    .unwrap_or('🎤')
+                    .to_uppercase()
+                    .to_string()
+            };
+            ui.painter().text(
+                avatar_center,
+                egui::Align2::CENTER_CENTER,
+                initial,
+                egui::FontId::proportional(9.0),
+                if is_selected {
+                    Color32::WHITE
+                } else {
+                    theme.text_primary_c32()
+                },
+            );
+            ui.painter().circle_stroke(
+                avatar_center,
+                avatar_radius,
+                Stroke::new(
+                    1.0_f32,
+                    if avatar_resp.hovered() {
+                        Color32::WHITE
+                    } else {
+                        track_color
+                    },
+                ),
+            );
+
             let badge_bg = if is_selected {
                 track_color.gamma_multiply(0.35)
             } else {
                 theme.bg_canvas_c32()
             };
-            let (num_rect, _) = ui.allocate_exact_size(Vec2::new(18.0, 15.0), egui::Sense::hover());
+            let (num_rect, num_resp) =
+                ui.allocate_exact_size(Vec2::new(18.0, 15.0), egui::Sense::click());
+            if num_resp.clicked() {
+                *active = i;
+            }
             ui.painter()
                 .rect_filled(num_rect, Rounding::same(3.0), badge_bg);
             ui.painter().text(
@@ -650,9 +716,18 @@ pub fn draw_arrangement_view(
                     if !available_singers.is_empty() {
                         ui.menu_button(lang.tr("Mudar cantor", "Change singer"), |ui| {
                             for s in available_singers {
-                                let is_curr = &track.singer == s;
-                                if ui.selectable_label(is_curr, s).clicked() {
-                                    track.singer = s.clone();
+                                let is_curr = &track.singer == &s.name;
+                                let label = if !s.author.is_empty() {
+                                    format!("{} ({})", s.name, s.author)
+                                } else {
+                                    s.name.clone()
+                                };
+                                if ui.selectable_label(is_curr, label).clicked() {
+                                    *active = i;
+                                    track.singer = s.name.clone();
+                                    track.voicebank_path = Some(s.path.display().to_string());
+                                    *singer_to_activate =
+                                        Some((i, s.name.clone(), Some(s.path.clone())));
                                     changed = true;
                                     ui.close_menu();
                                 }
@@ -673,25 +748,6 @@ pub fn draw_arrangement_view(
                         new_part = Some((i, 30_000.0));
                         ui.close_menu();
                     }
-                    ui.menu_button(
-                        lang.tr("Nova parte (duração...)", "New part (duration...)"),
-                        |ui| {
-                            for (label, dur_ms) in [
-                                ("5 segundos", 5_000.0),
-                                ("10 segundos", 10_000.0),
-                                ("30 segundos", 30_000.0),
-                                ("1 minuto", 60_000.0),
-                                ("2 minutos", 120_000.0),
-                                ("5 minutos", 300_000.0),
-                            ] {
-                                if ui.button(label).clicked() {
-                                    new_part = Some((i, dur_ms));
-                                    ui.close_menu();
-                                }
-                            }
-                        },
-                    );
-                    ui.separator();
                     if ui
                         .button(lang.tr("Duplicar faixa", "Duplicate track"))
                         .clicked()
@@ -710,26 +766,75 @@ pub fn draw_arrangement_view(
             }
         });
 
-        // Linha 2: Cantor / Voicebank
-        let singer_text = if track.singer.is_empty() {
-            lang.tr("Sem cantor", "No singer").to_string()
-        } else {
-            format!("🎤 {}", track.singer)
-        };
-        child
-            .add(
-                egui::Label::new(
-                    egui::RichText::new(singer_text)
-                        .size(9.0)
-                        .color(theme.text_muted_c32()),
-                )
-                .truncate(),
-            )
-            .on_hover_text(if track.singer.is_empty() {
-                "Nenhum cantor selecionado"
+        // Linha 2: Cantor / Voicebank com Seletor Rápido
+        child.horizontal(|ui| {
+            let singer_label = if track.singer.is_empty() {
+                lang.tr("Sem cantor ▾", "No singer ▾").to_string()
             } else {
-                &track.singer
-            });
+                format!("🎤 {} ▾", track.singer)
+            };
+            let mb = ui.menu_button(
+                egui::RichText::new(singer_label)
+                    .size(9.5)
+                    .color(if track.singer.is_empty() {
+                        theme.text_muted_c32()
+                    } else {
+                        theme.text_primary_c32()
+                    }),
+                |ui| {
+                    ui.set_min_width(240.0);
+                    ui.label(
+                        egui::RichText::new(lang.tr("Selecionar Cantor", "Select Singer"))
+                            .strong()
+                            .size(11.0),
+                    );
+                    ui.separator();
+                    let search_id = ui.id().with(("singer_search", i));
+                    let mut search = ui
+                        .ctx()
+                        .data_mut(|d| d.get_temp::<String>(search_id).unwrap_or_default());
+                    ui.add(
+                        egui::TextEdit::singleline(&mut search)
+                            .hint_text(lang.tr("Buscar...", "Search...")),
+                    );
+                    let query = search.to_lowercase();
+                    ui.ctx().data_mut(|d| d.insert_temp(search_id, search));
+
+                    egui::ScrollArea::vertical()
+                        .max_height(200.0)
+                        .show(ui, |ui| {
+                            for s in available_singers {
+                                if !query.is_empty()
+                                    && !s.name.to_lowercase().contains(&query)
+                                    && !s.author.to_lowercase().contains(&query)
+                                {
+                                    continue;
+                                }
+                                let is_curr = &track.singer == &s.name;
+                                let label_text = if !s.author.is_empty() {
+                                    format!("{} ({})", s.name, s.author)
+                                } else if !s.voice_type.is_empty() {
+                                    format!("{} [{}]", s.name, s.voice_type)
+                                } else {
+                                    s.name.clone()
+                                };
+                                if ui.selectable_label(is_curr, label_text).clicked() {
+                                    *active = i;
+                                    track.singer = s.name.clone();
+                                    track.voicebank_path = Some(s.path.display().to_string());
+                                    *singer_to_activate =
+                                        Some((i, s.name.clone(), Some(s.path.clone())));
+                                    changed = true;
+                                    ui.close_menu();
+                                }
+                            }
+                        });
+                },
+            );
+            if mb.response.clicked() {
+                *active = i;
+            }
+        });
 
         // Linha 3: Controles rápidos (M, S, FX, Reorder)
         child.horizontal(|ui| {
@@ -1178,9 +1283,21 @@ pub fn draw_arrangement_view(
                     |ui| {
                         if let Some(t) = tracks.get_mut(part.track_index) {
                             for s in available_singers {
-                                let is_curr = &t.singer == s;
-                                if ui.selectable_label(is_curr, s).clicked() {
-                                    t.singer = s.clone();
+                                let is_curr = &t.singer == &s.name;
+                                let label = if !s.author.is_empty() {
+                                    format!("{} ({})", s.name, s.author)
+                                } else {
+                                    s.name.clone()
+                                };
+                                if ui.selectable_label(is_curr, label).clicked() {
+                                    *active = part.track_index;
+                                    t.singer = s.name.clone();
+                                    t.voicebank_path = Some(s.path.display().to_string());
+                                    *singer_to_activate = Some((
+                                        part.track_index,
+                                        s.name.clone(),
+                                        Some(s.path.clone()),
+                                    ));
                                     changed = true;
                                     ui.close_menu();
                                 }
@@ -1987,6 +2104,7 @@ mod tests {
                                         crate::config::AppLanguage::PtBr,
                                         &mut master,
                                         &[],
+                                        &mut None,
                                     ));
                                     assert!(
                                         ui.min_rect().height() <= size.y,
@@ -2069,6 +2187,7 @@ mod creation_tests {
                             crate::config::AppLanguage::PtBr,
                             &mut master,
                             &[],
+                            &mut None,
                         );
                     });
                 },
@@ -2132,6 +2251,7 @@ mod resize_tests {
                             crate::config::AppLanguage::PtBr,
                             &mut master,
                             &[],
+                            &mut None,
                         ));
                         edge = ctx
                             .read_response(id.with(("resize_track", 0usize)))

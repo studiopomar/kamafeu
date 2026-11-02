@@ -632,6 +632,13 @@ pub(super) fn draw(
                                                 close_menu = true;
                                             }
                                             if ui.button(lang.tr("Forçar Atualização de Fonemas", "Force Phoneme Update")).clicked() {
+                                                state.request_rephonemize_note_indices = Some(
+                                                    if !state.selected_note_indices.is_empty() {
+                                                        state.selected_note_indices.iter().copied().collect()
+                                                    } else {
+                                                        menu_idx_opt.into_iter().collect()
+                                                    },
+                                                );
                                                 state.request_rephonemize = true;
                                                 close_menu = true;
                                             }

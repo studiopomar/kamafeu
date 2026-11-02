@@ -13,9 +13,11 @@ mod project;
 mod project_diagnostics;
 mod recovery_snapshots;
 mod shortcuts_guide;
+pub mod singer_picker_popover;
 mod singers_gallery;
 mod templates;
 mod theme_customizer;
+mod utau_guide;
 mod voicebank;
 
 use super::KamafeuStudioApp;
@@ -42,6 +44,7 @@ impl KamafeuStudioApp {
         self.show_batch_lyrics(ctx);
         self.show_singers_gallery(ctx);
         self.show_autopitch(ctx);
+        self.show_utau_guide(ctx);
         self.show_export_options_dialog(ctx);
         self.show_export_dialog(ctx);
         self.show_folder_picker(ctx);

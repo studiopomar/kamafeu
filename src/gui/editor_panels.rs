@@ -481,6 +481,7 @@ impl KamafeuStudioApp {
                                 .show(ui, |ui| {
                                     ui.horizontal(|ui| {
                                         let mut mix_changed = false;
+                                        let mut select_track_clicked = None;
                                         for (index, track) in
                                             self.project.tracks.iter_mut().enumerate()
                                         {
@@ -512,7 +513,7 @@ impl KamafeuStudioApp {
                                                     ui.vertical_centered(|ui| {
                                                         // Track Title / Number
                                                         let track_num = format!("#{}", index + 1);
-                                                        ui.horizontal(|ui| {
+                                                        let header_resp = ui.horizontal(|ui| {
                                                             ui.label(
                                                                 egui::RichText::new(track_num)
                                                                     .size(9.0)
@@ -533,6 +534,13 @@ impl KamafeuStudioApp {
                                                                     ),
                                                             );
                                                         });
+                                                        if header_resp
+                                                            .response
+                                                            .interact(egui::Sense::click())
+                                                            .clicked()
+                                                        {
+                                                            select_track_clicked = Some(index);
+                                                        }
 
                                                         ui.add_space(2.0);
 
@@ -682,6 +690,11 @@ impl KamafeuStudioApp {
                                                         );
                                                     });
                                                 });
+                                        }
+
+                                        if let Some(idx) = select_track_clicked {
+                                            self.active_track_index = idx;
+                                            self.sync_active_track_voicebank();
                                         }
 
                                         if mix_changed {
@@ -860,6 +873,7 @@ impl KamafeuStudioApp {
                 .copied()
                 .min()
         });
+        self.sync_active_track_voicebank();
         let active_track = self.active_track_index;
         if self.project.parts.is_empty() {
             self.project
@@ -878,29 +892,60 @@ impl KamafeuStudioApp {
         let mut palette_edit_alias: Option<String> = None;
         let mut selected_ruler_alias_to_edit: Option<(String, String)> = None;
         let selected_ruler_alias = self.piano_roll_state.selected_copaiba_alias.clone();
-        let active_native_singer = self
-            .project
-            .tracks
-            .get(self.active_track_index)
-            .and_then(|track| {
-                track
-                    .native_voicebank
-                    .as_ref()
-                    .and_then(|reference| reference.source_path_hint.clone())
-                    .or_else(|| track.voicebank_path.clone())
-            })
-            .and_then(|path| {
-                let p = std::path::PathBuf::from(&path);
-                self.singers_list
-                    .iter()
-                    .find(|singer| {
-                        singer.path == p
-                            || std::fs::canonicalize(&singer.path).ok()
-                                == std::fs::canonicalize(&p).ok()
-                    })
-                    .cloned()
-                    .or_else(|| crate::oto::SingerScanner::inspect_singer_directory(&p))
-            });
+        let active_native_singer =
+            self.project
+                .tracks
+                .get(self.active_track_index)
+                .and_then(|track| {
+                    let opt_path = track
+                        .native_voicebank
+                        .as_ref()
+                        .and_then(|reference| reference.source_path_hint.clone())
+                        .or_else(|| track.voicebank_path.clone())
+                        .or_else(|| {
+                            self.find_singer_path_by_name(&track.singer)
+                                .map(|p| p.display().to_string())
+                        });
+
+                    if let Some(ref path_str) = opt_path {
+                        let p = std::path::PathBuf::from(path_str);
+                        if let Some(s) = self
+                            .singers_list
+                            .iter()
+                            .find(|singer| {
+                                singer.path == p
+                                    || std::fs::canonicalize(&singer.path).ok()
+                                        == std::fs::canonicalize(&p).ok()
+                            })
+                            .cloned()
+                        {
+                            return Some(s);
+                        }
+                        if let Some(s) = crate::oto::SingerScanner::inspect_singer_directory(&p) {
+                            return Some(s);
+                        }
+                    }
+                    if !track.singer.is_empty() {
+                        if let Some(s) = self
+                            .singers_list
+                            .iter()
+                            .find(|s| {
+                                s.name == track.singer || s.name.eq_ignore_ascii_case(&track.singer)
+                            })
+                            .cloned()
+                        {
+                            return Some(s);
+                        }
+                    }
+                    None
+                });
+        let active_track_info = self.project.tracks.get(self.active_track_index).map(|t| {
+            (
+                self.active_track_index,
+                t.name.as_str(),
+                t.color_rgb.unwrap_or([120, 160, 220]),
+            )
+        });
         let pointer_down = ui.input(|i| i.pointer.primary_down() || i.pointer.secondary_down());
         let mut notes_to_watch = selected_indices.clone();
         if let Some(index) = selected_idx {
@@ -945,6 +990,7 @@ impl KamafeuStudioApp {
             self.config.language,
             self.voicebank.as_ref(),
             active_native_singer.as_ref(),
+            active_track_info,
             &self.config.recent_voicebanks,
             &self.singers_list,
             &mut self.singer_search_query,
@@ -1097,9 +1143,13 @@ impl KamafeuStudioApp {
         // when it changes so the next frame cannot keep showing aliases from
         // the previous family.
         if self.vocal_mode_params.phonemizer_mode != phonemizer_before_panel {
+            if let Some(track) = self.project.tracks.get_mut(self.active_track_index) {
+                track.phonemizer = Some(self.vocal_mode_params.phonemizer_mode);
+            }
             self.piano_roll_state.phoneme_cache_hash = 0;
             self.piano_roll_state.phoneme_cache.clear();
             self.piano_roll_state.note_phonemes_cache.clear();
+            self.is_dirty = true;
         }
 
         let watched_notes_changed = watched_note_snapshots.iter().any(|(index, before)| {
@@ -1181,6 +1231,18 @@ impl KamafeuStudioApp {
         // settings actually changed, otherwise each frame forces a config
         // serialization, file sync, and atomic rename on the UI thread.
         if inspector_persist_state_after != inspector_persist_state_before {
+            if inspector_persist_state_after.3 != inspector_persist_state_before.3
+                || inspector_persist_state_after.5 != inspector_persist_state_before.5
+            {
+                // Engine or resampler path changed: cancel any active background synthesis immediately
+                if let Some(cancel) = self.preview_waveform_cancel.take() {
+                    cancel.store(true, std::sync::atomic::Ordering::Relaxed);
+                }
+                self.preview_waveform_rx = None;
+                self.preview_waveform_pending = None;
+                self.preview_waveform_cache_hash = 0;
+                self.piano_roll_state.waveform_rendering = false;
+            }
             self.persist_config();
         }
 
@@ -1304,22 +1366,49 @@ impl KamafeuStudioApp {
         let mut master_fx = self.project.master_fx.clone().unwrap_or_default();
         let original_master_fx = master_fx.clone();
 
-        let mut available_singers: Vec<String> = self
-            .config
-            .recent_voicebanks
-            .iter()
-            .filter_map(|p| {
-                p.file_name()
+        let mut available_singers = self.singers_list.clone();
+        for p in &self.config.recent_voicebanks {
+            if !available_singers.iter().any(|s| &s.path == p) {
+                let name = p
+                    .file_name()
                     .and_then(|n| n.to_str())
-                    .map(|s| s.to_string())
-            })
-            .collect();
+                    .unwrap_or("Voicebank")
+                    .to_string();
+                available_singers.push(crate::oto::SingerInfo {
+                    name,
+                    author: String::new(),
+                    web: None,
+                    path: p.clone(),
+                    image_path: None,
+                    voice_type: "UTAU".to_string(),
+                    selectable: true,
+                    is_native_kfv2: false,
+                    diagnostic: None,
+                });
+            }
+        }
         for t in &self.project.tracks {
-            if !t.singer.is_empty() && !available_singers.contains(&t.singer) {
-                available_singers.push(t.singer.clone());
+            if !t.singer.is_empty() && !available_singers.iter().any(|s| s.name == t.singer) {
+                let path = t
+                    .voicebank_path
+                    .as_ref()
+                    .map(std::path::PathBuf::from)
+                    .unwrap_or_else(|| std::path::PathBuf::from(&t.singer));
+                available_singers.push(crate::oto::SingerInfo {
+                    name: t.singer.clone(),
+                    author: String::new(),
+                    web: None,
+                    path,
+                    image_path: None,
+                    voice_type: String::new(),
+                    selectable: true,
+                    is_native_kfv2: false,
+                    diagnostic: None,
+                });
             }
         }
 
+        let mut singer_to_activate = None;
         let arrangement_changed = draw_arrangement_view(
             ui,
             &self.config.theme,
@@ -1340,9 +1429,21 @@ impl KamafeuStudioApp {
             self.config.language,
             &mut master_fx,
             &available_singers,
+            &mut singer_to_activate,
         );
         if master_fx != original_master_fx {
             self.project.master_fx = Some(master_fx);
+        }
+
+        if let Some((track_idx, singer_name, opt_path)) = singer_to_activate {
+            self.active_track_index = track_idx;
+            let path = opt_path.or_else(|| self.find_singer_path_by_name(&singer_name));
+            if let Some(p) = path {
+                self.activate_singer_path(&p);
+            } else if let Some(track) = self.project.tracks.get_mut(track_idx) {
+                track.singer = singer_name;
+            }
+            self.sync_active_track_voicebank();
         }
 
         if arrangement_changed {

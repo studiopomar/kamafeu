@@ -187,7 +187,15 @@ pub enum KnownResampler {
 }
 
 static CACHE: std::sync::LazyLock<
-    std::sync::Mutex<std::collections::HashMap<KnownResampler, Option<PathBuf>>>,
+    std::sync::Mutex<
+        std::collections::HashMap<KnownResampler, (Option<PathBuf>, std::time::Instant)>,
+    >,
+> = std::sync::LazyLock::new(|| std::sync::Mutex::new(std::collections::HashMap::new()));
+
+static HIFISAMPLER_READY_CACHE: std::sync::LazyLock<
+    std::sync::Mutex<
+        std::collections::HashMap<KnownResampler, (Result<String, String>, std::time::Instant)>,
+    >,
 > = std::sync::LazyLock::new(|| std::sync::Mutex::new(std::collections::HashMap::new()));
 
 impl KnownResampler {
@@ -312,25 +320,32 @@ impl KnownResampler {
         if let Ok(mut guard) = CACHE.lock() {
             guard.clear();
         }
+        if let Ok(mut guard) = HIFISAMPLER_READY_CACHE.lock() {
+            guard.clear();
+        }
+        #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
+        crate::dsp::catalina::clear_model_cache();
     }
 
     pub fn find_executable(self) -> Option<PathBuf> {
         if let Ok(guard) = CACHE.lock() {
-            if let Some(Some(cached)) = guard.get(&self) {
-                // A resampler can be installed while the application is
-                // running. Never keep a stale path alive after it disappears.
-                if cached.is_file() {
-                    return Some(cached.clone());
+            if let Some((cached_opt, timestamp)) = guard.get(&self) {
+                if timestamp.elapsed() < std::time::Duration::from_secs(3) {
+                    if let Some(cached) = cached_opt {
+                        if cached.is_file() {
+                            return Some(cached.clone());
+                        }
+                    } else {
+                        return None;
+                    }
                 }
             }
         }
 
-        // Do not short-circuit a cached `None`: a newly copied/downloaded
-        // resampler must become selectable without restarting Kamafeu.
         let result = self.search_executable_uncached();
 
         if let Ok(mut guard) = CACHE.lock() {
-            guard.insert(self, result.clone());
+            guard.insert(self, (result.clone(), std::time::Instant::now()));
         }
 
         result
@@ -563,7 +578,11 @@ impl ResamplerDriver for NativeResamplerDriver {
 #[derive(Debug, Clone, Copy, Default)]
 pub struct NativeWorldResamplerDriver;
 
+#[derive(Debug, Clone, Copy, Default)]
+pub struct TainahNeuralResamplerDriver;
+
 pub const TAINAH_RESAMPLER_LABEL: &str = "Tainah";
+pub const TAINAH_NEURAL_RESAMPLER_LABEL: &str = "Tainah Neural";
 
 /// Recognizes the current display label and names stored by older projects.
 /// Keep this exact enough not to mistake external engines such as World4UTAU
@@ -582,8 +601,301 @@ pub fn is_native_world_resampler_label(label: &str) -> bool {
     ) || normalized.contains("venus")
 }
 
+pub fn is_tainah_resampler_label(label: &str) -> bool {
+    let normalized = label.trim().to_ascii_lowercase();
+    normalized.contains("tainah") || is_native_world_resampler_label(label)
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TainahFlagCategory {
+    Phonation,
+    Harmonics,
+    Formants,
+}
+
+#[derive(Debug, Clone, Copy)]
+pub struct TainahFlagInfo {
+    pub key: &'static str,
+    pub openutau_name: &'static str,
+    pub label_pt: &'static str,
+    pub label_en: &'static str,
+    pub desc_pt: &'static str,
+    pub desc_en: &'static str,
+    pub min: f64,
+    pub max: f64,
+    pub default_val: f64,
+    pub speed: f32,
+    pub category: TainahFlagCategory,
+}
+
+pub const TAINAH_FLAGS: &[TainahFlagInfo] = &[
+    TainahFlagInfo {
+        key: "T",
+        openutau_name: "tns",
+        label_pt: "Tensão Vocal (T)",
+        label_en: "Vocal Tension (T)",
+        desc_pt: "Adução glótica e balanço H1-H2 (+ canto tenso/belting; - fonação laxa/suave)",
+        desc_en: "Glottal adduction and H1-H2 balance (+ belting/tense; - breathy/soft)",
+        min: -100.0,
+        max: 100.0,
+        default_val: 0.0,
+        speed: 1.0,
+        category: TainahFlagCategory::Phonation,
+    },
+    TainahFlagInfo {
+        key: "A",
+        openutau_name: "air",
+        label_pt: "Arezamento (A)",
+        label_en: "Airiness (A)",
+        desc_pt: "Difusão aperiódica aveludada acima de 3,5 kHz (estilo condensador vocal pop)",
+        desc_en: "Velvety aperiodic high-frequency diffusion above 3.5 kHz (pop condenser sound)",
+        min: 0.0,
+        max: 100.0,
+        default_val: 0.0,
+        speed: 1.0,
+        category: TainahFlagCategory::Phonation,
+    },
+    TainahFlagInfo {
+        key: "W",
+        openutau_name: "wrm",
+        label_pt: "Calor Acústico (W)",
+        label_en: "Warmth (W)",
+        desc_pt: "Ressonância de peito em ~220 Hz (+ corpo/peso; - atenua embolamento)",
+        desc_en: "Chest cavity resonance at ~220 Hz (+ body/weight; - clarity/thinner)",
+        min: -100.0,
+        max: 100.0,
+        default_val: 0.0,
+        speed: 1.0,
+        category: TainahFlagCategory::Phonation,
+    },
+    TainahFlagInfo {
+        key: "E",
+        openutau_name: "edg",
+        label_pt: "Punch de Consoante (E)",
+        label_en: "Attack Edge (E)",
+        desc_pt: "Micro-dinâmica inicial de ataque de plosivas e transientes de consoantes",
+        desc_en: "Initial transient attack punch for plosive and consonant bursts",
+        min: -100.0,
+        max: 100.0,
+        default_val: 0.0,
+        speed: 1.0,
+        category: TainahFlagCategory::Phonation,
+    },
+    TainahFlagInfo {
+        key: "g",
+        openutau_name: "gen",
+        label_pt: "Gênero / Timbre (g)",
+        label_en: "Gender / Timbre (g)",
+        desc_pt: "Altera o timbre sem alterar a nota fundamental (+ escurece/masculino; - clareia/feminino)",
+        desc_en: "Alters vocal timbre without shifting pitch (+ darker/masculine; - brighter/feminine)",
+        min: -100.0,
+        max: 100.0,
+        default_val: 0.0,
+        speed: 1.0,
+        category: TainahFlagCategory::Phonation,
+    },
+    TainahFlagInfo {
+        key: "B",
+        openutau_name: "bre",
+        label_pt: "Sopro Geral (B)",
+        label_en: "Breathiness (B)",
+        desc_pt: "Aumenta a componente geral de ruído aperiódico de sopro vocal",
+        desc_en: "Increases broad aperiodic breath noise",
+        min: 0.0,
+        max: 100.0,
+        default_val: 0.0,
+        speed: 1.0,
+        category: TainahFlagCategory::Phonation,
+    },
+    TainahFlagInfo {
+        key: "s",
+        openutau_name: "ses",
+        label_pt: "De-Esser Dinâmico (s)",
+        label_en: "Dynamic De-Esser (s)",
+        desc_pt: "Suprime dinamicamente frequências sibilantes ásperas (5–9,5 kHz) em consoantes",
+        desc_en: "Dynamically suppresses harsh sibilant frequencies (5–9.5 kHz) on consonants",
+        min: 0.0,
+        max: 100.0,
+        default_val: 0.0,
+        speed: 1.0,
+        category: TainahFlagCategory::Harmonics,
+    },
+    TainahFlagInfo {
+        key: "G",
+        openutau_name: "gwl",
+        label_pt: "Growl Gutural (G)",
+        label_en: "Growl / Vocal Fry (G)",
+        desc_pt: "Modulação caótica de sub-harmônicos (F0/2) para canto gutural e rock",
+        desc_en: "Sub-harmonic chaotic modulation (F0/2) for guttural growl and vocal fry",
+        min: 0.0,
+        max: 100.0,
+        default_val: 0.0,
+        speed: 1.0,
+        category: TainahFlagCategory::Harmonics,
+    },
+    TainahFlagInfo {
+        key: "U",
+        openutau_name: "sat",
+        label_pt: "Saturação Glotal (U)",
+        label_en: "Saturation Drive (U)",
+        desc_pt: "Modelagem analógica tanh (+ calor e harmônicos; - linearidade suave)",
+        desc_en: "Analog glottal drive tanh modeling (+ harmonic warmth; - clean/linear)",
+        min: -100.0,
+        max: 100.0,
+        default_val: 0.0,
+        speed: 1.0,
+        category: TainahFlagCategory::Harmonics,
+    },
+    TainahFlagInfo {
+        key: "J",
+        openutau_name: "jit",
+        label_pt: "Humanização Jitter (J)",
+        label_en: "Humanize Jitter (J)",
+        desc_pt: "Micro-flutuações fisiológicas involuntárias de afinação e amplitude",
+        desc_en: "Involuntary physiological micro-fluctuations in pitch and amplitude",
+        min: 0.0,
+        max: 100.0,
+        default_val: 0.0,
+        speed: 1.0,
+        category: TainahFlagCategory::Harmonics,
+    },
+    TainahFlagInfo {
+        key: "M",
+        openutau_name: "mod",
+        label_pt: "Modulação Vibrato (M)",
+        label_en: "Vibrato Modulation (M)",
+        desc_pt: "Percentual de preservação do vibrato e flutuação da gravação original",
+        desc_en: "Preservation percentage of the source recording natural vibrato and movement",
+        min: 0.0,
+        max: 100.0,
+        default_val: 0.0,
+        speed: 1.0,
+        category: TainahFlagCategory::Harmonics,
+    },
+    TainahFlagInfo {
+        key: "N",
+        openutau_name: "nas",
+        label_pt: "Nasalidade Acústica (N)",
+        label_en: "Acoustic Nasality (N)",
+        desc_pt: "Polo em 270 Hz, notch anti-formante e atenuação de F1 (padrão BRAPA)",
+        desc_en: "Nasal pole at 270 Hz, anti-formant notch and F1 damping (BRAPA standard)",
+        min: 0.0,
+        max: 100.0,
+        default_val: 0.0,
+        speed: 1.0,
+        category: TainahFlagCategory::Formants,
+    },
+    TainahFlagInfo {
+        key: "S",
+        openutau_name: "sig",
+        label_pt: "Formante do Cantor (S)",
+        label_en: "Singer's Formant (S)",
+        desc_pt: "Reforço harmônico na faixa de projeção acústica (~3000 Hz, ring/brilho de ópera)",
+        desc_en: "Projection ring boost around 3000 Hz (+ vocal projection ring; - softer velvety voice)",
+        min: -100.0,
+        max: 100.0,
+        default_val: 0.0,
+        speed: 1.0,
+        category: TainahFlagCategory::Formants,
+    },
+    TainahFlagInfo {
+        key: "R",
+        openutau_name: "rho",
+        label_pt: "R Rótico / Retroflexo (R)",
+        label_en: "Rhotic R / Retroflex (R)",
+        desc_pt: "Aproximação de F3 a F2 com anti-ressonância sublingual (R caipira / er inglês)",
+        desc_en: "Shifts F3 close to F2 with sublingual cavity notch (retroflex rhotic 'er')",
+        min: 0.0,
+        max: 100.0,
+        default_val: 0.0,
+        speed: 1.0,
+        category: TainahFlagCategory::Formants,
+    },
+    TainahFlagInfo {
+        key: "V",
+        openutau_name: "vop",
+        label_pt: "Abertura F1 (V)",
+        label_en: "Vowel Opening F1 (V)",
+        desc_pt: "Abertura de mandíbula (+ abre a vogal; - fecha a vogal)",
+        desc_en: "Jaw opening (+ opens vowel; - closes vowel)",
+        min: -100.0,
+        max: 100.0,
+        default_val: 0.0,
+        speed: 1.0,
+        category: TainahFlagCategory::Formants,
+    },
+    TainahFlagInfo {
+        key: "D",
+        openutau_name: "vfr",
+        label_pt: "Anterioridade F2 (D)",
+        label_en: "Vowel Fronting F2 (D)",
+        desc_pt: "Posição da língua (+ anterioriza/brilha; - posterioriza/escurece)",
+        desc_en: "Tongue fronting (+ front/brighter vowel; - back/darker vowel)",
+        min: -100.0,
+        max: 100.0,
+        default_val: 0.0,
+        speed: 1.0,
+        category: TainahFlagCategory::Formants,
+    },
+    TainahFlagInfo {
+        key: "K",
+        openutau_name: "kee",
+        label_pt: "Laringe Adaptativa (K)",
+        label_en: "Adaptive Larynx (K)",
+        desc_pt: "Compensação biológica anatômica em saltos de oitava",
+        desc_en: "Biological larynx anatomical shift compensation over pitch range",
+        min: -100.0,
+        max: 100.0,
+        default_val: 0.0,
+        speed: 1.0,
+        category: TainahFlagCategory::Formants,
+    },
+    TainahFlagInfo {
+        key: "P",
+        openutau_name: "formant",
+        label_pt: "Formant Shift (P)",
+        label_en: "Formant Shift (P)",
+        desc_pt: "Desloca o eixo dos formantes sem alterar o pitch fundamental",
+        desc_en: "Shifts formant frequency axis without changing fundamental pitch",
+        min: -100.0,
+        max: 100.0,
+        default_val: 0.0,
+        speed: 1.0,
+        category: TainahFlagCategory::Formants,
+    },
+    TainahFlagInfo {
+        key: "C",
+        openutau_name: "consonant",
+        label_pt: "Ajuste Consoante (C)",
+        label_en: "Consonant Adjust (C)",
+        desc_pt: "Ajusta a duração temporal fixa de consoante",
+        desc_en: "Adjusts fixed consonant duration timeline",
+        min: -100.0,
+        max: 100.0,
+        default_val: 0.0,
+        speed: 1.0,
+        category: TainahFlagCategory::Formants,
+    },
+    TainahFlagInfo {
+        key: "d",
+        openutau_name: "f0m",
+        label_pt: "Método F0 (d)",
+        label_en: "F0 Method (d)",
+        desc_pt: "Método de detecção de afinação: 0 = Harvest (máxima precisão); 1 = DIO (rápido)",
+        desc_en: "F0 detection tracker: 0 = Harvest (high precision); 1 = DIO (fast)",
+        min: 0.0,
+        max: 1.0,
+        default_val: 0.0,
+        speed: 1.0,
+        category: TainahFlagCategory::Formants,
+    },
+];
+
 pub fn canonical_resampler_display_label(label: &str) -> String {
-    if is_native_world_resampler_label(label) {
+    let normalized = label.trim().to_ascii_lowercase();
+    if normalized == "tainah neural" || normalized.contains("neural") {
+        TAINAH_NEURAL_RESAMPLER_LABEL.to_string()
+    } else if is_native_world_resampler_label(label) {
         TAINAH_RESAMPLER_LABEL.to_string()
     } else {
         label.to_string()
@@ -649,6 +961,73 @@ impl ResamplerDriver for NativeWorldResamplerDriver {
             let _ = (raw_samples, sample_rate, args, cancel);
             Err("Tainah WORLD library is unavailable on this platform".into())
         }
+    }
+}
+
+impl ResamplerDriver for TainahNeuralResamplerDriver {
+    fn name(&self) -> &str {
+        TAINAH_NEURAL_RESAMPLER_LABEL
+    }
+    fn engine_id(&self) -> &'static str {
+        "kamafeu.lessampler-tainah-neural"
+    }
+    fn cache_identity(&self) -> String {
+        format!(
+            "{}:neural-vocoder-v1",
+            NativeWorldResamplerDriver.cache_identity()
+        )
+    }
+    fn render_sample(
+        &self,
+        raw_samples: &[f32],
+        sample_rate: u32,
+        args: &ResamplerArgs,
+        cancel: Option<&AtomicBool>,
+    ) -> Result<Vec<f32>, String> {
+        self.render_sample_with_execution(raw_samples, sample_rate, args, cancel)
+            .map(|output| output.samples)
+    }
+    fn render_sample_with_execution(
+        &self,
+        raw_samples: &[f32],
+        sample_rate: u32,
+        args: &ResamplerArgs,
+        cancel: Option<&AtomicBool>,
+    ) -> Result<ResamplerRenderOutput, String> {
+        #[cfg(not(target_arch = "wasm32"))]
+        {
+            if crate::dsp::catalina::resolve_model_path().is_ok() {
+                if let Ok(neural_samples) = crate::dsp::catalina::render_catalina_note(
+                    raw_samples,
+                    sample_rate,
+                    args,
+                    cancel,
+                ) {
+                    if !neural_samples.is_empty() {
+                        return Ok(ResamplerRenderOutput {
+                            samples: neural_samples,
+                            execution: ResamplerExecutionInfo {
+                                effective_backend_id: self.engine_id().to_string(),
+                                stages: vec!["tainah-neural-hifigan".to_string()],
+                                ..Default::default()
+                            },
+                        });
+                    }
+                }
+            }
+        }
+
+        let mut out = NativeWorldResamplerDriver.render_sample_with_execution(
+            raw_samples,
+            sample_rate,
+            args,
+            cancel,
+        )?;
+        out.execution.effective_backend_id = self.engine_id().to_string();
+        out.execution
+            .fallback_reasons
+            .push("Neural vocoder model standby; used high-precision Tainah WORLD".to_string());
+        Ok(out)
     }
 }
 
@@ -1102,6 +1481,24 @@ pub fn ensure_hifisampler_ready() -> Result<String, String> {
 }
 
 pub fn ensure_hifisampler_profile_ready(profile: KnownResampler) -> Result<String, String> {
+    if let Ok(guard) = HIFISAMPLER_READY_CACHE.lock() {
+        if let Some((res, timestamp)) = guard.get(&profile) {
+            if timestamp.elapsed() < std::time::Duration::from_secs(3) {
+                return res.clone();
+            }
+        }
+    }
+
+    let result = ensure_hifisampler_profile_ready_uncached(profile);
+
+    if let Ok(mut guard) = HIFISAMPLER_READY_CACHE.lock() {
+        guard.insert(profile, (result.clone(), std::time::Instant::now()));
+    }
+
+    result
+}
+
+fn ensure_hifisampler_profile_ready_uncached(profile: KnownResampler) -> Result<String, String> {
     if !uses_nsf_hifigan(Some(profile)) {
         return Err(format!("{} não usa o modelo HiFi-GAN", profile.label()));
     }
@@ -1701,5 +2098,13 @@ mod tests {
         assert_eq!(parse_flag_numeric(&updated, "b"), Some(8.0));
         assert_eq!(parse_flag_numeric(&updated, "Mt"), Some(20.0));
         assert_eq!(parse_flag_numeric(&updated, "x"), Some(99.0));
+    }
+
+    #[test]
+    fn resampler_cache_preserves_negative_results_within_ttl() {
+        KnownResampler::clear_cache();
+        let first = KnownResampler::Tips.find_executable();
+        let second = KnownResampler::Tips.find_executable();
+        assert_eq!(first, second);
     }
 }

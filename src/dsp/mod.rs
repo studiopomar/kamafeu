@@ -2,6 +2,7 @@ pub mod autopitch;
 #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
 pub mod catalina;
 pub mod envelope;
+pub mod growl;
 pub mod lpc;
 pub mod native;
 pub mod piano;

@@ -583,6 +583,24 @@ pub fn draw_right_panel(
                         );
                     });
 
+                    ui.horizontal(|ui| {
+                        if ui
+                            .radio_value(
+                                selected_resampler,
+                                crate::drivers::TAINAH_NEURAL_RESAMPLER_LABEL.to_string(),
+                                format!("{} [Experimental Vocoder]", crate::drivers::TAINAH_NEURAL_RESAMPLER_LABEL),
+                            )
+                            .clicked()
+                        {
+                            *custom_resampler_path = None;
+                        }
+                        ui.label(
+                            RichText::new("neural")
+                                .size(9.0)
+                                .color(theme.note_selected_stroke_c32()),
+                        );
+                    });
+
                     for profile in crate::drivers::KnownResampler::ALL {
                         ui.horizontal(|ui| {
                             if ui

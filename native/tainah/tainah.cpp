@@ -432,6 +432,51 @@ int32_t lt_render(const lt_render_options *o, lt_pcm *out, lt_error *error) {
         (std::abs(f1_ratio - 1.0) > 1e-6 || std::abs(f2_ratio - 1.0) > 1e-6 ||
          std::abs(f3_ratio - 1.0) > 1e-6 || nasality > 1e-6 || std::abs(singers_formant) > 1e-6);
 
+    const bool has_tension = o && o->struct_size >=
+        offsetof(lt_render_options, tension) + sizeof(o->tension);
+    const double tension = has_tension ? o->tension : 0.0;
+    const bool has_airiness = o && o->struct_size >=
+        offsetof(lt_render_options, airiness) + sizeof(o->airiness);
+    const double airiness = has_airiness ? o->airiness : 0.0;
+    const bool has_warmth = o && o->struct_size >=
+        offsetof(lt_render_options, warmth) + sizeof(o->warmth);
+    const double warmth = has_warmth ? o->warmth : 0.0;
+    const bool has_attack_edge = o && o->struct_size >=
+        offsetof(lt_render_options, attack_edge) + sizeof(o->attack_edge);
+    const double attack_edge = has_attack_edge ? o->attack_edge : 0.0;
+    const bool has_modulation = o && o->struct_size >=
+        offsetof(lt_render_options, modulation_depth) + sizeof(o->modulation_depth);
+    const double modulation_depth = has_modulation ? o->modulation_depth : 0.0;
+
+    const bool has_deesser = o && o->struct_size >=
+        offsetof(lt_render_options, deesser) + sizeof(o->deesser);
+    const double deesser = has_deesser ? o->deesser : 0.0;
+    const bool has_growl = o && o->struct_size >=
+        offsetof(lt_render_options, growl) + sizeof(o->growl);
+    const double growl = has_growl ? o->growl : 0.0;
+    const bool has_saturation = o && o->struct_size >=
+        offsetof(lt_render_options, saturation) + sizeof(o->saturation);
+    const double saturation = has_saturation ? o->saturation : 0.0;
+    const bool has_humanize = o && o->struct_size >=
+        offsetof(lt_render_options, humanize) + sizeof(o->humanize);
+    const double humanize = has_humanize ? o->humanize : 0.0;
+    const bool has_adaptive_larynx = o && o->struct_size >=
+        offsetof(lt_render_options, adaptive_larynx) + sizeof(o->adaptive_larynx);
+    const double adaptive_larynx = has_adaptive_larynx ? o->adaptive_larynx : 0.0;
+
+    if ((has_tension && (!std::isfinite(tension) || tension < -100.0 || tension > 100.0)) ||
+        (has_airiness && (!std::isfinite(airiness) || airiness < 0.0 || airiness > 100.0)) ||
+        (has_warmth && (!std::isfinite(warmth) || warmth < -100.0 || warmth > 100.0)) ||
+        (has_attack_edge && (!std::isfinite(attack_edge) || attack_edge < -100.0 || attack_edge > 100.0)) ||
+        (has_modulation && (!std::isfinite(modulation_depth) || modulation_depth < 0.0 || modulation_depth > 100.0)) ||
+        (has_deesser && (!std::isfinite(deesser) || deesser < 0.0 || deesser > 100.0)) ||
+        (has_growl && (!std::isfinite(growl) || growl < 0.0 || growl > 100.0)) ||
+        (has_saturation && (!std::isfinite(saturation) || saturation < -100.0 || saturation > 100.0)) ||
+        (has_humanize && (!std::isfinite(humanize) || humanize < 0.0 || humanize > 100.0)) ||
+        (has_adaptive_larynx && (!std::isfinite(adaptive_larynx) || adaptive_larynx < -100.0 || adaptive_larynx > 100.0))) {
+        fail(error, 1, "invalid advanced render options"); return 1;
+    }
+
     if (!o || o->struct_size < base_options_size || !o->input || o->input_length < 64 ||
         o->input_length > INT32_MAX || o->sample_rate < 8000 || o->sample_rate > 192000 ||
         !std::isfinite(o->duration_ms) || o->duration_ms <= 0 || o->duration_ms > 600000 ||
@@ -482,11 +527,34 @@ int32_t lt_render(const lt_render_options *o, lt_pcm *out, lt_error *error) {
         const int bins = render.w_length;
         const double nyquist = o->sample_rate / 2.0;
 
+        double source_f0_median = 0.0;
+        if (modulation_depth > 1e-6 || std::abs(adaptive_larynx) > 1e-6) {
+            std::vector<double> vf0;
+            const size_t f_start = static_cast<size_t>(std::clamp((start * 1000.0 / o->sample_rate) / cached->frame_period, 0.0, double(cached->f0.size() - 1)));
+            const size_t f_end = static_cast<size_t>(std::clamp((end * 1000.0 / o->sample_rate) / cached->frame_period, 0.0, double(cached->f0.size())));
+            for (size_t k = f_start; k < f_end; ++k) {
+                if (cached->f0[k] > 0.0) vf0.push_back(cached->f0[k]);
+            }
+            if (!vf0.empty()) {
+                const size_t m = vf0.size() / 2;
+                std::nth_element(vf0.begin(), vf0.begin() + m, vf0.end());
+                source_f0_median = vf0[m];
+            }
+        }
+
+        double larynx_ratio = 1.0;
+        if (std::abs(adaptive_larynx) > 1e-6 && source_f0_median > 20.0 && o->pitch_hz > 20.0) {
+            const double target_pitch = o->pitch_hz * std::pow(2.0, o->pitch_cents / 1200.0);
+            const double pitch_ratio = target_pitch / source_f0_median;
+            larynx_ratio = std::clamp(std::pow(pitch_ratio, (adaptive_larynx / 100.0) * 0.18), 0.5, 2.0);
+        }
+        const double effective_formant_ratio = formant_ratio * larynx_ratio;
+
         std::vector<int> bin_source_left;
         std::vector<int> bin_source_right;
         std::vector<double> bin_source_fraction;
-        std::vector<double> bin_tilt(bins);
-        std::vector<double> bin_high_cut(bins);
+        std::vector<double> bin_filter(bins);
+        std::vector<double> bin_air_weight(bins, 0.0);
         std::vector<double> vowel_eq_gain;
         FormantEstimate est;
         double t1 = 0.0, t2 = 0.0, t3 = 0.0, t4 = 0.0;
@@ -495,9 +563,43 @@ int32_t lt_render(const lt_render_options *o, lt_pcm *out, lt_error *error) {
 
         for (int bin = 0; bin < bins; ++bin) {
             const double hz = double(bin) * o->sample_rate / render.fft_size;
-            bin_tilt[bin] = std::pow(std::max(1.0, hz / 1000.0), -std::clamp(o->gender, -100.0, 100.0) / 200.0);
-            bin_high_cut[bin] = o->high_frequency_cutoff > 0 && hz > o->high_frequency_cutoff ?
+            const double tilt = std::pow(std::max(1.0, hz / 1000.0), -std::clamp(o->gender, -100.0, 100.0) / 200.0);
+            const double high_cut = o->high_frequency_cutoff > 0 && hz > o->high_frequency_cutoff ?
                 std::exp(-6.0 * (hz - o->high_frequency_cutoff) / o->sample_rate) : 1.0;
+
+            double tension_mult = 1.0;
+            if (std::abs(tension) > 1e-6) {
+                const double t = tension / 100.0;
+                double db = 0.0;
+                if (t > 0) {
+                    db += 3.5 * t * std::exp(-0.5 * sqr((hz - 1400.0) / 700.0));
+                    db += 1.8 * t * std::clamp((hz - 2800.0) / 2000.0, 0.0, 1.0);
+                    db -= 1.5 * t * std::exp(-0.5 * sqr(hz / 160.0));
+                } else {
+                    const double nt = -t;
+                    db += 2.0 * nt * std::exp(-0.5 * sqr(hz / 220.0));
+                    db -= 3.8 * nt * std::clamp((hz - 1000.0) / 2500.0, 0.0, 1.0);
+                }
+                tension_mult = std::pow(10.0, db / 10.0);
+            }
+
+            double warmth_mult = 1.0;
+            if (std::abs(warmth) > 1e-6) {
+                const double w = warmth / 100.0;
+                const double db = 4.0 * w * std::exp(-0.5 * sqr((hz - 220.0) / 100.0));
+                warmth_mult = std::pow(10.0, db / 10.0);
+            }
+
+            double air_boost = 1.0;
+            if (airiness > 1e-6) {
+                const double a = airiness / 100.0;
+                const double trans = std::clamp((hz - 3200.0) / 3800.0, 0.0, 1.0);
+                bin_air_weight[bin] = a * 0.85 * trans;
+                const double shelf_db = 2.5 * a * std::clamp((hz - 4500.0) / 4000.0, 0.0, 1.0);
+                air_boost = std::pow(10.0, shelf_db / 10.0);
+            }
+
+            bin_filter[bin] = tilt * high_cut * tension_mult * warmth_mult * air_boost;
         }
 
         if (!vowel_active) {
@@ -505,7 +607,7 @@ int32_t lt_render(const lt_render_options *o, lt_pcm *out, lt_error *error) {
             bin_source_right.resize(bins);
             bin_source_fraction.resize(bins);
             for (int bin = 0; bin < bins; ++bin) {
-                const double source_bin = std::clamp(bin / formant_ratio, 0.0, double(bins - 1));
+                const double source_bin = std::clamp(bin / effective_formant_ratio, 0.0, double(bins - 1));
                 const int left = static_cast<int>(source_bin);
                 bin_source_left[bin] = left;
                 bin_source_right[bin] = std::min(left + 1, bins - 1);
@@ -518,10 +620,10 @@ int32_t lt_render(const lt_render_options *o, lt_pcm *out, lt_error *error) {
             if (!est.ok) {
                 est.f1 = 500.0; est.f2 = 1500.0; est.f3 = 2500.0;
             }
-            t3 = std::clamp(est.f3 * f3_ratio, std::max(est.f2 * f2_ratio + 250.0, 1500.0), nyquist * 0.9);
-            t1 = std::clamp(est.f1 * f1_ratio, 150.0, std::min(t3 - 450.0, 1150.0));
-            t2 = std::clamp(est.f2 * f2_ratio, std::max(t1 + 250.0, 550.0), std::min(t3 - 200.0, 3400.0));
-            t4 = std::clamp(est.f3 + 1200.0, t3 + 300.0, nyquist * 0.95);
+            t3 = std::clamp(est.f3 * f3_ratio * larynx_ratio, std::max(est.f2 * f2_ratio * larynx_ratio + 250.0, 1500.0), nyquist * 0.9);
+            t1 = std::clamp(est.f1 * f1_ratio * larynx_ratio, 150.0, std::min(t3 - 450.0, 1150.0));
+            t2 = std::clamp(est.f2 * f2_ratio * larynx_ratio, std::max(t1 + 250.0, 550.0), std::min(t3 - 200.0, 3400.0));
+            t4 = std::clamp((est.f3 + 1200.0) * larynx_ratio, t3 + 300.0, nyquist * 0.95);
 
             vowel_eq_gain.resize(bins, 1.0);
             const double rhotic_amount = (f3_ratio < 0.88) ? std::clamp((0.88 - f3_ratio) / 0.38, 0.0, 1.0) : 0.0;
@@ -566,10 +668,60 @@ int32_t lt_render(const lt_render_options *o, lt_pcm *out, lt_error *error) {
             // Match lessampler: interpolation must not voice an unvoiced
             // consonant merely because the following frame has an F0.
             const double source_f0 = cached->f0[left];
-            const double target_f0 = o->pitch_hz * std::pow(2.0, (pitch_cents(o, time) + o->pitch_cents) / 1200.0);
+            double mod_mult = 1.0;
+            if (modulation_depth > 1e-6 && source_f0_median > 20.0 && source_f0 > 20.0) {
+                const double rel = source_f0 / source_f0_median;
+                mod_mult = 1.0 + (modulation_depth / 100.0) * (rel - 1.0);
+            }
+
+            double pitch_jitter_cents = 0.0;
+            double shimmer_gain = 1.0;
+            if (humanize > 1e-6 && time > 15.0) {
+                const double h = humanize / 100.0;
+                const double sec = time / 1000.0;
+                const double flutter = std::sin(2.0 * 3.141592653589793 * 4.6 * sec) * 0.5 +
+                                       std::sin(2.0 * 3.141592653589793 * 5.8 * sec + 1.2) * 0.35 +
+                                       std::sin(2.0 * 3.141592653589793 * 7.1 * sec + 2.4) * 0.15;
+                pitch_jitter_cents = h * 12.0 * flutter;
+                const double shimmer_db = h * 0.6 * std::sin(2.0 * 3.141592653589793 * 5.2 * sec + 0.7);
+                shimmer_gain = std::pow(10.0, shimmer_db / 20.0);
+            }
+
+            double growl_amp_mod = 1.0;
+            double growl_breath = 0.0;
+            if (growl > 1e-6 && source_f0 > 0.0) {
+                const double g = growl / 100.0;
+                const double chaos = std::sin(2.0 * 3.141592653589793 * 55.0 * (time / 1000.0));
+                growl_amp_mod = 1.0 - g * 0.35 * (1.0 + chaos);
+                growl_breath = g * 0.25 * (0.5 + 0.5 * std::sin(17.3 * i));
+            }
+
+            const double target_f0 = o->pitch_hz * std::pow(2.0, (pitch_cents(o, time) + o->pitch_cents + pitch_jitter_cents) / 1200.0) * mod_mult;
             render.f0.push_back(source_f0 > 0 ? std::clamp(target_f0, o->f0_floor, o->f0_ceiling) : 0.0);
             render.spectrogram.emplace_back(render.w_length);
             render.aperiodicity.emplace_back(render.w_length);
+
+            // Dynamic spectral de-esser for sibilance/fricative harshness (5 kHz - 9.5 kHz)
+            double deess_gain = 1.0;
+            if (deesser > 1e-6) {
+                double sibilance_energy = 0.0, total_energy = 0.0;
+                for (int b = 0; b < bins; ++b) {
+                    const double hz = double(b) * o->sample_rate / render.fft_size;
+                    const double val = cached->spectrogram[left][b];
+                    total_energy += val;
+                    if (hz >= 5000.0 && hz <= 9500.0) sibilance_energy += val;
+                }
+                if (total_energy > 1e-12) {
+                    const double ratio = sibilance_energy / total_energy;
+                    // Dynamic dominance: higher compression when high-frequency energy is dominant,
+                    // with a smooth baseline reaction whenever the flag is set.
+                    const double dominance = (source_f0 > 0.0) ? std::min(1.0, ratio * 20.0 + 0.25) : std::min(1.0, ratio * 5.0 + 0.50);
+                    const double atten_db = -(deesser / 100.0) * 12.0 * dominance;
+                    deess_gain = std::pow(10.0, atten_db / 20.0);
+                }
+            }
+
+            const double frame_gain = shimmer_gain * growl_amp_mod;
 
             if (!vowel_active) {
                 for (int bin = 0; bin < bins; ++bin) {
@@ -581,9 +733,12 @@ int32_t lt_render(const lt_render_options *o, lt_pcm *out, lt_error *error) {
                     const double spectrum_right = cached->spectrogram[right][source_left] * (1.0 - source_fraction) +
                         cached->spectrogram[right][source_right] * source_fraction;
                     const double spectrum = spectrum_left * (1.0 - f) + spectrum_right * f;
-                    render.spectrogram.back()[bin] = std::max(0.0, spectrum * bin_tilt[bin] * bin_high_cut[bin]);
+                    const double hz = double(bin) * o->sample_rate / render.fft_size;
+                    const double deess_mult = (hz >= 5000.0 && hz <= 9500.0) ? deess_gain : 1.0;
+                    render.spectrogram.back()[bin] = std::max(0.0, spectrum * bin_filter[bin] * frame_gain * deess_mult);
                     const double ap = cached->aperiodicity[f > 0.5 ? right : left][bin];
-                    render.aperiodicity.back()[bin] = std::clamp(ap + breath * (1.0 - ap), 0.0, 1.0);
+                    const double combined_breath = std::clamp(breath + bin_air_weight[bin] + growl_breath, 0.0, 0.98);
+                    render.aperiodicity.back()[bin] = std::clamp(ap + combined_breath * (1.0 - ap), 0.0, 1.0);
                 }
             } else {
                 double vowel_weight = 1.0;
@@ -604,7 +759,7 @@ int32_t lt_render(const lt_render_options *o, lt_pcm *out, lt_error *error) {
                 for (int bin = 0; bin < bins; ++bin) {
                     const double base_hz = double(bin) * o->sample_rate / render.fft_size;
                     const double warped_hz = piecewise(base_hz, dst_anchors, src_anchors, 6);
-                    const double source_bin = std::clamp((warped_hz / formant_ratio) * (render.fft_size / double(o->sample_rate)), 0.0, double(bins - 1));
+                    const double source_bin = std::clamp((warped_hz / effective_formant_ratio) * (render.fft_size / double(o->sample_rate)), 0.0, double(bins - 1));
                     const int source_left = static_cast<int>(source_bin);
                     const int source_right = std::min(source_left + 1, bins - 1);
                     const double source_fraction = source_bin - source_left;
@@ -614,9 +769,11 @@ int32_t lt_render(const lt_render_options *o, lt_pcm *out, lt_error *error) {
                         cached->spectrogram[right][source_right] * source_fraction;
                     const double spectrum = spectrum_left * (1.0 - f) + spectrum_right * f;
                     const double eq_gain = (1.0 - vowel_weight) + vowel_weight * vowel_eq_gain[bin];
-                    render.spectrogram.back()[bin] = std::max(0.0, spectrum * eq_gain * bin_tilt[bin] * bin_high_cut[bin]);
+                    const double deess_mult = (base_hz >= 5000.0 && base_hz <= 9500.0) ? deess_gain : 1.0;
+                    render.spectrogram.back()[bin] = std::max(0.0, spectrum * eq_gain * bin_filter[bin] * frame_gain * deess_mult);
                     const double ap = cached->aperiodicity[f > 0.5 ? right : left][bin];
-                    render.aperiodicity.back()[bin] = std::clamp(ap + breath * (1.0 - ap), 0.0, 1.0);
+                    const double combined_breath = std::clamp(breath + bin_air_weight[bin] + growl_breath, 0.0, 0.98);
+                    render.aperiodicity.back()[bin] = std::clamp(ap + combined_breath * (1.0 - ap), 0.0, 1.0);
                 }
             }
         }
@@ -626,11 +783,44 @@ int32_t lt_render(const lt_render_options *o, lt_pcm *out, lt_error *error) {
         const double *rendered = synth.GetWavData();
         if (!rendered) { fail(error, 4, "WORLD synthesis returned no PCM"); return 4; }
         auto buffer = std::make_unique<float[]>(static_cast<size_t>(output_length));
-        double peak = 0.0;
         for (uint64_t i = 0; i < output_length; ++i) {
             if (!std::isfinite(rendered[i])) { fail(error, 4, "WORLD synthesis returned non-finite PCM"); return 4; }
             buffer[i] = static_cast<float>(rendered[i]);
-            peak = std::max(peak, std::abs(rendered[i]));
+        }
+        if (std::abs(saturation) > 1e-6) {
+            const double sat = saturation / 100.0;
+            if (sat > 0.0) {
+                const double alpha = 1.0 + sat * 2.5;
+                const double inv_tanh_alpha = 1.0 / std::tanh(alpha);
+                for (uint64_t i = 0; i < output_length; ++i) {
+                    const double x = std::clamp(double(buffer[i]), -1.0, 1.0);
+                    buffer[i] = static_cast<float>(std::tanh(alpha * x) * inv_tanh_alpha);
+                }
+            } else {
+                const double att = -sat * 0.2;
+                for (uint64_t i = 0; i < output_length; ++i) {
+                    const double x = buffer[i];
+                    buffer[i] = static_cast<float>(x * (1.0 - att * std::abs(x)));
+                }
+            }
+        }
+        if (std::abs(attack_edge) > 1e-6) {
+            const double e = attack_edge / 100.0;
+            for (uint64_t i = 0; i < output_length; ++i) {
+                const double t_ms = i * 1000.0 / o->sample_rate;
+                if (t_ms > 60.0) break;
+                double edge_mult = 1.0;
+                if (e > 0) {
+                    edge_mult = 1.0 + e * 0.65 * std::exp(-t_ms / 15.0);
+                } else {
+                    edge_mult = 1.0 - (-e) * 0.75 * std::exp(-t_ms / 12.0);
+                }
+                buffer[i] = static_cast<float>(buffer[i] * edge_mult);
+            }
+        }
+        double peak = 0.0;
+        for (uint64_t i = 0; i < output_length; ++i) {
+            peak = std::max(peak, double(std::abs(buffer[i])));
         }
         if (peak <= 1e-5) { fail(error, 5, "WORLD synthesis returned silence"); return 5; }
         if (cancelled(o)) { fail(error, 2, "render cancelled"); return 2; }

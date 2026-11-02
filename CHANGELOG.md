@@ -7,6 +7,20 @@ e este projeto adere ao [Versionamento Semântico](https://semver.org/lang/pt-BR
 
 ---
 
+## [3.1.6] - 2026-11-02
+
+### Edição e renderização vocal
+- Amplia os controles de expressão e timbre no piano roll, incluindo formantes,
+  articulação, growl e ajustes avançados do motor Tainah WORLD.
+- Melhora a reprodução progressiva, a visualização do playhead e o fluxo de
+  renderização com resamplers e voicebanks.
+
+### Interface e compatibilidade
+- Refina o arranjo vertical, os painéis do editor e a seleção de cantores; inclui
+  guias de voicebank e melhorias de diagnóstico.
+- Reforça a leitura e gravação de projetos UST, USTX, VSQx, SVP e UFData.
+- Atualiza o adaptador, o CLI e os testes de ABI e temporização do Tainah.
+
 ## [3.0.0] — Calafate
 
 Esta versão inaugura a nova série principal do Kamafeu Studio. O codinome

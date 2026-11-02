@@ -201,6 +201,7 @@ enum Commands {
     Automation,
 
     /// Run a local Model Context Protocol server on standard input/output
+    #[cfg(not(any(target_arch = "wasm32", target_os = "android")))]
     Mcp,
 
     /// Generate a test UTAU voicebank with sample WAVs and oto.ini for quick testing
@@ -530,6 +531,7 @@ fn main() {
         kamafeu::terminal_log::error("Startup", format!("{error}"));
         std::process::exit(1);
     }
+    std::process::exit(0);
 }
 
 fn real_main() -> Result<(), Box<dyn std::error::Error>> {
@@ -602,6 +604,9 @@ fn real_main() -> Result<(), Box<dyn std::error::Error>> {
                     return Err(error.into());
                 }
             }
+
+            drop(_terminal_dashboard);
+            std::process::exit(0);
         }
 
         Some(Commands::VoicebankInfo { path, alias, pitch }) => {
@@ -1339,6 +1344,7 @@ fn real_main() -> Result<(), Box<dyn std::error::Error>> {
 
         Some(Commands::Automation) => run_automation()?,
 
+        #[cfg(not(any(target_arch = "wasm32", target_os = "android")))]
         Some(Commands::Mcp) => run_mcp()?,
 
         Some(Commands::GenSample { path }) => {
@@ -1509,193 +1515,410 @@ fn run_automation() -> Result<(), Box<dyn std::error::Error>> {
     Ok(())
 }
 
-/// Minimal MCP server backed by the same safe project operations used by the
-/// automation protocol. It intentionally has no network listener: the caller
-/// owns process creation and filesystem permissions.
-fn run_mcp() -> Result<(), Box<dyn std::error::Error>> {
-    for line in std::io::stdin().lock().lines() {
-        let line = line?;
-        if line.trim().is_empty() {
-            continue;
-        }
-        let message: Value = match serde_json::from_str(&line) {
-            Ok(message) => message,
-            Err(error) => {
-                println!(
-                    "{}",
-                    serde_json::to_string(&mcp_error(
-                        Value::Null,
-                        -32700,
-                        &format!("parse error: {error}")
-                    ))?
-                );
-                continue;
-            }
-        };
-        let id = message.get("id").cloned();
-        let method = message.get("method").and_then(Value::as_str);
-        let response = match method {
-            Some("initialize") => Some(mcp_result(
-                id.unwrap_or(Value::Null),
-                json!({
-                    "protocolVersion": "2024-11-05",
-                    "capabilities": { "tools": { "listChanged": false } },
-                    "serverInfo": { "name": "kamafeu-studio", "version": kamafeu::APP_VERSION },
-                }),
-            )),
-            Some("notifications/initialized") => None,
-            Some("tools/list") => Some(mcp_result(
-                id.unwrap_or(Value::Null),
-                json!({ "tools": mcp_tools() }),
-            )),
-            Some("tools/call") => Some(mcp_tool_call(
-                id.unwrap_or(Value::Null),
-                message.get("params").cloned().unwrap_or(Value::Null),
-            )),
-            Some(method) => {
-                id.map(|id| mcp_error(id, -32601, &format!("method not found: {method}")))
-            }
-            None => id.map(|id| mcp_error(id, -32600, "invalid JSON-RPC request")),
-        };
-        if let Some(response) = response {
-            println!("{}", serde_json::to_string(&response)?);
-        }
-    }
+/// Runs the MCP server over stdio. stdout is reserved for protocol messages;
+/// diagnostics from the application continue to use stderr.
+#[cfg(not(any(target_arch = "wasm32", target_os = "android")))]
+#[tokio::main]
+async fn run_mcp() -> Result<(), Box<dyn std::error::Error>> {
+    use rmcp::ServiceExt;
+
+    let service = KamafeuMcpServer::new()
+        .serve(rmcp::transport::stdio())
+        .await?;
+    service.waiting().await?;
     Ok(())
 }
 
-fn mcp_result(id: Value, result: Value) -> Value {
-    json!({ "jsonrpc": "2.0", "id": id, "result": result })
+#[cfg(not(any(target_arch = "wasm32", target_os = "android")))]
+#[derive(Clone)]
+struct KamafeuMcpServer {
+    tool_router: rmcp::handler::server::tool::ToolRouter<Self>,
 }
 
-fn mcp_error(id: Value, code: i32, message: &str) -> Value {
-    json!({ "jsonrpc": "2.0", "id": id, "error": { "code": code, "message": message } })
+#[cfg(not(any(target_arch = "wasm32", target_os = "android")))]
+impl KamafeuMcpServer {
+    fn new() -> Self {
+        use rmcp::{
+            handler::server::{router::tool::ToolRoute, wrapper::Parameters},
+            model::{CallToolResult, JsonObject, Tool, ToolAnnotations},
+        };
+
+        let mut tool_router = rmcp::handler::server::tool::ToolRouter::new();
+        for definition in mcp_tools() {
+            let name = definition["name"].as_str().unwrap_or_default().to_string();
+            let command = name
+                .strip_prefix("kamafeu_")
+                .unwrap_or_default()
+                .to_string();
+            let description = definition["description"]
+                .as_str()
+                .unwrap_or_default()
+                .to_string();
+            let schema = serde_json::from_value::<JsonObject>(definition["inputSchema"].clone())
+                .expect("MCP tool schemas are valid JSON objects");
+            let mut tool = Tool::new(name, description, schema);
+            let read_only = matches!(
+                command.as_str(),
+                "project_info"
+                    | "diff"
+                    | "list_voicebanks"
+                    | "validate_project"
+                    | "validate_voicebank"
+                    | "extensions"
+                    | "cache_info"
+            );
+            tool.annotations = Some(
+                ToolAnnotations::new()
+                    .read_only(read_only)
+                    .destructive(command == "cache_prune"),
+            );
+            let route = ToolRoute::new(
+                tool,
+                move |Parameters(mut arguments): Parameters<JsonObject>| -> CallToolResult {
+                    execute_mcp_tool(&command, std::mem::take(&mut arguments))
+                },
+            );
+            tool_router.add_route(route);
+        }
+        Self { tool_router }
+    }
 }
 
-fn mcp_tool_call(id: Value, params: Value) -> Value {
-    let Some(name) = params.get("name").and_then(Value::as_str) else {
-        return mcp_error(id, -32602, "tools/call requires params.name");
-    };
-    let Some(command) = name.strip_prefix("kamafeu_") else {
-        return mcp_tool_result(id, Err(format!("unknown Kamafeu tool: {name}")));
-    };
-    let mut arguments = params
-        .get("arguments")
-        .and_then(Value::as_object)
-        .cloned()
-        .unwrap_or_default();
-    arguments.insert("command".to_string(), Value::String(command.to_string()));
-    let request = serde_json::from_value::<AutomationRequest>(Value::Object(arguments))
-        .map_err(|error| format!("invalid arguments for {name}: {error}"));
-    let result = request
-        .and_then(|request| handle_automation_request(request).map_err(|error| error.to_string()));
-    mcp_tool_result(id, result)
+#[cfg(not(any(target_arch = "wasm32", target_os = "android")))]
+#[rmcp::tool_handler(router = self.tool_router)]
+impl rmcp::ServerHandler for KamafeuMcpServer {
+    fn get_info(&self) -> rmcp::model::ServerConfig {
+        rmcp::model::ServerConfig::new(
+            rmcp::model::ServerCapabilities::builder()
+                .enable_tools()
+                .build(),
+        )
+        .with_server_info(rmcp::model::Implementation::new(
+            "kamafeu-studio",
+            kamafeu::APP_VERSION,
+        ))
+    }
 }
 
-fn mcp_tool_result(id: Value, result: Result<Value, String>) -> Value {
-    match result {
-        Ok(result) => mcp_result(
-            id,
-            json!({
-                "content": [{ "type": "text", "text": serde_json::to_string_pretty(&result).unwrap_or_default() }],
-                "structuredContent": result,
-                "isError": false,
-            }),
-        ),
-        Err(error) => mcp_result(
-            id,
-            json!({
-                "content": [{ "type": "text", "text": error }],
-                "isError": true,
-            }),
-        ),
+fn mcp_field_schema(kind: &str) -> Value {
+    match kind {
+        "number" => json!({ "type": "number" }),
+        "integer" => json!({ "type": "integer", "minimum": 0 }),
+        "signed_integer" => json!({ "type": "integer" }),
+        "boolean" => json!({ "type": "boolean" }),
+        "string_array" => json!({ "type": "array", "items": { "type": "string" } }),
+        "pitch_points" => json!({
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "time_offset_ms": { "type": "number" },
+                    "pitch_offset_cents": { "type": "number" },
+                    "shape": { "type": "string", "default": "s" }
+                },
+                "required": ["time_offset_ms", "pitch_offset_cents"],
+                "additionalProperties": false
+            }
+        }),
+        "object_map" => json!({ "type": "object", "additionalProperties": true }),
+        _ => json!({ "type": "string" }),
     }
 }
 
 fn mcp_tools() -> Vec<Value> {
-    [
+    let definitions: [(&str, &str, &[(&str, &str)], &[&str]); 21] = [
         (
             "project_info",
             "Read project metadata, tracks, notes and duration.",
+            &[("path", "string")],
+            &["path"],
         ),
         (
             "diff",
             "Compare two project revisions without modifying either input.",
+            &[("before", "string"), ("after", "string")],
+            &["before", "after"],
         ),
         (
             "list_voicebanks",
             "Scan singer folders and list UTAU and OpenUTAU voicebanks.",
+            &[("paths", "string_array"), ("include_default", "boolean")],
+            &[],
         ),
         (
             "validate_project",
             "Check a project for invalid tempo, tracks, notes and audio parts.",
+            &[("path", "string"), ("extensions_path", "string")],
+            &["path"],
         ),
         (
             "create_project",
-            "Create a new APS, USTX, UST, MIDI, VSQX, SVP, UFData or JSON project.",
+            "Create a new project at an explicit output path.",
+            &[("output", "string"), ("name", "string"), ("bpm", "number")],
+            &["output"],
         ),
         (
             "add_note",
-            "Add a vocal note to a project and save to an explicit output path.",
-        ),
-        ("set_note", "Change lyric and/or pitch of a specific note."),
-        (
-            "remove_note",
-            "Remove one note and save the resulting project to an explicit output path.",
-        ),
-        (
-            "apply_lyrics",
-            "Split and distribute lyrics across a vocal part in musical time order.",
-        ),
-        (
-            "add_marker",
-            "Add a named arrangement marker at an explicit timeline position.",
-        ),
-        (
-            "remove_marker",
-            "Remove a project marker and save the resulting project to an explicit output path.",
-        ),
-        (
-            "add_section",
-            "Add a named arrangement section with explicit start and end positions.",
-        ),
-        (
-            "remove_section",
-            "Remove a project section and save the resulting project to an explicit output path.",
-        ),
-        (
-            "set_pitch_bend",
-            "Replace a note pitch-bend curve with time/cents points.",
-        ),
-        (
-            "set_expression",
-            "Set vocal expressions such as dynamics, breathiness and gender.",
+            "Add a vocal note and save to an explicit output path.",
+            &[
+                ("input", "string"),
+                ("output", "string"),
+                ("lyric", "string"),
+                ("pitch", "string"),
+                ("position_ms", "number"),
+                ("duration_ms", "number"),
+                ("track_index", "integer"),
+            ],
+            &[
+                "input",
+                "output",
+                "lyric",
+                "pitch",
+                "position_ms",
+                "duration_ms",
+            ],
         ),
         (
             "add_audio_part",
             "Add an existing audio file to the arrangement.",
+            &[
+                ("input", "string"),
+                ("output", "string"),
+                ("file_path", "string"),
+                ("position_ms", "number"),
+                ("track_index", "integer"),
+                ("name", "string"),
+                ("volume_db", "number"),
+            ],
+            &["input", "output", "file_path", "position_ms"],
+        ),
+        (
+            "set_note",
+            "Change lyric and/or pitch of a specific note.",
+            &[
+                ("input", "string"),
+                ("output", "string"),
+                ("part_index", "integer"),
+                ("note_index", "integer"),
+                ("lyric", "string"),
+                ("pitch", "string"),
+            ],
+            &["input", "output", "part_index", "note_index"],
+        ),
+        (
+            "remove_note",
+            "Remove one note and save to an explicit output path.",
+            &[
+                ("input", "string"),
+                ("output", "string"),
+                ("part_index", "integer"),
+                ("note_index", "integer"),
+            ],
+            &["input", "output", "part_index", "note_index"],
+        ),
+        (
+            "apply_lyrics",
+            "Split and distribute lyrics across a vocal part in musical time order.",
+            &[
+                ("input", "string"),
+                ("output", "string"),
+                ("part_index", "integer"),
+                ("text", "string"),
+                ("mode", "string"),
+                ("start_note_index", "integer"),
+            ],
+            &["input", "output", "part_index", "text"],
+        ),
+        (
+            "add_marker",
+            "Add a named arrangement marker at an explicit timeline position.",
+            &[
+                ("input", "string"),
+                ("output", "string"),
+                ("name", "string"),
+                ("position_ms", "number"),
+                ("color", "string"),
+            ],
+            &["input", "output", "name", "position_ms"],
+        ),
+        (
+            "remove_marker",
+            "Remove a project marker and save to an explicit output path.",
+            &[
+                ("input", "string"),
+                ("output", "string"),
+                ("marker_index", "integer"),
+            ],
+            &["input", "output", "marker_index"],
+        ),
+        (
+            "add_section",
+            "Add a named arrangement section with explicit start and end positions.",
+            &[
+                ("input", "string"),
+                ("output", "string"),
+                ("name", "string"),
+                ("start_ms", "number"),
+                ("end_ms", "number"),
+                ("color", "string"),
+            ],
+            &["input", "output", "name", "start_ms", "end_ms"],
+        ),
+        (
+            "remove_section",
+            "Remove a project section and save to an explicit output path.",
+            &[
+                ("input", "string"),
+                ("output", "string"),
+                ("section_index", "integer"),
+            ],
+            &["input", "output", "section_index"],
+        ),
+        (
+            "set_pitch_bend",
+            "Replace a note pitch-bend curve with time and cents points.",
+            &[
+                ("input", "string"),
+                ("output", "string"),
+                ("part_index", "integer"),
+                ("note_index", "integer"),
+                ("points", "pitch_points"),
+                ("snap_first", "boolean"),
+            ],
+            &["input", "output", "part_index", "note_index", "points"],
+        ),
+        (
+            "set_expression",
+            "Set vocal expressions such as dynamics, breathiness and gender.",
+            &[
+                ("input", "string"),
+                ("output", "string"),
+                ("part_index", "integer"),
+                ("note_index", "integer"),
+                ("dynamics", "number"),
+                ("pitch_delta", "number"),
+                ("gender", "number"),
+                ("breathiness", "number"),
+                ("velocity", "number"),
+                ("modulation", "number"),
+                ("volume", "number"),
+                ("attack", "number"),
+                ("decay", "number"),
+            ],
+            &["input", "output", "part_index", "note_index"],
         ),
         (
             "render",
-            "Render a project with a voicebank to WAV, FLAC or RAW.",
+            "Render a project with a voicebank to an explicit WAV, FLAC or RAW path.",
+            &[
+                ("voicebank", "string"),
+                ("input", "string"),
+                ("output", "string"),
+                ("sample_rate", "integer"),
+                ("venus", "boolean"),
+                ("vocal_only", "boolean"),
+                ("dither", "boolean"),
+            ],
+            &["voicebank", "input", "output"],
         ),
-        ("validate_voicebank", "Validate UTAU voicebank assets."),
+        (
+            "validate_voicebank",
+            "Validate UTAU voicebank assets.",
+            &[("path", "string")],
+            &["path"],
+        ),
         (
             "extensions",
             "List extensions and optionally verify their WASM modules.",
+            &[
+                ("path", "string"),
+                ("verify_wasm", "boolean"),
+                ("grant_permissions", "string_array"),
+                ("format_filter", "string"),
+                ("phonemizer_filter", "string"),
+                ("invoke_id", "string"),
+                ("invoke_export", "string"),
+                ("invoke_argument", "signed_integer"),
+                ("invoke_bytes", "boolean"),
+                ("invoke_parameters", "object_map"),
+            ],
+            &[],
         ),
-        ("cache_info", "Inspect renderer cache location and usage."),
-        ("cache_prune", "Remove stale renderer-cache entries."),
-    ]
-    .into_iter()
-    .map(|(name, description)| {
-        json!({
-            "name": format!("kamafeu_{name}"),
-            "description": description,
-            "inputSchema": { "type": "object", "additionalProperties": true },
+        (
+            "cache_info",
+            "Inspect renderer cache location and usage.",
+            &[],
+            &[],
+        ),
+        (
+            "cache_prune",
+            "Remove renderer-cache entries older than the chosen age.",
+            &[("days", "integer")],
+            &[],
+        ),
+    ];
+
+    definitions
+        .into_iter()
+        .map(|(name, description, fields, required)| {
+            let properties = fields
+                .iter()
+                .map(|(field, kind)| ((*field).to_string(), mcp_field_schema(kind)))
+                .collect::<serde_json::Map<_, _>>();
+            json!({
+                "name": format!("kamafeu_{name}"),
+                "description": description,
+                "inputSchema": {
+                    "type": "object",
+                    "properties": properties,
+                    "required": required,
+                    "additionalProperties": false
+                }
+            })
         })
-    })
-    .collect()
+        .collect()
+}
+
+#[cfg(not(any(target_arch = "wasm32", target_os = "android")))]
+fn execute_mcp_tool(
+    command: &str,
+    mut arguments: serde_json::Map<String, Value>,
+) -> rmcp::model::CallToolResult {
+    use rmcp::model::{CallToolResult, ContentBlock};
+
+    let Some(definition) = mcp_tools()
+        .into_iter()
+        .find(|definition| definition["name"].as_str() == Some(&format!("kamafeu_{command}")))
+    else {
+        return CallToolResult::error(vec![ContentBlock::text(format!(
+            "unknown Kamafeu tool: kamafeu_{command}"
+        ))]);
+    };
+    if let Some(properties) = definition["inputSchema"]["properties"].as_object() {
+        if let Some(unknown) = arguments
+            .keys()
+            .find(|argument| !properties.contains_key(argument.as_str()))
+        {
+            return CallToolResult::error(vec![ContentBlock::text(format!(
+                "unknown argument '{unknown}' for kamafeu_{command}"
+            ))]);
+        }
+    }
+
+    arguments.insert("command".to_string(), Value::String(command.to_string()));
+    let request = serde_json::from_value::<AutomationRequest>(Value::Object(arguments));
+    match request {
+        Ok(request) => match handle_automation_request(request) {
+            Ok(result) if result.is_object() => CallToolResult::structured(result),
+            Ok(result) => CallToolResult::success(vec![ContentBlock::text(
+                serde_json::to_string_pretty(&result).unwrap_or_default(),
+            )]),
+            Err(error) => CallToolResult::error(vec![ContentBlock::text(error.to_string())]),
+        },
+        Err(error) => CallToolResult::error(vec![ContentBlock::text(format!(
+            "invalid arguments for kamafeu_{command}: {error}"
+        ))]),
+    }
 }
 
 fn handle_automation_request(
@@ -4037,16 +4260,71 @@ mod tests {
 
     #[test]
     fn mcp_exposes_and_executes_kamafeu_tools() {
-        assert!(mcp_tools()
+        let tools = mcp_tools();
+        assert_eq!(tools.len(), 21);
+        let render = tools
             .iter()
-            .any(|tool| tool["name"] == "kamafeu_render"));
-        let response = mcp_tool_call(
-            json!(42),
-            json!({ "name": "kamafeu_cache_info", "arguments": {} }),
+            .find(|tool| tool["name"] == "kamafeu_render")
+            .expect("render tool");
+        assert_eq!(
+            render["inputSchema"]["required"],
+            json!(["voicebank", "input", "output"])
         );
-        assert_eq!(response["id"], 42);
-        assert_eq!(response["result"]["isError"], false);
-        assert!(response["result"]["structuredContent"]["directory"].is_string());
+        assert_eq!(render["inputSchema"]["additionalProperties"], false);
+        let result = execute_mcp_tool("cache_info", Default::default());
+        assert_eq!(result.is_error, Some(false));
+        assert!(result.structured_content.unwrap()["directory"].is_string());
+    }
+
+    #[cfg(not(any(target_arch = "wasm32", target_os = "android")))]
+    #[tokio::test]
+    async fn mcp_sdk_initializes_lists_tools_and_runs_project_write() {
+        use rmcp::{model::CallToolRequestParams, ServiceExt};
+
+        let (server_transport, client_transport) = tokio::io::duplex(64 * 1024);
+        let server_task = tokio::spawn(async move {
+            KamafeuMcpServer::new()
+                .serve(server_transport)
+                .await
+                .expect("start MCP server")
+                .waiting()
+                .await
+                .expect("wait for MCP shutdown");
+        });
+        let client = ().serve(client_transport).await.expect("initialize MCP client");
+
+        let tools = client.list_all_tools().await.expect("list MCP tools");
+        assert_eq!(tools.len(), 21);
+        let render = tools
+            .iter()
+            .find(|tool| tool.name == "kamafeu_render")
+            .expect("render tool is advertised");
+        assert_eq!(
+            render.input_schema["required"],
+            json!(["voicebank", "input", "output"])
+        );
+
+        let directory = tempfile::tempdir().expect("MCP test directory");
+        let output = directory.path().join("mcp-created.aps");
+        let arguments = json!({
+            "output": output,
+            "name": "MCP project",
+            "bpm": 123.0
+        })
+        .as_object()
+        .expect("arguments object")
+        .clone();
+        let result = client
+            .call_tool(
+                CallToolRequestParams::new("kamafeu_create_project").with_arguments(arguments),
+            )
+            .await
+            .expect("create APS project through MCP");
+        assert_eq!(result.is_error, Some(false));
+        assert!(output.exists());
+
+        client.cancel().await.expect("close MCP client");
+        server_task.await.expect("MCP server task");
     }
 
     #[test]

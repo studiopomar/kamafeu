@@ -153,6 +153,55 @@ impl KamafeuStudioApp {
         section_card(
             ui,
             lang.tr(
+                "Perfil Gráfico & Desempenho (Render Profile)",
+                "Graphics & Performance Profile (Render Profile)",
+            ),
+            |ui| {
+                ui.label(lang.tr(
+                    "Selecione o nível de efeitos visuais adequado à sua máquina ou preferência de foco:",
+                    "Select visual effects level suited for your machine or focus preference:",
+                ));
+                ui.add_space(4.0);
+                for profile in [
+                    crate::config::UiRenderProfile::HighFidelity,
+                    crate::config::UiRenderProfile::DistractionFree,
+                    crate::config::UiRenderProfile::EcoPerformance,
+                ] {
+                    let is_active = self.config.workflow.render_profile == profile;
+                    if ui
+                        .selectable_label(is_active, profile.label(lang))
+                        .clicked()
+                    {
+                        self.config.workflow.render_profile = profile;
+                        self.persist_config();
+                    }
+                }
+                ui.add_space(4.0);
+                let desc = match self.config.workflow.render_profile {
+                    crate::config::UiRenderProfile::HighFidelity => lang.tr(
+                        "• Alta Fidelidade: Sombras suaves, halos iluminados (glow), animações contínuas fluidas e interpolação a 60/120 FPS.",
+                        "• High Fidelity: Soft shadows, glowing halos, fluid continuous animations and 60/120 FPS interpolation.",
+                    ),
+                    crate::config::UiRenderProfile::DistractionFree => lang.tr(
+                        "• Modo Foco: Contornos sólidos foscos, sem halos ou brilhos neon, sem animações pulsantes. Ideal para evitar distrações.",
+                        "• Focus Mode: Solid matte outlines, no glow/neon halos, no pulsating animations. Ideal for deep work without distraction.",
+                    ),
+                    crate::config::UiRenderProfile::EcoPerformance => lang.tr(
+                        "• Modo Eco: Desativa malhas pesadas de sombra, reduz repintura quando ocioso. Ideal para notebooks antigos ou economia de bateria.",
+                        "• Eco Mode: Disables heavy shadow meshes, reduces redraws when idle. Ideal for low-spec laptops or battery saving.",
+                    ),
+                };
+                ui.label(
+                    egui::RichText::new(desc)
+                        .size(10.5)
+                        .color(self.config.theme.text_muted_c32()),
+                );
+            },
+        );
+
+        section_card(
+            ui,
+            lang.tr(
                 "Escala da Interface Gráfica & Acessibilidade",
                 "UI Scale & Accessibility",
             ),

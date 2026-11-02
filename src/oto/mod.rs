@@ -1,4 +1,5 @@
 pub mod entry;
+pub mod guide;
 pub mod parser;
 pub mod prefix_map;
 pub mod singers;
@@ -7,6 +8,9 @@ pub mod voicebank;
 pub mod voicebank_diagnostics;
 
 pub use entry::OtoEntry;
+pub use guide::{
+    analyze_voicebank, apply_utau_guide, UtauGuideAnalysis, UtauGuideOptions, VoicebankStyle,
+};
 pub use parser::{OtoParseDiagnostic, OtoParser};
 pub use prefix_map::PrefixMap;
 pub use singers::{SingerInfo, SingerScanner};

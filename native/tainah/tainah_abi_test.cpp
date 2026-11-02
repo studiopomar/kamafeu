@@ -82,6 +82,14 @@ int main() {
     assert(lt_render(&options, &output, &error) == 0);
     for (size_t i = 0; i < output.length; ++i) assert(output.samples[i] == baseline[i]);
     lt_pcm_free(&output);
+    options.struct_size = static_cast<uint32_t>(offsetof(lt_render_options, tension));
+    assert(lt_render(&options, &output, &error) == 0);
+    for (size_t i = 0; i < output.length; ++i) assert(output.samples[i] == baseline[i]);
+    lt_pcm_free(&output);
+    options.struct_size = static_cast<uint32_t>(offsetof(lt_render_options, deesser));
+    assert(lt_render(&options, &output, &error) == 0);
+    for (size_t i = 0; i < output.length; ++i) assert(output.samples[i] == baseline[i]);
+    lt_pcm_free(&output);
     options.struct_size = current_options_size;
 
     lt_cache_clear_memory(); // Read the serialized analysis on the next call.
@@ -113,9 +121,10 @@ int main() {
         double sum = 0;
         for (size_t i = 0; i < variant.length; ++i) sum += std::abs(variant.samples[i] - baseline[i]);
         lt_pcm_free(&variant);
-        if (sum <= 0.01) std::fprintf(stderr, "unchanged variant: g=%g t=%g B=%g H=%g P=%g C=%g loop=%g sum=%g\n",
+        if (sum <= 0.01) std::fprintf(stderr, "unchanged variant: g=%g t=%g B=%g H=%g P=%g C=%g loop=%g tension=%g deesser=%g growl=%g sat=%g hum=%g sum=%g\n",
             changed.gender, changed.pitch_cents, changed.breathiness, changed.high_frequency_cutoff,
-            changed.formant_shift, changed.consonant_adjustment, changed.loop_start_ms, sum);
+            changed.formant_shift, changed.consonant_adjustment, changed.loop_start_ms,
+            changed.tension, changed.deesser, changed.growl, changed.saturation, changed.humanize, sum);
         assert(sum > 0.01);
     };
     // Equivalent oto.ini positive and negative cutoffs select the same source
@@ -146,6 +155,38 @@ int main() {
     variant = options; variant.consonant_adjustment = -100; differs(variant);
     variant = options; variant.loop_start_ms = 70; variant.loop_end_ms = 350; variant.tail_start_ms = 450; differs(variant);
 
+    // High-level acoustic models:
+    variant = options; variant.tension = 50; differs(variant);
+    variant = options; variant.tension = -50; differs(variant);
+    variant = options; variant.airiness = 60; differs(variant);
+    variant = options; variant.warmth = 50; differs(variant);
+    variant = options; variant.warmth = -50; differs(variant);
+    variant = options; variant.attack_edge = 75; differs(variant);
+    variant = options; variant.attack_edge = -75; differs(variant);
+    variant = options; variant.modulation_depth = 50; differs(variant);
+
+    // State-of-the-art additions: deesser, growl, saturation, humanize, adaptive_larynx
+    variant = options; variant.deesser = 50; differs(variant);
+    variant = options; variant.growl = 40; differs(variant);
+    variant = options; variant.saturation = 35; differs(variant);
+    variant = options; variant.saturation = -35; differs(variant);
+    variant = options; variant.humanize = 45; differs(variant);
+
+    // Adaptive larynx: when pitch-shifted, adaptive larynx scales vocal tract dynamically
+    {
+        variant = options; variant.pitch_cents = 300;
+        lt_pcm shifted_base{}; shifted_base.struct_size = sizeof(shifted_base);
+        assert(lt_render(&variant, &shifted_base, &error) == 0);
+        variant.adaptive_larynx = 50;
+        lt_pcm shifted_larynx{}; shifted_larynx.struct_size = sizeof(shifted_larynx);
+        assert(lt_render(&variant, &shifted_larynx, &error) == 0);
+        double ldiff = 0;
+        for (size_t i = 0; i < shifted_larynx.length; ++i) ldiff += std::abs(shifted_larynx.samples[i] - shifted_base.samples[i]);
+        assert(ldiff > 0.01);
+        lt_pcm_free(&shifted_base);
+        lt_pcm_free(&shifted_larynx);
+    }
+
     // Vowel formant warp: neutral ratios are bit-identical to baseline.
     variant = options; variant.has_vowel_formant = 1; variant.f1_ratio = 1.0; variant.f2_ratio = 1.0;
     assert(lt_render(&variant, &output, &error) == 0);
@@ -164,6 +205,26 @@ int main() {
 
     // Out of range validation.
     variant.f1_ratio = 3.0;
+    assert(lt_render(&variant, &output, &error) == 1 && error.code == 1);
+    variant = options; variant.tension = 150.0;
+    assert(lt_render(&variant, &output, &error) == 1 && error.code == 1);
+    variant = options; variant.airiness = -5.0;
+    assert(lt_render(&variant, &output, &error) == 1 && error.code == 1);
+    variant = options; variant.warmth = 150.0;
+    assert(lt_render(&variant, &output, &error) == 1 && error.code == 1);
+    variant = options; variant.attack_edge = -150.0;
+    assert(lt_render(&variant, &output, &error) == 1 && error.code == 1);
+    variant = options; variant.modulation_depth = 150.0;
+    assert(lt_render(&variant, &output, &error) == 1 && error.code == 1);
+    variant = options; variant.deesser = 150.0;
+    assert(lt_render(&variant, &output, &error) == 1 && error.code == 1);
+    variant = options; variant.growl = -10.0;
+    assert(lt_render(&variant, &output, &error) == 1 && error.code == 1);
+    variant = options; variant.saturation = 150.0;
+    assert(lt_render(&variant, &output, &error) == 1 && error.code == 1);
+    variant = options; variant.humanize = -5.0;
+    assert(lt_render(&variant, &output, &error) == 1 && error.code == 1);
+    variant = options; variant.adaptive_larynx = 150.0;
     assert(lt_render(&variant, &output, &error) == 1 && error.code == 1);
 
     // Formant extraction API verification.

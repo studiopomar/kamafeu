@@ -766,11 +766,10 @@ impl KamafeuStudioApp {
             }
         }
 
-        if self.render_rx.is_some()
-            || self.export_rx.is_some()
-            || self.preview_waveform_rx.is_some()
-        {
+        if self.render_rx.is_some() || self.export_rx.is_some() {
             ctx.request_repaint();
+        } else if self.preview_waveform_rx.is_some() {
+            ctx.request_repaint_after(std::time::Duration::from_millis(16));
         }
 
         // Receive pre-rendered background waveform preview
@@ -790,14 +789,13 @@ impl KamafeuStudioApp {
                 rx.try_recv(),
                 Err(std::sync::mpsc::TryRecvError::Disconnected)
             ) {
-                // A canceled or failed background render must be retryable. The
-                // sender intentionally drops without a payload on render errors.
+                // A canceled or failed background render must clean up,
+                // without resetting cache_hash to 0 to avoid an immediate busy retry loop.
                 self.preview_waveform_rx = None;
                 self.preview_waveform_cancel = None;
                 self.piano_roll_state.waveform_rendering = false;
-                self.preview_waveform_cache_hash = 0;
                 self.preview_waveform_pending = None;
-                ctx.request_repaint();
+                ctx.request_repaint_after(std::time::Duration::from_millis(33));
             }
         }
 

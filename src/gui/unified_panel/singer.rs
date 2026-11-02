@@ -6,6 +6,7 @@ pub(super) fn draw(
     lang: crate::config::AppLanguage,
     voicebank: Option<&Voicebank>,
     active_native_singer: Option<&crate::oto::SingerInfo>,
+    active_track_info: Option<(usize, &str, [u8; 3])>,
     recent_voicebanks: &[PathBuf],
     singers_list: &[crate::oto::SingerInfo],
     singer_search_query: &mut String,
@@ -34,6 +35,26 @@ pub(super) fn draw(
         .unwrap_or('V')
         .to_uppercase()
         .to_string();
+
+    if let Some((t_idx, t_name, t_color)) = active_track_info {
+        let rgb = Color32::from_rgb(t_color[0], t_color[1], t_color[2]);
+        ui.horizontal(|ui| {
+            let (dot_rect, _) = ui.allocate_exact_size(Vec2::splat(9.0), egui::Sense::hover());
+            ui.painter().circle_filled(dot_rect.center(), 4.5, rgb);
+            ui.label(
+                RichText::new(format!(
+                    "{} #{}: {}",
+                    lang.tr("Faixa", "Track"),
+                    t_idx + 1,
+                    t_name
+                ))
+                .strong()
+                .size(11.0)
+                .color(theme.text_primary_c32()),
+            );
+        });
+        ui.add_space(4.0);
+    }
 
     {
         // --- CARD DO CANTOR ATIVO ---

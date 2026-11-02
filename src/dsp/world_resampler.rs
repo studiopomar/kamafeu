@@ -14,12 +14,12 @@ pub struct WorldRuntimeConfig {
 impl Default for WorldRuntimeConfig {
     fn default() -> Self {
         Self {
-            f0_floor_hz: 71.0,
+            f0_floor_hz: 70.0,
             f0_ceil_hz: 1760.0,
-            voiced_aperiodicity: 0.18,
+            voiced_aperiodicity: 0.08,
             formant_preservation_mode: "LPC Spectral Envelope".to_string(),
             f0_detection_method: "Harvest/DIO (Espectral)".to_string(),
-            frame_period_ms: 5.0,
+            frame_period_ms: 3.5,
         }
     }
 }

@@ -42,6 +42,32 @@ pub(super) fn draw(
                         "These flags are inherited by every note; notes can override individual tokens.",
                     ));
 
+                    if crate::drivers::is_tainah_resampler_label(selected_resampler) {
+                        ui.horizontal_wrapped(|ui| {
+                            ui.label(RichText::new("✨ Flags Tainah:").size(9.0).color(theme.accent_c32()));
+                            for (chip, tip) in [
+                                ("A20", "+A20 (Arezamento Pop >3.5kHz)"),
+                                ("s25", "+s25 (De-Esser Dinâmico)"),
+                                ("W10", "+W10 (Calor de Peito ~220Hz)"),
+                                ("T15", "+T15 (Tensão Vocal / Belting)"),
+                                ("S15", "+S15 (Formante do Cantor ~3kHz)"),
+                                ("G20", "+G20 (Growl Gutural)"),
+                                ("U10", "+U10 (Saturação Analógica)"),
+                                ("N25", "+N25 (Nasalidade BRAPA)"),
+                                ("R50", "+R50 (R Rótico Retroflexo)"),
+                            ] {
+                                if ui.small_button(RichText::new(chip).size(9.0)).on_hover_text(tip).clicked() {
+                                    if !render_flags.contains(chip) {
+                                        render_flags.push_str(chip);
+                                    }
+                                }
+                            }
+                            if !render_flags.is_empty() && ui.small_button(RichText::new("Limpar").size(9.0)).clicked() {
+                                render_flags.clear();
+                            }
+                        });
+                    }
+
                     ui.horizontal(|ui| {
                         if ui
                             .radio_value(
@@ -60,6 +86,27 @@ pub(super) fn draw(
                             RichText::new(lang.tr("● nativo multiplataforma", "● native multi-platform"))
                                 .size(9.0)
                                 .color(theme.accent_c32()),
+                        );
+                    });
+
+                    ui.horizontal(|ui| {
+                        if ui
+                            .radio_value(
+                                selected_resampler,
+                                crate::drivers::TAINAH_NEURAL_RESAMPLER_LABEL.to_string(),
+                                lang.tr(
+                                    "Tainah Neural (WORLD + NSF Vocoder)",
+                                    "Tainah Neural (WORLD + NSF Vocoder)",
+                                ),
+                            )
+                            .clicked()
+                        {
+                            *custom_resampler_path = None;
+                        }
+                        ui.label(
+                            RichText::new(lang.tr("● experimental hifi", "● experimental hifi"))
+                                .size(9.0)
+                                .color(theme.note_selected_stroke_c32()),
                         );
                     });
 

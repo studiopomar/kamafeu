@@ -53,6 +53,16 @@ struct Options {
     f3_ratio: f64,
     nasality: f64,
     singers_formant: f64,
+    tension: f64,
+    airiness: f64,
+    warmth: f64,
+    attack_edge: f64,
+    modulation_depth: f64,
+    deesser: f64,
+    growl: f64,
+    saturation: f64,
+    humanize: f64,
+    adaptive_larynx: f64,
 }
 const FORMANT_ENVELOPE_POINTS: usize = 128;
 #[repr(C)]
@@ -312,6 +322,23 @@ pub fn render(
         let mut high = 0.0_f64;
         let mut formant_shift = 0.0_f64;
         let mut consonant_adjustment = 0.0_f64;
+        let mut tension = 0.0_f64;
+        let mut airiness = 0.0_f64;
+        let mut warmth = 0.0_f64;
+        let mut attack_edge = 0.0_f64;
+        let mut modulation_depth = args.modulation.clamp(0.0, 100.0);
+        let mut deesser = 0.0_f64;
+        let mut growl = 0.0_f64;
+        let mut saturation = 0.0_f64;
+        let mut humanize = 0.0_f64;
+        let mut adaptive_larynx = 0.0_f64;
+        let mut f0_method_override: Option<u32> = None;
+        let mut nasality_flag: Option<f64> = None;
+        let mut singers_flag: Option<f64> = None;
+        let mut rhotic_flag: Option<f64> = None;
+        let mut vowel_open_flag: Option<f64> = None;
+        let mut vowel_front_flag: Option<f64> = None;
+
         for flag in parse_utau_flags(&args.flags) {
             let value = flag.num_val.unwrap_or(0.0);
             match flag.key.as_str() {
@@ -321,17 +348,83 @@ pub fn render(
                 "H" => high = value.clamp(0.0, 99.0),
                 "P" => formant_shift = value.clamp(-100.0, 100.0),
                 "C" => consonant_adjustment = value.clamp(-100.0, 100.0),
+                "T" => tension = value.clamp(-100.0, 100.0),
+                "A" => airiness = value.clamp(0.0, 100.0),
+                "W" => warmth = value.clamp(-100.0, 100.0),
+                "E" => attack_edge = value.clamp(-100.0, 100.0),
+                "M" => modulation_depth = value.clamp(0.0, 100.0),
+                "s" => deesser = value.clamp(0.0, 100.0),
+                "G" => growl = value.clamp(0.0, 100.0),
+                "U" => saturation = value.clamp(-100.0, 100.0),
+                "J" => humanize = value.clamp(0.0, 100.0),
+                "K" => adaptive_larynx = value.clamp(-100.0, 100.0),
+                "d" => f0_method_override = Some(if value >= 1.0 { 2 } else { 1 }),
+                "N" => nasality_flag = Some((value / 100.0).clamp(0.0, 1.0)),
+                "S" => singers_flag = Some((value / 100.0).clamp(-1.0, 1.0)),
+                "R" => rhotic_flag = Some((value / 100.0).clamp(0.0, 1.0)),
+                "V" => vowel_open_flag = Some(value.clamp(-100.0, 100.0)),
+                "D" => vowel_front_flag = Some(value.clamp(-100.0, 100.0)),
                 _ => {}
             }
         }
         let config = crate::dsp::world_resampler::get_runtime_config();
-        let f0_method = world_detector_method(&config.f0_detection_method)?;
+        let f0_method = match f0_method_override {
+            Some(m) => m,
+            None => world_detector_method(&config.f0_detection_method)?,
+        };
         let nyquist = sample_rate as f64 / 2.0;
         let high_hz = if high <= 0.0 || nyquist <= 1000.0 {
             0.0
         } else {
             nyquist * (1000.0 / nyquist).powf(high / 99.0)
         };
+
+        let base_f1 = args
+            .vowel_formant
+            .map_or(1.0, |vf| vf.f1_ratio.clamp(0.5, 2.0));
+        let base_f2 = args
+            .vowel_formant
+            .map_or(1.0, |vf| vf.f2_ratio.clamp(0.5, 2.0));
+        let base_f3 = args
+            .vowel_formant
+            .map_or(1.0, |vf| vf.f3_ratio.clamp(0.5, 2.0));
+        let base_nas = args
+            .vowel_formant
+            .map_or(0.0, |vf| vf.nasality.clamp(0.0, 1.0));
+        let base_sig = args
+            .vowel_formant
+            .map_or(0.0, |vf| vf.singers_formant.clamp(-1.0, 1.0));
+
+        let f1_ratio = vowel_open_flag
+            .map(|vop| (2.0_f64).powf(vop * 0.5 / 100.0))
+            .unwrap_or(base_f1)
+            .clamp(0.5, 2.0);
+        let f2_ratio = vowel_front_flag
+            .map(|vfr| (2.0_f64).powf(vfr * 0.5 / 100.0))
+            .unwrap_or(base_f2)
+            .clamp(0.5, 2.0);
+        let f3_ratio = rhotic_flag
+            .map(|rho| {
+                if rho > 1e-6 {
+                    (1.0 - 0.45 * rho).clamp(0.5, 1.0)
+                } else {
+                    1.0
+                }
+            })
+            .unwrap_or(base_f3)
+            .clamp(0.5, 2.0);
+        let nasality = nasality_flag.unwrap_or(base_nas).clamp(0.0, 1.0);
+        let singers_formant = singers_flag.unwrap_or(base_sig).clamp(-1.0, 1.0);
+
+        let has_vowel_formant = u32::from(
+            args.vowel_formant.is_some()
+                || (f1_ratio - 1.0).abs() > 1e-4
+                || (f2_ratio - 1.0).abs() > 1e-4
+                || (f3_ratio - 1.0).abs() > 1e-4
+                || nasality > 1e-4
+                || singers_formant.abs() > 1e-4,
+        );
+
         let options = Options {
             struct_size: std::mem::size_of::<Options>() as u32,
             sample_rate,
@@ -363,22 +456,22 @@ pub fn render(
             consonant_adjustment,
             target_consonant_ms: args.consonant_ms.max(0.0),
             has_target_consonant: 1,
-            f1_ratio: args
-                .vowel_formant
-                .map_or(1.0, |vf| vf.f1_ratio.clamp(0.5, 2.0)),
-            f2_ratio: args
-                .vowel_formant
-                .map_or(1.0, |vf| vf.f2_ratio.clamp(0.5, 2.0)),
-            has_vowel_formant: u32::from(args.vowel_formant.is_some()),
-            f3_ratio: args
-                .vowel_formant
-                .map_or(1.0, |vf| vf.f3_ratio.clamp(0.5, 2.0)),
-            nasality: args
-                .vowel_formant
-                .map_or(0.0, |vf| vf.nasality.clamp(0.0, 1.0)),
-            singers_formant: args
-                .vowel_formant
-                .map_or(0.0, |vf| vf.singers_formant.clamp(-1.0, 1.0)),
+            f1_ratio,
+            f2_ratio,
+            has_vowel_formant,
+            f3_ratio,
+            nasality,
+            singers_formant,
+            tension,
+            airiness,
+            warmth,
+            attack_edge,
+            modulation_depth,
+            deesser,
+            growl,
+            saturation,
+            humanize,
+            adaptive_larynx,
         };
         let mut pcm = Pcm {
             struct_size: std::mem::size_of::<Pcm>() as u32,
@@ -461,6 +554,16 @@ pub fn analyze_formants(
             f3_ratio: 1.0,
             nasality: 0.0,
             singers_formant: 0.0,
+            tension: 0.0,
+            airiness: 0.0,
+            warmth: 0.0,
+            attack_edge: 0.0,
+            modulation_depth: 0.0,
+            deesser: 0.0,
+            growl: 0.0,
+            saturation: 0.0,
+            humanize: 0.0,
+            adaptive_larynx: 0.0,
         };
         let mut raw = FormantAnalysisRaw {
             struct_size: std::mem::size_of::<FormantAnalysisRaw>() as u32,
@@ -510,5 +613,10 @@ mod tests {
         assert_eq!(world_detector_method("Harvest/DIO (Espectral)"), Ok(1));
         assert_eq!(world_detector_method("DIO"), Ok(2));
         assert!(world_detector_method("unknown tracker").is_err());
+    }
+
+    #[test]
+    fn options_struct_size_matches_tainah_abi_v2() {
+        assert_eq!(std::mem::size_of::<super::Options>(), 344);
     }
 }

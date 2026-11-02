@@ -291,8 +291,135 @@ pub(super) fn draw(
                                 ));
                             });
 
+                            let is_tainah = crate::drivers::is_tainah_resampler_label(selected_resampler);
+                            if is_tainah {
+                                ui.add_space(4.0);
+                                Frame::none()
+                                    .fill(theme.c32_alpha(theme.accent_color, 0.08))
+                                    .rounding(theme.ui_rounding())
+                                    .stroke(Stroke::new(1.0_f32, theme.c32_alpha(theme.accent_color, 0.35)))
+                                    .inner_margin(egui::Margin::same(8.0))
+                                    .show(ui, |ui| {
+                                        ui.horizontal(|ui| {
+                                            ui.label(
+                                                RichText::new("✨ Flags Acústicas Tainah-rt")
+                                                    .strong()
+                                                    .size(11.0)
+                                                    .color(theme.accent_c32()),
+                                            );
+                                            ui.label(
+                                                RichText::new("● 2.3.0")
+                                                    .size(9.0)
+                                                    .color(theme.text_muted_c32()),
+                                            );
+                                        });
+
+                                        ui.label(
+                                            RichText::new(lang.tr(
+                                                "Presets rápidos de estilo vocal:",
+                                                "Quick vocal style presets:",
+                                            ))
+                                            .size(9.5)
+                                            .color(theme.text_muted_c32()),
+                                        );
+
+                                        ui.horizontal_wrapped(|ui| {
+                                            if ui.small_button(RichText::new("Pop Aveludado").size(9.5)).on_hover_text("A25 s30 W10 (Air + De-Esser + Calor)").clicked() {
+                                                flags = crate::drivers::resampler_driver::set_utau_flag(&flags, "A", Some(25.0));
+                                                flags = crate::drivers::resampler_driver::set_utau_flag(&flags, "s", Some(30.0));
+                                                flags = crate::drivers::resampler_driver::set_utau_flag(&flags, "W", Some(10.0));
+                                                changed_flags = true;
+                                            }
+                                            if ui.small_button(RichText::new("Belting Tenso").size(9.5)).on_hover_text("T30 E20 S25 U10 (Tensão + Punch + Cantor + Drive)").clicked() {
+                                                flags = crate::drivers::resampler_driver::set_utau_flag(&flags, "T", Some(30.0));
+                                                flags = crate::drivers::resampler_driver::set_utau_flag(&flags, "E", Some(20.0));
+                                                flags = crate::drivers::resampler_driver::set_utau_flag(&flags, "S", Some(25.0));
+                                                flags = crate::drivers::resampler_driver::set_utau_flag(&flags, "U", Some(10.0));
+                                                changed_flags = true;
+                                            }
+                                            if ui.small_button(RichText::new("Rock Rasp").size(9.5)).on_hover_text("G35 U20 T25 s20 (Growl + Drive + Tensão)").clicked() {
+                                                flags = crate::drivers::resampler_driver::set_utau_flag(&flags, "G", Some(35.0));
+                                                flags = crate::drivers::resampler_driver::set_utau_flag(&flags, "U", Some(20.0));
+                                                flags = crate::drivers::resampler_driver::set_utau_flag(&flags, "T", Some(25.0));
+                                                flags = crate::drivers::resampler_driver::set_utau_flag(&flags, "s", Some(20.0));
+                                                changed_flags = true;
+                                            }
+                                            if ui.small_button(RichText::new("Vogal Nasal").size(9.5)).on_hover_text("N40 (Acoplamento nasal BRAPA)").clicked() {
+                                                flags = crate::drivers::resampler_driver::set_utau_flag(&flags, "N", Some(40.0));
+                                                changed_flags = true;
+                                            }
+                                            if ui.small_button(RichText::new("R Caipira").size(9.5)).on_hover_text("R60 (Rótico retroflexo [ɚ])").clicked() {
+                                                flags = crate::drivers::resampler_driver::set_utau_flag(&flags, "R", Some(60.0));
+                                                changed_flags = true;
+                                            }
+                                            if ui.small_button(RichText::new("Limpar Tainah").size(9.5)).on_hover_text("Remove flags de efeitos Tainah mantendo g e B").clicked() {
+                                                for k in ["T", "A", "W", "E", "s", "G", "U", "J", "M", "N", "S", "R", "V", "D", "K", "d"] {
+                                                    flags = crate::drivers::resampler_driver::remove_flag(&flags, k);
+                                                }
+                                                changed_flags = true;
+                                            }
+                                        });
+
+                                        ui.add_space(4.0);
+
+                                        // Grupos de flags do Tainah
+                                        let groups = [
+                                            (
+                                                lang.tr("🎙 Fonação & Timbre", "🎙 Phonation & Timbre"),
+                                                crate::drivers::TainahFlagCategory::Phonation,
+                                            ),
+                                            (
+                                                lang.tr("⚡ Dinâmica & Harmônicos", "⚡ Dynamics & Harmonics"),
+                                                crate::drivers::TainahFlagCategory::Harmonics,
+                                            ),
+                                            (
+                                                lang.tr("👄 Formantes & Articulação", "👄 Formants & Articulation"),
+                                                crate::drivers::TainahFlagCategory::Formants,
+                                            ),
+                                        ];
+
+                                        for (group_label, category) in groups {
+                                            ui.collapsing(RichText::new(group_label).size(10.0).strong(), |ui| {
+                                                for info in crate::drivers::TAINAH_FLAGS.iter().filter(|f| f.category == category) {
+                                                    let original = crate::drivers::resampler_driver::parse_flag_numeric(&flags, info.key);
+                                                    let mut enabled = original.is_some();
+                                                    let mut value = original.unwrap_or(info.default_val);
+
+                                                    ui.horizontal(|ui| {
+                                                        let chk_label = format!("{} ({} / {})", info.key, info.openutau_name, if lang == crate::config::AppLanguage::PtBr { info.label_pt } else { info.label_en });
+                                                        let mut changed = ui.checkbox(&mut enabled, RichText::new(chk_label).size(9.5)).on_hover_text(if lang == crate::config::AppLanguage::PtBr { info.desc_pt } else { info.desc_en }).changed();
+                                                        if enabled {
+                                                            changed |= ui
+                                                                .add(
+                                                                    egui::DragValue::new(&mut value)
+                                                                        .speed(info.speed)
+                                                                        .range(info.min..=info.max),
+                                                                )
+                                                                .on_hover_text(if lang == crate::config::AppLanguage::PtBr { info.desc_pt } else { info.desc_en })
+                                                                .changed();
+                                                            if ui.small_button("↺").on_hover_text("Redefinir valor padrão").clicked() {
+                                                                value = info.default_val;
+                                                                changed = true;
+                                                            }
+                                                        }
+                                                        if changed {
+                                                            flags = crate::drivers::resampler_driver::set_utau_flag(
+                                                                &flags,
+                                                                info.key,
+                                                                enabled.then_some(value),
+                                                            );
+                                                            changed_flags = true;
+                                                        }
+                                                    });
+                                                }
+                                            });
+                                        }
+                                    });
+                                ui.add_space(3.0);
+                            }
+
                             ui.collapsing(
-                                lang.tr("Editor estruturado de flags", "Structured flag editor"),
+                                lang.tr("Outras flags UTAU estruturadas", "Other structured UTAU flags"),
                                 |ui| {
                                     ui.label(
                                         RichText::new(lang.tr(
@@ -302,10 +429,6 @@ pub(super) fn draw(
                                         .size(9.0)
                                         .color(theme.text_muted_c32()),
                                     );
-                                    // Flags numéricas comuns do ecossistema UTAU.
-                                    // A linha literal continua sendo a fonte de
-                                    // escape para flags proprietárias ou de um
-                                    // resampler específico.
                                     for key in [
                                         "g", "B", "b", "C", "D", "E", "e", "H", "Hb", "Mb",
                                         "Mt", "N", "O", "P", "R", "S", "T", "V", "W", "Y",
@@ -684,7 +807,12 @@ pub(super) fn draw(
                             );
                             ui.separator();
 
-                            ui.label(RichText::new(lang.tr("Volume / Attack / Decay:", "Volume / Attack / Decay:")).size(10.0));
+                            ui.label(
+                                RichText::new(
+                                    lang.tr("Volume / Attack / Decay:", "Volume / Attack / Decay:"),
+                                )
+                                .size(10.0),
+                            );
                             ui.columns(3, |cols| {
                                 changed_amplitude |= cols[0]
                                     .add_sized(
@@ -718,11 +846,8 @@ pub(super) fn draw(
                                 changed_fades |= ui
                                     .add_sized(
                                         Vec2::new(ui.available_width(), 18.0),
-                                        egui::Slider::new(
-                                            &mut fade_in_ms,
-                                            0.0..=300.0,
-                                        )
-                                        .suffix(" ms"),
+                                        egui::Slider::new(&mut fade_in_ms, 0.0..=300.0)
+                                            .suffix(" ms"),
                                     )
                                     .changed();
                             });
@@ -732,11 +857,8 @@ pub(super) fn draw(
                                 changed_fades |= ui
                                     .add_sized(
                                         Vec2::new(ui.available_width(), 18.0),
-                                        egui::Slider::new(
-                                            &mut fade_out_ms,
-                                            0.0..=300.0,
-                                        )
-                                        .suffix(" ms"),
+                                        egui::Slider::new(&mut fade_out_ms, 0.0..=300.0)
+                                            .suffix(" ms"),
                                     )
                                     .changed();
                             });
@@ -746,80 +868,199 @@ pub(super) fn draw(
                                 changed_fades |= ui
                                     .add_sized(
                                         Vec2::new(ui.available_width(), 18.0),
-                                        egui::Slider::new(
-                                            &mut note_crossfade_ms,
-                                            0.0..=300.0,
-                                        )
-                                        .suffix(" ms"),
+                                        egui::Slider::new(&mut note_crossfade_ms, 0.0..=300.0)
+                                            .suffix(" ms"),
                                     )
                                     .changed();
                             });
 
+                            ui.add_space(4.0);
+                            ui.label(
+                                RichText::new(
+                                    lang.tr("Shape & Curva ADSR:", "Shape & ADSR Curve:"),
+                                )
+                                .size(10.0)
+                                .color(theme.accent_c32())
+                                .strong(),
+                            );
+
+                            // Mini ADSR Envelope visualizer
+                            let (shape_rect, _) = ui.allocate_exact_size(
+                                Vec2::new(ui.available_width(), 44.0),
+                                egui::Sense::hover(),
+                            );
+                            if ui.is_rect_visible(shape_rect) {
+                                let painter = ui.painter_at(shape_rect);
+                                painter.rect_filled(shape_rect, 4.0, Color32::from_black_alpha(45));
+                                painter.rect_stroke(
+                                    shape_rect,
+                                    4.0,
+                                    Stroke::new(1.0_f32, theme.grid_line_bar_c32()),
+                                );
+
+                                let w = shape_rect.width();
+                                let h = shape_rect.height() - 8.0;
+                                let base_y = shape_rect.max.y - 4.0;
+
+                                let atk_norm = (attack as f32 / 200.0).clamp(0.05, 1.0);
+                                let dec_norm = (decay as f32 / 100.0).clamp(0.2, 1.0);
+                                let atk_px =
+                                    (w * 0.22 * (fade_in_ms as f32 / 100.0).clamp(0.1, 1.0))
+                                        .clamp(4.0, w * 0.25);
+                                let rel_px =
+                                    (w * 0.22 * (fade_out_ms as f32 / 100.0).clamp(0.1, 1.0))
+                                        .clamp(4.0, w * 0.25);
+
+                                let p0 = Pos2::new(shape_rect.min.x + 2.0, base_y);
+                                let p1 = Pos2::new(p0.x + atk_px, base_y - h * atk_norm);
+                                let p2 = Pos2::new(p1.x + 16.0, base_y - h * dec_norm * 0.85);
+                                let p3 = Pos2::new(shape_rect.max.x - rel_px, p2.y);
+                                let p4 = Pos2::new(shape_rect.max.x - 2.0, base_y);
+
+                                let fill_pts = vec![p0, p1, p2, p3, p4];
+                                painter.add(egui::Shape::convex_polygon(
+                                    fill_pts,
+                                    theme.accent_c32().linear_multiply(0.2),
+                                    Stroke::NONE,
+                                ));
+                                painter.add(egui::Shape::line(
+                                    vec![p0, p1, p2, p3, p4],
+                                    Stroke::new(1.5_f32, theme.accent_c32()),
+                                ));
+                            }
+
                             ui.add_space(3.0);
-                            ui.label(RichText::new("Envelope da Nota:").size(9.5).color(theme.text_muted_c32()));
-                            ui.horizontal_wrapped(|ui| {
-                                let overlap = voicebank.and_then(|vb| vb.find_mapped_entry(&lyric, &pitch_str).map(|e| e.overlap)).unwrap_or(fade_in_ms.max(20.0));
-                                if ui.small_button(RichText::new("Crossfade automático").strong().color(ui.visuals().hyperlink_color)).on_hover_text("Ajusta somente a junção com a nota vizinha usando o overlap do oto.ini").clicked() {
-                                    fade_in_ms = overlap.max(5.0);
-                                    note_crossfade_ms = 0.0;
-                                    changed_fades = true;
-                                }
-                                if ui.small_button(RichText::new("Ataque suave").strong().color(ui.visuals().hyperlink_color)).on_hover_text("Suaviza somente a zona de ataque da nota").clicked() {
-                                    fade_in_ms = overlap.max(5.0);
-                                    note_crossfade_ms = 0.0;
-                                    changed_fades = true;
-                                }
-                                if ui.small_button(RichText::new("Sustain constante").strong().color(ui.visuals().hyperlink_color)).on_hover_text("Mantém o nível do sustain constante").clicked() {
-                                    changed_fades = true;
-                                }
-                                if ui.small_button(RichText::new("Release suave").strong().color(ui.visuals().warn_fg_color)).on_hover_text("Ajusta o release proporcionalmente à duração da nota").clicked() {
-                                    fade_in_ms = (dur_ms * 0.25).min(overlap).max(5.0);
-                                    fade_out_ms = (dur_ms * 0.2).clamp(5.0, 35.0);
-                                    note_crossfade_ms = 0.0;
-                                    changed_fades = true;
-                                }
-                                if ui.small_button(RichText::new("Restaurar padrão").strong().color(ui.visuals().error_fg_color)).on_hover_text("Restaura ataque, sustain, release e crossfade padrão").clicked() {
-                                    fade_in_ms = 5.0;
+                            ui.label(
+                                RichText::new(lang.tr("Shape Presets:", "Shape Presets:"))
+                                    .size(9.5)
+                                    .color(theme.text_muted_c32()),
+                            );
+                            ui.columns(3, |cols| {
+                                if cols[0]
+                                    .add_sized(
+                                        Vec2::new(cols[0].available_width(), 20.0),
+                                        egui::Button::new(RichText::new("Natural").size(9.5)),
+                                    )
+                                    .clicked()
+                                {
+                                    attack = 100.0;
+                                    decay = 100.0;
+                                    fade_in_ms = 15.0;
                                     fade_out_ms = 35.0;
-                                    note_crossfade_ms = 0.0;
+                                    changed_amplitude = true;
+                                    changed_fades = true;
+                                }
+                                if cols[1]
+                                    .add_sized(
+                                        Vec2::new(cols[1].available_width(), 20.0),
+                                        egui::Button::new(RichText::new("Punchy").size(9.5)),
+                                    )
+                                    .clicked()
+                                {
+                                    attack = 180.0;
+                                    decay = 75.0;
+                                    fade_in_ms = 5.0;
+                                    fade_out_ms = 25.0;
+                                    changed_amplitude = true;
+                                    changed_fades = true;
+                                }
+                                if cols[2]
+                                    .add_sized(
+                                        Vec2::new(cols[2].available_width(), 20.0),
+                                        egui::Button::new(RichText::new("Legato").size(9.5)),
+                                    )
+                                    .clicked()
+                                {
+                                    attack = 90.0;
+                                    decay = 100.0;
+                                    fade_in_ms = 45.0;
+                                    fade_out_ms = 50.0;
+                                    changed_amplitude = true;
+                                    changed_fades = true;
+                                }
+                            });
+
+                            ui.columns(3, |cols| {
+                                if cols[0]
+                                    .add_sized(
+                                        Vec2::new(cols[0].available_width(), 20.0),
+                                        egui::Button::new(RichText::new("Pluck").size(9.5)),
+                                    )
+                                    .clicked()
+                                {
+                                    attack = 200.0;
+                                    decay = 40.0;
+                                    fade_in_ms = 2.0;
+                                    fade_out_ms = 70.0;
+                                    changed_amplitude = true;
+                                    changed_fades = true;
+                                }
+                                if cols[1]
+                                    .add_sized(
+                                        Vec2::new(cols[1].available_width(), 20.0),
+                                        egui::Button::new(RichText::new("Swell").size(9.5)),
+                                    )
+                                    .clicked()
+                                {
+                                    attack = 30.0;
+                                    decay = 120.0;
+                                    fade_in_ms = 80.0;
+                                    fade_out_ms = 30.0;
+                                    changed_amplitude = true;
+                                    changed_fades = true;
+                                }
+                                if cols[2]
+                                    .add_sized(
+                                        Vec2::new(cols[2].available_width(), 20.0),
+                                        egui::Button::new(RichText::new("Release Suave").size(9.5)),
+                                    )
+                                    .clicked()
+                                {
+                                    attack = 100.0;
+                                    decay = 100.0;
+                                    fade_in_ms = 10.0;
+                                    fade_out_ms = 90.0;
+                                    changed_amplitude = true;
                                     changed_fades = true;
                                 }
                             });
 
                             ui.add_space(2.0);
-                            ui.columns(3, |cols| {
-                                if cols[0]
-                                    .add_sized(
-                                        Vec2::new(cols[0].available_width(), 19.0),
-                                        egui::Button::new(RichText::new(lang.tr("Suave (50ms)", "Smooth (50ms)")).size(9.0)),
+                            ui.horizontal_wrapped(|ui| {
+                                let overlap = voicebank
+                                    .and_then(|vb| {
+                                        vb.find_mapped_entry(&lyric, &pitch_str).map(|e| e.overlap)
+                                    })
+                                    .unwrap_or(fade_in_ms.max(20.0));
+                                if ui
+                                    .small_button(
+                                        RichText::new("Crossfade auto")
+                                            .strong()
+                                            .color(ui.visuals().hyperlink_color),
+                                    )
+                                    .on_hover_text(
+                                        "Ajusta a junção com a nota vizinha usando overlap",
                                     )
                                     .clicked()
                                 {
-                                    fade_in_ms = 50.0;
-                                    fade_out_ms = 50.0;
-                                    note_crossfade_ms = 50.0;
-                                    changed_fades = true;
-                                }
-                                if cols[1]
-                                    .add_sized(
-                                        Vec2::new(cols[1].available_width(), 19.0),
-                                        egui::Button::new(RichText::new(lang.tr("Seco (5ms)", "Dry (5ms)")).size(9.0)),
-                                    )
-                                    .clicked()
-                                {
-                                    fade_in_ms = 5.0;
-                                    fade_out_ms = 5.0;
-                                    note_crossfade_ms = 5.0;
-                                    changed_fades = true;
-                                }
-                                if cols[2]
-                                    .add_sized(
-                                        Vec2::new(cols[2].available_width(), 19.0),
-                                        egui::Button::new(RichText::new("Auto").size(9.0)),
-                                    )
-                                    .clicked()
-                                {
+                                    fade_in_ms = overlap.max(5.0);
                                     note_crossfade_ms = 0.0;
+                                    changed_fades = true;
+                                }
+                                if ui
+                                    .small_button(
+                                        RichText::new("Resetar Padrão")
+                                            .color(ui.visuals().error_fg_color),
+                                    )
+                                    .on_hover_text("Restaura envelope e fades para valores padrão")
+                                    .clicked()
+                                {
+                                    attack = 100.0;
+                                    decay = 100.0;
+                                    fade_in_ms = 5.0;
+                                    fade_out_ms = 35.0;
+                                    note_crossfade_ms = 0.0;
+                                    changed_amplitude = true;
                                     changed_fades = true;
                                 }
                             });

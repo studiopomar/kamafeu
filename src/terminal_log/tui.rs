@@ -42,8 +42,13 @@ impl Drop for TuiHandle {
         // mouse motion escape codes (e.g. 35;32;16M) from printing into the shell.
         if io::stdout().is_terminal() {
             use std::io::Write;
-            let _ = io::stdout().write_all(b"\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1005l\x1b[?1006l\x1b[?1015l\x1b[?25h\x1b[?1049l");
+            let _ = io::stdout().write_all(b"\x1b[?1000l\x1b[?1002l\x1b[?1003l\x1b[?1005l\x1b[?1006l\x1b[?1015l\x1b[?25h\x1b[?1049l\r\n");
             let _ = io::stdout().flush();
+        }
+
+        #[cfg(unix)]
+        if io::stdin().is_terminal() {
+            let _ = std::process::Command::new("stty").arg("sane").status();
         }
     }
 }
@@ -150,7 +155,7 @@ fn wait_until_ready(socket: &UdpSocket, child: &mut Child) -> Option<SocketAddr>
 
 pub(super) fn start() -> Option<TuiHandle> {
     let setting = env::var("KAMAFEU_TUI")
-        .unwrap_or_else(|_| "auto".to_string())
+        .unwrap_or_else(|_| "off".to_string())
         .to_ascii_lowercase();
     if matches!(setting.as_str(), "0" | "off" | "false" | "no")
         || !io::stdout().is_terminal()
@@ -204,13 +209,15 @@ fn monitor_child(child: &mut Child, stop: Arc<AtomicBool>) {
     loop {
         if stop.load(Ordering::Relaxed) {
             let sent_at = stop_sent_at.get_or_insert_with(Instant::now);
-            if sent_at.elapsed() > Duration::from_secs(3) {
+            if sent_at.elapsed() > Duration::from_millis(600) {
                 let _ = child.kill();
+                let _ = child.wait();
+                break;
             }
         }
         match child.try_wait() {
             Ok(Some(_)) | Err(_) => break,
-            Ok(None) => thread::sleep(Duration::from_millis(100)),
+            Ok(None) => thread::sleep(Duration::from_millis(50)),
         }
     }
     ACTIVE.store(false, Ordering::Relaxed);

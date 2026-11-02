@@ -6,6 +6,7 @@ mod tests;
 pub(super) fn draw(
     ui: &mut egui::Ui,
     notes: &mut [UNote],
+    timbre_curve: Option<&mut Vec<crate::project::model::UTimbrePoint>>,
     state: &mut PianoRollState,
     keyboard_width: f32,
     timeline_scroll_x: f32,
@@ -17,6 +18,7 @@ pub(super) fn draw(
     time_signature_denominator: u8,
     lang: crate::config::AppLanguage,
     voicebank: Option<&Voicebank>,
+    selected_resampler: &str,
     on_note_changed: &mut dyn FnMut(),
 ) {
     if !state.show_parameters_drawer || state.is_maximized {
@@ -68,7 +70,22 @@ pub(super) fn draw(
                                 .size(9.5)
                                 .color(theme.text_muted_c32()),
                             );
-                            ui.add_space(5.0);
+                            ui.add_space(2.0);
+
+                            // Waveform / blend strip toggle button
+                            let wave_active = state.show_waveform_area;
+                            let wave_btn = ui.selectable_label(
+                                wave_active,
+                                egui::RichText::new("• WAVE").size(10.0).strong(),
+                            );
+                            if wave_btn.clicked() {
+                                state.show_waveform_area = !state.show_waveform_area;
+                            }
+                            wave_btn.on_hover_text(lang.tr(
+                                "Exibir/Ocultar ribbon de waveform vocal e junções de gravação",
+                                "Toggle vocal waveform ribbon and recording crossfade blend junctions",
+                            ));
+                            ui.add_space(3.0);
 
                             let list_height = (ui.available_height() - 4.0).max(40.0);
                             egui::ScrollArea::vertical()
@@ -78,7 +95,7 @@ pub(super) fn draw(
                                 .auto_shrink([false, false])
                                 .show(ui, |ui| {
                                     ui.set_width(tab_width);
-                                    let param_tabs = [
+                                    let mut param_tabs = vec![
                                         (lang.tr("Timbre", "Timbre"), ParameterTab::Timbre),
                                         (lang.tr("Pitch do Voicebank", "Voicebank Pitch"), ParameterTab::VoicebankPitch),
                                         (
@@ -141,7 +158,33 @@ pub(super) fn draw(
                                             lang.tr("Vibrato Per (VIBP)", "Vibrato Per (VIBP)"),
                                             ParameterTab::VibratoPeriod,
                                         ),
+                                        (
+                                            lang.tr("Growl / Rasp", "Growl / Rasp"),
+                                            ParameterTab::Growl,
+                                        ),
+                                        (
+                                            lang.tr("Shape (Attack/Decay)", "Shape (Attack/Decay)"),
+                                            ParameterTab::Shape,
+                                        ),
                                     ];
+
+                                    if crate::drivers::is_tainah_resampler_label(selected_resampler) {
+                                        param_tabs.extend([
+                                            (lang.tr("✨ Tensão (T)", "✨ Tension (T)"), ParameterTab::Tension),
+                                            (lang.tr("✨ Arezamento (A)", "✨ Airiness (A)"), ParameterTab::Airiness),
+                                            (lang.tr("✨ Calor de Peito (W)", "✨ Warmth (W)"), ParameterTab::Warmth),
+                                            (lang.tr("✨ De-Esser (s)", "✨ De-Esser (s)"), ParameterTab::DeEsser),
+                                            (lang.tr("✨ Punch Consoante (E)", "✨ Attack Edge (E)"), ParameterTab::AttackEdge),
+                                            (lang.tr("✨ Saturação Glotal (U)", "✨ Saturation (U)"), ParameterTab::Saturation),
+                                            (lang.tr("✨ Humanização (J)", "✨ Humanize (J)"), ParameterTab::Humanize),
+                                            (lang.tr("✨ Laringe (K)", "✨ Adaptive Larynx (K)"), ParameterTab::AdaptiveLarynx),
+                                            (lang.tr("✨ Nasalidade (N)", "✨ Nasality (N)"), ParameterTab::Nasality),
+                                            (lang.tr("✨ Formante Cantor (S)", "✨ Singer's Formant (S)"), ParameterTab::SingersFormant),
+                                            (lang.tr("✨ R Rótico (R)", "✨ Rhotic R (R)"), ParameterTab::Rhotic),
+                                            (lang.tr("✨ Abertura F1 (V)", "✨ Vowel Opening F1 (V)"), ParameterTab::VowelOpening),
+                                            (lang.tr("✨ Anterioridade F2 (D)", "✨ Vowel Fronting F2 (D)"), ParameterTab::VowelFronting),
+                                        ]);
+                                    }
 
                                     for (p_name, tab_val) in param_tabs {
                                         let is_sel = state.selected_parameter == tab_val;
@@ -278,10 +321,150 @@ pub(super) fn draw(
                         return;
                     }
 
+                    if state.selected_parameter == ParameterTab::Growl {
+                        // Seletor de Tipo de Growl (Subharmonic, Throat Rasp, Vocal Fry)
+                        let type_bar_rect = Rect::from_min_size(
+                            egui::pos2(graph_rect.left() + 10.0, graph_rect.top() + 6.0),
+                            Vec2::new(390.0, 22.0),
+                        );
+                        let mut type_ui = ui.new_child(
+                            egui::UiBuilder::new()
+                                .max_rect(type_bar_rect)
+                                .layout(egui::Layout::left_to_right(egui::Align::Center)),
+                        );
+                        type_ui.horizontal(|ui| {
+                            ui.label(egui::RichText::new(lang.tr("Modo:", "Mode:")).size(10.0).color(theme.text_muted_c32()));
+                            for (t_val, t_name) in [
+                                (0u8, lang.tr("Rattle Sub-harmônico", "Subharmonic Rattle")),
+                                (1u8, lang.tr("Rasp Laríngeo", "Throat Rasp")),
+                                (2u8, lang.tr("Vocal Fry", "Vocal Fry")),
+                            ] {
+                                let cur_type = notes.iter().find(|n| n.expressions.growl > 0.0).map(|n| n.expressions.growl_type).unwrap_or(0);
+                                let is_active = cur_type == t_val;
+                                if ui.selectable_label(is_active, egui::RichText::new(t_name).size(10.0)).clicked() {
+                                    on_before_change();
+                                    for n in notes.iter_mut() {
+                                        n.expressions.growl_type = t_val;
+                                    }
+                                    on_note_changed();
+                                }
+                            }
+                        });
+                    }
+
+                    if state.selected_parameter == ParameterTab::Shape {
+                        let preset_bar_rect = Rect::from_min_size(
+                            egui::pos2(graph_rect.left() + 10.0, graph_rect.top() + 6.0),
+                            Vec2::new(560.0, 22.0),
+                        );
+                        let mut preset_ui = ui.new_child(
+                            egui::UiBuilder::new()
+                                .max_rect(preset_bar_rect)
+                                .layout(egui::Layout::left_to_right(egui::Align::Center)),
+                        );
+                        preset_ui.horizontal(|ui| {
+                            ui.label(egui::RichText::new(lang.tr("Presets:", "Presets:")).size(10.0).color(theme.text_muted_c32()));
+                            for (p_name, p_atk, p_dec, p_p5) in [
+                                (lang.tr("Natural", "Natural"), 100.0, 0.0, 35.0),
+                                (lang.tr("Punchy", "Punchy"), 160.0, 25.0, 20.0),
+                                (lang.tr("Legato", "Legato"), 60.0, 0.0, 50.0),
+                                (lang.tr("Pluck", "Pluck"), 185.0, 80.0, 8.0),
+                                (lang.tr("Swell", "Swell"), 40.0, 0.0, 40.0),
+                                (lang.tr("Release Suave", "Soft Release"), 100.0, 10.0, 80.0),
+                            ] {
+                                if ui.small_button(egui::RichText::new(p_name).size(10.0)).clicked() {
+                                    on_before_change();
+                                    for n in notes.iter_mut() {
+                                        n.expressions.attack = p_atk;
+                                        n.expressions.decay = p_dec;
+                                        n.envelope.p5 = p_p5;
+                                    }
+                                    on_note_changed();
+                                }
+                            }
+                        });
+                    }
+
+                    let is_tainah_tab = matches!(
+                        state.selected_parameter,
+                        ParameterTab::Tension
+                            | ParameterTab::Airiness
+                            | ParameterTab::Warmth
+                            | ParameterTab::AttackEdge
+                            | ParameterTab::DeEsser
+                            | ParameterTab::Saturation
+                            | ParameterTab::Humanize
+                            | ParameterTab::AdaptiveLarynx
+                            | ParameterTab::Nasality
+                            | ParameterTab::SingersFormant
+                            | ParameterTab::Rhotic
+                            | ParameterTab::VowelOpening
+                            | ParameterTab::VowelFronting
+                    );
+                    if is_tainah_tab || crate::drivers::is_tainah_resampler_label(selected_resampler) {
+                        let tainah_bar_rect = Rect::from_min_size(
+                            egui::pos2(graph_rect.left() + 10.0, graph_rect.top() + if state.selected_parameter == ParameterTab::Growl || state.selected_parameter == ParameterTab::Shape { 30.0 } else { 6.0 }),
+                            Vec2::new((graph_rect.width() - 20.0).max(300.0), 22.0),
+                        );
+                        let mut tainah_ui = ui.new_child(
+                            egui::UiBuilder::new()
+                                .max_rect(tainah_bar_rect)
+                                .layout(egui::Layout::left_to_right(egui::Align::Center)),
+                        );
+                        tainah_ui.horizontal(|ui| {
+                            ui.label(
+                                egui::RichText::new("✨ Tainah Flags:")
+                                    .size(10.0)
+                                    .strong()
+                                    .color(theme.accent_c32()),
+                            );
+                            for (c_key, c_tab, c_tip) in [
+                                ("T Tensão", ParameterTab::Tension, "Tensão vocal e adução glótica (-100 a +100)"),
+                                ("A Air", ParameterTab::Airiness, "Arezamento aveludado >3.5kHz (0 a 100)"),
+                                ("W Calor", ParameterTab::Warmth, "Calor acústico de peito ~220Hz (-100 a +100)"),
+                                ("s DeEss", ParameterTab::DeEsser, "De-esser inteligente de sibilantes (0 a 100)"),
+                                ("E Edge", ParameterTab::AttackEdge, "Punch de transiente inicial (-100 a +100)"),
+                                ("U Drive", ParameterTab::Saturation, "Saturação analógica tanh (-100 a +100)"),
+                                ("J Jitter", ParameterTab::Humanize, "Humanização fisiológica (0 a 100)"),
+                                ("K Laringe", ParameterTab::AdaptiveLarynx, "Escala laringeal adaptativa (-100 a +100)"),
+                                ("N Nasal", ParameterTab::Nasality, "Nasalidade acústica BRAPA (0 a 100)"),
+                                ("S Cantor", ParameterTab::SingersFormant, "Formante de projeção ~3000Hz (-100 a +100)"),
+                                ("R Rótico", ParameterTab::Rhotic, "R caipira / er inglês (0 a 100)"),
+                                ("V F1", ParameterTab::VowelOpening, "Abertura vocálica de mandíbula (-100 a +100)"),
+                                ("D F2", ParameterTab::VowelFronting, "Anterioridade de língua (-100 a +100)"),
+                            ] {
+                                let is_active = state.selected_parameter == c_tab;
+                                if ui.selectable_label(is_active, egui::RichText::new(c_key).size(9.5)).on_hover_text(c_tip).clicked() {
+                                    state.selected_parameter = c_tab;
+                                }
+                            }
+                        });
+                    }
+
                     if state.selected_parameter == ParameterTab::Timbre {
+                        let bar_rect = Rect::from_min_size(
+                            egui::pos2(graph_rect.left() + 10.0, graph_rect.top() + 6.0),
+                            Vec2::new(320.0, 22.0),
+                        );
+                        let mut mode_ui = ui.new_child(
+                            egui::UiBuilder::new()
+                                .max_rect(bar_rect)
+                                .layout(egui::Layout::left_to_right(egui::Align::Center)),
+                        );
+                        mode_ui.horizontal(|ui| {
+                            ui.label(egui::RichText::new(lang.tr("Edição:", "Edit:")).size(10.0).color(theme.text_muted_c32()));
+                            if ui.selectable_label(!state.timbre_automation_mode, egui::RichText::new(lang.tr("🎵 Notas", "🎵 Notes")).size(10.0)).clicked() {
+                                state.timbre_automation_mode = false;
+                            }
+                            if ui.selectable_label(state.timbre_automation_mode, egui::RichText::new(lang.tr("〰 Linha de Automação", "〰 Automation Line")).size(10.0)).clicked() {
+                                state.timbre_automation_mode = true;
+                            }
+                        });
+
                         super::timbre::draw(
                             ui,
                             notes,
+                            timbre_curve,
                             state,
                             graph_rect,
                             &graph_response,
@@ -479,23 +662,51 @@ pub(super) fn draw(
                             ParameterTab::VibratoLength => note.vibrato.length_pct / 100.0,
                             ParameterTab::VibratoDepth => note.vibrato.depth_cents / 200.0,
                             ParameterTab::VibratoPeriod => (note.vibrato.period_ms - 250.0) / 200.0,
+                            ParameterTab::Growl => (note.expressions.growl / 50.0).clamp(0.0, 2.0) - 1.0,
+                            ParameterTab::Shape => (note.expressions.attack - 100.0) / 100.0,
+                            ParameterTab::Tension => {
+                                crate::drivers::resampler_driver::parse_flag_numeric(&note.flags, "T").unwrap_or(0.0) / 100.0
+                            }
+                            ParameterTab::Airiness => {
+                                (crate::drivers::resampler_driver::parse_flag_numeric(&note.flags, "A").unwrap_or(0.0) / 50.0).clamp(0.0, 2.0) - 1.0
+                            }
+                            ParameterTab::Warmth => {
+                                crate::drivers::resampler_driver::parse_flag_numeric(&note.flags, "W").unwrap_or(0.0) / 100.0
+                            }
+                            ParameterTab::AttackEdge => {
+                                crate::drivers::resampler_driver::parse_flag_numeric(&note.flags, "E").unwrap_or(0.0) / 100.0
+                            }
+                            ParameterTab::DeEsser => {
+                                (crate::drivers::resampler_driver::parse_flag_numeric(&note.flags, "s").unwrap_or(0.0) / 50.0).clamp(0.0, 2.0) - 1.0
+                            }
+                            ParameterTab::Saturation => {
+                                crate::drivers::resampler_driver::parse_flag_numeric(&note.flags, "U").unwrap_or(0.0) / 100.0
+                            }
+                            ParameterTab::Humanize => {
+                                (crate::drivers::resampler_driver::parse_flag_numeric(&note.flags, "J").unwrap_or(0.0) / 50.0).clamp(0.0, 2.0) - 1.0
+                            }
+                            ParameterTab::AdaptiveLarynx => {
+                                crate::drivers::resampler_driver::parse_flag_numeric(&note.flags, "K").unwrap_or(0.0) / 100.0
+                            }
+                            ParameterTab::Nasality => {
+                                let val = crate::drivers::resampler_driver::parse_flag_numeric(&note.flags, "N").unwrap_or(note.expressions.nasality * 100.0);
+                                (val / 50.0).clamp(0.0, 2.0) - 1.0
+                            }
+                            ParameterTab::SingersFormant => {
+                                let val = crate::drivers::resampler_driver::parse_flag_numeric(&note.flags, "S").unwrap_or(note.expressions.singers_formant * 100.0);
+                                val / 100.0
+                            }
+                            ParameterTab::Rhotic => {
+                                (crate::drivers::resampler_driver::parse_flag_numeric(&note.flags, "R").unwrap_or(0.0) / 50.0).clamp(0.0, 2.0) - 1.0
+                            }
+                            ParameterTab::VowelOpening => {
+                                crate::drivers::resampler_driver::parse_flag_numeric(&note.flags, "V").unwrap_or(0.0) / 100.0
+                            }
+                            ParameterTab::VowelFronting => {
+                                crate::drivers::resampler_driver::parse_flag_numeric(&note.flags, "D").unwrap_or(0.0) / 100.0
+                            }
                         };
                         let norm_clamped = norm.clamp(-1.0, 1.0);
-
-                        // DYN is a note-level continuous expression. Do not
-                        // split it into phoneme keyframes; that creates the
-                        // staircase shown by the old drawer implementation.
-                        if state.selected_parameter == ParameterTab::Dynamics {
-                            keyframes.push(PhonemeKeyframe {
-                                note_index,
-                                start_ms: note.position_ms,
-                                end_ms: note.position_ms + note.duration_ms,
-                                norm_val: norm_clamped,
-                                lyric: note.lyric.clone(),
-                                alias: note.lyric.clone(),
-                            });
-                            continue;
-                        }
 
                         if let Some(cached) = state.note_phonemes_cache.get(note_index) {
                             if !cached.is_empty() {
@@ -666,6 +877,55 @@ pub(super) fn draw(
                                             ParameterTab::VibratoPeriod => {
                                                 note.vibrato.period_ms = 175.0;
                                             }
+                                            ParameterTab::Growl => {
+                                                note.expressions.growl = 0.0;
+                                                note.expressions.growl_curve.clear();
+                                            }
+                                            ParameterTab::Shape => {
+                                                note.expressions.attack = 100.0;
+                                                note.expressions.decay = 0.0;
+                                            }
+                                            ParameterTab::Tension => {
+                                                note.flags = crate::drivers::resampler_driver::remove_flag(&note.flags, "T");
+                                            }
+                                            ParameterTab::Airiness => {
+                                                note.flags = crate::drivers::resampler_driver::remove_flag(&note.flags, "A");
+                                            }
+                                            ParameterTab::Warmth => {
+                                                note.flags = crate::drivers::resampler_driver::remove_flag(&note.flags, "W");
+                                            }
+                                            ParameterTab::AttackEdge => {
+                                                note.flags = crate::drivers::resampler_driver::remove_flag(&note.flags, "E");
+                                            }
+                                            ParameterTab::DeEsser => {
+                                                note.flags = crate::drivers::resampler_driver::remove_flag(&note.flags, "s");
+                                            }
+                                            ParameterTab::Saturation => {
+                                                note.flags = crate::drivers::resampler_driver::remove_flag(&note.flags, "U");
+                                            }
+                                            ParameterTab::Humanize => {
+                                                note.flags = crate::drivers::resampler_driver::remove_flag(&note.flags, "J");
+                                            }
+                                            ParameterTab::AdaptiveLarynx => {
+                                                note.flags = crate::drivers::resampler_driver::remove_flag(&note.flags, "K");
+                                            }
+                                            ParameterTab::Nasality => {
+                                                note.flags = crate::drivers::resampler_driver::remove_flag(&note.flags, "N");
+                                                note.expressions.nasality = 0.0;
+                                            }
+                                            ParameterTab::SingersFormant => {
+                                                note.flags = crate::drivers::resampler_driver::remove_flag(&note.flags, "S");
+                                                note.expressions.singers_formant = 0.0;
+                                            }
+                                            ParameterTab::Rhotic => {
+                                                note.flags = crate::drivers::resampler_driver::remove_flag(&note.flags, "R");
+                                            }
+                                            ParameterTab::VowelOpening => {
+                                                note.flags = crate::drivers::resampler_driver::remove_flag(&note.flags, "V");
+                                            }
+                                            ParameterTab::VowelFronting => {
+                                                note.flags = crate::drivers::resampler_driver::remove_flag(&note.flags, "D");
+                                            }
                                         }
                                         changed = true;
                                     }
@@ -796,6 +1056,68 @@ pub(super) fn draw(
                                             ParameterTab::VibratoPeriod => {
                                                 note.vibrato.period_ms =
                                                     (250.0 + norm * 200.0).clamp(50.0, 450.0);
+                                            }
+                                            ParameterTab::Growl => {
+                                                note.expressions.growl =
+                                                    ((norm + 1.0) * 50.0).clamp(0.0, 100.0);
+                                            }
+                                            ParameterTab::Shape => {
+                                                note.expressions.attack =
+                                                    ((norm + 1.0) * 100.0).clamp(0.0, 200.0);
+                                            }
+                                            ParameterTab::Tension => {
+                                                let v = (norm * 100.0).clamp(-100.0, 100.0).round();
+                                                note.flags = crate::drivers::resampler_driver::set_utau_flag(&note.flags, "T", (v.abs() > 0.01).then_some(v));
+                                            }
+                                            ParameterTab::Airiness => {
+                                                let v = ((1.0 + norm) * 50.0).clamp(0.0, 100.0).round();
+                                                note.flags = crate::drivers::resampler_driver::set_utau_flag(&note.flags, "A", (v > 0.01).then_some(v));
+                                            }
+                                            ParameterTab::Warmth => {
+                                                let v = (norm * 100.0).clamp(-100.0, 100.0).round();
+                                                note.flags = crate::drivers::resampler_driver::set_utau_flag(&note.flags, "W", (v.abs() > 0.01).then_some(v));
+                                            }
+                                            ParameterTab::AttackEdge => {
+                                                let v = (norm * 100.0).clamp(-100.0, 100.0).round();
+                                                note.flags = crate::drivers::resampler_driver::set_utau_flag(&note.flags, "E", (v.abs() > 0.01).then_some(v));
+                                            }
+                                            ParameterTab::DeEsser => {
+                                                let v = ((1.0 + norm) * 50.0).clamp(0.0, 100.0).round();
+                                                note.flags = crate::drivers::resampler_driver::set_utau_flag(&note.flags, "s", (v > 0.01).then_some(v));
+                                            }
+                                            ParameterTab::Saturation => {
+                                                let v = (norm * 100.0).clamp(-100.0, 100.0).round();
+                                                note.flags = crate::drivers::resampler_driver::set_utau_flag(&note.flags, "U", (v.abs() > 0.01).then_some(v));
+                                            }
+                                            ParameterTab::Humanize => {
+                                                let v = ((1.0 + norm) * 50.0).clamp(0.0, 100.0).round();
+                                                note.flags = crate::drivers::resampler_driver::set_utau_flag(&note.flags, "J", (v > 0.01).then_some(v));
+                                            }
+                                            ParameterTab::AdaptiveLarynx => {
+                                                let v = (norm * 100.0).clamp(-100.0, 100.0).round();
+                                                note.flags = crate::drivers::resampler_driver::set_utau_flag(&note.flags, "K", (v.abs() > 0.01).then_some(v));
+                                            }
+                                            ParameterTab::Nasality => {
+                                                let v = ((1.0 + norm) * 50.0).clamp(0.0, 100.0).round();
+                                                note.flags = crate::drivers::resampler_driver::set_utau_flag(&note.flags, "N", (v > 0.01).then_some(v));
+                                                note.expressions.nasality = v / 100.0;
+                                            }
+                                            ParameterTab::SingersFormant => {
+                                                let v = (norm * 100.0).clamp(-100.0, 100.0).round();
+                                                note.flags = crate::drivers::resampler_driver::set_utau_flag(&note.flags, "S", (v.abs() > 0.01).then_some(v));
+                                                note.expressions.singers_formant = v / 100.0;
+                                            }
+                                            ParameterTab::Rhotic => {
+                                                let v = ((1.0 + norm) * 50.0).clamp(0.0, 100.0).round();
+                                                note.flags = crate::drivers::resampler_driver::set_utau_flag(&note.flags, "R", (v > 0.01).then_some(v));
+                                            }
+                                            ParameterTab::VowelOpening => {
+                                                let v = (norm * 100.0).clamp(-100.0, 100.0).round();
+                                                note.flags = crate::drivers::resampler_driver::set_utau_flag(&note.flags, "V", (v.abs() > 0.01).then_some(v));
+                                            }
+                                            ParameterTab::VowelFronting => {
+                                                let v = (norm * 100.0).clamp(-100.0, 100.0).round();
+                                                note.flags = crate::drivers::resampler_driver::set_utau_flag(&note.flags, "D", (v.abs() > 0.01).then_some(v));
                                             }
                                         }
                                         changed = true;
@@ -1120,6 +1442,70 @@ pub(super) fn draw(
                                     .map(|n| n.vibrato.period_ms)
                                     .unwrap_or(250.0 + hover_norm * 200.0);
                                 format!("VIBP {:.0} ms", v)
+                            }
+                            ParameterTab::Growl => {
+                                let v = note_under_cursor
+                                    .map(|n| n.expressions.growl)
+                                    .unwrap_or((hover_norm + 1.0) * 50.0);
+                                format!("GROWL {:.0}%", v.clamp(0.0, 100.0))
+                            }
+                            ParameterTab::Shape => {
+                                let v = note_under_cursor
+                                    .map(|n| n.expressions.attack)
+                                    .unwrap_or((hover_norm + 1.0) * 100.0);
+                                format!("SHAPE ATK {:.0}%", v.clamp(0.0, 200.0))
+                            }
+                            ParameterTab::Tension => {
+                                let v = note_under_cursor.and_then(|n| crate::drivers::resampler_driver::parse_flag_numeric(&n.flags, "T")).unwrap_or(hover_norm * 100.0);
+                                format!("T{:+.0} (Tensão Vocal)", v)
+                            }
+                            ParameterTab::Airiness => {
+                                let v = note_under_cursor.and_then(|n| crate::drivers::resampler_driver::parse_flag_numeric(&n.flags, "A")).unwrap_or(((1.0 + hover_norm) * 50.0).clamp(0.0, 100.0));
+                                format!("A{:.0} (Arezamento Air)", v)
+                            }
+                            ParameterTab::Warmth => {
+                                let v = note_under_cursor.and_then(|n| crate::drivers::resampler_driver::parse_flag_numeric(&n.flags, "W")).unwrap_or(hover_norm * 100.0);
+                                format!("W{:+.0} (Calor Acústico)", v)
+                            }
+                            ParameterTab::AttackEdge => {
+                                let v = note_under_cursor.and_then(|n| crate::drivers::resampler_driver::parse_flag_numeric(&n.flags, "E")).unwrap_or(hover_norm * 100.0);
+                                format!("E{:+.0} (Punch Consoante)", v)
+                            }
+                            ParameterTab::DeEsser => {
+                                let v = note_under_cursor.and_then(|n| crate::drivers::resampler_driver::parse_flag_numeric(&n.flags, "s")).unwrap_or(((1.0 + hover_norm) * 50.0).clamp(0.0, 100.0));
+                                format!("s{:.0} (De-Esser)", v)
+                            }
+                            ParameterTab::Saturation => {
+                                let v = note_under_cursor.and_then(|n| crate::drivers::resampler_driver::parse_flag_numeric(&n.flags, "U")).unwrap_or(hover_norm * 100.0);
+                                format!("U{:+.0} (Saturação Glotal)", v)
+                            }
+                            ParameterTab::Humanize => {
+                                let v = note_under_cursor.and_then(|n| crate::drivers::resampler_driver::parse_flag_numeric(&n.flags, "J")).unwrap_or(((1.0 + hover_norm) * 50.0).clamp(0.0, 100.0));
+                                format!("J{:.0} (Humanização Jitter)", v)
+                            }
+                            ParameterTab::AdaptiveLarynx => {
+                                let v = note_under_cursor.and_then(|n| crate::drivers::resampler_driver::parse_flag_numeric(&n.flags, "K")).unwrap_or(hover_norm * 100.0);
+                                format!("K{:+.0} (Laringe Adaptativa)", v)
+                            }
+                            ParameterTab::Nasality => {
+                                let v = note_under_cursor.and_then(|n| crate::drivers::resampler_driver::parse_flag_numeric(&n.flags, "N")).unwrap_or(((1.0 + hover_norm) * 50.0).clamp(0.0, 100.0));
+                                format!("N{:.0} (Nasalidade BRAPA)", v)
+                            }
+                            ParameterTab::SingersFormant => {
+                                let v = note_under_cursor.and_then(|n| crate::drivers::resampler_driver::parse_flag_numeric(&n.flags, "S")).unwrap_or(hover_norm * 100.0);
+                                format!("S{:+.0} (Formante Cantor ~3kHz)", v)
+                            }
+                            ParameterTab::Rhotic => {
+                                let v = note_under_cursor.and_then(|n| crate::drivers::resampler_driver::parse_flag_numeric(&n.flags, "R")).unwrap_or(((1.0 + hover_norm) * 50.0).clamp(0.0, 100.0));
+                                format!("R{:.0} (R Rótico / Retroflexo)", v)
+                            }
+                            ParameterTab::VowelOpening => {
+                                let v = note_under_cursor.and_then(|n| crate::drivers::resampler_driver::parse_flag_numeric(&n.flags, "V")).unwrap_or(hover_norm * 100.0);
+                                format!("V{:+.0} (Abertura F1)", v)
+                            }
+                            ParameterTab::VowelFronting => {
+                                let v = note_under_cursor.and_then(|n| crate::drivers::resampler_driver::parse_flag_numeric(&n.flags, "D")).unwrap_or(hover_norm * 100.0);
+                                format!("D{:+.0} (Anterioridade F2)", v)
                             }
                         };
 

@@ -103,6 +103,8 @@ pub struct AudioPlayer {
     direct_clock: Mutex<Option<DirectClockAnchor>>,
     playback_generation: Arc<std::sync::atomic::AtomicU64>,
     scheduler_events: Arc<Mutex<VecDeque<PlaybackSchedulerEvent>>>,
+    note_preview_sink: Option<Sink>,
+    last_preview_freq: Option<f64>,
 }
 
 #[cfg(not(target_arch = "wasm32"))]
@@ -873,6 +875,8 @@ impl AudioPlayer {
             direct_clock: Mutex::new(None),
             playback_generation,
             scheduler_events,
+            note_preview_sink: None,
+            last_preview_freq: None,
         }
     }
 
@@ -1253,6 +1257,10 @@ impl AudioPlayer {
         self.is_playing
     }
 
+    pub fn scheduler_position_ms(&self) -> f64 {
+        self.playback_position_ms().unwrap_or(0.0)
+    }
+
     pub fn set_flush_denormals_to_zero(&mut self, enabled: bool) {
         set_flush_denormals_to_zero(enabled);
     }
@@ -1495,10 +1503,67 @@ impl AudioPlayer {
     ) {
         self.append_samples_with_channels(samples, sample_rate, channels);
     }
+
+    pub fn play_note_preview(&mut self, _freq: f64) {}
+    pub fn stop_note_preview(&mut self) {}
 }
 
 #[cfg(not(target_arch = "wasm32"))]
 impl AudioPlayer {
+    /// Plays an immediate, low-latency warm synth tone when holding or drawing a note/key.
+    pub fn play_note_preview(&mut self, freq: f64) {
+        if freq < 20.0 || freq > 15_000.0 {
+            return;
+        }
+        if let Some(last) = self.last_preview_freq {
+            if (last - freq).abs() < 0.2 && self.note_preview_sink.is_some() {
+                return;
+            }
+        }
+        self.stop_note_preview();
+        let Some(handle) = self.stream_handle.as_ref() else {
+            return;
+        };
+        let Ok(sink) = Sink::try_new(handle) else {
+            return;
+        };
+
+        let sample_rate = 44_100;
+        let duration_secs = 0.65;
+        let total_samples = (sample_rate as f64 * duration_secs) as usize;
+        let mut samples = Vec::with_capacity(total_samples);
+        let tau = std::f64::consts::TAU;
+
+        for i in 0..total_samples {
+            let t = i as f64 / sample_rate as f64;
+            // Warm synth tone: fundamental + 2nd harmonic + 3rd harmonic with smooth ADSR
+            let wave = (t * freq * tau).sin() * 0.60
+                + (t * freq * 2.0 * tau).sin() * 0.28
+                + (t * freq * 3.0 * tau).sin() * 0.12;
+            let env = if t < 0.008 {
+                t / 0.008
+            } else if t < 0.40 {
+                1.0 - 0.25 * ((t - 0.008) / 0.392)
+            } else {
+                0.75 * (1.0 - (t - 0.40) / 0.25).max(0.0)
+            };
+            samples.push((wave * env * 0.25) as f32);
+        }
+
+        sink.append(rodio::buffer::SamplesBuffer::new(1, sample_rate, samples));
+        sink.set_volume(self.volume.clamp(0.0, 1.0));
+        sink.play();
+        self.note_preview_sink = Some(sink);
+        self.last_preview_freq = Some(freq);
+    }
+
+    pub fn stop_note_preview(&mut self) {
+        if let Some(sink) = self.note_preview_sink.take() {
+            sink.stop();
+        }
+        self.last_preview_freq = None;
+    }
+
     /// Desktop output is initialized by `new`; this keeps the playback call
     /// site identical across native and WebAssembly targets.
     pub fn prepare_for_playback(&mut self) -> Result<(), String> {

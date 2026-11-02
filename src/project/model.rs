@@ -218,6 +218,15 @@ pub struct UExpressions {
     /// Per-note Singer's Formant (~3 kHz presence/ring, -1.0 to 1.0, neutral 0.0).
     #[serde(default, skip_serializing_if = "is_zero_f64")]
     pub singers_formant: f64,
+    /// Per-note vocal growl / rasp depth (0 to 100, default 0).
+    #[serde(default, skip_serializing_if = "is_zero_f64")]
+    pub growl: f64,
+    /// Growl type: 0 = Subharmonic Rattle, 1 = Throat Rasp, 2 = Vocal Fry.
+    #[serde(default)]
+    pub growl_type: u8,
+    /// Optional continuous curve for vocal growl / rasp.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub growl_curve: Vec<UExpressionPoint>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Serialize, Deserialize)]
@@ -344,6 +353,9 @@ impl Default for UExpressions {
             f3_ratio: 1.0,
             nasality: 0.0,
             singers_formant: 0.0,
+            growl: 0.0,
+            growl_type: 0,
+            growl_curve: Vec::new(),
         }
     }
 }
@@ -669,6 +681,14 @@ impl Default for UTrack {
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct UTimbrePoint {
+    pub time_offset_ms: f64,
+    pub timbre: Option<String>,
+    #[serde(default = "default_ratio_one")]
+    pub weight: f64,
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct UVoicePart {
     pub name: String,
     pub track_index: usize,
@@ -676,6 +696,9 @@ pub struct UVoicePart {
     #[serde(default)]
     pub duration_ms: f64,
     pub notes: Vec<UNote>,
+    /// Continuous or stepped UTAU voice color automation points along the phrase.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub timbre_curve: Vec<UTimbrePoint>,
 }
 
 impl UVoicePart {
@@ -686,7 +709,21 @@ impl UVoicePart {
             position_ms: 0.0,
             duration_ms: 0.0,
             notes: Vec::new(),
+            timbre_curve: Vec::new(),
         }
+    }
+
+    /// Evaluates the active voice color / timbre from the automation line at a given absolute millisecond.
+    pub fn timbre_at_ms(&self, time_ms: f64) -> Option<&str> {
+        if self.timbre_curve.is_empty() {
+            return None;
+        }
+        let rel_ms = time_ms - self.position_ms;
+        self.timbre_curve
+            .iter()
+            .filter(|pt| pt.time_offset_ms <= rel_ms)
+            .last()
+            .and_then(|pt| pt.timbre.as_deref())
     }
 
     pub fn effective_duration_ms(&self) -> f64 {
@@ -1421,6 +1458,7 @@ mod project_tests {
                 position_ms: -50.0,
                 duration_ms: 0.0,
                 notes: vec![UNote::new("ka", "C4", -10.0, -20.0)],
+                timbre_curve: Vec::new(),
             }],
             ..UProject::default()
         };

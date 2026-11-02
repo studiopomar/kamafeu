@@ -44,6 +44,8 @@ impl UstFormat {
         let mut current_volume = 100.0f64;
         let mut current_modulation = 0.0f64;
         let mut current_flags = String::new();
+        let mut current_growl = 0.0f64;
+        let mut current_timbre: Option<String> = None;
         let mut current_preutterance: Option<f64> = None;
         let mut current_voice_overlap: Option<f64> = None;
         let mut current_start_point: Option<f64> = None;
@@ -82,6 +84,8 @@ impl UstFormat {
                         note.vibrato = current_vibrato.clone();
                         note.envelope = current_envelope.clone();
                         note.flags = current_flags.clone();
+                        note.expressions.growl = current_growl;
+                        note.timbre = current_timbre.clone();
                         note.expressions.preutter_override_ms = current_preutterance;
                         note.expressions.overlap_override_ms = current_voice_overlap;
                         note.expressions.start_point_ms = current_start_point;
@@ -143,6 +147,8 @@ impl UstFormat {
                     current_volume = 100.0;
                     current_modulation = 0.0;
                     current_flags.clear();
+                    current_growl = 0.0;
+                    current_timbre = None;
                     current_preutterance = None;
                     current_voice_overlap = None;
                     current_start_point = None;
@@ -172,7 +178,25 @@ impl UstFormat {
                     }
                     "Intensity" => current_volume = val.parse().unwrap_or(100.0),
                     "Modulation" => current_modulation = val.parse().unwrap_or(0.0),
-                    "Flags" => current_flags = val.to_string(),
+                    "Flags" => {
+                        current_flags = val.to_string();
+                        if let Some(pos) = val.find("g+") {
+                            let slice = &val[pos + 2..];
+                            let num_str: String =
+                                slice.chars().take_while(|c| c.is_ascii_digit()).collect();
+                            if let Ok(g) = num_str.parse::<f64>() {
+                                current_growl = g;
+                            }
+                        } else if let Some(pos) = val.find("GWL") {
+                            let slice = &val[pos + 3..];
+                            let num_str: String =
+                                slice.chars().take_while(|c| c.is_ascii_digit()).collect();
+                            if let Ok(g) = num_str.parse::<f64>() {
+                                current_growl = g;
+                            }
+                        }
+                    }
+                    "VoiceColor" | "Color" => current_timbre = Some(val.to_string()),
                     "PreUtterance" => {
                         current_preutterance = val.replace(',', ".").parse::<f64>().ok();
                     }
@@ -268,6 +292,8 @@ impl UstFormat {
             note.vibrato = current_vibrato;
             note.envelope = current_envelope;
             note.flags = current_flags;
+            note.expressions.growl = current_growl;
+            note.timbre = current_timbre;
             note.expressions.preutter_override_ms = current_preutterance;
             note.expressions.overlap_override_ms = current_voice_overlap;
             note.expressions.start_point_ms = current_start_point;
@@ -342,8 +368,15 @@ impl UstFormat {
                 "Modulation={:.0}\n",
                 note.expressions.modulation.clamp(0.0, 100.0)
             ));
-            if !note.flags.is_empty() {
-                out.push_str(&format!("Flags={}\n", note.flags));
+            let mut flags = note.flags.clone();
+            if note.expressions.growl > 0.0 && !flags.contains("g+") && !flags.contains("GWL") {
+                flags.push_str(&format!("g+{:.0}", note.expressions.growl));
+            }
+            if !flags.is_empty() {
+                out.push_str(&format!("Flags={}\n", flags));
+            }
+            if let Some(timbre) = &note.timbre {
+                out.push_str(&format!("VoiceColor={timbre}\n"));
             }
             if let Some(value) = note.expressions.preutter_override_ms {
                 out.push_str(&format!("PreUtterance={value:.3}\n"));

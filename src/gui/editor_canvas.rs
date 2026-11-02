@@ -224,6 +224,7 @@ impl KamafeuStudioApp {
             .filter(|part| part.track_index != active_track)
             .collect();
         let active_notes = &mut active_part.notes;
+        let active_timbre_curve = &mut active_part.timbre_curve;
 
         // Sync loop state to piano_roll_state
         self.piano_roll_state.loop_enabled = self.transport_state.loop_enabled;
@@ -287,6 +288,7 @@ impl KamafeuStudioApp {
         draw_piano_roll(
             ui,
             active_notes,
+            Some(active_timbre_curve),
             &secondary_parts,
             active_part_position_ms,
             &markers,
@@ -304,6 +306,7 @@ impl KamafeuStudioApp {
             diffsinger_context,
             self.config.language,
             playback_status,
+            &self.selected_resampler,
             &mut |freq| preview_freq = Some(freq),
             &mut || before_changed = true,
             &mut || note_changed = true,
@@ -326,10 +329,14 @@ impl KamafeuStudioApp {
             self.playback_start_offset_ms = t;
         }
 
-        // Note selection/editing must stay silent. Audio preview is reserved
-        // for the transport play action, so clicking or dragging a note does
-        // not trigger the piano preview.
-        let _ = preview_freq;
+        // Dispara sound preview imediato em tempo real ao segurar ou desenhar notas e clicar nas teclas do piano
+        if let Some(freq) = preview_freq {
+            if freq > 15.0 && freq < 20_000.0 {
+                self.audio_player.play_note_preview(freq);
+            }
+        } else if !ui.input(|i| i.pointer.primary_down() || i.pointer.secondary_down()) {
+            self.audio_player.stop_note_preview();
+        }
 
         if before_changed {
             if let Some(snapshot) = piano_edit_snapshot.clone() {
@@ -420,7 +427,16 @@ impl KamafeuStudioApp {
         }
         if self.piano_roll_state.request_rephonemize {
             self.piano_roll_state.request_rephonemize = false;
-            self.rephonemize_all_notes();
+            let target_indices = self
+                .piano_roll_state
+                .request_rephonemize_note_indices
+                .take()
+                .unwrap_or_default();
+            if target_indices.is_empty() {
+                self.rephonemize_all_notes();
+            } else {
+                self.rephonemize_selected_notes(&target_indices);
+            }
         }
         if self.piano_roll_state.request_humanize {
             self.piano_roll_state.request_humanize = false;

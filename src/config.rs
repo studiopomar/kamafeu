@@ -630,8 +630,47 @@ fn default_ui_animation_speed() -> f32 {
     1.0
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub enum UiRenderProfile {
+    #[default]
+    HighFidelity, // Efeitos visuais completos, glow, blur e animações fluidas
+    DistractionFree, // Contornos foscos, sem halos ou animações pulsantes para foco total
+    EcoPerformance,  // Modo econômico / máquinas modestas: desativa sombras/glow e reduz repintura
+}
+
+impl UiRenderProfile {
+    pub fn allows_glow(&self) -> bool {
+        matches!(self, Self::HighFidelity)
+    }
+    pub fn allows_blur(&self) -> bool {
+        matches!(self, Self::HighFidelity)
+    }
+    pub fn allows_animations(&self) -> bool {
+        matches!(self, Self::HighFidelity)
+    }
+    pub fn is_eco(&self) -> bool {
+        matches!(self, Self::EcoPerformance)
+    }
+    pub fn label(&self, lang: crate::config::AppLanguage) -> &'static str {
+        match lang {
+            crate::config::AppLanguage::PtBr => match self {
+                Self::HighFidelity => "Alta Fidelidade (Glow, Blur & Efeitos)",
+                Self::DistractionFree => "Modo Foco (Sem Distrações / Fosco)",
+                Self::EcoPerformance => "Modo Eco (Máquinas Antigas / Leve)",
+            },
+            crate::config::AppLanguage::EnUs => match self {
+                Self::HighFidelity => "High Fidelity (Glow, Blur & Effects)",
+                Self::DistractionFree => "Focus Mode (Distraction-Free / Matte)",
+                Self::EcoPerformance => "Eco Mode (Low-Spec / Lightweight)",
+            },
+        }
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EditorWorkflowConfig {
+    #[serde(default = "default_render_profile")]
+    pub render_profile: UiRenderProfile,
     #[serde(default = "default_true")]
     pub auto_save_enabled: bool,
     #[serde(default = "default_autosave_sec")]
@@ -694,9 +733,14 @@ pub struct EditorWorkflowConfig {
     pub allow_overlapping_notes: bool,
 }
 
+fn default_render_profile() -> UiRenderProfile {
+    UiRenderProfile::HighFidelity
+}
+
 impl Default for EditorWorkflowConfig {
     fn default() -> Self {
         Self {
+            render_profile: UiRenderProfile::HighFidelity,
             auto_save_enabled: true,
             auto_save_interval_sec: 300,
             backup_on_save: true,

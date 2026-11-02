@@ -62,12 +62,14 @@ impl eframe::App for KamafeuStudioApp {
             crate::terminal_log::debug("UI", format!("keyboard {event}"));
         }
 
-        if ctx.input(|input| input.viewport().close_requested())
-            && self.is_dirty
-            && self.config.workflow.confirm_on_exit_dirty
-        {
-            ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
-            self.exit_confirmation_open = true;
+        if ctx.input(|input| input.viewport().close_requested()) {
+            if self.is_dirty && self.config.workflow.confirm_on_exit_dirty {
+                ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+                self.exit_confirmation_open = true;
+            } else {
+                self.audio_player.stop();
+                self.audio_player.stop_note_preview();
+            }
         }
         // Some macOS window managers ignore `ViewportBuilder::with_maximized`
         // during native window creation. Apply it once after the first frame,
@@ -183,6 +185,7 @@ impl eframe::App for KamafeuStudioApp {
         // Keep the editor invariant: every active track owns an editable part.
         let _ = self.current_notes_mut();
         self.refresh_voicebank_oto();
+        self.sync_active_track_voicebank();
 
         self.update_background_tasks(ctx);
 
@@ -280,15 +283,26 @@ impl eframe::App for KamafeuStudioApp {
 
         self.update_activity();
     }
+
+    fn on_exit(&mut self, _gl: Option<&eframe::glow::Context>) {
+        self.audio_player.stop();
+        self.audio_player.stop_note_preview();
+    }
 }
 
 impl KamafeuStudioApp {
     pub(crate) fn animation_policy(&self) -> crate::gui::animation::AnimationPolicy {
+        let profile = self.config.workflow.render_profile;
+        crate::gui::visual_fx::set_glow_enabled(profile.allows_glow());
         crate::gui::animation::AnimationPolicy {
-            enabled: self.config.workflow.ui_animations_enabled,
-            reduce_motion: self.config.workflow.reduce_motion,
+            enabled: self.config.workflow.ui_animations_enabled && profile.allows_animations(),
+            reduce_motion: self.config.workflow.reduce_motion || !profile.allows_animations(),
             speed: self.config.workflow.ui_animation_speed,
-            frame_time_ema_ms: self.frame_time_ema_ms,
+            frame_time_ema_ms: if profile.is_eco() {
+                35.0
+            } else {
+                self.frame_time_ema_ms
+            },
         }
     }
 

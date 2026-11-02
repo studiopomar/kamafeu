@@ -44,6 +44,7 @@ fn format_timeline_time(ms: f64) -> String {
 pub(crate) fn draw_piano_roll(
     ui: &mut egui::Ui,
     notes: &mut Vec<UNote>,
+    timbre_curve: Option<&mut Vec<crate::project::model::UTimbrePoint>>,
     secondary_parts: &[&UVoicePart],
     active_part_position_ms: f64,
     markers: &[UProjectMarker],
@@ -66,6 +67,7 @@ pub(crate) fn draw_piano_roll(
     )>,
     lang: crate::config::AppLanguage,
     playback: minimap::TimelinePlaybackStatus<'_>,
+    selected_resampler: &str,
     on_preview_freq: &mut dyn FnMut(f64),
     on_before_change: &mut dyn FnMut(),
     on_note_changed: &mut dyn FnMut(),
@@ -719,6 +721,7 @@ pub(crate) fn draw_piano_roll(
     parameter_drawer::draw(
         ui,
         notes,
+        timbre_curve,
         state,
         keyboard_width,
         timeline_scroll_x,
@@ -730,6 +733,7 @@ pub(crate) fn draw_piano_roll(
         time_signature_denominator,
         lang,
         voicebank,
+        selected_resampler,
         on_note_changed,
     );
 
@@ -3703,6 +3707,7 @@ pub(crate) fn draw_piano_roll(
 
     processed_waveform::draw(
         ui,
+        notes,
         state,
         scroll_output.inner_rect,
         keyboard_width,

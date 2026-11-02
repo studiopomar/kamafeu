@@ -204,6 +204,7 @@ impl VsqxFormat {
                     position_ms: 0.0,
                     duration_ms: 0.0,
                     notes,
+                    timbre_curve: Vec::new(),
                 });
             }
         }

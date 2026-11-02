@@ -157,6 +157,14 @@ impl KamafeuStudioApp {
                 }
             }
 
+            if self
+                .selected_resampler
+                .to_ascii_lowercase()
+                .contains("neural")
+            {
+                return Box::new(crate::drivers::TainahNeuralResamplerDriver);
+            }
+
             if crate::drivers::is_native_world_resampler_label(&self.selected_resampler) {
                 return Box::new(NativeWorldResamplerDriver);
             }

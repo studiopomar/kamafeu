@@ -2,13 +2,13 @@
 
 use crate::drivers::{ResamplerArgs, ResamplerDriver};
 use hound::{SampleFormat, WavSpec, WavWriter};
-use ort::execution_providers::{cpu::CPUExecutionProvider, ExecutionProvider as _};
+use ort::execution_providers::cpu::CPUExecutionProvider;
 use ort::session::{builder::GraphOptimizationLevel, Session};
 use ort::value::Tensor;
 use rustfft::{num_complex::Complex32, FftPlanner};
 use std::env;
 use std::path::{Path, PathBuf};
-use std::sync::atomic::AtomicBool;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{LazyLock, Mutex};
 
 pub const SR: usize = 44_100;
@@ -92,30 +92,7 @@ pub fn auto_extract_oudep_if_needed(dir: &Path) -> Option<PathBuf> {
         return None;
     }
 
-    // 1. Check if any file in dir is a ZIP archive (even if misnamed as .onnx)
-    if let Ok(entries) = std::fs::read_dir(dir) {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.is_file() && is_zip_archive(&path) {
-                // If it was misnamed with .onnx extension, rename it to .oudep so unpack won't collide
-                let archive_path = if path
-                    .extension()
-                    .is_some_and(|e| e.eq_ignore_ascii_case("onnx"))
-                {
-                    let temp_oudep = dir.join("openvpi_vocoder_package.oudep");
-                    let _ = std::fs::rename(&path, &temp_oudep);
-                    temp_oudep
-                } else {
-                    path
-                };
-                if let Ok(extracted) = unpack_oudep(&archive_path, dir) {
-                    return Some(extracted);
-                }
-            }
-        }
-    }
-
-    // 2. Check if a genuine ONNX model is already present
+    // 1. Fast check: return immediately if a genuine ONNX model is already present
     for name in [HIFIGAN_MODEL_FILE, "pc-nsf-hifigan.onnx", "model.onnx"] {
         let p = dir.join(name);
         if p.is_file() && !is_zip_archive(&p) {
@@ -123,7 +100,7 @@ pub fn auto_extract_oudep_if_needed(dir: &Path) -> Option<PathBuf> {
         }
     }
 
-    // 3. Look for any genuine .onnx in dir
+    // 2. Look for any genuine .onnx in dir
     if let Ok(entries) = std::fs::read_dir(dir) {
         for entry in entries.flatten() {
             let path = entry.path();
@@ -138,11 +115,62 @@ pub fn auto_extract_oudep_if_needed(dir: &Path) -> Option<PathBuf> {
         }
     }
 
+    // 3. Only if no genuine ONNX is found, check if any file in dir is a ZIP archive to unpack
+    if let Ok(entries) = std::fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_file() && is_zip_archive(&path) {
+                let archive_path = if path
+                    .extension()
+                    .is_some_and(|e| e.eq_ignore_ascii_case("onnx"))
+                {
+                    let temp_oudep = dir.join("openvpi_vocoder_package.oudep");
+                    let _ = std::fs::rename(&path, &temp_oudep);
+                    temp_oudep
+                } else {
+                    path
+                };
+                if let Ok(extracted) = unpack_oudep(&archive_path, dir) {
+                    clear_model_cache();
+                    return Some(extracted);
+                }
+            }
+        }
+    }
+
     None
 }
 
-/// Resolves the file path of the NSF HiFi-GAN ONNX model.
+static RESOLVED_MODEL_CACHE: std::sync::LazyLock<
+    std::sync::Mutex<Option<(Result<PathBuf, String>, std::time::Instant)>>,
+> = std::sync::LazyLock::new(|| std::sync::Mutex::new(None));
+
+pub fn clear_model_cache() {
+    if let Ok(mut guard) = RESOLVED_MODEL_CACHE.lock() {
+        *guard = None;
+    }
+}
+
+/// Resolves the file path of the NSF HiFi-GAN ONNX model, with 3-second cache to avoid filesystem thrashing.
 pub fn resolve_model_path() -> Result<PathBuf, String> {
+    if let Ok(guard) = RESOLVED_MODEL_CACHE.lock() {
+        if let Some((ref res, ts)) = *guard {
+            if ts.elapsed() < std::time::Duration::from_secs(3) {
+                return res.clone();
+            }
+        }
+    }
+
+    let result = resolve_model_path_uncached();
+
+    if let Ok(mut guard) = RESOLVED_MODEL_CACHE.lock() {
+        *guard = Some((result.clone(), std::time::Instant::now()));
+    }
+
+    result
+}
+
+fn resolve_model_path_uncached() -> Result<PathBuf, String> {
     if let Ok(configured) = env::var("CATALINA_MODEL") {
         let path = PathBuf::from(configured);
         if path.is_file() {
@@ -441,9 +469,17 @@ pub fn render_catalina_note(
     raw_samples: &[f32],
     sample_rate: u32,
     args: &ResamplerArgs,
-    _cancel: Option<&AtomicBool>,
+    cancel: Option<&AtomicBool>,
 ) -> Result<Vec<f32>, String> {
+    if cancel.is_some_and(|c| c.load(Ordering::Relaxed)) {
+        return Err("Renderização cancelada".to_string());
+    }
+
     let model_path = resolve_model_path()?;
+
+    if cancel.is_some_and(|c| c.load(Ordering::Relaxed)) {
+        return Err("Renderização cancelada".to_string());
+    }
 
     // Resample input to 44.1 kHz if necessary
     let samples_44k: Vec<f32> = if sample_rate != SR as u32 {
@@ -539,6 +575,10 @@ pub fn render_catalina_note(
         target_f0_data[t] = hz.clamp(20.0, 20_000.0);
     }
 
+    if cancel.is_some_and(|c| c.load(Ordering::Relaxed)) {
+        return Err("Renderização cancelada".to_string());
+    }
+
     // Run inference with cached Session
     let mut cache_guard = SESSION_CACHE
         .lock()
@@ -551,17 +591,8 @@ pub fn render_catalina_note(
                 .map_err(|e| format!("ONNX session builder failed: {e}"))?
                 .with_optimization_level(GraphOptimizationLevel::Disable)
                 .map_err(|e| format!("ONNX optimization setup failed: {e}"))?
-                .with_intra_threads(4)
+                .with_intra_threads(2)
                 .map_err(|e| format!("ONNX threading setup failed: {e}"))?;
-
-            #[cfg(target_os = "macos")]
-            {
-                use ort::execution_providers::coreml::CoreMLExecutionProvider;
-                let coreml = CoreMLExecutionProvider::default();
-                if coreml.is_available().unwrap_or(false) {
-                    let _ = coreml.register(&mut builder);
-                }
-            }
 
             builder = builder
                 .with_execution_providers([CPUExecutionProvider::default().build()])

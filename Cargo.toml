@@ -2,7 +2,7 @@
 name = "kamafeu"
 version = "3.1.6"
 edition = "2021"
-rust-version = "1.82"
+rust-version = "1.88"
 description = "Kamafeu Studio - OpenUTAU-style voice synthesizer and DAW in Rust with UTAU voicebank support"
 license = "MIT"
 default-run = "kamafeu"
@@ -124,6 +124,13 @@ rodio = "0.19"
 ureq = { version = "2.12", default-features = false, features = ["json", "tls"] }
 wasmi = "0.31"
 ort = { version = "=2.0.0-rc.10", features = ["coreml"] }
+
+[target.'cfg(not(any(target_arch = "wasm32", target_os = "android")))'.dependencies]
+rmcp = { version = "=3.8.0", default-features = false, features = ["macros", "server", "transport-io"] }
+tokio = { version = "1", features = ["macros", "rt-multi-thread"] }
+
+[target.'cfg(not(any(target_arch = "wasm32", target_os = "android")))'.dev-dependencies]
+rmcp = { version = "=3.8.0", default-features = false, features = ["client"] }
 
 [target.'cfg(not(any(target_os = "android", target_arch = "wasm32")))'.dependencies]
 libloading = "0.8"

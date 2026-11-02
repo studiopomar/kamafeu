@@ -1,6 +1,33 @@
 use crate::gui::KamafeuStudioApp;
 use crate::project::model::UNote;
 
+fn rephonemize_target_mask(note_count: usize, selected_indices: Option<&[usize]>) -> Vec<bool> {
+    let mut mask = vec![selected_indices.is_none(); note_count];
+    if let Some(indices) = selected_indices {
+        for &index in indices {
+            if let Some(target) = mask.get_mut(index) {
+                *target = true;
+            }
+        }
+    }
+    mask
+}
+
+fn convert_japanese_lyrics(notes: &mut [UNote], target_mask: &[bool]) {
+    for (note, &target) in notes.iter_mut().zip(target_mask) {
+        if !target {
+            continue;
+        }
+        let trimmed = note.lyric.trim();
+        if !trimmed.is_empty() && trimmed != "+" && trimmed != "R" && trimmed != "r" {
+            let converted = crate::phonemizer::romaji::romaji_to_hiragana(trimmed);
+            if !converted.is_empty() {
+                note.lyric = converted;
+            }
+        }
+    }
+}
+
 /// Enforces the editor's default monophonic timeline without turning very
 /// short notes into an overlap again.  A one-millisecond minimum retains a
 /// selectable/audible event while ensuring that every following note starts
@@ -719,6 +746,40 @@ impl KamafeuStudioApp {
     }
 
     pub fn rephonemize_all_notes(&mut self) {
+        self.rephonemize_targets(None);
+    }
+
+    pub fn rephonemize_selected_notes(&mut self, note_indices: &[usize]) {
+        self.rephonemize_targets(Some(note_indices));
+    }
+
+    fn rephonemize_targets(&mut self, selected_indices: Option<&[usize]>) {
+        let active_part_index = self
+            .project
+            .parts
+            .iter()
+            .position(|part| part.track_index == self.active_track_index)
+            .unwrap_or(0);
+        let target_masks = self
+            .project
+            .parts
+            .iter()
+            .enumerate()
+            .map(|(part_index, part)| {
+                let selected = selected_indices.filter(|_| part_index == active_part_index);
+                rephonemize_target_mask(part.notes.len(), selected)
+            })
+            .collect::<Vec<_>>();
+        let targeted_count = target_masks
+            .iter()
+            .map(|mask| mask.iter().filter(|&&target| target).count())
+            .sum::<usize>();
+        if targeted_count == 0 {
+            self.transport_state.status_message =
+                "Selecione ao menos uma nota para atualizar os fonemas".to_string();
+            return;
+        }
+
         self.push_history();
         let mode = self.vocal_mode_params.phonemizer_mode;
 
@@ -730,17 +791,9 @@ impl KamafeuStudioApp {
                 | crate::phonemizer::PhonemizerMode::CVVC
         );
 
-        for part in self.project.parts.iter_mut() {
+        for (part, targets) in self.project.parts.iter_mut().zip(&target_masks) {
             if is_japanese_mode {
-                for note in part.notes.iter_mut() {
-                    let trimmed = note.lyric.trim();
-                    if !trimmed.is_empty() && trimmed != "+" && trimmed != "R" && trimmed != "r" {
-                        let converted = crate::phonemizer::romaji::romaji_to_hiragana(trimmed);
-                        if !converted.is_empty() {
-                            note.lyric = converted;
-                        }
-                    }
-                }
+                convert_japanese_lyrics(&mut part.notes, targets);
             }
         }
         if let Some(voicebank) = self.voicebank.as_ref() {
@@ -763,8 +816,18 @@ impl KamafeuStudioApp {
                     per_note
                 })
                 .collect::<Vec<_>>();
-            for (part, per_note) in self.project.parts.iter_mut().zip(layouts) {
-                for (note, durations) in part.notes.iter_mut().zip(per_note) {
+            for ((part, per_note), targets) in self
+                .project
+                .parts
+                .iter_mut()
+                .zip(layouts)
+                .zip(&target_masks)
+            {
+                for ((note, durations), &target) in part.notes.iter_mut().zip(per_note).zip(targets)
+                {
+                    if !target {
+                        continue;
+                    }
                     let is_manual_composite = mode == crate::phonemizer::PhonemizerMode::None
                         && note.lyric.contains(['.', ';', ',']);
                     if is_manual_composite && !durations.is_empty() {
@@ -777,9 +840,12 @@ impl KamafeuStudioApp {
         self.piano_roll_state.phoneme_cache.clear();
         self.piano_roll_state.note_phonemes_cache.clear();
         self.is_dirty = true;
-        self.transport_state.status_message =
+        self.transport_state.status_message = if selected_indices.is_some() {
+            format!("Fonemas atualizados em {targeted_count} nota(s) selecionada(s)")
+        } else {
             "Todas as notas foram refonetizadas e suas posições fonéticas foram atualizadas."
-                .to_string();
+                .to_string()
+        };
     }
 
     pub fn clear_all_pitch_curves(&mut self) {
@@ -1127,7 +1193,7 @@ impl KamafeuStudioApp {
 
 #[cfg(test)]
 mod tests {
-    use super::resolve_monophonic_overlaps;
+    use super::{convert_japanese_lyrics, rephonemize_target_mask, resolve_monophonic_overlaps};
     use crate::project::model::UNote;
 
     #[test]
@@ -1143,5 +1209,26 @@ mod tests {
         for pair in notes.windows(2) {
             assert!(pair[0].position_ms + pair[0].duration_ms <= pair[1].position_ms);
         }
+    }
+
+    #[test]
+    fn selected_rephonemization_converts_only_targeted_notes() {
+        let mut notes = vec![
+            UNote::new("ka", "C4", 0.0, 200.0),
+            UNote::new("ki", "D4", 200.0, 200.0),
+            UNote::new("ku", "E4", 400.0, 200.0),
+        ];
+        let targets = rephonemize_target_mask(notes.len(), Some(&[1]));
+
+        convert_japanese_lyrics(&mut notes, &targets);
+
+        assert_eq!(notes[0].lyric, "ka");
+        assert_eq!(notes[1].lyric, "き");
+        assert_eq!(notes[2].lyric, "ku");
+    }
+
+    #[test]
+    fn rephonemization_without_a_selection_targets_every_note() {
+        assert_eq!(rephonemize_target_mask(3, None), vec![true, true, true]);
     }
 }

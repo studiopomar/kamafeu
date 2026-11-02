@@ -7,7 +7,7 @@ import sys
 
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
-REVISION = "13385ed68c0d5f4fa84229b76278c70b0f3ad5a7"
+REVISION = "141605ee8b6683c14fbf440b5820973b1d809cdd"
 URL = "https://github.com/studiopomar/Tainah-rt.git"
 SOURCE_OVERRIDE = os.environ.get("TAINAH_RT_SOURCE")
 SOURCE = pathlib.Path(SOURCE_OVERRIDE or ROOT / "target" / "tainah-rt-source").resolve()
@@ -61,6 +61,14 @@ if current_engine_revision != ENGINE_REVISION:
     )
 run(["git", "submodule", "update", "--init", "--recursive"], cwd=engine)
 shutil.copy2(ROOT / "native" / "tainah" / "patches" / "LOG.h", engine / "src" / "Utils" / "LOG.h")
+shutil.copyfile(
+    ROOT / "native" / "tainah" / "patches" / "lessConfigure.h",
+    engine / "src" / "ConfigUnit" / "lessConfigure.h",
+)
+shutil.copyfile(
+    ROOT / "native" / "tainah" / "patches" / "WorldModule.cpp",
+    engine / "src" / "AudioModel" / "WorldModule" / "WorldModule.cpp",
+)
 
 # Make WORLD's randn() state thread-local so concurrent multi-core renders
 # execute in parallel without global mutex contention while remaining deterministic.
@@ -79,18 +87,18 @@ if matlab_fn.exists():
 adapter = ROOT / "native" / "tainah"
 adapter_source = SOURCE / "src" / "Tainah"
 adapter_source.mkdir(parents=True, exist_ok=True)
-for name in ("tainah.h", "tainah.cpp", "tainah_cli.cpp", "tainah_abi_test.cpp", "tainah_timing.h"):
-    shutil.copy2(adapter / name, adapter_source / name)
-
-# The pinned Tainah-rt builder copies a fixed file list into lessampler-ng.
-# Include our timing helper in that copy without maintaining a forked checkout.
-builder = SOURCE / "build.py"
-builder_text = builder.read_text(encoding="utf-8")
-source_list = '("tainah.h", "tainah.cpp", "tainah_cli.cpp", "tainah_abi_test.cpp", "CMakeLists.txt")'
-timing_list = '("tainah.h", "tainah_timing.h", "tainah.cpp", "tainah_cli.cpp", "tainah_abi_test.cpp", "CMakeLists.txt")'
-if timing_list not in builder_text:
-    if source_list not in builder_text:
-        raise SystemExit("Tainah-rt builder source list changed; cannot add timing helper")
-    builder.write_text(builder_text.replace(source_list, timing_list, 1), encoding="utf-8")
+for name in (
+    "tainah.h",
+    "tainah_timing.h",
+    "tainah_timing_test.cpp",
+    "tainah.cpp",
+    "tainah_cli.cpp",
+    "tainah_abi_test.cpp",
+    "tainah_cli_test.py",
+    "CMakeLists.txt",
+    "Tainah.yaml",
+):
+    if (adapter / name).exists():
+        shutil.copy2(adapter / name, adapter_source / name)
 
 run([sys.executable, str(SOURCE / "build.py"), "--output", str(PACKAGE)])

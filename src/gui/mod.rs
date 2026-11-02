@@ -188,6 +188,9 @@ pub struct KamafeuStudioApp {
     active_track_index: usize,
     config: KamafeuConfig,
     singers_list: Vec<crate::oto::SingerInfo>,
+    pub(crate) voicebank_cache:
+        std::collections::HashMap<std::path::PathBuf, crate::oto::Voicebank>,
+    pub(crate) last_synced_track_signature: Option<(usize, Option<String>, String)>,
     singer_search_query: String,
     singers_gallery_window_open: bool,
     discord_rpc: crate::discord_rpc::DiscordRpcManager,
@@ -212,6 +215,8 @@ pub struct KamafeuStudioApp {
     pub autopitch_window_open: bool,
     pub autopitch_options: crate::dsp::AutoPitchOptions,
     pub autopitch_scope: crate::dsp::AutoPitchScope,
+    pub utau_guide_window_open: bool,
+    pub utau_guide_options: crate::oto::UtauGuideOptions,
     pub batch_lyrics_open: bool,
     pub batch_lyrics_buffer: String,
     last_window_title: String,

@@ -33,7 +33,10 @@ impl KamafeuStudioApp {
         self.project.render_state = Some(Default::default());
         self.is_dirty = true;
 
+        self.voicebank_cache
+            .insert(voicebank.root_path.clone(), voicebank.clone());
         self.voicebank = Some(voicebank);
+        self.last_synced_track_signature = None;
         self.restore_render_profile_for_active_context();
         self.piano_roll_state.phoneme_cache_hash = 0;
         self.piano_roll_state.phoneme_cache.clear();
@@ -42,6 +45,7 @@ impl KamafeuStudioApp {
     }
 
     pub(crate) fn activate_singer_path(&mut self, path: &std::path::Path) {
+        self.last_synced_track_signature = None;
         let is_diffsinger = path.join("character.yaml").is_file()
             && (path.join("dsconfig.yaml").is_file()
                 || path.join("configs/dsconfig.yaml").is_file());
@@ -214,7 +218,7 @@ impl KamafeuStudioApp {
     }
 
     pub(super) fn refresh_voicebank_oto(&mut self) {
-        if self.last_voicebank_oto_check.elapsed() < std::time::Duration::from_millis(350) {
+        if self.last_voicebank_oto_check.elapsed() < std::time::Duration::from_millis(1500) {
             return;
         }
         self.last_voicebank_oto_check = Instant::now();
@@ -328,6 +332,201 @@ impl KamafeuStudioApp {
             }
         }
     }
+
+    pub(crate) fn find_singer_path_by_name(&self, name: &str) -> Option<std::path::PathBuf> {
+        let trimmed = name.trim();
+        if trimmed.is_empty() {
+            return None;
+        }
+        // 1. Exact match in singers_list
+        if let Some(s) = self
+            .singers_list
+            .iter()
+            .find(|s| s.name.eq_ignore_ascii_case(trimmed))
+        {
+            return Some(s.path.clone());
+        }
+        // 2. Folder name match in singers_list
+        if let Some(s) = self.singers_list.iter().find(|s| {
+            s.path
+                .file_name()
+                .and_then(|n| n.to_str())
+                .map(|n| n.eq_ignore_ascii_case(trimmed))
+                .unwrap_or(false)
+        }) {
+            return Some(s.path.clone());
+        }
+        // 3. Substring match in singers_list
+        if let Some(s) = self.singers_list.iter().find(|s| {
+            s.name.to_lowercase().contains(&trimmed.to_lowercase())
+                || trimmed.to_lowercase().contains(&s.name.to_lowercase())
+        }) {
+            return Some(s.path.clone());
+        }
+        // 4. Recent voicebanks
+        for p in &self.config.recent_voicebanks {
+            if p.file_name()
+                .and_then(|n| n.to_str())
+                .map(|n| n.eq_ignore_ascii_case(trimmed))
+                .unwrap_or(false)
+            {
+                return Some(p.clone());
+            }
+        }
+        // 5. Singer scan paths subdirectories
+        for dir in &self.config.singers_paths {
+            let candidate = dir.join(trimmed);
+            if candidate.is_dir() {
+                return Some(candidate);
+            }
+        }
+        None
+    }
+
+    pub(crate) fn sync_active_track_voicebank(&mut self) {
+        if self.project.tracks.is_empty() {
+            return;
+        }
+        if self.active_track_index >= self.project.tracks.len() {
+            self.active_track_index = self.project.tracks.len() - 1;
+        }
+        let active_idx = self.active_track_index;
+
+        let initial_sig = (
+            active_idx,
+            self.project.tracks[active_idx].voicebank_path.clone(),
+            self.project.tracks[active_idx].singer.clone(),
+        );
+        if self.last_synced_track_signature.as_ref() == Some(&initial_sig) {
+            return;
+        }
+
+        // Auto-resolve missing voicebank_path on track if singer name is present
+        if self.project.tracks[active_idx].voicebank_path.is_none()
+            && !self.project.tracks[active_idx].singer.is_empty()
+        {
+            if let Some(found_path) =
+                self.find_singer_path_by_name(&self.project.tracks[active_idx].singer)
+            {
+                self.project.tracks[active_idx].voicebank_path =
+                    Some(found_path.display().to_string());
+            }
+        }
+
+        let track = &self.project.tracks[active_idx];
+        let track_singer = track.singer.clone();
+        let track_path = track
+            .voicebank_path
+            .as_deref()
+            .map(std::path::PathBuf::from);
+
+        let Some(path) = track_path else {
+            self.last_synced_track_signature = Some((
+                active_idx,
+                self.project.tracks[active_idx].voicebank_path.clone(),
+                self.project.tracks[active_idx].singer.clone(),
+            ));
+            return;
+        };
+
+        let is_diffsinger = path.join("character.yaml").is_file()
+            && (path.join("dsconfig.yaml").is_file()
+                || path.join("configs/dsconfig.yaml").is_file());
+
+        let is_native_kfv2 = path.join("cantor.toml").is_file()
+            || (path.join("kamafeu_voicebank.json").is_file() && {
+                std::fs::read_to_string(path.join("kamafeu_voicebank.json"))
+                    .ok()
+                    .and_then(|c| serde_json::from_str::<serde_json::Value>(&c).ok())
+                    .and_then(|h| {
+                        h.get("format")
+                            .and_then(|v| v.as_str())
+                            .map(|s| s == "kamafeu.voicebank")
+                    })
+                    .unwrap_or(false)
+            });
+
+        if is_diffsinger || is_native_kfv2 {
+            if self.voicebank.is_some()
+                || self.transport_state.voicebank_path.as_deref() != Some(&path)
+            {
+                self.voicebank = None;
+                self.transport_state.voicebank_name = if !track_singer.is_empty() {
+                    track_singer
+                } else {
+                    path.file_name()
+                        .and_then(|n| n.to_str())
+                        .unwrap_or("DiffSinger")
+                        .to_string()
+                };
+                self.transport_state.voicebank_path = Some(path.clone());
+                self.project.voicebank = Some(self.transport_state.voicebank_name.clone());
+                self.project.voicebank_path = Some(path.display().to_string());
+                self.piano_roll_state.phoneme_cache_hash = 0;
+                self.piano_roll_state.phoneme_cache.clear();
+                self.piano_roll_state.note_phonemes_cache.clear();
+            }
+            self.last_synced_track_signature = Some((
+                active_idx,
+                self.project.tracks[active_idx].voicebank_path.clone(),
+                self.project.tracks[active_idx].singer.clone(),
+            ));
+            return;
+        }
+
+        // Classic UTAU voicebank
+        let already_active = self.voicebank.as_ref().is_some_and(|vb| {
+            vb.root_path == path
+                || std::fs::canonicalize(&vb.root_path).ok() == std::fs::canonicalize(&path).ok()
+        });
+
+        if !already_active {
+            let loaded = if let Some(cached) = self.voicebank_cache.get(&path) {
+                Some(cached.clone())
+            } else if path.is_dir()
+                || (path.is_file() && path.extension().is_some_and(|e| e == "kfv"))
+            {
+                match crate::oto::Voicebank::new(&path) {
+                    Ok(vb) => {
+                        self.voicebank_cache.insert(path.clone(), vb.clone());
+                        Some(vb)
+                    }
+                    Err(err) => {
+                        crate::terminal_log::warn(
+                            "SYNC",
+                            format!("Could not load track voicebank {:?}: {}", path, err),
+                        );
+                        None
+                    }
+                }
+            } else {
+                None
+            };
+
+            if let Some(vb) = loaded {
+                self.transport_state.voicebank_name = vb.name.clone();
+                self.transport_state.voicebank_path = Some(vb.root_path.clone());
+                self.project.voicebank = Some(vb.name.clone());
+                self.project.voicebank_path = Some(vb.root_path.display().to_string());
+                self.voicebank = Some(vb);
+                self.piano_roll_state.phoneme_cache_hash = 0;
+                self.piano_roll_state.phoneme_cache.clear();
+                self.piano_roll_state.note_phonemes_cache.clear();
+            }
+        }
+
+        if let Some(track) = self.project.tracks.get(active_idx) {
+            if let Some(mode) = track.phonemizer {
+                self.vocal_mode_params.phonemizer_mode = mode;
+            }
+        }
+
+        self.last_synced_track_signature = Some((
+            active_idx,
+            self.project.tracks[active_idx].voicebank_path.clone(),
+            self.project.tracks[active_idx].singer.clone(),
+        ));
+    }
 }
 
 #[cfg(test)]
@@ -397,6 +596,8 @@ mod tests {
             active_track_index: 0,
             config,
             singers_list: Vec::new(),
+            voicebank_cache: std::collections::HashMap::new(),
+            last_synced_track_signature: None,
             singer_search_query: String::new(),
             singers_gallery_window_open: false,
             discord_rpc: crate::discord_rpc::DiscordRpcManager::new(),
@@ -421,6 +622,8 @@ mod tests {
             autopitch_window_open: false,
             autopitch_options: Default::default(),
             autopitch_scope: crate::dsp::AutoPitchScope::SelectedOnly,
+            utau_guide_window_open: false,
+            utau_guide_options: Default::default(),
             batch_lyrics_open: false,
             batch_lyrics_buffer: String::new(),
             last_window_title: String::new(),
@@ -552,5 +755,67 @@ mod tests {
         assert!(app.project.tracks[0].diffsinger_language.is_some());
         assert!(app.voicebank.is_none());
         assert_eq!(app.transport_state.voicebank_name, "DiffSinger Voice");
+    }
+
+    #[test]
+    fn sync_active_track_voicebank_switches_voicebank_between_tracks() {
+        let mut app = test_app();
+        let vb1_dir = tempfile::tempdir().unwrap();
+        fs::write(
+            vb1_dir.path().join("oto.ini"),
+            "sample.wav=ka,0,10,20,30,40\n",
+        )
+        .unwrap();
+        fs::write(
+            vb1_dir.path().join("character.txt"),
+            "name=Singer Track 1\nauthor=Author 1\n",
+        )
+        .unwrap();
+
+        let vb2_dir = tempfile::tempdir().unwrap();
+        fs::write(
+            vb2_dir.path().join("oto.ini"),
+            "sample2.wav=ta,0,10,20,30,40\n",
+        )
+        .unwrap();
+        fs::write(
+            vb2_dir.path().join("character.txt"),
+            "name=Singer Track 2\nauthor=Author 2\n",
+        )
+        .unwrap();
+
+        // Track 0 and Track 1
+        app.project.tracks = vec![
+            crate::project::model::UTrack {
+                name: "Track 1".into(),
+                singer: "Singer Track 1".into(),
+                voicebank_path: Some(vb1_dir.path().display().to_string()),
+                ..Default::default()
+            },
+            crate::project::model::UTrack {
+                name: "Track 2".into(),
+                singer: "Singer Track 2".into(),
+                voicebank_path: Some(vb2_dir.path().display().to_string()),
+                ..Default::default()
+            },
+        ];
+
+        // Initially active is Track 0
+        app.active_track_index = 0;
+        app.sync_active_track_voicebank();
+        assert_eq!(app.voicebank.as_ref().unwrap().name, "Singer Track 1");
+        assert_eq!(app.transport_state.voicebank_name, "Singer Track 1");
+
+        // Switch to Track 1
+        app.active_track_index = 1;
+        app.sync_active_track_voicebank();
+        assert_eq!(app.voicebank.as_ref().unwrap().name, "Singer Track 2");
+        assert_eq!(app.transport_state.voicebank_name, "Singer Track 2");
+
+        // Switch back to Track 0
+        app.active_track_index = 0;
+        app.sync_active_track_voicebank();
+        assert_eq!(app.voicebank.as_ref().unwrap().name, "Singer Track 1");
+        assert_eq!(app.transport_state.voicebank_name, "Singer Track 1");
     }
 }

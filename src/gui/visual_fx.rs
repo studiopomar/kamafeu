@@ -58,6 +58,18 @@ pub fn reserve(painter: &Painter) -> egui::layers::ShapeIdx {
     painter.add(Shape::Noop)
 }
 
+use std::sync::atomic::{AtomicBool, Ordering};
+
+static GLOW_ENABLED: AtomicBool = AtomicBool::new(true);
+
+pub fn set_glow_enabled(enabled: bool) {
+    GLOW_ENABLED.store(enabled, Ordering::Relaxed);
+}
+
+pub fn is_glow_enabled() -> bool {
+    GLOW_ENABLED.load(Ordering::Relaxed)
+}
+
 /// Soft blurred halo around `rect`, rendered into a slot obtained from
 /// [`reserve`].
 pub fn paint_glow_into(
@@ -68,7 +80,7 @@ pub fn paint_glow_into(
     color: Color32,
     blur: f32,
 ) {
-    if color.a() == 0 || blur <= 0.0 {
+    if !is_glow_enabled() || color.a() == 0 || blur <= 0.0 {
         return;
     }
     let shadow = Shadow {

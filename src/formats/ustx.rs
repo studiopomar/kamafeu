@@ -202,6 +202,27 @@ impl UstxFormat {
                                     }
                                 }
                             }
+                        } else if abbr == "clr" || abbr == "color" || abbr == "timbre" {
+                            let xs = curve_val.get("xs").and_then(|v| v.as_sequence());
+                            let ys = curve_val.get("ys").and_then(|v| v.as_sequence());
+                            if let (Some(xs_arr), Some(ys_arr)) = (xs, ys) {
+                                for (x_item, y_item) in xs_arr.iter().zip(ys_arr.iter()) {
+                                    let x_tick = x_item
+                                        .as_f64()
+                                        .or_else(|| x_item.as_i64().map(|i| i as f64))
+                                        .unwrap_or(0.0);
+                                    let pos_ms = x_tick * ms_per_tick;
+                                    let color_label =
+                                        y_item.as_str().map(str::to_string).or_else(|| {
+                                            y_item.as_i64().map(|idx| format!("Color {idx}"))
+                                        });
+                                    part.timbre_curve.push(crate::project::model::UTimbrePoint {
+                                        time_offset_ms: pos_ms,
+                                        timbre: color_label,
+                                        weight: 1.0,
+                                    });
+                                }
+                            }
                         }
                     }
                 }
@@ -242,6 +263,14 @@ impl UstxFormat {
                             .and_then(|value| value.as_str())
                             .and_then(Self::openutau_name_to_phonemizer_mode)
                             .map(|mode| format!("{mode:?}"));
+
+                        if let Some(timbre_str) = note_val
+                            .get("timbre")
+                            .or_else(|| note_val.get("color"))
+                            .and_then(|v| v.as_str())
+                        {
+                            u_note.timbre = Some(timbre_str.to_string());
+                        }
 
                         if let Some(overrides) = note_val
                             .get("phonemeOverrides")
@@ -455,6 +484,11 @@ impl UstxFormat {
                                         "atk" => u_note.expressions.attack = val_num,
                                         "dec" => u_note.expressions.decay = val_num,
                                         "mod" => u_note.expressions.modulation = val_num,
+                                        "gwl" | "growl" => u_note.expressions.growl = val_num,
+                                        "clr" | "color" => {
+                                            u_note.timbre =
+                                                Some(format!("Color {}", val_num as i64));
+                                        }
                                         _ => {}
                                     }
                                 }
@@ -996,6 +1030,9 @@ impl UstxFormat {
                             serde_json::json!({ "index": 0, "abbr": "dec", "value": note.expressions.decay }),
                             serde_json::json!({ "index": 0, "abbr": "mod", "value": note.expressions.modulation }),
                         ];
+                        if note.expressions.growl > 0.0 {
+                            phoneme_expressions.push(serde_json::json!({ "index": 0, "abbr": "gwl", "value": note.expressions.growl }));
+                        }
                         for item in &note.phoneme_overrides {
                             for (abbr, value) in [
                                 ("vel", item.velocity),
@@ -1017,7 +1054,7 @@ impl UstxFormat {
                                 }
                             }
                         }
-                        serde_json::json!({
+                        let mut note_json = serde_json::json!({
                             "position": (note.position_ms * ticks_per_ms).round() as i64,
                             "duration": (note.duration_ms.max(1.0) * ticks_per_ms).round() as i64,
                             "tone": note.midi_key(),
@@ -1039,15 +1076,33 @@ impl UstxFormat {
                                 "volLink": note.vibrato.volume_link_pct,
                             },
                             "phonemeExpressions": phoneme_expressions,
-                        })
+                        });
+                        if let Some(timbre) = &note.timbre {
+                            note_json["timbre"] = serde_json::json!(timbre);
+                        }
+                        note_json
                     })
                     .collect::<Vec<_>>();
-                serde_json::json!({
+                let mut part_json = serde_json::json!({
                     "name": part.name,
                     "track_no": part.track_index,
                     "position": (part.position_ms * ticks_per_ms).round() as i64,
                     "notes": notes,
-                })
+                });
+                if !part.timbre_curve.is_empty() {
+                    let mut xs = Vec::new();
+                    let mut ys = Vec::new();
+                    for pt in &part.timbre_curve {
+                        xs.push((pt.time_offset_ms * ticks_per_ms).round() as i64);
+                        ys.push(serde_json::json!(pt.timbre.as_deref().unwrap_or("")));
+                    }
+                    part_json["curves"] = serde_json::json!([{
+                        "abbr": "clr",
+                        "xs": xs,
+                        "ys": ys,
+                    }]);
+                }
+                part_json
             })
             .collect::<Vec<_>>();
         let root_phonemizer_str = project
@@ -1248,6 +1303,7 @@ voice_parts:
                 position_ms: 0.0,
                 duration_ms: 0.0,
                 notes: vec![UNote::new("ka", "C4", 0.0, 480.0)],
+                timbre_curve: Vec::new(),
             }],
             ..UProject::default()
         };

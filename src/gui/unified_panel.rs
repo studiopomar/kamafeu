@@ -1,4 +1,5 @@
 mod engine;
+#[cfg(not(target_arch = "wasm32"))]
 pub mod formant_chart;
 mod note;
 mod phonemes;
@@ -19,6 +20,7 @@ pub fn draw_unified_panel(
     lang: crate::config::AppLanguage,
     voicebank: Option<&Voicebank>,
     active_native_singer: Option<&crate::oto::SingerInfo>,
+    active_track_info: Option<(usize, &str, [u8; 3])>,
     recent_voicebanks: &[PathBuf],
     singers_list: &[crate::oto::SingerInfo],
     singer_search_query: &mut String,
@@ -56,6 +58,8 @@ pub fn draw_unified_panel(
             theme,
             lang,
             voicebank,
+            active_native_singer,
+            active_track_info,
             selected_note_idx,
             selected_indices,
             selected_ruler_alias,
@@ -64,6 +68,7 @@ pub fn draw_unified_panel(
         ui.add_space(4.0);
 
         // --- ALWAYS-VISIBLE VOWEL & FORMANT CONTROLLER (F1 × F2 · BRAPA & TAINAH) ---
+        #[cfg(not(target_arch = "wasm32"))]
         draw_pinned_formant_editor(
             ui,
             theme,
@@ -94,6 +99,7 @@ pub fn draw_unified_panel(
                         lang,
                         voicebank,
                         active_native_singer,
+                        active_track_info,
                         recent_voicebanks,
                         singers_list,
                         singer_search_query,
@@ -210,6 +216,8 @@ fn draw_context_header(
     theme: &ThemeConfig,
     lang: crate::config::AppLanguage,
     voicebank: Option<&Voicebank>,
+    active_native_singer: Option<&crate::oto::SingerInfo>,
+    active_track_info: Option<(usize, &str, [u8; 3])>,
     selected_note_idx: Option<usize>,
     selected_indices: &std::collections::HashSet<usize>,
     selected_ruler_alias: Option<&str>,
@@ -228,8 +236,16 @@ fn draw_context_header(
             .to_string()
     };
     ui.horizontal(|ui| {
+        let track_badge = active_track_info
+            .map(|(t_idx, t_name, _)| format!("[#{}: {}]", t_idx + 1, t_name))
+            .unwrap_or_default();
+        let title = if track_badge.is_empty() {
+            lang.tr("INSPETOR", "INSPECTOR").to_string()
+        } else {
+            format!("{} {}", lang.tr("INSPETOR", "INSPECTOR"), track_badge)
+        };
         ui.label(
-            RichText::new(lang.tr("INSPETOR", "INSPECTOR"))
+            RichText::new(title)
                 .size(if compact { 9.0 } else { 10.0 })
                 .strong()
                 .color(theme.text_muted_c32()),
@@ -244,8 +260,9 @@ fn draw_context_header(
     });
     ui.add_space(3.0);
     ui.horizontal_wrapped(|ui| {
-        let singer = voicebank
-            .map(|vb| vb.name.as_str())
+        let singer = active_native_singer
+            .map(|s| s.name.as_str())
+            .or_else(|| voicebank.map(|vb| vb.name.as_str()))
             .unwrap_or_else(|| lang.tr("Cantor padrão", "Default singer"));
         ui.label(
             RichText::new(singer)
@@ -485,6 +502,7 @@ fn draw_group_description(
 }
 
 #[allow(clippy::too_many_arguments)]
+#[cfg(not(target_arch = "wasm32"))]
 fn draw_pinned_formant_editor(
     ui: &mut egui::Ui,
     theme: &ThemeConfig,

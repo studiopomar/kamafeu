@@ -2,6 +2,7 @@ use crate::drivers::{ResamplerArgs, ResamplerDriver, ResamplerExecutionInfo};
 use sha2::{Digest, Sha256};
 use std::collections::{HashMap, VecDeque};
 use std::hash::{DefaultHasher, Hash, Hasher};
+#[cfg(not(target_arch = "wasm32"))]
 use std::io::Write;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicU64, Ordering};

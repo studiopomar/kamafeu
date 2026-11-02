@@ -1053,14 +1053,21 @@ fn draw_kamuse_waveform(
         let peak = samples
             .iter()
             .fold(0.02f32, |peak, sample| peak.max(sample.abs()));
-        let width = rect.width().max(1.0);
-        for x in 0..width as usize {
-            let start = x * samples.len() / width as usize;
+        // Keep the sample timeline on the same horizontal domain as the
+        // marker transform above. The handles use [usable_left, usable_right];
+        // drawing across the full panel shifted both waveform endpoints from
+        // the INÍCIO/FIM markers by the handle inset.
+        let waveform_width = usable_width.ceil().max(1.0) as usize;
+        for x in 0..waveform_width {
+            let start = x * samples.len() / waveform_width;
             let end =
-                (((x + 1) * samples.len() / width as usize).max(start + 1)).min(samples.len());
+                (((x + 1) * samples.len() / waveform_width).max(start + 1)).min(samples.len());
             let low = samples[start..end].iter().copied().fold(0.0f32, f32::min);
             let high = samples[start..end].iter().copied().fold(0.0f32, f32::max);
-            let xp = rect.left() + x as f32;
+            let xp = usable_left + x as f32;
+            if xp > usable_right {
+                break;
+            }
             painter.line_segment(
                 [
                     egui::pos2(xp, middle - high / peak * rect.height() * 0.42),

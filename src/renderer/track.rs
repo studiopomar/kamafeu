@@ -9,6 +9,7 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, OnceLock, RwLock};
 use std::time::Instant;
 
+#[cfg(not(target_arch = "wasm32"))]
 use rayon::prelude::*;
 
 use self::phone_result::PhoneResult;
@@ -782,6 +783,34 @@ impl TrackRenderer {
                 logs.push((
                     progress,
                     format!("  [Sample Rate] Converted {src_sample_rate}Hz -> {sample_rate}Hz"),
+                ));
+            }
+
+            // Aplicar modelagem acústica de textura vocal / rasp (Growl)
+            let growl_val = phone.expressions.growl;
+            if growl_val > 0.001 {
+                let growl_t = crate::dsp::growl::GrowlType::from_u8(phone.expressions.growl_type);
+                let note_f0 = if target_freq > 20.0 {
+                    target_freq as f32
+                } else {
+                    crate::dsp::pitch::note_name_to_midi(&phone.pitch)
+                        .map(|m| crate::dsp::pitch::midi_to_freq(f64::from(m)))
+                        .unwrap_or(220.0) as f32
+                };
+                crate::dsp::growl::apply_growl(
+                    &mut note_rendered,
+                    sample_rate,
+                    note_f0,
+                    (growl_val / 100.0) as f32,
+                    growl_t,
+                );
+                if res_args.output_wav.is_file() {
+                    let _ =
+                        Self::save_wav_samples(&res_args.output_wav, &note_rendered, sample_rate);
+                }
+                logs.push((
+                    progress,
+                    format!("  [Growl] Applied {:?} depth={:.1}%", growl_t, growl_val),
                 ));
             }
 

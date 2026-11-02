@@ -53,6 +53,16 @@ impl KamafeuStudioApp {
             }
             if ui
                 .button(lang.tr(
+                    "✨ Guia UTAU (Calibração do Voicebank)...",
+                    "✨ UTAU Guide (Voicebank Calibration)...",
+                ))
+                .clicked()
+            {
+                self.utau_guide_window_open = true;
+                ui.close_menu();
+            }
+            if ui
+                .button(lang.tr(
                     "Rack de Efeitos Vocais DSP (EQ, Comp, Delay, Reverb)...  (Ctrl+Alt+F)",
                     "DSP Vocal FX Rack (EQ, Comp, Delay, Reverb)...  (Ctrl+Alt+F)",
                 ))

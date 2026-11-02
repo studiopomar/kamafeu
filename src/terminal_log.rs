@@ -44,8 +44,8 @@ pub struct TuiGuard {
 #[cfg(any(target_arch = "wasm32", target_os = "android"))]
 pub struct TuiGuard;
 
-/// Starts the live terminal dashboard when the process owns an interactive TTY.
-/// `KAMAFEU_TUI=off` keeps the traditional line-oriented console.
+/// Starts the live terminal dashboard when explicitly enabled on an interactive TTY.
+/// Set `KAMAFEU_TUI=on` to enable it; the default keeps the terminal available to the GUI process.
 pub fn start_tui() -> Option<TuiGuard> {
     #[cfg(all(not(target_arch = "wasm32"), not(target_os = "android")))]
     {

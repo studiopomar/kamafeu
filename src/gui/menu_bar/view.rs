@@ -77,6 +77,27 @@ impl KamafeuStudioApp {
                     }
                 },
             );
+            ui.menu_button(
+                lang.tr(
+                    "Perfil Gráfico (Desempenho & Foco)",
+                    "Render Profile (Performance & Focus)",
+                ),
+                |ui| {
+                    use crate::config::UiRenderProfile;
+                    for p in [
+                        UiRenderProfile::HighFidelity,
+                        UiRenderProfile::DistractionFree,
+                        UiRenderProfile::EcoPerformance,
+                    ] {
+                        let is_active = self.config.workflow.render_profile == p;
+                        if ui.selectable_label(is_active, p.label(lang)).clicked() {
+                            self.config.workflow.render_profile = p;
+                            self.persist_config();
+                            ui.close_menu();
+                        }
+                    }
+                },
+            );
             ui.separator();
             if ui
                 .checkbox(

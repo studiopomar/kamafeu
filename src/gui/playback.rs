@@ -610,6 +610,9 @@ impl KamafeuStudioApp {
             .round()
             .to_bits()
             .hash(&mut hasher);
+        self.selected_resampler.hash(&mut hasher);
+        self.custom_resampler_path.hash(&mut hasher);
+        self.selected_wavtool.hash(&mut hasher);
         if let Some(vb) = &self.voicebank {
             vb.name.hash(&mut hasher);
             vb.root_path.hash(&mut hasher);
@@ -629,6 +632,13 @@ impl KamafeuStudioApp {
                 .round()
                 .to_bits()
                 .hash(&mut hasher);
+            for pt in &part.timbre_curve {
+                (pt.time_offset_ms * 10.0)
+                    .round()
+                    .to_bits()
+                    .hash(&mut hasher);
+                pt.timbre.hash(&mut hasher);
+            }
             for n in &part.notes {
                 // Hash the complete sound-producing note model. The former
                 // hand-picked list omitted volume, dynamics, envelopes,

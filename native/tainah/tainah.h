@@ -72,6 +72,26 @@ typedef struct lt_render_options {
     double f3_ratio;
     double nasality;
     double singers_formant;
+    /* Optional ABI v2 extension: vocal tension (-100 to +100; default 0). */
+    double tension;
+    /* Optional ABI v2 extension: high-frequency airiness/diffusion (0 to 100; default 0). */
+    double airiness;
+    /* Optional ABI v2 extension: low-end warmth/chest resonance (-100 to +100; default 0). */
+    double warmth;
+    /* Optional ABI v2 extension: consonant attack transient edge punch (-100 to +100; default 0). */
+    double attack_edge;
+    /* Optional ABI v2 extension: source voice vibrato/modulation blend (0 to 100; default 0). */
+    double modulation_depth;
+    /* Optional ABI v2 extension: dynamic de-esser amount (0 to 100; default 0). */
+    double deesser;
+    /* Optional ABI v2 extension: vocal growl / sub-harmonic distortion (0 to 100; default 0). */
+    double growl;
+    /* Optional ABI v2 extension: analog glottal saturation / drive (-100 to +100; default 0). */
+    double saturation;
+    /* Optional ABI v2 extension: human micro-jitter & shimmer (0 to 100; default 0). */
+    double humanize;
+    /* Optional ABI v2 extension: adaptive larynx formant scaling (-100 to +100; default 0). */
+    double adaptive_larynx;
 } lt_render_options;
 #define LT_FORMANT_ENVELOPE_POINTS 128u
 /* Vowel analysis of the oto region after the consonant. Optional symbol:

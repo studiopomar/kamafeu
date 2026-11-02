@@ -1,9 +1,10 @@
 use super::*;
 use crate::gui::theme::ThemeConfig;
-use eframe::egui::{self, Id, Pos2, Rect, Sense, Stroke};
+use eframe::egui::{self, Color32, Id, Pos2, Rect, Sense, Stroke};
 
 pub(super) fn draw(
     ui: &mut egui::Ui,
+    notes: &[UNote],
     state: &mut PianoRollState,
     viewport_rect: Rect,
     keyboard_width: f32,
@@ -22,7 +23,7 @@ pub(super) fn draw(
     // Float over the bottom of the piano-roll viewport instead of reserving a
     // second docked panel. This keeps the waveform above the parameter drawer
     // and gives the note grid back the space the old footer consumed.
-    let strip_height = 40.0_f32.min(viewport_rect.height());
+    let strip_height = 46.0_f32.min(viewport_rect.height());
     let strip_rect = Rect::from_min_max(
         Pos2::new(viewport_rect.min.x, viewport_rect.max.y - strip_height),
         viewport_rect.max,
@@ -98,6 +99,91 @@ pub(super) fn draw(
                 ],
                 Stroke::new(0.7_f32, muted_line),
             );
+        }
+    }
+
+    // --- Phoneme Slices & Recording Crossfade / Blend Boundaries ---
+    for (note_idx, phoneme_list) in state.note_phonemes_cache.iter().enumerate() {
+        if let Some(note) = notes.get(note_idx) {
+            for phone in phoneme_list {
+                let phone_start_ms = note.position_ms + phone.relative_position_ms;
+                let phone_end_ms = phone_start_ms + phone.duration_ms;
+
+                let screen_start_x = crate::gui::piano_roll::state::timeline_time_to_screen_x(
+                    content_left,
+                    phone_start_ms,
+                    state.px_per_ms,
+                    timeline_scroll_x,
+                );
+                let screen_end_x = crate::gui::piano_roll::state::timeline_time_to_screen_x(
+                    content_left,
+                    phone_end_ms,
+                    state.px_per_ms,
+                    timeline_scroll_x,
+                );
+
+                if screen_end_x < timeline_rect.left() || screen_start_x > timeline_rect.right() {
+                    continue;
+                }
+
+                // 1. Crossfade / Blend Junction Zone with previous recording
+                let blend_len_ms = if phone.overlap_ms > 0.0 {
+                    phone.overlap_ms
+                } else if phone.auto_overlap_ms > 0.0 {
+                    phone.auto_overlap_ms
+                } else {
+                    15.0
+                };
+                let blend_end_x = crate::gui::piano_roll::state::timeline_time_to_screen_x(
+                    content_left,
+                    phone_start_ms + blend_len_ms,
+                    state.px_per_ms,
+                    timeline_scroll_x,
+                );
+
+                let blend_left = screen_start_x.max(timeline_rect.left());
+                let blend_right = blend_end_x.min(timeline_rect.right());
+                if blend_right > blend_left {
+                    let blend_rect = Rect::from_min_max(
+                        Pos2::new(blend_left, strip_rect.top() + 2.0),
+                        Pos2::new(blend_right, strip_rect.bottom() - 2.0),
+                    );
+                    painter.rect_filled(
+                        blend_rect,
+                        Rounding::same(2.0),
+                        Color32::from_rgba_unmultiplied(130, 90, 230, 40),
+                    );
+                    painter.rect_stroke(
+                        blend_rect,
+                        Rounding::same(2.0),
+                        Stroke::new(0.8_f32, Color32::from_rgba_unmultiplied(70, 200, 245, 80)),
+                    );
+                }
+
+                // 2. Phoneme boundary delimiter line
+                if screen_start_x >= timeline_rect.left() && screen_start_x <= timeline_rect.right()
+                {
+                    painter.line_segment(
+                        [
+                            Pos2::new(screen_start_x, strip_rect.top() + 2.0),
+                            Pos2::new(screen_start_x, strip_rect.bottom() - 2.0),
+                        ],
+                        Stroke::new(1.0_f32, Color32::from_rgba_unmultiplied(160, 160, 200, 75)),
+                    );
+                }
+
+                // 3. Phonetic Alias tag label
+                let tag_x = screen_start_x + 4.0;
+                if tag_x >= timeline_rect.left() && tag_x <= timeline_rect.right() - 16.0 {
+                    painter.text(
+                        Pos2::new(tag_x, strip_rect.top() + 3.0),
+                        egui::Align2::LEFT_TOP,
+                        &phone.alias,
+                        egui::FontId::proportional(9.0),
+                        theme.text_muted_c32(),
+                    );
+                }
+            }
         }
     }
 

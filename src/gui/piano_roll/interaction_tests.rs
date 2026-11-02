@@ -21,6 +21,7 @@ fn frame(
                 draw_piano_roll(
                     ui,
                     notes,
+                    None,
                     &[],
                     0.0,
                     &[],
@@ -38,6 +39,7 @@ fn frame(
                     None,
                     crate::config::AppLanguage::PtBr,
                     TimelinePlaybackStatus::default(),
+                    "",
                     &mut |_| {},
                     &mut || before += 1,
                     &mut || changed += 1,

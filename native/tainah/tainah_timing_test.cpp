@@ -20,8 +20,7 @@ int main() {
         o.target_consonant_ms = 100 / speed;
         for (double duration : {40., 150., 500., 1500.}) {
             o.duration_ms = duration;
-            // Reference behavior: Lessampler CheckPara and Lessampler-NG
-            // AudioProcess::TimeStretch; attribution and links are in NOTICE.md.
+            // Reference: lessampler libUTAU::CheckPara and AudioProcess::TimeStretch.
             const double base = 100 / speed;
             const double rate = std::min(1., 400 / std::max(duration - base, 1e-9));
             for (double t = 0; t <= duration; t += 0.5) {

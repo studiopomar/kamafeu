@@ -66,9 +66,33 @@ std::vector<double> decode_pitch(const std::string &s) {
     }
     std::vector<double> result; result.reserve(values.size()); for(int v:values)result.push_back(v); return result;
 }
-double flag_value(const std::string &flags,char key,double fallback=0) {
-    auto p=flags.find(key); if(p==std::string::npos)return fallback; size_t end=p+1; if(end<flags.size()&&(flags[end]=='-'||flags[end]=='+'))++end; while(end<flags.size()&&std::isdigit(static_cast<unsigned char>(flags[end])))++end;
-    try{return std::stod(flags.substr(p+1,end-p-1));}catch(...){return fallback;}
+bool has_flag(const std::string &flags, char key) {
+    return flags.find(key) != std::string::npos;
+}
+double flag_value(const std::string &flags, char key, double fallback = 0.0) {
+    auto p = flags.find(key);
+    if (p == std::string::npos) return fallback;
+    size_t end = p + 1;
+    if (end < flags.size() && (flags[end] == '-' || flags[end] == '+')) ++end;
+    bool has_dot = false;
+    while (end < flags.size()) {
+        if (std::isdigit(static_cast<unsigned char>(flags[end]))) {
+            ++end;
+        } else if (flags[end] == '.' && !has_dot) {
+            has_dot = true;
+            ++end;
+        } else {
+            break;
+        }
+    }
+    if (end == p + 1 || (end == p + 2 && (flags[p + 1] == '-' || flags[p + 1] == '+'))) {
+        return fallback;
+    }
+    try {
+        return std::stod(flags.substr(p + 1, end - p - 1));
+    } catch (...) {
+        return fallback;
+    }
 }
 }
 
@@ -88,15 +112,55 @@ int main(int argc,char **argv) {
             throw std::invalid_argument("andamento inválido");
         if (!std::isfinite(velocity) || !std::isfinite(modulation) || !std::isfinite(volume))
             throw std::invalid_argument("volume, velocidade ou modulação inválida");
+        const std::string flags = argv[5];
         lt_render_options o{}; o.struct_size=sizeof(o);o.sample_rate=rate;o.input=input.data();o.input_length=input.size();o.duration_ms=duration;o.offset_ms=offset;o.consonant_ms=consonant;o.cutoff_ms=cutoff;
         o.has_target_consonant=1;
         o.target_consonant_ms=std::max(0.0,consonant)*std::pow(2.0,1.0-std::clamp(velocity,-100.0,200.0)/100.0);
-        o.pitch_hz=440*std::pow(2.0,(note-69)/12.0);o.gender=flag_value(argv[5],'g');o.pitch_cents=flag_value(argv[5],'t')*10.0;o.breathiness=flag_value(argv[5],'B');
-        o.formant_shift=std::clamp(flag_value(argv[5],'P'),-100.0,100.0);
-        o.consonant_adjustment=std::clamp(flag_value(argv[5],'C'),-100.0,100.0);
-        const double high=std::clamp(flag_value(argv[5],'H'),0.0,99.0), nyquist=rate/2.0;
+        o.pitch_hz=440*std::pow(2.0,(note-69)/12.0);o.gender=flag_value(flags,'g');o.pitch_cents=flag_value(flags,'t')*10.0;o.breathiness=flag_value(flags,'B');
+        o.formant_shift=std::clamp(flag_value(flags,'P'),-100.0,100.0);
+        o.consonant_adjustment=std::clamp(flag_value(flags,'C'),-100.0,100.0);
+        const double high=std::clamp(flag_value(flags,'H'),0.0,99.0), nyquist=rate/2.0;
         o.high_frequency_cutoff=high<=0.0||nyquist<=1000.0?0.0:nyquist*std::pow(1000.0/nyquist,high/99.0);
-        o.frame_period_ms=5;o.f0_floor=55;o.f0_ceiling=1760;o.f0_method=1;
+        o.frame_period_ms=5;o.f0_floor=55;o.f0_ceiling=1760;
+        o.f0_method = (flag_value(flags, 'd', 0.0) >= 1.0) ? 2 : 1;
+
+        // Modelos acústicos e de fonação de alto nível
+        o.tension = std::clamp(flag_value(flags, 'T', 0.0), -100.0, 100.0);
+        o.airiness = std::clamp(flag_value(flags, 'A', 0.0), 0.0, 100.0);
+        o.warmth = std::clamp(flag_value(flags, 'W', 0.0), -100.0, 100.0);
+        o.attack_edge = std::clamp(flag_value(flags, 'E', 0.0), -100.0, 100.0);
+        const double mod_depth = has_flag(flags, 'M') ? flag_value(flags, 'M', modulation) : modulation;
+        o.modulation_depth = std::clamp(mod_depth, 0.0, 100.0);
+
+        // De-esser, Growl, Saturação, Humanização e Escala Laringeal Adaptativa
+        o.deesser = std::clamp(flag_value(flags, 's', 0.0), 0.0, 100.0);
+        o.growl = std::clamp(flag_value(flags, 'G', 0.0), 0.0, 100.0);
+        o.saturation = std::clamp(flag_value(flags, 'U', 0.0), -100.0, 100.0);
+        o.humanize = std::clamp(flag_value(flags, 'J', 0.0), 0.0, 100.0);
+        o.adaptive_larynx = std::clamp(flag_value(flags, 'K', 0.0), -100.0, 100.0);
+
+        // Formantes e acoplamento articulatório
+        const double nas = has_flag(flags, 'N') ? std::clamp(flag_value(flags, 'N', 0.0) / 100.0, 0.0, 1.0) : 0.0;
+        const double sig = has_flag(flags, 'S') ? std::clamp(flag_value(flags, 'S', 0.0) / 100.0, -1.0, 1.0) : 0.0;
+        const double rho = has_flag(flags, 'R') ? std::clamp(flag_value(flags, 'R', 0.0) / 100.0, 0.0, 1.0) : 0.0;
+        const double vop = has_flag(flags, 'V') ? std::clamp(flag_value(flags, 'V', 0.0), -100.0, 100.0) : 0.0;
+        const double vfr = has_flag(flags, 'D') ? std::clamp(flag_value(flags, 'D', 0.0), -100.0, 100.0) : 0.0;
+
+        if (nas > 1e-6 || std::abs(sig) > 1e-6 || rho > 1e-6 || std::abs(vop) > 1e-6 || std::abs(vfr) > 1e-6) {
+            o.has_vowel_formant = 1;
+            o.f1_ratio = std::pow(2.0, vop * 0.5 / 100.0);
+            o.f2_ratio = std::pow(2.0, vfr * 0.5 / 100.0);
+            o.f3_ratio = (rho > 1e-6) ? std::clamp(1.0 - 0.45 * rho, 0.5, 1.0) : 1.0;
+            o.nasality = nas;
+            o.singers_formant = sig;
+        } else {
+            o.has_vowel_formant = 0;
+            o.f1_ratio = 1.0;
+            o.f2_ratio = 1.0;
+            o.f3_ratio = 1.0;
+            o.nasality = 0.0;
+            o.singers_formant = 0.0;
+        }
         if(argc>13){auto curve=decode_pitch(argv[13]); static std::vector<lt_pitch_point> points; for(size_t i=0;i<curve.size();++i)points.push_back({double(i)*60000.0*5.0/(tempo*480.0),curve[i],1}); o.pitch_points=points.data();o.pitch_point_count=uint32_t(points.size());}
         lt_pcm pcm{};pcm.struct_size=sizeof(pcm);lt_error error{};error.struct_size=sizeof(error);
         int status=lt_render(&o,&pcm,&error);if(status){std::cerr<<"Falha ao renderizar: "<<error.message<<"\n";return status;}

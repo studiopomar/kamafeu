@@ -776,6 +776,7 @@ impl ProjectRenderer {
             .iter()
             .filter_map(|(index, track)| track.native_voicebank.as_ref().map(|_| *index))
             .collect();
+        #[cfg(not(target_arch = "wasm32"))]
         let diffsinger_track_indices: Vec<usize> = audible_tracks
             .iter()
             .filter_map(|(index, track)| {
@@ -787,6 +788,8 @@ impl ProjectRenderer {
                 .then_some(*index)
             })
             .collect();
+        #[cfg(target_arch = "wasm32")]
+        let diffsinger_track_indices: Vec<usize> = Vec::new();
         if !native_track_indices.is_empty() || !diffsinger_track_indices.is_empty() {
             if cancel.is_some_and(|token| token.load(Ordering::Relaxed)) {
                 return RenderedAudio::empty(sample_rate, 2);
@@ -976,143 +979,150 @@ impl ProjectRenderer {
                 }
             }
 
-            for (diff_index, &track_index) in diffsinger_track_indices.iter().enumerate() {
-                if cancel.is_some_and(|token| token.load(Ordering::Relaxed)) {
-                    return RenderedAudio::empty(sample_rate, 2);
-                }
-                let track = &project.tracks[track_index];
-                let bank_path = track
-                    .voicebank_path
-                    .as_deref()
-                    .expect("DiffSinger track has a path");
-                let bank = match crate::voicebank::diffsinger::DiffSingerBank::inspect(bank_path) {
-                    Ok(bank) if bank.loadable => bank,
-                    Ok(bank) => {
-                        return RenderedAudio::failed(
-                            sample_rate,
-                            format!(
-                                "faixa '{}': banco DiffSinger indisponível: {}",
-                                track.name,
-                                bank.diagnostic
-                                    .unwrap_or_else(|| "configuração incompleta".into())
-                            ),
-                        )
+            #[cfg(not(target_arch = "wasm32"))]
+            {
+                for (diff_index, &track_index) in diffsinger_track_indices.iter().enumerate() {
+                    if cancel.is_some_and(|token| token.load(Ordering::Relaxed)) {
+                        return RenderedAudio::empty(sample_rate, 2);
                     }
-                    Err(error) => {
-                        return RenderedAudio::failed(
-                            sample_rate,
-                            format!(
+                    let track = &project.tracks[track_index];
+                    let bank_path = track
+                        .voicebank_path
+                        .as_deref()
+                        .expect("DiffSinger track has a path");
+                    let bank =
+                        match crate::voicebank::diffsinger::DiffSingerBank::inspect(bank_path) {
+                            Ok(bank) if bank.loadable => bank,
+                            Ok(bank) => {
+                                return RenderedAudio::failed(
+                                    sample_rate,
+                                    format!(
+                                        "faixa '{}': banco DiffSinger indisponível: {}",
+                                        track.name,
+                                        bank.diagnostic
+                                            .unwrap_or_else(|| "configuração incompleta".into())
+                                    ),
+                                )
+                            }
+                            Err(error) => {
+                                return RenderedAudio::failed(
+                                    sample_rate,
+                                    format!(
                                 "faixa '{}': não foi possível carregar o banco DiffSinger: {error}",
                                 track.name
                             ),
-                        )
-                    }
-                };
-                let legacy_pt_default =
-                    track.diffsinger_phonemizer.is_none() && bank.language_ids.contains_key("pt");
-                let language = if legacy_pt_default {
-                    Some("pt")
-                } else {
-                    track
-                        .diffsinger_language
-                        .as_deref()
-                        .filter(|language| bank.language_ids.contains_key(*language))
-                        .or_else(|| bank.language_ids.contains_key("pt").then_some("pt"))
-                        .or_else(|| bank.language_ids.contains_key("en").then_some("en"))
-                        .or_else(|| bank.language_ids.keys().next().map(String::as_str))
-                };
-                let Some(language) = language else {
-                    return RenderedAudio::failed(
-                        sample_rate,
-                        format!(
-                            "faixa '{}': o banco DiffSinger não declara idiomas",
-                            track.name
-                        ),
-                    );
-                };
-                let speaker = track
-                    .diffsinger_speaker
-                    .as_deref()
-                    .filter(|speaker| bank.speaker_embeddings.contains_key(*speaker))
-                    .or_else(|| bank.speakers.first().map(String::as_str));
-                let Some(speaker) = speaker else {
-                    return RenderedAudio::failed(
-                        sample_rate,
-                        format!(
-                            "faixa '{}': o banco DiffSinger não declara speakers",
-                            track.name
-                        ),
-                    );
-                };
-                let provider = track.diffsinger_provider.unwrap_or_default();
-                let phonemizer = track.diffsinger_phonemizer.unwrap_or_else(|| {
-                    if language == "pt" {
-                        crate::voicebank::diffsinger::DiffSingerPhonemizer::BrapaPhonetic
+                                )
+                            }
+                        };
+                    let legacy_pt_default = track.diffsinger_phonemizer.is_none()
+                        && bank.language_ids.contains_key("pt");
+                    let language = if legacy_pt_default {
+                        Some("pt")
                     } else {
-                        crate::voicebank::diffsinger::DiffSingerPhonemizer::Automatic
-                    }
-                });
-                if let Some(callback) = on_progress {
-                    callback(
-                        diff_index as f32 / diffsinger_track_indices.len() as f32,
-                        &format!(
-                            "[DiffSinger · {provider:?}] Preparando {} ({language}, {speaker})",
-                            track.name
-                        ),
-                    );
-                }
-                let notes = Self::notes_for_track(project, track_index, start_ms, end_ms);
-                let samples = match crate::voicebank::diffsinger_render::render_track(
-                    &bank,
-                    &notes,
-                    language,
-                    phonemizer,
-                    speaker,
-                    provider,
-                    sample_rate,
-                    cancel,
-                ) {
-                    Ok(samples) => samples,
-                    Err(error) => {
+                        track
+                            .diffsinger_language
+                            .as_deref()
+                            .filter(|language| bank.language_ids.contains_key(*language))
+                            .or_else(|| bank.language_ids.contains_key("pt").then_some("pt"))
+                            .or_else(|| bank.language_ids.contains_key("en").then_some("en"))
+                            .or_else(|| bank.language_ids.keys().next().map(String::as_str))
+                    };
+                    let Some(language) = language else {
                         return RenderedAudio::failed(
                             sample_rate,
-                            format!("faixa '{}': render DiffSinger falhou: {error}", track.name),
-                        )
+                            format!(
+                                "faixa '{}': o banco DiffSinger não declara idiomas",
+                                track.name
+                            ),
+                        );
+                    };
+                    let speaker = track
+                        .diffsinger_speaker
+                        .as_deref()
+                        .filter(|speaker| bank.speaker_embeddings.contains_key(*speaker))
+                        .or_else(|| bank.speakers.first().map(String::as_str));
+                    let Some(speaker) = speaker else {
+                        return RenderedAudio::failed(
+                            sample_rate,
+                            format!(
+                                "faixa '{}': o banco DiffSinger não declara speakers",
+                                track.name
+                            ),
+                        );
+                    };
+                    let provider = track.diffsinger_provider.unwrap_or_default();
+                    let phonemizer = track.diffsinger_phonemizer.unwrap_or_else(|| {
+                        if language == "pt" {
+                            crate::voicebank::diffsinger::DiffSingerPhonemizer::BrapaPhonetic
+                        } else {
+                            crate::voicebank::diffsinger::DiffSingerPhonemizer::Automatic
+                        }
+                    });
+                    if let Some(callback) = on_progress {
+                        callback(
+                            diff_index as f32 / diffsinger_track_indices.len() as f32,
+                            &format!(
+                                "[DiffSinger · {provider:?}] Preparando {} ({language}, {speaker})",
+                                track.name
+                            ),
+                        );
                     }
-                };
-                if cancel.is_some_and(|token| token.load(Ordering::Relaxed)) {
-                    return RenderedAudio::empty(sample_rate, 2);
-                }
-                let mut samples = samples;
-                Self::mix_track_into(
-                    &mut mixed.samples,
-                    &mut samples,
-                    track.volume_db,
-                    track.pan,
-                    track.fx_rack.as_ref(),
-                    sample_rate,
-                );
-                if let Some(callback) = on_progress_event {
-                    callback(super::RenderProgressEvent::counted(
-                        super::RenderStage::Rendering,
-                        native_track_indices.len() + diff_index + 1,
-                        native_track_indices.len() + diffsinger_track_indices.len(),
-                    ));
-                }
-                if let Some(callback) = on_progress {
-                    let provider_status = match provider {
-                        crate::voicebank::diffsinger::ExecutionProvider::Cpu => "CPU",
-                        crate::voicebank::diffsinger::ExecutionProvider::CoreMl => {
-                            "CoreML com fallback CPU do ONNX Runtime"
+                    let notes = Self::notes_for_track(project, track_index, start_ms, end_ms);
+                    let samples = match crate::voicebank::diffsinger_render::render_track(
+                        &bank,
+                        &notes,
+                        language,
+                        phonemizer,
+                        speaker,
+                        provider,
+                        sample_rate,
+                        cancel,
+                    ) {
+                        Ok(samples) => samples,
+                        Err(error) => {
+                            return RenderedAudio::failed(
+                                sample_rate,
+                                format!(
+                                    "faixa '{}': render DiffSinger falhou: {error}",
+                                    track.name
+                                ),
+                            )
                         }
                     };
-                    callback(
-                        (diff_index + 1) as f32 / diffsinger_track_indices.len() as f32,
-                        &format!(
-                            "[DiffSinger][{}] síntese concluída; execução: {provider_status}",
-                            track.name
-                        ),
+                    if cancel.is_some_and(|token| token.load(Ordering::Relaxed)) {
+                        return RenderedAudio::empty(sample_rate, 2);
+                    }
+                    let mut samples = samples;
+                    Self::mix_track_into(
+                        &mut mixed.samples,
+                        &mut samples,
+                        track.volume_db,
+                        track.pan,
+                        track.fx_rack.as_ref(),
+                        sample_rate,
                     );
+                    if let Some(callback) = on_progress_event {
+                        callback(super::RenderProgressEvent::counted(
+                            super::RenderStage::Rendering,
+                            native_track_indices.len() + diff_index + 1,
+                            native_track_indices.len() + diffsinger_track_indices.len(),
+                        ));
+                    }
+                    if let Some(callback) = on_progress {
+                        let provider_status = match provider {
+                            crate::voicebank::diffsinger::ExecutionProvider::Cpu => "CPU",
+                            crate::voicebank::diffsinger::ExecutionProvider::CoreMl => {
+                                "CoreML com fallback CPU do ONNX Runtime"
+                            }
+                        };
+                        callback(
+                            (diff_index + 1) as f32 / diffsinger_track_indices.len() as f32,
+                            &format!(
+                                "[DiffSinger][{}] síntese concluída; execução: {provider_status}",
+                                track.name
+                            ),
+                        );
+                    }
                 }
             }
 
@@ -1727,6 +1737,11 @@ impl ProjectRenderer {
             for note in &part.notes {
                 let mut shifted = note.clone();
                 shifted.position_ms += part.position_ms;
+                if shifted.timbre.is_none() {
+                    if let Some(t) = part.timbre_at_ms(shifted.position_ms) {
+                        shifted.timbre = Some(t.to_string());
+                    }
+                }
                 raw_track_notes.push(shifted);
             }
         }

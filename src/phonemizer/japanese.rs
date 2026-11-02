@@ -1718,6 +1718,13 @@ impl JapanesePhonemizer {
                         }
                     } else if is_plain_vowel {
                         if let Some(pv) = prev_vowel.as_deref() {
+                            // Japanese CVVC banks use a VV sample for a
+                            // vowel-only note after another vowel (for
+                            // example `a e`). The preceding note deliberately
+                            // does not emit a VC for vowel-only lyrics, so
+                            // probe this transition on the current note
+                            // before falling back to VCV or the standalone V.
+                            let vv_group = vec![presamp_join(pv, " ", &exp.lyric)];
                             let mut vcv_group = expand_presamp_candidates(
                                 &presamp_alias.vcv,
                                 pv,
@@ -1740,7 +1747,7 @@ impl JapanesePhonemizer {
                             ];
                             let mut vow_cands = order_presamp_candidate_groups(
                                 presamp_priority_for_lyric(&exp.lyric, &presamp_inventory),
-                                vec![("VCV", vcv_group), ("CV", cv_group)],
+                                vec![("VV", vv_group), ("VCV", vcv_group), ("CV", cv_group)],
                             );
                             add_presamp_suffix_variants(
                                 &mut vow_cands,
@@ -2603,6 +2610,33 @@ mod tests {
         );
         assert_eq!(phones[2].lyric, "さ", "Main CV note starts at 400ms");
         assert_eq!(phones[2].position_ms, 400.0);
+    }
+
+    #[test]
+    fn japanese_cvvc_uses_vv_alias_for_adjacent_vowel_notes() {
+        let mut vb = build_test_voicebank();
+        vb.entries.insert(
+            "a え".to_string(),
+            OtoEntry::new(
+                "a-e.wav".to_string(),
+                "a え".to_string(),
+                0.0,
+                50.0,
+                10.0,
+                0.0,
+                0.0,
+            ),
+        );
+        let notes = vec![
+            UNote::new("か", "C4", 0.0, 400.0),
+            UNote::new("え", "C4", 400.0, 400.0),
+        ];
+
+        let phones = JapanesePhonemizer::apply_japanese(&notes, &vb, PhonemizerMode::CVVC);
+
+        assert_eq!(phones.len(), 2);
+        assert_eq!(phones[0].lyric, "- か");
+        assert_eq!(phones[1].lyric, "a え");
     }
 
     #[test]

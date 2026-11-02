@@ -244,6 +244,22 @@ pub enum ParameterTab {
     VibratoLength,
     VibratoDepth,
     VibratoPeriod,
+    Growl,
+    Shape,
+    // Tainah-rt acoustic flag expressions:
+    Tension,
+    Airiness,
+    Warmth,
+    AttackEdge,
+    DeEsser,
+    Saturation,
+    Humanize,
+    AdaptiveLarynx,
+    Nasality,
+    SingersFormant,
+    Rhotic,
+    VowelOpening,
+    VowelFronting,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -262,6 +278,8 @@ pub enum ContextMenuCategory {
 pub struct PianoRollState {
     pub timbre_drag: Option<Pos2>,
     pub timbre_changed: bool,
+    pub timbre_automation_mode: bool,
+    pub timbre_point_drag: Option<usize>,
     pub selected_note_index: Option<usize>,
     pub selected_note_indices: HashSet<usize>,
     pub active_scale: MusicalScale,
@@ -361,6 +379,7 @@ pub struct PianoRollState {
     pub request_legato: bool,
     pub request_clean_pitch_suffixes: bool,
     pub request_rephonemize: bool,
+    pub request_rephonemize_note_indices: Option<Vec<usize>>,
     pub request_humanize: bool,
     pub request_invert_retrograde: bool,
     pub request_invert_intervals: bool,
@@ -730,6 +749,8 @@ impl Default for PianoRollState {
         Self {
             timbre_drag: None,
             timbre_changed: false,
+            timbre_automation_mode: false,
+            timbre_point_drag: None,
             selected_note_index: None,
             selected_note_indices: HashSet::new(),
             active_scale: MusicalScale::Chromatic,
@@ -828,6 +849,7 @@ impl Default for PianoRollState {
             request_legato: false,
             request_clean_pitch_suffixes: false,
             request_rephonemize: false,
+            request_rephonemize_note_indices: None,
             request_humanize: false,
             request_invert_retrograde: false,
             request_invert_intervals: false,

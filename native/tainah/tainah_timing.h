@@ -4,8 +4,6 @@
 #include <cmath>
 
 namespace tainah {
-// Timing behavior implemented by Tainah, informed by Lessampler's CheckPara
-// and Lessampler-NG's AudioProcess::TimeStretch (see NOTICE.md).
 inline double source_time(const lt_render_options *o, double time, double source_duration) {
     const double marked_begin = o->loop_start_ms - o->offset_ms;
     const double marked_end = o->loop_end_ms - o->offset_ms;
@@ -36,8 +34,8 @@ inline double source_time(const lt_render_options *o, double time, double source
     if (release > 0 && time >= target_tail && target_tail < o->duration_ms) {
         return std::clamp(tail_begin + time - target_tail, 0.0, source_duration);
     }
-    // Short vowels use the available source region without accelerating later
-    // recording and its transitions.
+    // Match lessampler AudioProcess::TimeStretch: short vowels are truncated,
+    // not accelerated through the remaining recording and its transitions.
     const double rate = std::min(1.0, std::max(0.0, end - begin) /
         std::max(target_tail - attack, 1e-9));
     return std::clamp(begin + (time - attack) * rate, 0.0, source_duration);

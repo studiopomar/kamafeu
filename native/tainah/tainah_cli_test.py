@@ -26,6 +26,8 @@ class Options(c.Structure):
         *[(name, c.c_double) for name in ("f1_ratio", "f2_ratio")],
         ("has_vowel_formant", c.c_uint32),
         *[(name, c.c_double) for name in ("f3_ratio", "nasality", "singers_formant")],
+        *[(name, c.c_double) for name in ("tension", "airiness", "warmth", "attack_edge", "modulation_depth")],
+        *[(name, c.c_double) for name in ("deesser", "growl", "saturation", "humanize", "adaptive_larynx")],
     ]
 
 class Pcm(c.Structure):
@@ -91,6 +93,50 @@ def main():
                 delta = max(abs(a - b) for a, b in zip(actual, expected))
                 assert delta <= 1, (tempo, velocity, delta)
                 comparisons += 1
+
+        # Test flags: tension, airiness, warmth, attack_edge, nasality, singers_formant, deesser, growl, saturation, humanize, larynx
+        flag_cases = [
+            ("T30", {"tension": 30.0}),
+            ("A40", {"airiness": 40.0}),
+            ("W20", {"warmth": 20.0}),
+            ("E25", {"attack_edge": 25.0}),
+            ("N40S20", {"has_vowel_formant": 1, "nasality": 0.4, "singers_formant": 0.2, "f1_ratio": 1.0, "f2_ratio": 1.0, "f3_ratio": 1.0}),
+            ("M50", {"modulation_depth": 50.0}),
+            ("s40", {"deesser": 40.0}),
+            ("G30", {"growl": 30.0}),
+            ("U25", {"saturation": 25.0}),
+            ("J35", {"humanize": 35.0}),
+            ("K20", {"adaptive_larynx": 20.0}),
+        ]
+        points = (Pitch * len(values))(*(Pitch(i * 60000 * 5 / (120 * 480), value, 1) for i, value in enumerate(values)))
+        for flag_str, expected_attrs in flag_cases:
+            o = Options()
+            o.struct_size = c.sizeof(o); o.sample_rate = rate
+            o.input = data; o.input_length = len(data)
+            o.duration_ms = 240; o.offset_ms = 70; o.consonant_ms = 90; o.cutoff_ms = -350
+            o.pitch_hz = 220; o.pitch_points = points; o.pitch_point_count = len(points)
+            o.frame_period_ms = 5; o.f0_floor = 55; o.f0_ceiling = 1760; o.f0_method = 1
+            o.consonant_adjustment = 0
+            o.target_consonant_ms = 90; o.has_target_consonant = 1
+            for k, v in expected_attrs.items():
+                setattr(o, k, v)
+            result = Pcm(); result.struct_size = c.sizeof(result)
+            error = Error(); error.struct_size = c.sizeof(error)
+            status = lib.lt_render(c.byref(o), c.byref(result), c.byref(error))
+            assert status == 0, error.message.decode()
+            try:
+                expected = [round(max(-1, min(1, result.samples[i])) * 32767) for i in range(result.length)]
+            finally:
+                lib.lt_pcm_free(c.byref(result))
+            arguments = [str(executable), str(source), str(output), "A3", "100", flag_str,
+                         "70", "240", "90", "-350", "100", "0", "!120", curve]
+            subprocess.run(arguments, check=True, stdout=subprocess.DEVNULL)
+            with wave.open(str(output), "rb") as wav:
+                actual = [value[0] for value in struct.iter_unpack("<h", wav.readframes(wav.getnframes()))]
+            assert len(actual) == len(expected) == 10584
+            delta = max(abs(a - b) for a, b in zip(actual, expected))
+            assert delta <= 1, (flag_str, delta)
+            comparisons += 1
         for invalid in ("!0", "!nan", "!120garbage"):
             arguments[-2] = invalid
             bad = subprocess.run(arguments, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)

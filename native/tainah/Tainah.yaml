@@ -54,3 +54,147 @@ expressions:
     default_value: 0
     is_flag: true
     flag: C
+  nas:
+    name: Nasalidade acústica
+    abbr: nas
+    type: Numerical
+    min: 0
+    max: 100
+    default_value: 0
+    is_flag: true
+    flag: N
+  sig:
+    name: Formante do cantor
+    abbr: sig
+    type: Numerical
+    min: -100
+    max: 100
+    default_value: 0
+    is_flag: true
+    flag: S
+  rho:
+    name: Rótico / Retroflexo
+    abbr: rho
+    type: Numerical
+    min: 0
+    max: 100
+    default_value: 0
+    is_flag: true
+    flag: R
+  vop:
+    name: Abertura vocálica (F1)
+    abbr: vop
+    type: Numerical
+    min: -100
+    max: 100
+    default_value: 0
+    is_flag: true
+    flag: V
+  vfr:
+    name: Anterioridade vocálica (F2)
+    abbr: vfr
+    type: Numerical
+    min: -100
+    max: 100
+    default_value: 0
+    is_flag: true
+    flag: D
+  tns:
+    name: Tensão vocal
+    abbr: tns
+    type: Numerical
+    min: -100
+    max: 100
+    default_value: 0
+    is_flag: true
+    flag: T
+  air:
+    name: Arezamento (Air)
+    abbr: air
+    type: Numerical
+    min: 0
+    max: 100
+    default_value: 0
+    is_flag: true
+    flag: A
+  wrm:
+    name: Calor acústico
+    abbr: wrm
+    type: Numerical
+    min: -100
+    max: 100
+    default_value: 0
+    is_flag: true
+    flag: W
+  edg:
+    name: Punch do ataque
+    abbr: edg
+    type: Numerical
+    min: -100
+    max: 100
+    default_value: 0
+    is_flag: true
+    flag: E
+  mod:
+    name: Modulação de vibrato
+    abbr: mod
+    type: Numerical
+    min: 0
+    max: 100
+    default_value: 0
+    is_flag: true
+    flag: M
+  f0m:
+    name: Método de detecção F0
+    abbr: f0m
+    type: Numerical
+    min: 0
+    max: 1
+    default_value: 0
+    is_flag: true
+    flag: d
+  ses:
+    name: De-Esser inteligente
+    abbr: ses
+    type: Numerical
+    min: 0
+    max: 100
+    default_value: 0
+    is_flag: true
+    flag: s
+  gwl:
+    name: Growl / Vocal Fry
+    abbr: gwl
+    type: Numerical
+    min: 0
+    max: 100
+    default_value: 0
+    is_flag: true
+    flag: G
+  sat:
+    name: Saturação glotal (Drive)
+    abbr: sat
+    type: Numerical
+    min: -100
+    max: 100
+    default_value: 0
+    is_flag: true
+    flag: U
+  jit:
+    name: Humanização (Jitter/Shimmer)
+    abbr: jit
+    type: Numerical
+    min: 0
+    max: 100
+    default_value: 0
+    is_flag: true
+    flag: J
+  kee:
+    name: Escala laringeal adaptativa
+    abbr: kee
+    type: Numerical
+    min: -100
+    max: 100
+    default_value: 0
+    is_flag: true
+    flag: K

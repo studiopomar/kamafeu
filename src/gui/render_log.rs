@@ -161,6 +161,52 @@ impl KamafeuStudioApp {
                         });
                     }
 
+                    if let Some(render_state) = self
+                        .project
+                        .render_state
+                        .as_ref()
+                        .filter(|state| !state.chunks.is_empty())
+                    {
+                        ui.collapsing(
+                            lang.tr("Estado salvo do último render", "Saved state of last render"),
+                            |ui| {
+                                ui.label(format!(
+                                    "Transporte: {} · geração {} · {:.0} ms",
+                                    render_state.scheduler_state,
+                                    render_state.scheduler_generation,
+                                    render_state.scheduler_played_ms,
+                                ));
+                                for chunk in &render_state.chunks {
+                                    ui.horizontal_wrapped(|ui| {
+                                        let status_color = match chunk.status.as_str() {
+                                            "ready" => self.config.theme.success_c32(),
+                                            "failed" => ui.visuals().error_fg_color,
+                                            _ => ui.visuals().warn_fg_color,
+                                        };
+                                        ui.label(format!(
+                                            "#{} · {:.0}–{:.0} ms",
+                                            chunk.index, chunk.start_ms, chunk.end_ms
+                                        ));
+                                        ui.label(
+                                            egui::RichText::new(&chunk.status)
+                                                .strong()
+                                                .color(status_color),
+                                        );
+                                        if chunk.is_final {
+                                            ui.label(lang.tr("final", "final"));
+                                        }
+                                        if let Some(error) = &chunk.error {
+                                            ui.colored_label(
+                                                ui.visuals().error_fg_color,
+                                                error,
+                                            );
+                                        }
+                                    });
+                                }
+                            },
+                        );
+                    }
+
                     ui.add_space(4.0);
 
                     // 2. Engine Subheader & Progress Bar
