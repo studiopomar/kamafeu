@@ -1,6 +1,6 @@
 [package]
 name = "kamafeu"
-version = "3.1.0"
+version = "3.1.6"
 edition = "2021"
 rust-version = "1.82"
 description = "Kamafeu Studio - OpenUTAU-style voice synthesizer and DAW in Rust with UTAU voicebank support"
@@ -79,7 +79,7 @@ assets = [
 ]
 
 [package.metadata.generate-rpm]
-version = "3.1.0"
+version = "3.1.6"
 assets = [
   { source = "target/release/kamafeu", dest = "/usr/bin/kamafeu", mode = "755" },
   { source = "target/console-tui-build/bin/Release/kamafeu-tui", dest = "/usr/bin/kamafeu-tui", mode = "755" },
