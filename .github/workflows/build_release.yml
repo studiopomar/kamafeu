@@ -151,7 +151,7 @@ jobs:
         if: matrix.job.os == 'ubuntu-latest' && matrix.job.use_cross == false
         run: |
           sudo apt-get update
-          sudo apt-get install -y libasound2-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev pkg-config xvfb
+          sudo apt-get install -y libasound2-dev libxcb-render0-dev libxcb-shape0-dev libxcb-xfixes0-dev libxkbcommon-x11-dev pkg-config xvfb
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -163,6 +163,8 @@ jobs:
         if: matrix.job.use_cross == false
         env:
           TAINAH_WINDOWS_ARCH: ${{ matrix.job.target == 'aarch64-pc-windows-msvc' && 'ARM64' || matrix.job.target == 'i686-pc-windows-msvc' && 'Win32' || 'x64' }}
+          TAINAH_SKIP_RUNTIME_TESTS: ${{ matrix.job.target == 'aarch64-pc-windows-msvc' && '1' || '' }}
+          TAINAH_SKIP_CLI_FFI_TEST: ${{ matrix.job.target == 'i686-pc-windows-msvc' && '1' || '' }}
         run: python3 native/tainah/build.py
 
       - name: Build Binary (Native)

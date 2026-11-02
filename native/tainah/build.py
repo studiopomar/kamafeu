@@ -4,6 +4,7 @@ import pathlib
 import shutil
 import subprocess
 import sys
+import textwrap
 
 
 ROOT = pathlib.Path(__file__).resolve().parents[2]
@@ -100,5 +101,39 @@ for name in (
 ):
     if (adapter / name).exists():
         shutil.copy2(adapter / name, adapter_source / name)
+
+if os.environ.get("TAINAH_SKIP_RUNTIME_TESTS") == "1":
+    # Cross architecture Windows runners can compile ARM64, but cannot execute
+    # the resulting ABI tests or CLI smoke binary on the x64 host.
+    upstream_builder = SOURCE / "build.py"
+    builder_text = upstream_builder.read_text(encoding="utf-8")
+    ctest_block = '''    run([
+        "ctest", "--test-dir", str(build), "-C", "Release",
+        "-R", "tainah_(abi|timing)", "--output-on-failure",
+    ])'''
+    if ctest_block not in builder_text:
+        raise SystemExit("não foi possível adaptar os testes runtime do Tainah-rt para cross-build")
+    builder_text = builder_text.replace(
+        ctest_block,
+        '    if os.environ.get("TAINAH_SKIP_RUNTIME_TESTS") != "1":\n'
+        + textwrap.indent(ctest_block, "    "),
+        1,
+    )
+    smoke_start = '    test_dir = work / "cli-smoke-test"'
+    smoke_end = "    print(package)"
+    start = builder_text.find(smoke_start)
+    end = builder_text.find(smoke_end, start)
+    if start < 0 or end < 0:
+        raise SystemExit("não foi possível adaptar o smoke test CLI do Tainah-rt para cross-build")
+    smoke_block = builder_text[start:end]
+    builder_text = (
+        builder_text[:start]
+        + '    if os.environ.get("TAINAH_SKIP_RUNTIME_TESTS") == "1":\n'
+        + '        print("testes de execução ignorados: alvo Windows ARM64 cross-compilado")\n'
+        + "    else:\n"
+        + textwrap.indent(smoke_block, "    ")
+        + builder_text[end:]
+    )
+    upstream_builder.write_text(builder_text, encoding="utf-8")
 
 run([sys.executable, str(SOURCE / "build.py"), "--output", str(PACKAGE)])

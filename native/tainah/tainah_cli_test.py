@@ -1,6 +1,7 @@
 """Compare the classic CLI against explicit ABI timing for the same PCM."""
 import ctypes as c
 import math
+import os
 import pathlib
 import struct
 import subprocess
@@ -39,6 +40,9 @@ class Error(c.Structure):
 
 
 def main():
+    if os.environ.get("TAINAH_SKIP_CLI_FFI_TEST") == "1":
+        print("CLI/ABI comparison skipped: target DLL cannot be loaded by this host Python architecture.")
+        return
     executable, library = map(pathlib.Path, sys.argv[1:])
     lib = c.CDLL(str(library.resolve()))
     lib.lt_render.argtypes = [c.POINTER(Options), c.POINTER(Pcm), c.POINTER(Error)]
