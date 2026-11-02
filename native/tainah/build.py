@@ -21,6 +21,24 @@ def run(command, **kwargs):
     subprocess.run(command, check=True, **kwargs)
 
 
+if SOURCE.exists() and not SOURCE_OVERRIDE:
+    try:
+        source_remote = subprocess.check_output(
+            ["git", "remote", "get-url", "origin"], cwd=SOURCE, text=True,
+            stderr=subprocess.DEVNULL,
+        ).strip()
+    except subprocess.CalledProcessError:
+        source_remote = ""
+    normalize_url = lambda value: value.removesuffix(".git").rstrip("/").lower()
+    if normalize_url(source_remote) != normalize_url(URL):
+        # Cargo caches may restore target contents without preserving this
+        # nested checkout's .git directory. Never treat the parent repo as the
+        # Tainah remote; recreate only this generated target subdirectory.
+        generated_source = (ROOT / "target" / "tainah-rt-source").resolve()
+        if SOURCE != generated_source:
+            raise SystemExit(f"refusing to replace unexpected Tainah source path: {SOURCE}")
+        shutil.rmtree(SOURCE)
+
 if not SOURCE.exists():
     SOURCE.parent.mkdir(parents=True, exist_ok=True)
     run(["git", "clone", "--no-checkout", URL, str(SOURCE)])
