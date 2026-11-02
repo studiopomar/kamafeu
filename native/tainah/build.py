@@ -41,7 +41,20 @@ else:
             raise SystemExit(
                 f"TAINAH_RT_SOURCE revision mismatch: {current}; expected {REVISION}"
             )
-        run(["git", "fetch", "origin", REVISION], cwd=SOURCE)
+        try:
+            run(["git", "fetch", "origin", REVISION], cwd=SOURCE)
+        except subprocess.CalledProcessError:
+            # Some cached shallow clones reject fetching a commit by object ID
+            # even when it is the public default-branch HEAD. Fetch the branch,
+            # then enforce the same exact pin before checking it out.
+            run(["git", "fetch", "origin", "main"], cwd=SOURCE)
+            fetched = subprocess.check_output(
+                ["git", "rev-parse", "FETCH_HEAD"], cwd=SOURCE, text=True
+            ).strip()
+            if fetched != REVISION:
+                raise SystemExit(
+                    f"Tainah-rt main moved to {fetched}; expected pinned revision {REVISION}"
+                )
         run(["git", "checkout", "--detach", REVISION], cwd=SOURCE)
 
 run(["git", "submodule", "update", "--init", "--recursive"], cwd=SOURCE)
