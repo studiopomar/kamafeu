@@ -840,7 +840,7 @@ impl CopaibaNativeProject {
             if !metadata.is_file() || metadata.file_type().is_symlink() {
                 return Err(format!("package asset is not a regular file: {}", relative));
             }
-            let options = zip::write::FileOptions::default()
+            let options: zip::write::SimpleFileOptions = zip::write::FileOptions::default()
                 .compression_method(zip::CompressionMethod::Deflated);
             zip.start_file(&relative, options)
                 .map_err(|e| format!("cannot add {relative} to KFV: {e}"))?;
@@ -1363,7 +1363,7 @@ mod tests {
         assert!(reopened.layers[0].1.units[0].quality.reviewed);
         let mut archive = zip::ZipArchive::new(fs::File::open(package).unwrap()).unwrap();
         let names = (0..archive.len())
-            .map(|i| archive.by_index(i).unwrap().name().to_string())
+            .map(|i| archive.by_index(i).unwrap().name().unwrap().to_string())
             .collect::<BTreeSet<_>>();
         assert!(!names.contains("unused-notes.txt"));
         assert!(names.contains("audio/take1.wav"));

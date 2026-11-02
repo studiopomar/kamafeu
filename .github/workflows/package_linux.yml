@@ -68,6 +68,13 @@ jobs:
           cp assets/icon.png AppDir/usr/share/icons/hicolor/256x256/apps/kamafeu.png
           cp assets/icon.png AppDir/kamafeu.png
           cp packaging/kamafeu.desktop AppDir/
+          cat > AppDir/AppRun <<'EOF'
+          #!/bin/sh
+          HERE="$(dirname "$(readlink -f "$0")")"
+          export LD_LIBRARY_PATH="$HERE/usr/lib/kamafeu${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+          exec "$HERE/usr/bin/kamafeu" "$@"
+          EOF
+          chmod +x AppDir/AppRun
           curl -L --fail --retry 3 -o appimagetool \
             https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-x86_64.AppImage
           chmod +x appimagetool

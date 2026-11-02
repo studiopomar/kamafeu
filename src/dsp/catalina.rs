@@ -32,6 +32,11 @@ pub fn unpack_oudep(archive_path: &Path, target_dir: &Path) -> Result<PathBuf, S
     })?;
     let mut zip = zip::ZipArchive::new(file)
         .map_err(|e| format!("Arquivo .oudep inválido ou corrompido: {e}"))?;
+    if zip.metadata().has_duplicate_names() {
+        return Err("Arquivo .oudep contém nomes de entrada duplicados".into());
+    }
+    zip.validate_header_consistency()
+        .map_err(|e| format!("Cabeçalhos do arquivo .oudep são inconsistentes: {e}"))?;
 
     std::fs::create_dir_all(target_dir).map_err(|e| {
         format!(
@@ -46,7 +51,10 @@ pub fn unpack_oudep(archive_path: &Path, target_dir: &Path) -> Result<PathBuf, S
         let mut entry = zip
             .by_index(i)
             .map_err(|e| format!("Erro ao ler entrada zip {i}: {e}"))?;
-        let entry_name = entry.name().to_string();
+        let entry_name = entry
+            .name()
+            .map_err(|e| format!("Erro ao decodificar nome da entrada zip {i}: {e}"))?
+            .into_owned();
         let file_name = Path::new(&entry_name)
             .file_name()
             .and_then(|n| n.to_str())

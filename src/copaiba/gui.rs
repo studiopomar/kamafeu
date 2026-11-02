@@ -815,14 +815,14 @@ impl CopaibaToolkitApp {
             .map_err(|e| format!("Falha ao criar arquivo .kfv: {}", e))?;
         let mut zip = zip::ZipWriter::new(file);
 
-        let options =
+        let options: zip::write::SimpleFileOptions =
             zip::write::FileOptions::default().compression_method(zip::CompressionMethod::Deflated);
 
         fn walk_rec(
             src_dir: &std::path::Path,
             dir: &std::path::Path,
             zip: &mut zip::ZipWriter<fs::File>,
-            options: zip::write::FileOptions,
+            options: zip::write::SimpleFileOptions,
         ) -> Result<(), String> {
             let read_dir =
                 fs::read_dir(dir).map_err(|e| format!("Falha ao ler diretório: {}", e))?;

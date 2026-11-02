@@ -144,6 +144,12 @@ fn install_github_package(package: &Package, target_os: usize) -> Result<String,
     if asset_name.ends_with(".zip") {
         let file = std::fs::File::open(&archive_path).map_err(|e| e.to_string())?;
         let mut archive = zip::ZipArchive::new(file).map_err(|e| e.to_string())?;
+        if archive.metadata().has_duplicate_names() {
+            return Err("pacote ZIP contém nomes duplicados".into());
+        }
+        archive
+            .validate_header_consistency()
+            .map_err(|e| format!("cabeçalhos do pacote ZIP são inconsistentes: {e}"))?;
         archive.extract(&root).map_err(|e| e.to_string())?;
     } else {
         let status = std::process::Command::new("tar")

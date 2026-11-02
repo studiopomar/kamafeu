@@ -793,6 +793,15 @@ pub(crate) fn extract_kfv(zip_path: &Path, dest_dir: &Path) -> Result<(), std::i
     let file = fs::File::open(zip_path)?;
     let mut archive = zip::ZipArchive::new(file)
         .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+    if archive.metadata().has_duplicate_names() {
+        return Err(std::io::Error::new(
+            std::io::ErrorKind::InvalidData,
+            "duplicate file names in KFV package",
+        ));
+    }
+    archive
+        .validate_header_consistency()
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
 
     if archive.len() > MAX_FILES {
         return Err(std::io::Error::new(
@@ -809,19 +818,23 @@ pub(crate) fn extract_kfv(zip_path: &Path, dest_dir: &Path) -> Result<(), std::i
         let mut file = archive
             .by_index(i)
             .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
+        let entry_name = file
+            .name()
+            .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?
+            .into_owned();
         if file
             .unix_mode()
             .is_some_and(|mode| mode & 0o170000 == 0o120000)
         {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
-                format!("links are not allowed in KFV packages: {}", file.name()),
+                format!("links are not allowed in KFV packages: {entry_name}"),
             ));
         }
         if file.size() > MAX_FILE_SIZE {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
-                format!("entrada KFV excede o limite de tamanho: {}", file.name()),
+                format!("entrada KFV excede o limite de tamanho: {entry_name}"),
             ));
         }
         if file.size() > 10 * 1024 * 1024
@@ -830,7 +843,7 @@ pub(crate) fn extract_kfv(zip_path: &Path, dest_dir: &Path) -> Result<(), std::i
         {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
-                format!("entrada KFV possui compressão suspeita: {}", file.name()),
+                format!("entrada KFV possui compressão suspeita: {entry_name}"),
             ));
         }
         total_size = total_size.checked_add(file.size()).ok_or_else(|| {
@@ -842,7 +855,6 @@ pub(crate) fn extract_kfv(zip_path: &Path, dest_dir: &Path) -> Result<(), std::i
                 "conteúdo descompactado do KFV excede o limite permitido",
             ));
         }
-        let entry_name = file.name().to_string();
         if entry_name.contains('\\') || entry_name.contains('\0') {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::InvalidData,
@@ -874,7 +886,7 @@ pub(crate) fn extract_kfv(zip_path: &Path, dest_dir: &Path) -> Result<(), std::i
         }
         let outpath = dest_dir.join(enclosed);
 
-        if (*file.name()).ends_with('/') {
+        if entry_name.ends_with('/') {
             fs::create_dir_all(&outpath)?;
         } else {
             if let Some(p) = outpath.parent() {
@@ -995,10 +1007,7 @@ mod tests {
 
     #[test]
     fn kfv_extractor_rejects_traversal_duplicate_and_symlink_entries() {
-        for entries in [
-            vec![("../outside.txt", 0o100644), ("ok.txt", 0o100644)],
-            vec![("same.txt", 0o100644), ("same.txt", 0o100644)],
-        ] {
+        for entries in [vec![("../outside.txt", 0o100644), ("ok.txt", 0o100644)]] {
             let case = entries
                 .iter()
                 .map(|(name, _)| *name)
@@ -1008,7 +1017,8 @@ mod tests {
             let package = workspace.path().join("bad.kfv");
             let mut zip = zip::ZipWriter::new(fs::File::create(&package).unwrap());
             for (name, mode) in entries {
-                let options = zip::write::FileOptions::default().unix_permissions(mode);
+                let options: zip::write::SimpleFileOptions =
+                    zip::write::FileOptions::default().unix_permissions(mode);
                 zip.start_file(name, options).unwrap();
                 zip.write_all(b"payload").unwrap();
             }
@@ -1023,13 +1033,43 @@ mod tests {
             assert!(!workspace.path().join("outside.txt").exists());
         }
 
-        // zip 0.6's writer masks Unix file-type bits, so mark one generated
+        // zip 9 prevents its writer from creating duplicate names. Duplicate
+        // the central-directory record to keep testing malicious input.
+        let workspace = tempdir().unwrap();
+        let package = workspace.path().join("duplicate.kfv");
+        let mut zip = zip::ZipWriter::new(fs::File::create(&package).unwrap());
+        zip.start_file("same.txt", zip::write::SimpleFileOptions::default())
+            .unwrap();
+        zip.write_all(b"payload").unwrap();
+        zip.finish().unwrap();
+        let mut bytes = fs::read(&package).unwrap();
+        let central = bytes.windows(4).position(|v| v == b"PK\x01\x02").unwrap();
+        let eocd = bytes.windows(4).rposition(|v| v == b"PK\x05\x06").unwrap();
+        let record = bytes[central..eocd].to_vec();
+        bytes.splice(eocd..eocd, record.clone());
+        let eocd = eocd + record.len();
+        bytes[eocd + 8..eocd + 10].copy_from_slice(&2u16.to_le_bytes());
+        bytes[eocd + 10..eocd + 12].copy_from_slice(&2u16.to_le_bytes());
+        let central_size = u32::from_le_bytes(bytes[eocd + 12..eocd + 16].try_into().unwrap());
+        bytes[eocd + 12..eocd + 16]
+            .copy_from_slice(&(central_size + record.len() as u32).to_le_bytes());
+        fs::write(&package, bytes).unwrap();
+        assert!(zip::ZipArchive::new(fs::File::open(&package).unwrap())
+            .unwrap()
+            .metadata()
+            .has_duplicate_names());
+        let destination = workspace.path().join("extracted");
+        fs::create_dir(&destination).unwrap();
+        let error = extract_kfv(&package, &destination).unwrap_err();
+        assert_eq!(error.kind(), std::io::ErrorKind::InvalidData);
+
+        // The writer masks Unix file-type bits, so mark one generated
         // central-directory entry as a symlink to exercise the real archive
         // metadata the reader consumes.
         let workspace = tempdir().unwrap();
         let package = workspace.path().join("symlink.kfv");
         let mut zip = zip::ZipWriter::new(fs::File::create(&package).unwrap());
-        zip.start_file("link", zip::write::FileOptions::default())
+        zip.start_file("link", zip::write::SimpleFileOptions::default())
             .unwrap();
         zip.write_all(b"target").unwrap();
         zip.finish().unwrap();
