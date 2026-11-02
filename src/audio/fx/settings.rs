@@ -194,7 +194,12 @@ pub struct PhaserSettings {
 }
 impl Default for PhaserSettings {
     fn default() -> Self {
-        Self { enabled: false, rate_hz: 0.35, depth: 0.7, mix: 0.35 }
+        Self {
+            enabled: false,
+            rate_hz: 0.35,
+            depth: 0.7,
+            mix: 0.35,
+        }
     }
 }
 
@@ -208,7 +213,13 @@ pub struct FlangerSettings {
 }
 impl Default for FlangerSettings {
     fn default() -> Self {
-        Self { enabled: false, rate_hz: 0.25, depth_ms: 5.0, feedback: 0.25, mix: 0.3 }
+        Self {
+            enabled: false,
+            rate_hz: 0.25,
+            depth_ms: 5.0,
+            feedback: 0.25,
+            mix: 0.3,
+        }
     }
 }
 
@@ -219,7 +230,10 @@ pub struct StereoWidenerSettings {
 }
 impl Default for StereoWidenerSettings {
     fn default() -> Self {
-        Self { enabled: false, width: 1.0 }
+        Self {
+            enabled: false,
+            width: 1.0,
+        }
     }
 }
 

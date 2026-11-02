@@ -657,7 +657,11 @@ fn has_render_coverage(samples: &[f32], expected_len: usize, sample_rate: u32) -
     render_coverage_failure(samples, expected_len, sample_rate).is_none()
 }
 
-fn render_coverage_failure(samples: &[f32], expected_len: usize, sample_rate: u32) -> Option<String> {
+fn render_coverage_failure(
+    samples: &[f32],
+    expected_len: usize,
+    sample_rate: u32,
+) -> Option<String> {
     if expected_len == 0
         || samples.len() < expected_len.saturating_mul(95) / 100
         || samples.iter().any(|sample| !sample.is_finite())
@@ -1120,7 +1124,9 @@ pub fn ensure_hifisampler_profile_ready(profile: KnownResampler) -> Result<Strin
     #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
     {
         crate::dsp::catalina::auto_extract_oudep_if_needed(&model_dir);
-        crate::dsp::catalina::auto_extract_oudep_if_needed(&profile.recommended_engine_dir().join("model"));
+        crate::dsp::catalina::auto_extract_oudep_if_needed(
+            &profile.recommended_engine_dir().join("model"),
+        );
         crate::dsp::catalina::auto_extract_oudep_if_needed(&dir);
         crate::dsp::catalina::auto_extract_oudep_if_needed(&profile.recommended_engine_dir());
     }
@@ -1130,14 +1136,30 @@ pub fn ensure_hifisampler_profile_ready(profile: KnownResampler) -> Result<Strin
         .is_file()
         || model_dir.join("pc-nsf-hifigan.onnx").is_file()
         || model_dir.join("model.onnx").is_file()
-        || profile.recommended_engine_dir().join("model").join("pc_nsf_hifigan_44.1k_hop512_128bin_2025.02.onnx").is_file()
-        || profile.recommended_engine_dir().join("model").join("pc-nsf-hifigan.onnx").is_file()
-        || profile.recommended_engine_dir().join("model").join("model.onnx").is_file()
+        || profile
+            .recommended_engine_dir()
+            .join("model")
+            .join("pc_nsf_hifigan_44.1k_hop512_128bin_2025.02.onnx")
+            .is_file()
+        || profile
+            .recommended_engine_dir()
+            .join("model")
+            .join("pc-nsf-hifigan.onnx")
+            .is_file()
+        || profile
+            .recommended_engine_dir()
+            .join("model")
+            .join("model.onnx")
+            .is_file()
         || (profile == KnownResampler::Catalina && {
             #[cfg(not(any(target_os = "android", target_arch = "wasm32")))]
-            { crate::dsp::catalina::resolve_model_path().is_ok() }
+            {
+                crate::dsp::catalina::resolve_model_path().is_ok()
+            }
             #[cfg(any(target_os = "android", target_arch = "wasm32"))]
-            { false }
+            {
+                false
+            }
         });
 
     let hnsep_found =

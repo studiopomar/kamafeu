@@ -116,19 +116,18 @@ impl KamafeuStudioApp {
                 }
 
                 // Atalhos de Loop In / Out com I/O ou [/]
-                if (!has_cmd_or_ctrl && i.key_pressed(Key::I))
-                    || i.key_pressed(Key::OpenBracket)
-                {
+                if (!has_cmd_or_ctrl && i.key_pressed(Key::I)) || i.key_pressed(Key::OpenBracket) {
                     let playhead = self.piano_roll_state.playhead_ms;
-                    self.piano_roll_state.loop_start_ms = playhead.min(self.piano_roll_state.loop_end_ms - 20.0).max(0.0);
+                    self.piano_roll_state.loop_start_ms = playhead
+                        .min(self.piano_roll_state.loop_end_ms - 20.0)
+                        .max(0.0);
                     self.piano_roll_state.loop_enabled = true;
                     self.transport_state.loop_enabled = true;
                 }
-                if (!has_cmd_or_ctrl && i.key_pressed(Key::O))
-                    || i.key_pressed(Key::CloseBracket)
-                {
+                if (!has_cmd_or_ctrl && i.key_pressed(Key::O)) || i.key_pressed(Key::CloseBracket) {
                     let playhead = self.piano_roll_state.playhead_ms;
-                    self.piano_roll_state.loop_end_ms = playhead.max(self.piano_roll_state.loop_start_ms + 20.0);
+                    self.piano_roll_state.loop_end_ms =
+                        playhead.max(self.piano_roll_state.loop_start_ms + 20.0);
                     self.piano_roll_state.loop_enabled = true;
                     self.transport_state.loop_enabled = true;
                 }
@@ -140,7 +139,11 @@ impl KamafeuStudioApp {
                 }
 
                 // Ctrl+L: Define o Loop exatamente para cobrir as notas selecionadas
-                if has_cmd_or_ctrl && !i.modifiers.shift && !i.modifiers.alt && i.key_pressed(Key::L) {
+                if has_cmd_or_ctrl
+                    && !i.modifiers.shift
+                    && !i.modifiers.alt
+                    && i.key_pressed(Key::L)
+                {
                     if let Some(part) = self.project.parts.get(self.active_track_index) {
                         let selected_notes: Vec<&crate::project::model::UNote> = self
                             .piano_roll_state
@@ -149,8 +152,14 @@ impl KamafeuStudioApp {
                             .filter_map(|&idx| part.notes.get(idx))
                             .collect();
                         if !selected_notes.is_empty() {
-                            let min_pos = selected_notes.iter().map(|n| n.position_ms).fold(f64::INFINITY, f64::min);
-                            let max_end = selected_notes.iter().map(|n| n.position_ms + n.duration_ms).fold(f64::NEG_INFINITY, f64::max);
+                            let min_pos = selected_notes
+                                .iter()
+                                .map(|n| n.position_ms)
+                                .fold(f64::INFINITY, f64::min);
+                            let max_end = selected_notes
+                                .iter()
+                                .map(|n| n.position_ms + n.duration_ms)
+                                .fold(f64::NEG_INFINITY, f64::max);
                             if max_end > min_pos {
                                 self.piano_roll_state.loop_start_ms = min_pos;
                                 self.piano_roll_state.loop_end_ms = max_end;
@@ -164,10 +173,18 @@ impl KamafeuStudioApp {
                 // Ctrl+G: Alterna ciclicamente o Grid Snap (Auto -> 1/16 -> 1/8 -> 1/4 -> Freeform)
                 if has_cmd_or_ctrl && i.key_pressed(Key::G) {
                     self.transport_state.grid_snap = match self.transport_state.grid_snap {
-                        crate::gui::types::GridSnapOption::Auto => crate::gui::types::GridSnapOption::Snap1_16,
-                        crate::gui::types::GridSnapOption::Snap1_16 => crate::gui::types::GridSnapOption::Snap1_8,
-                        crate::gui::types::GridSnapOption::Snap1_8 => crate::gui::types::GridSnapOption::Snap1_4,
-                        crate::gui::types::GridSnapOption::Snap1_4 => crate::gui::types::GridSnapOption::Freeform,
+                        crate::gui::types::GridSnapOption::Auto => {
+                            crate::gui::types::GridSnapOption::Snap1_16
+                        }
+                        crate::gui::types::GridSnapOption::Snap1_16 => {
+                            crate::gui::types::GridSnapOption::Snap1_8
+                        }
+                        crate::gui::types::GridSnapOption::Snap1_8 => {
+                            crate::gui::types::GridSnapOption::Snap1_4
+                        }
+                        crate::gui::types::GridSnapOption::Snap1_4 => {
+                            crate::gui::types::GridSnapOption::Freeform
+                        }
                         _ => crate::gui::types::GridSnapOption::Auto,
                     };
                 }

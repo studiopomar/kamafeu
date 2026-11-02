@@ -1082,7 +1082,9 @@ impl JapanesePhonemizer {
                             ];
                             for cand in &vcv_cands {
                                 for spelling in crate::phonemizer::romaji::lyric_candidates(cand) {
-                                    if let Some(entry) = vb.find_mapped_entry(&spelling, &note.pitch) {
+                                    if let Some(entry) =
+                                        vb.find_mapped_entry(&spelling, &note.pitch)
+                                    {
                                         resolved_alias = Some(entry.alias.clone());
                                         phone_lyric = entry.alias.clone();
                                         break;
@@ -1098,7 +1100,9 @@ impl JapanesePhonemizer {
                         if resolved_alias.is_none() {
                             for cand in [part, &format!("- {part}")] {
                                 for spelling in crate::phonemizer::romaji::lyric_candidates(cand) {
-                                    if let Some(entry) = vb.find_mapped_entry(&spelling, &note.pitch) {
+                                    if let Some(entry) =
+                                        vb.find_mapped_entry(&spelling, &note.pitch)
+                                    {
                                         resolved_alias = Some(entry.alias.clone());
                                         phone_lyric = entry.alias.clone();
                                         break;
@@ -1113,7 +1117,9 @@ impl JapanesePhonemizer {
                         // 3. Fallback inteligente de coda com corte de vogal posterior (coda truncation)
                         if resolved_alias.is_none() {
                             let pv = prev_vowel.as_deref().unwrap_or("");
-                            if let Some((entry, is_trunc)) = Self::find_coda_fallback_entry(vb, pv, part, &note.pitch) {
+                            if let Some((entry, is_trunc)) =
+                                Self::find_coda_fallback_entry(vb, pv, part, &note.pitch)
+                            {
                                 resolved_alias = Some(entry.alias.clone());
                                 coda_trunc = is_trunc;
                                 phone_lyric = if is_trunc && !pv.is_empty() {
@@ -1191,7 +1197,9 @@ impl JapanesePhonemizer {
             // 3. Fallback inteligente de Coda com corte de vogal posterior
             if resolved_alias.is_none() {
                 let pv = global_prev_vowel.as_deref().unwrap_or("");
-                if let Some((entry, is_trunc)) = Self::find_coda_fallback_entry(vb, pv, raw_lyric, &note.pitch) {
+                if let Some((entry, is_trunc)) =
+                    Self::find_coda_fallback_entry(vb, pv, raw_lyric, &note.pitch)
+                {
                     resolved_alias = Some(entry.alias.clone());
                     coda_trunc = is_trunc;
                     phone_lyric = if is_trunc && !pv.is_empty() {
@@ -2053,17 +2061,33 @@ impl JapanesePhonemizer {
             "s" => &["sa", "se", "su", "so", "si", "さ", "せ", "す", "そ", "し"],
             "k" => &["ka", "ke", "ku", "ko", "ki", "か", "け", "く", "こ", "き"],
             "t" => &["ta", "te", "to", "tsu", "chi", "た", "て", "と", "つ", "ち"],
-            "p" => &["pa", "pe", "pu", "po", "pi", "ぱ", "ぺ", "ぷ", "ぽ", "pi", "ぴ"],
-            "f" | "h" => &["ha", "he", "fu", "ho", "hi", "fa", "fe", "fo", "fi", "は", "へ", "ふ", "ほ", "ひ"],
-            "m" => &["ma", "me", "mu", "mo", "mi", "ま", "me", "mu", "mo", "mi", "ま", "め", "む", "も", "み"],
-            "n" => &["na", "ne", "nu", "no", "ni", "n", "ん", "な", "ね", "ぬ", "の", "に"],
-            "r" | "l" => &["ra", "re", "ru", "ro", "ri", "la", "le", "lu", "lo", "li", "ら", "れ", "る", "ろ", "り"],
+            "p" => &[
+                "pa", "pe", "pu", "po", "pi", "ぱ", "ぺ", "ぷ", "ぽ", "pi", "ぴ",
+            ],
+            "f" | "h" => &[
+                "ha", "he", "fu", "ho", "hi", "fa", "fe", "fo", "fi", "は", "へ", "ふ", "ほ", "ひ",
+            ],
+            "m" => &[
+                "ma", "me", "mu", "mo", "mi", "ま", "me", "mu", "mo", "mi", "ま", "め", "む", "も",
+                "み",
+            ],
+            "n" => &[
+                "na", "ne", "nu", "no", "ni", "n", "ん", "な", "ね", "ぬ", "の", "に",
+            ],
+            "r" | "l" => &[
+                "ra", "re", "ru", "ro", "ri", "la", "le", "lu", "lo", "li", "ら", "れ", "る", "ろ",
+                "り",
+            ],
             "z" | "j" => &["za", "ze", "zu", "zo", "ji", "ざ", "ぜ", "ず", "ぞ", "じ"],
             "b" => &["ba", "be", "bu", "bo", "bi", "ば", "べ", "ぶ", "ぼ", "び"],
             "d" => &["da", "de", "do", "だ", "で", "ど"],
             "g" => &["ga", "ge", "gu", "go", "gi", "が", "げ", "ぐ", "ご", "ぎ"],
-            "sh" => &["sha", "she", "shu", "sho", "shi", "しゃ", "しぇ", "しゅ", "しょ", "し"],
-            "ch" => &["cha", "che", "chu", "cho", "chi", "ちゃ", "ちぇ", "ちゅ", "ちょ", "ち"],
+            "sh" => &[
+                "sha", "she", "shu", "sho", "shi", "しゃ", "しぇ", "しゅ", "しょ", "し",
+            ],
+            "ch" => &[
+                "cha", "che", "chu", "cho", "chi", "ちゃ", "ちぇ", "ちゅ", "ちょ", "ち",
+            ],
             "ts" => &["tsa", "tse", "tsu", "tso", "tsi", "つ"],
             _ => &[],
         };
@@ -3787,7 +3811,12 @@ mod tests {
         let note = UNote::new("ko.e.s", "C4", 1000.0, 480.0);
         let phones = JapanesePhonemizer::apply_phonemizer(&[note], &vb, PhonemizerMode::VCV);
 
-        assert_eq!(phones.len(), 3, "Deveria decompor ko.e.s em 3 fonemas intra-nota: {:?}", phones);
+        assert_eq!(
+            phones.len(),
+            3,
+            "Deveria decompor ko.e.s em 3 fonemas intra-nota: {:?}",
+            phones
+        );
         assert_eq!(phones[0].note_index, 0);
         assert_eq!(phones[0].lyric, "- ko");
 
@@ -3797,7 +3826,10 @@ mod tests {
         assert_eq!(phones[2].note_index, 0);
         assert_eq!(phones[2].lyric, "e s");
         assert_eq!(phones[2].resolved_alias.as_deref(), Some("e sa"));
-        assert!(phones[2].coda_truncation, "Deveria ter coda_truncation ativado");
+        assert!(
+            phones[2].coda_truncation,
+            "Deveria ter coda_truncation ativado"
+        );
     }
 
     #[test]
@@ -3859,7 +3891,8 @@ mod tests {
 
         let note = UNote::new("ko.e.s", "C4", 1000.0, 480.0);
         // Testando com PhonemizerMode::None (o padrão ao abrir o software!)
-        let phones_none = JapanesePhonemizer::apply_phonemizer(&[note.clone()], &vb, PhonemizerMode::None);
+        let phones_none =
+            JapanesePhonemizer::apply_phonemizer(&[note.clone()], &vb, PhonemizerMode::None);
         assert_eq!(phones_none.len(), 3);
         assert_eq!(phones_none[0].resolved_alias.as_deref(), Some("- こ"));
         assert_eq!(phones_none[1].resolved_alias.as_deref(), Some("o え"));

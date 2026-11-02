@@ -109,10 +109,16 @@ pub(super) fn draw(
                     ) {
                         Ok(phones) => {
                             let frame_ms = bank.hop_size as f64 * 1000.0 / bank.sample_rate as f64;
-                            let timing = crate::voicebank::diffsinger_render::phoneme_durations_with_offsets(
-                                bank, note, &phones, frame_ms, language, speaker,
-                                crate::voicebank::diffsinger::ExecutionProvider::Cpu,
-                            );
+                            let timing =
+                                crate::voicebank::diffsinger_render::phoneme_durations_with_offsets(
+                                    bank,
+                                    note,
+                                    &phones,
+                                    frame_ms,
+                                    language,
+                                    speaker,
+                                    crate::voicebank::diffsinger::ExecutionProvider::Cpu,
+                                );
                             let Ok((durations, onset)) = timing else {
                                 if let Some(text) = state.phoneme_cache.get_mut(note_index) {
                                     *text = format!("⚠ {}", timing.unwrap_err());

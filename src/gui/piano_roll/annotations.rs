@@ -148,7 +148,11 @@ pub fn draw_annotations(
                 );
 
                 // Texto da anotação
-                painter.galley(card_rect.min + card_padding, galley, Color32::from_gray(245));
+                painter.galley(
+                    card_rect.min + card_padding,
+                    galley,
+                    Color32::from_gray(245),
+                );
             }
         }
     }

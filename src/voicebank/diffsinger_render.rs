@@ -164,30 +164,52 @@ fn run_linguistic_model(
     inputs: HashMap<String, InputData>,
 ) -> Result<(Vec<f32>, Vec<bool>), String> {
     with_session(path, provider, |session| {
-        let input_names: Vec<String> = session.inputs.iter().map(|input| input.name.clone()).collect();
+        let input_names: Vec<String> = session
+            .inputs
+            .iter()
+            .map(|input| input.name.clone())
+            .collect();
         let mut named = Vec::with_capacity(input_names.len());
         for input_name in &input_names {
-            let data = inputs.get(input_name).ok_or_else(|| format!(
-                "linguistic ONNX model {} requires unsupported or unavailable input '{}'",
-                path.display(), input_name
-            ))?.clone_data();
+            let data = inputs
+                .get(input_name)
+                .ok_or_else(|| {
+                    format!(
+                        "linguistic ONNX model {} requires unsupported or unavailable input '{}'",
+                        path.display(),
+                        input_name
+                    )
+                })?
+                .clone_data();
             named.push((input_name.as_str(), data.into_tensor()?));
         }
-        let outputs = session.run(named).map_err(|e| format!(
-            "linguistic ONNX inference failed for {}: {e}", path.display()
-        ))?;
-        let encoder = outputs.get("encoder_out").ok_or_else(|| format!(
-            "linguistic model {} has no encoder_out output", path.display()
-        ))?;
-        let (_, encoder) = encoder.try_extract_tensor::<f32>().map_err(|e| format!(
-            "linguistic model {} returned invalid encoder_out: {e}", path.display()
-        ))?;
-        let masks = outputs.get("x_masks").ok_or_else(|| format!(
-            "linguistic model {} has no x_masks output", path.display()
-        ))?;
-        let (_, masks) = masks.try_extract_tensor::<bool>().map_err(|e| format!(
-            "linguistic model {} returned invalid x_masks: {e}", path.display()
-        ))?;
+        let outputs = session.run(named).map_err(|e| {
+            format!(
+                "linguistic ONNX inference failed for {}: {e}",
+                path.display()
+            )
+        })?;
+        let encoder = outputs.get("encoder_out").ok_or_else(|| {
+            format!(
+                "linguistic model {} has no encoder_out output",
+                path.display()
+            )
+        })?;
+        let (_, encoder) = encoder.try_extract_tensor::<f32>().map_err(|e| {
+            format!(
+                "linguistic model {} returned invalid encoder_out: {e}",
+                path.display()
+            )
+        })?;
+        let masks = outputs
+            .get("x_masks")
+            .ok_or_else(|| format!("linguistic model {} has no x_masks output", path.display()))?;
+        let (_, masks) = masks.try_extract_tensor::<bool>().map_err(|e| {
+            format!(
+                "linguistic model {} returned invalid x_masks: {e}",
+                path.display()
+            )
+        })?;
         Ok((encoder.to_vec(), masks.to_vec()))
     })
 }
@@ -341,35 +363,83 @@ pub(crate) fn predict_phone_timing(
     if !bank.predict_dur {
         return Err("voicebank does not enable the DiffSinger duration predictor".into());
     }
-    let linguistic = bank.predictor_models.get("dsdur.linguistic")
+    let linguistic = bank
+        .predictor_models
+        .get("dsdur.linguistic")
         .ok_or("duration linguistic model is not configured")?;
-    let duration_model = bank.predictor_models.get("dsdur.dur")
+    let duration_model = bank
+        .predictor_models
+        .get("dsdur.dur")
         .ok_or("duration predictor model is not configured")?;
-    let pause = if bank.phonemes.contains_key("SP") { "SP" } else { "AP" };
+    let pause = if bank.phonemes.contains_key("SP") {
+        "SP"
+    } else {
+        "AP"
+    };
     let mut tokens = Vec::with_capacity(phones.len() + 1);
-    tokens.push(*bank.phonemes.get(pause).ok_or("DiffSinger vocabulary has no SP/AP token")?);
+    tokens.push(
+        *bank
+            .phonemes
+            .get(pause)
+            .ok_or("DiffSinger vocabulary has no SP/AP token")?,
+    );
     for phone in phones {
-        tokens.push(*bank.phonemes.get(phone).ok_or_else(|| format!("phone '{phone}' is not in the duration vocabulary"))?);
+        tokens.push(
+            *bank
+                .phonemes
+                .get(phone)
+                .ok_or_else(|| format!("phone '{phone}' is not in the duration vocabulary"))?,
+        );
     }
 
     let is_vowel = |phone: &str| {
-        bank.phone_types.get(phone).is_some_and(|kind| kind.eq_ignore_ascii_case("vowel"))
-            || phone.rsplit('/').next().is_some_and(|symbol| matches!(symbol,
-                "a"|"ae"|"an"|"ax"|"e"|"eh"|"en"|"i"|"i0"|"ih"|"iy"|"in"|
-                "o"|"oh"|"on"|"ow"|"u"|"uw"|"u0"|"un"))
+        bank.phone_types
+            .get(phone)
+            .is_some_and(|kind| kind.eq_ignore_ascii_case("vowel"))
+            || phone.rsplit('/').next().is_some_and(|symbol| {
+                matches!(
+                    symbol,
+                    "a" | "ae"
+                        | "an"
+                        | "ax"
+                        | "e"
+                        | "eh"
+                        | "en"
+                        | "i"
+                        | "i0"
+                        | "ih"
+                        | "iy"
+                        | "in"
+                        | "o"
+                        | "oh"
+                        | "on"
+                        | "ow"
+                        | "u"
+                        | "uw"
+                        | "u0"
+                        | "un"
+                )
+            })
     };
     let is_glide = |phone: &str| {
-        bank.phone_types.get(phone).is_some_and(|kind| kind.eq_ignore_ascii_case("semivowel"))
-            || phone.rsplit('/').next().is_some_and(|symbol| matches!(symbol, "w" | "y"))
+        bank.phone_types
+            .get(phone)
+            .is_some_and(|kind| kind.eq_ignore_ascii_case("semivowel"))
+            || phone
+                .rsplit('/')
+                .next()
+                .is_some_and(|symbol| matches!(symbol, "w" | "y"))
     };
     let first_vowel = phones.iter().position(|phone| is_vowel(phone));
-    let initial_count = first_vowel.map(|index| {
-        if index >= 2 && is_glide(&phones[index - 1]) && !is_vowel(&phones[index - 2]) {
-            index // C-G-V: the glide begins at the note anchor.
-        } else {
-            index + 1
-        }
-    }).unwrap_or(1);
+    let initial_count = first_vowel
+        .map(|index| {
+            if index >= 2 && is_glide(&phones[index - 1]) && !is_vowel(&phones[index - 2]) {
+                index // C-G-V: the glide begins at the note anchor.
+            } else {
+                index + 1
+            }
+        })
+        .unwrap_or(1);
     let body_count = tokens.len() - initial_count;
     let frame_ms = bank.hop_size as f64 * 1000.0 / bank.sample_rate as f64;
     let note_frames = (note.duration_ms.max(0.0) / frame_ms).round() as i64;
@@ -377,15 +447,32 @@ pub(crate) fn predict_phone_timing(
     let word_div = vec![initial_count as i64, body_count as i64];
     let word_dur = vec![(500.0 / frame_ms).round() as i64, note_frames];
     let mut linguistic_inputs = HashMap::new();
-    linguistic_inputs.insert("tokens".into(), InputData::I64(tokens.clone(), vec![1, tokens.len()]));
-    linguistic_inputs.insert("word_div".into(), InputData::I64(word_div.clone(), vec![1, 2]));
-    linguistic_inputs.insert("word_dur".into(), InputData::I64(word_dur.clone(), vec![1, 2]));
+    linguistic_inputs.insert(
+        "tokens".into(),
+        InputData::I64(tokens.clone(), vec![1, tokens.len()]),
+    );
+    linguistic_inputs.insert(
+        "word_div".into(),
+        InputData::I64(word_div.clone(), vec![1, 2]),
+    );
+    linguistic_inputs.insert(
+        "word_dur".into(),
+        InputData::I64(word_dur.clone(), vec![1, 2]),
+    );
     if bank.use_lang_id {
-        let phone_languages: Vec<i64> = std::iter::once(0).chain(phones.iter().map(|phone| {
-            let code = phone.split_once('/').map(|(lang, _)| lang).unwrap_or(language);
-            bank.language_ids.get(code).copied().unwrap_or(0)
-        })).collect();
-        linguistic_inputs.insert("languages".into(), InputData::I64(phone_languages, vec![1, tokens.len()]));
+        let phone_languages: Vec<i64> = std::iter::once(0)
+            .chain(phones.iter().map(|phone| {
+                let code = phone
+                    .split_once('/')
+                    .map(|(lang, _)| lang)
+                    .unwrap_or(language);
+                bank.language_ids.get(code).copied().unwrap_or(0)
+            }))
+            .collect();
+        linguistic_inputs.insert(
+            "languages".into(),
+            InputData::I64(phone_languages, vec![1, tokens.len()]),
+        );
     }
     let (encoder, masks) = run_linguistic_model(linguistic, provider, linguistic_inputs)?;
     let hidden = encoder.len() / tokens.len();
@@ -393,35 +480,77 @@ pub(crate) fn predict_phone_timing(
         return Err(format!("duration linguistic model returned incompatible tensors (encoder={}, masks={}, phones={})", encoder.len(), masks.len(), tokens.len()));
     }
     let mut inputs = HashMap::new();
-    inputs.insert("encoder_out".into(), InputData::F32(encoder, vec![1, tokens.len(), hidden]));
-    inputs.insert("x_masks".into(), InputData::Bool(masks, vec![1, tokens.len()]));
-    inputs.insert("ph_midi".into(), InputData::I64(vec![i64::from(note.midi_key()); tokens.len()], vec![1, tokens.len()]));
+    inputs.insert(
+        "encoder_out".into(),
+        InputData::F32(encoder, vec![1, tokens.len(), hidden]),
+    );
+    inputs.insert(
+        "x_masks".into(),
+        InputData::Bool(masks, vec![1, tokens.len()]),
+    );
+    inputs.insert(
+        "ph_midi".into(),
+        InputData::I64(
+            vec![i64::from(note.midi_key()); tokens.len()],
+            vec![1, tokens.len()],
+        ),
+    );
     inputs.insert("word_div".into(), InputData::I64(word_div, vec![1, 2]));
     inputs.insert("word_dur".into(), InputData::I64(word_dur, vec![1, 2]));
     if bank.duration_uses_speakers {
-        let embedding_path = bank.duration_speaker_embeddings.get(speaker)
+        let embedding_path = bank
+            .duration_speaker_embeddings
+            .get(speaker)
             .or_else(|| bank.duration_speaker_embeddings.values().next())
             .ok_or("duration predictor declares speakers but has no embedding files")?;
-        let bytes = std::fs::read(embedding_path).map_err(|e| format!("cannot read duration speaker embedding {}: {e}", embedding_path.display()))?;
+        let bytes = std::fs::read(embedding_path).map_err(|e| {
+            format!(
+                "cannot read duration speaker embedding {}: {e}",
+                embedding_path.display()
+            )
+        })?;
         if bytes.len() % 4 != 0 || bytes.is_empty() {
-            return Err(format!("invalid duration speaker embedding: {}", embedding_path.display()));
+            return Err(format!(
+                "invalid duration speaker embedding: {}",
+                embedding_path.display()
+            ));
         }
-        let embedding: Vec<f32> = bytes.chunks_exact(4).map(|b| f32::from_le_bytes([b[0],b[1],b[2],b[3]])).collect();
+        let embedding: Vec<f32> = bytes
+            .chunks_exact(4)
+            .map(|b| f32::from_le_bytes([b[0], b[1], b[2], b[3]]))
+            .collect();
         let mut repeated = Vec::with_capacity(tokens.len() * embedding.len());
-        for _ in &tokens { repeated.extend_from_slice(&embedding); }
-        inputs.insert("spk_embed".into(), InputData::F32(repeated, vec![1, tokens.len(), embedding.len()]));
+        for _ in &tokens {
+            repeated.extend_from_slice(&embedding);
+        }
+        inputs.insert(
+            "spk_embed".into(),
+            InputData::F32(repeated, vec![1, tokens.len(), embedding.len()]),
+        );
     }
     let predicted = run_model(duration_model, provider, inputs)?;
     if predicted.len() != tokens.len() || predicted.iter().any(|x| !x.is_finite() || *x <= 0.0) {
-        return Err(format!("duration predictor returned invalid values ({} for {} phones)", predicted.len(), tokens.len()));
+        return Err(format!(
+            "duration predictor returned invalid values ({} for {} phones)",
+            predicted.len(),
+            tokens.len()
+        ));
     }
     let prefix = &predicted[1..initial_count]; // the initial SP itself is not rendered
     let onset_ms = -(prefix.iter().sum::<f32>() as f64 * frame_ms);
-    let prefix_durations: Vec<f64> = prefix.iter().map(|frames| *frames as f64 * frame_ms).collect();
+    let prefix_durations: Vec<f64> = prefix
+        .iter()
+        .map(|frames| *frames as f64 * frame_ms)
+        .collect();
     let body = &predicted[initial_count..];
     let body_sum = body.iter().sum::<f32>() as f64;
-    if body_sum <= 0.0 { return Err("duration predictor returned an empty aligned vowel group".into()); }
-    let body_durations: Vec<f64> = body.iter().map(|frames| note.duration_ms * *frames as f64 / body_sum).collect();
+    if body_sum <= 0.0 {
+        return Err("duration predictor returned an empty aligned vowel group".into());
+    }
+    let body_durations: Vec<f64> = body
+        .iter()
+        .map(|frames| note.duration_ms * *frames as f64 / body_sum)
+        .collect();
     let mut durations = prefix_durations;
     durations.extend(body_durations);
     Ok((durations, onset_ms))
@@ -452,10 +581,25 @@ pub(crate) fn phoneme_durations_ms(
                 .collect();
         }
     }
-    let language = phones.first().and_then(|p| p.split_once('/').map(|(lang, _)| lang)).unwrap_or("en");
-    let speaker = bank.duration_speaker_embeddings.keys().next().map(String::as_str)
-        .or_else(|| bank.speakers.first().map(String::as_str)).unwrap_or_default();
-    if let Ok((durations, _)) = predict_phone_timing(bank, note, phones, language, speaker, ExecutionProvider::Cpu) {
+    let language = phones
+        .first()
+        .and_then(|p| p.split_once('/').map(|(lang, _)| lang))
+        .unwrap_or("en");
+    let speaker = bank
+        .duration_speaker_embeddings
+        .keys()
+        .next()
+        .map(String::as_str)
+        .or_else(|| bank.speakers.first().map(String::as_str))
+        .unwrap_or_default();
+    if let Ok((durations, _)) = predict_phone_timing(
+        bank,
+        note,
+        phones,
+        language,
+        speaker,
+        ExecutionProvider::Cpu,
+    ) {
         return durations;
     }
     fallback_phoneme_durations_ms(bank, note, phones)
@@ -571,7 +715,10 @@ pub(crate) fn phoneme_durations_with_offsets(
     provider: ExecutionProvider,
 ) -> Result<(Vec<f64>, f64), String> {
     let (base, model_onset) = if note.phoneme_durations_ms.len() == phones.len()
-        && note.phoneme_durations_ms.iter().all(|d| d.is_finite() && *d > 0.0)
+        && note
+            .phoneme_durations_ms
+            .iter()
+            .all(|d| d.is_finite() && *d > 0.0)
     {
         (phoneme_durations_ms(bank, note, phones), 0.0)
     } else if bank.predict_dur {
@@ -853,8 +1000,9 @@ pub fn render_track(
             continue;
         }
         let phones = phone_sequence(bank, note, language, phonemizer)?;
-        let (mut phone_durations, mut first_phone_offset_ms) =
-            phoneme_durations_with_offsets(bank, note, &phones, frame_ms, language, speaker, provider)?;
+        let (mut phone_durations, mut first_phone_offset_ms) = phoneme_durations_with_offsets(
+            bank, note, &phones, frame_ms, language, speaker, provider,
+        )?;
         // A phrase cannot begin before the audio starts. In that case clamp
         // the onset to zero and restore the phone time that would be pre-roll.
         if note.position_ms + first_phone_offset_ms < 0.0 {
@@ -1097,14 +1245,29 @@ mod tests {
         assert_eq!(aliases, vec!["pt/ch", "pt/ax"]);
         let timings = phoneme_durations_ms(&bank, &spaced, &expected);
         let (predicted, onset) = predict_phone_timing(
-            &bank, &spaced, &expected, "pt", "miracle", ExecutionProvider::Cpu,
-        ).unwrap();
-        assert!(onset < 0.0, "leading consonant should precede vowel anchor: {onset}");
+            &bank,
+            &spaced,
+            &expected,
+            "pt",
+            "miracle",
+            ExecutionProvider::Cpu,
+        )
+        .unwrap();
+        assert!(
+            onset < 0.0,
+            "leading consonant should precede vowel anchor: {onset}"
+        );
         assert!((predicted.iter().sum::<f64>() - (spaced.duration_ms - onset)).abs() < 1e-5);
-        assert!(timings[0] > 0.0 && timings[1] > 0.0, "predicted timings: {timings:?}");
+        assert!(
+            timings[0] > 0.0 && timings[1] > 0.0,
+            "predicted timings: {timings:?}"
+        );
         let short_note = UNote::new("s a", "C4", 0.0, 200.0);
         let short_timings = phoneme_durations_ms(&bank, &short_note, &expected);
-        assert!(short_timings.iter().all(|duration| *duration > 0.0), "short note timings: {short_timings:?}");
+        assert!(
+            short_timings.iter().all(|duration| *duration > 0.0),
+            "short note timings: {short_timings:?}"
+        );
         let mut offset_note = spaced.clone();
         offset_note.phoneme_durations_ms = vec![300.0, 700.0];
         offset_note
@@ -1114,8 +1277,16 @@ mod tests {
                 offset_ms: Some(-60.0),
                 ..Default::default()
             });
-        let (offset_timings, onset) =
-            phoneme_durations_with_offsets(&bank, &offset_note, &expected, 10.0, "pt", "miracle", ExecutionProvider::Cpu).unwrap();
+        let (offset_timings, onset) = phoneme_durations_with_offsets(
+            &bank,
+            &offset_note,
+            &expected,
+            10.0,
+            "pt",
+            "miracle",
+            ExecutionProvider::Cpu,
+        )
+        .unwrap();
         assert_eq!(onset, -60.0);
         assert!((offset_timings[0] - 360.0).abs() < 1e-6);
         assert!((offset_timings.iter().sum::<f64>() - 1_060.0).abs() < 1e-6);

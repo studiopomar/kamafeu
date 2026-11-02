@@ -103,7 +103,8 @@ fn paint_selection_slider(ui: &egui::Ui, theme: &ThemeConfig, id: &str, target: 
     }
     let accent = theme.accent_c32();
     fx::paint_glow(ui.painter(), bar, 1.0, fx::with_alpha(accent, 0.75), 6.0);
-    ui.painter().rect_filled(bar, 1.0, fx::lighten(accent, 0.25));
+    ui.painter()
+        .rect_filled(bar, 1.0, fx::lighten(accent, 0.25));
 }
 
 fn draw_vu_meter(
@@ -171,7 +172,10 @@ fn draw_live_scope(ui: &mut egui::Ui, theme: &ThemeConfig, state: &TransportStat
     for i in 1..4 {
         let x = egui::lerp(rect.left()..=rect.right(), i as f32 / 4.0);
         painter.line_segment(
-            [Pos2::new(x, rect.top() + 2.0), Pos2::new(x, rect.bottom() - 2.0)],
+            [
+                Pos2::new(x, rect.top() + 2.0),
+                Pos2::new(x, rect.bottom() - 2.0),
+            ],
             Stroke::new(0.5_f32, theme.c32_alpha(theme.grid_line_sub, 0.25)),
         );
     }
@@ -180,12 +184,28 @@ fn draw_live_scope(ui: &mut egui::Ui, theme: &ThemeConfig, state: &TransportStat
         .iter()
         .map(|(min, max)| min.abs().max(max.abs()))
         .fold(0.0f32, f32::max);
-    let gain = if peak > 1e-4 { (0.9 / peak).clamp(1.0, 4.0) } else { 1.0 };
+    let gain = if peak > 1e-4 {
+        (0.9 / peak).clamp(1.0, 4.0)
+    } else {
+        1.0
+    };
     let color = theme.waveform_c32();
     if peak > 0.01 {
-        fx::paint_glow(&painter, rect.shrink(6.0), 2.0, fx::with_alpha(color, 0.10), 8.0);
+        fx::paint_glow(
+            &painter,
+            rect.shrink(6.0),
+            2.0,
+            fx::with_alpha(color, 0.10),
+            8.0,
+        );
     }
-    fx::paint_scope(&painter, rect.shrink2(Vec2::new(2.0, 2.0)), &state.scope, color, gain);
+    fx::paint_scope(
+        &painter,
+        rect.shrink2(Vec2::new(2.0, 2.0)),
+        &state.scope,
+        color,
+        gain,
+    );
     painter.rect_stroke(
         rect,
         theme.ui_rounding(),

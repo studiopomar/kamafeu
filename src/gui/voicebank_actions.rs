@@ -43,14 +43,19 @@ impl KamafeuStudioApp {
 
     pub(crate) fn activate_singer_path(&mut self, path: &std::path::Path) {
         let is_diffsinger = path.join("character.yaml").is_file()
-            && (path.join("dsconfig.yaml").is_file() || path.join("configs/dsconfig.yaml").is_file());
+            && (path.join("dsconfig.yaml").is_file()
+                || path.join("configs/dsconfig.yaml").is_file());
 
         let is_native_kfv2 = path.join("cantor.toml").is_file()
             || (path.join("kamafeu_voicebank.json").is_file() && {
                 std::fs::read_to_string(path.join("kamafeu_voicebank.json"))
                     .ok()
                     .and_then(|c| serde_json::from_str::<serde_json::Value>(&c).ok())
-                    .and_then(|h| h.get("format").and_then(|v| v.as_str()).map(|s| s == "kamafeu.voicebank"))
+                    .and_then(|h| {
+                        h.get("format")
+                            .and_then(|v| v.as_str())
+                            .map(|s| s == "kamafeu.voicebank")
+                    })
                     .unwrap_or(false)
             });
 
@@ -69,11 +74,12 @@ impl KamafeuStudioApp {
                             .or_else(|| bank.language_ids.contains_key("en").then(|| "en".into()))
                             .or_else(|| bank.languages.first().cloned());
                         track.diffsinger_speaker = bank.speakers.first().cloned();
-                        track.diffsinger_phonemizer = Some(if bank.language_ids.contains_key("pt") {
-                            crate::voicebank::diffsinger::DiffSingerPhonemizer::BrapaPhonetic
-                        } else {
-                            crate::voicebank::diffsinger::DiffSingerPhonemizer::Automatic
-                        });
+                        track.diffsinger_phonemizer =
+                            Some(if bank.language_ids.contains_key("pt") {
+                                crate::voicebank::diffsinger::DiffSingerPhonemizer::BrapaPhonetic
+                            } else {
+                                crate::voicebank::diffsinger::DiffSingerPhonemizer::Automatic
+                            });
                         track.diffsinger_provider =
                             Some(crate::voicebank::diffsinger::ExecutionProvider::Cpu);
                     }
@@ -483,7 +489,11 @@ mod tests {
         .unwrap();
         fs::write(diff_dir.path().join("acoustic.onnx"), "fake-onnx").unwrap();
         fs::create_dir_all(diff_dir.path().join("vocoder")).unwrap();
-        fs::write(diff_dir.path().join("vocoder/vocoder.yaml"), "model: model.onnx\n").unwrap();
+        fs::write(
+            diff_dir.path().join("vocoder/vocoder.yaml"),
+            "model: model.onnx\n",
+        )
+        .unwrap();
         fs::write(diff_dir.path().join("vocoder/model.onnx"), "fake-vocoder").unwrap();
         fs::write(diff_dir.path().join("phonemes.txt"), "SP\nAP\na\n").unwrap();
         fs::write(diff_dir.path().join("languages.json"), "{\"pt\": 0}").unwrap();
@@ -509,7 +519,10 @@ mod tests {
             app.project.tracks[0].voicebank_path.as_deref(),
             Some(diff_dir.path().display().to_string().as_str())
         );
-        assert_eq!(app.project.tracks[0].diffsinger_language.as_deref(), Some("pt"));
+        assert_eq!(
+            app.project.tracks[0].diffsinger_language.as_deref(),
+            Some("pt")
+        );
         assert!(app.project.tracks[0].diffsinger_phonemizer.is_some());
         assert!(app.project.tracks[0].diffsinger_speaker.is_some());
         assert!(app.project.tracks[0].diffsinger_provider.is_some());

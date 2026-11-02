@@ -547,7 +547,8 @@ impl KamafeuStudioApp {
                 &self.config.singers_paths,
             ) {
                 let is_diffsinger = found_path.join("character.yaml").is_file()
-                    && (found_path.join("dsconfig.yaml").is_file() || found_path.join("configs/dsconfig.yaml").is_file());
+                    && (found_path.join("dsconfig.yaml").is_file()
+                        || found_path.join("configs/dsconfig.yaml").is_file());
                 if is_diffsinger {
                     crate::terminal_log::info(
                         "Import",

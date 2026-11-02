@@ -1300,9 +1300,17 @@ mod tests {
         for preset in ThemePreset::ALL {
             let theme = ThemeConfig::from_preset(preset);
             let normal_lyric_c32 = theme.note_lyric_color(false);
-            let normal_lyric_rgb = [normal_lyric_c32.r(), normal_lyric_c32.g(), normal_lyric_c32.b()];
+            let normal_lyric_rgb = [
+                normal_lyric_c32.r(),
+                normal_lyric_c32.g(),
+                normal_lyric_c32.b(),
+            ];
             let selected_lyric_c32 = theme.note_lyric_color(true);
-            let selected_lyric_rgb = [selected_lyric_c32.r(), selected_lyric_c32.g(), selected_lyric_c32.b()];
+            let selected_lyric_rgb = [
+                selected_lyric_c32.r(),
+                selected_lyric_c32.g(),
+                selected_lyric_c32.b(),
+            ];
 
             let ratio_normal = contrast_ratio_rgb(normal_lyric_rgb, theme.note_fill);
             assert!(

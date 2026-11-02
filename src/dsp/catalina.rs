@@ -24,8 +24,12 @@ static SESSION_CACHE: LazyLock<Mutex<Option<(PathBuf, Session)>>> =
 /// Unpack an OpenUTAU Dependency Package (`.oudep` or `.zip`) into `target_dir`.
 /// Returns the path to the primary extracted `.onnx` model file.
 pub fn unpack_oudep(archive_path: &Path, target_dir: &Path) -> Result<PathBuf, String> {
-    let file = std::fs::File::open(archive_path)
-        .map_err(|e| format!("Não foi possível abrir pacote {}: {e}", archive_path.display()))?;
+    let file = std::fs::File::open(archive_path).map_err(|e| {
+        format!(
+            "Não foi possível abrir pacote {}: {e}",
+            archive_path.display()
+        )
+    })?;
     let mut zip = zip::ZipArchive::new(file)
         .map_err(|e| format!("Arquivo .oudep inválido ou corrompido: {e}"))?;
 
@@ -94,7 +98,10 @@ pub fn auto_extract_oudep_if_needed(dir: &Path) -> Option<PathBuf> {
             let path = entry.path();
             if path.is_file() && is_zip_archive(&path) {
                 // If it was misnamed with .onnx extension, rename it to .oudep so unpack won't collide
-                let archive_path = if path.extension().is_some_and(|e| e.eq_ignore_ascii_case("onnx")) {
+                let archive_path = if path
+                    .extension()
+                    .is_some_and(|e| e.eq_ignore_ascii_case("onnx"))
+                {
                     let temp_oudep = dir.join("openvpi_vocoder_package.oudep");
                     let _ = std::fs::rename(&path, &temp_oudep);
                     temp_oudep
@@ -677,7 +684,10 @@ mod tests {
         );
 
         let decoded = decode_utau_pitch_bends(&encoded);
-        assert!(!decoded.is_empty(), "Decoded pitch bends should not be empty");
+        assert!(
+            !decoded.is_empty(),
+            "Decoded pitch bends should not be empty"
+        );
     }
 
     #[test]

@@ -258,17 +258,45 @@ impl DiffSingerBank {
         let duration_config_path = [
             config_base.join("dsdur/dsconfig.yaml"),
             root.join("dsdur/dsconfig.yaml"),
-        ].into_iter().find(|path| path.is_file());
-        let duration_config = duration_config_path.as_deref().and_then(|p| parse_yaml(p).ok());
-        let duration_speaker_embeddings = duration_config.as_ref()
+        ]
+        .into_iter()
+        .find(|path| path.is_file());
+        let duration_config = duration_config_path
+            .as_deref()
+            .and_then(|p| parse_yaml(p).ok());
+        let duration_speaker_embeddings = duration_config
+            .as_ref()
             .and_then(|cfg| cfg.get("speakers").and_then(|v| v.as_sequence()))
-            .map(|items| items.iter().filter_map(|v| v.as_str()).map(|s| {
-                let base = resolve(duration_config_path.as_deref().unwrap().parent().unwrap_or(root), s);
-                let path = if base.is_file() { base } else { base.with_extension("emb") };
-                (speaker_name(s), path)
-            }).collect()).unwrap_or_default();
-        let predict_dur = duration_config.as_ref().and_then(|v| v.get("predict_dur").and_then(|x| x.as_bool())).unwrap_or(false);
-        let duration_uses_speakers = duration_config.as_ref().is_some_and(|v| v.get("speakers").and_then(|x| x.as_sequence()).is_some());
+            .map(|items| {
+                items
+                    .iter()
+                    .filter_map(|v| v.as_str())
+                    .map(|s| {
+                        let base = resolve(
+                            duration_config_path
+                                .as_deref()
+                                .unwrap()
+                                .parent()
+                                .unwrap_or(root),
+                            s,
+                        );
+                        let path = if base.is_file() {
+                            base
+                        } else {
+                            base.with_extension("emb")
+                        };
+                        (speaker_name(s), path)
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        let predict_dur = duration_config
+            .as_ref()
+            .and_then(|v| v.get("predict_dur").and_then(|x| x.as_bool()))
+            .unwrap_or(false);
+        let duration_uses_speakers = duration_config
+            .as_ref()
+            .is_some_and(|v| v.get("speakers").and_then(|x| x.as_sequence()).is_some());
         for (name, path) in &predictor_models {
             if !path.is_file() {
                 diagnostics.push(format!(
@@ -427,11 +455,26 @@ fn read_dictionary_symbols(path: &Path) -> Result<BTreeSet<String>, String> {
 
 fn read_dictionary_types(path: &Path) -> Result<BTreeMap<String, String>, String> {
     let text = fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))?;
-    Ok(text.lines().filter_map(|line| {
-        let symbol = line.split_once("symbol:")?.1.split([',', '}']).next()?.trim().trim_matches(['\'', '"']);
-        let kind = line.split_once("type:")?.1.split([',', '}']).next()?.trim().trim_matches(['\'', '"']);
-        (!symbol.is_empty() && !kind.is_empty()).then(|| (symbol.to_owned(), kind.to_owned()))
-    }).collect())
+    Ok(text
+        .lines()
+        .filter_map(|line| {
+            let symbol = line
+                .split_once("symbol:")?
+                .1
+                .split([',', '}'])
+                .next()?
+                .trim()
+                .trim_matches(['\'', '"']);
+            let kind = line
+                .split_once("type:")?
+                .1
+                .split([',', '}'])
+                .next()?
+                .trim()
+                .trim_matches(['\'', '"']);
+            (!symbol.is_empty() && !kind.is_empty()).then(|| (symbol.to_owned(), kind.to_owned()))
+        })
+        .collect())
 }
 
 fn speaker_name(path: &str) -> String {

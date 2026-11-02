@@ -8,6 +8,7 @@
 #include <cerrno>
 #include <chrono>
 #include <cstddef>
+#include <csignal>
 #include <cstdlib>
 #include <iostream>
 #include <mutex>
@@ -22,7 +23,6 @@
 #include <windows.h>
 #else
 #include <arpa/inet.h>
-#include <csignal>
 #include <sys/socket.h>
 #include <sys/time.h>
 #include <unistd.h>
@@ -31,6 +31,10 @@
 using namespace ftxui;
 
 namespace {
+
+volatile std::sig_atomic_t interrupt_requested = 0;
+
+void HandleInterrupt(int) { interrupt_requested = 1; }
 
 struct Record {
   std::string level;
@@ -134,6 +138,10 @@ void ReadEvents(State& state, ScreenInteractive& screen, std::atomic<bool>& done
 #else
     const int length = static_cast<int>(recv(socket, buffer, sizeof(buffer), 0));
 #endif
+    if (interrupt_requested) {
+      screen.PostEvent(Event::CtrlC);
+      break;
+    }
     if (length <= 0) {
       bool parent_alive = true;
 #ifdef _WIN32
@@ -256,6 +264,7 @@ int main(int argc, char** argv) {
 #endif
   State state;
   auto screen = ScreenInteractive::Fullscreen();
+  const auto previous_sigint_handler = std::signal(SIGINT, HandleInterrupt);
   std::atomic<bool> done{false};
   std::thread reader(ReadEvents, std::ref(state), std::ref(screen), std::ref(done), socket,
                      parent_pid);
@@ -264,7 +273,7 @@ int main(int argc, char** argv) {
     if (event == Event::Custom) {
       return true;
     }
-    if (event == Event::Escape || event == Event::q) {
+    if (event == Event::Escape || event == Event::q || event == Event::CtrlC) {
       screen.ExitLoopClosure()();
       return true;
     }
@@ -279,6 +288,7 @@ int main(int argc, char** argv) {
     return true;
   });
   screen.Loop(component);
+  std::signal(SIGINT, previous_sigint_handler);
   done.store(true);
   if (reader.joinable()) reader.join();
   CloseSocket(socket);

@@ -481,18 +481,25 @@ impl KamafeuStudioApp {
                                 .show(ui, |ui| {
                                     ui.horizontal(|ui| {
                                         let mut mix_changed = false;
-                                        for (index, track) in self.project.tracks.iter_mut().enumerate()
+                                        for (index, track) in
+                                            self.project.tracks.iter_mut().enumerate()
                                         {
                                             let is_active_track = self.active_track_index == index;
                                             let strip_bg = if is_active_track {
-                                                self.config.theme.c32_alpha(self.config.theme.accent_color, 0.12)
+                                                self.config
+                                                    .theme
+                                                    .c32_alpha(self.config.theme.accent_color, 0.12)
                                             } else {
-                                                self.config.theme.c32_alpha(self.config.theme.bg_panel, 0.75)
+                                                self.config
+                                                    .theme
+                                                    .c32_alpha(self.config.theme.bg_panel, 0.75)
                                             };
                                             let border_color = if is_active_track {
                                                 self.config.theme.accent_c32()
                                             } else {
-                                                self.config.theme.c32_alpha(self.config.theme.grid_line_sub, 0.4)
+                                                self.config
+                                                    .theme
+                                                    .c32_alpha(self.config.theme.grid_line_sub, 0.4)
                                             };
 
                                             egui::Frame::none()
@@ -509,13 +516,21 @@ impl KamafeuStudioApp {
                                                             ui.label(
                                                                 egui::RichText::new(track_num)
                                                                     .size(9.0)
-                                                                    .color(self.config.theme.text_muted_c32()),
+                                                                    .color(
+                                                                        self.config
+                                                                            .theme
+                                                                            .text_muted_c32(),
+                                                                    ),
                                                             );
                                                             ui.label(
                                                                 egui::RichText::new(&track.name)
                                                                     .strong()
                                                                     .size(11.0)
-                                                                    .color(self.config.theme.text_primary_c32()),
+                                                                    .color(
+                                                                        self.config
+                                                                            .theme
+                                                                            .text_primary_c32(),
+                                                                    ),
                                                             );
                                                         });
 
@@ -526,13 +541,22 @@ impl KamafeuStudioApp {
                                                             let m_bg = if track.mute {
                                                                 self.config.theme.danger_c32()
                                                             } else {
-                                                                self.config.theme.c32_alpha(self.config.theme.bg_canvas, 0.6)
+                                                                self.config.theme.c32_alpha(
+                                                                    self.config.theme.bg_canvas,
+                                                                    0.6,
+                                                                )
                                                             };
                                                             let m_btn = egui::Button::new(
                                                                 egui::RichText::new("M")
                                                                     .strong()
                                                                     .size(10.0)
-                                                                    .color(if track.mute { egui::Color32::WHITE } else { self.config.theme.text_muted_c32() }),
+                                                                    .color(if track.mute {
+                                                                        egui::Color32::WHITE
+                                                                    } else {
+                                                                        self.config
+                                                                            .theme
+                                                                            .text_muted_c32()
+                                                                    }),
                                                             )
                                                             .min_size(egui::Vec2::new(22.0, 18.0))
                                                             .fill(m_bg)
@@ -545,13 +569,22 @@ impl KamafeuStudioApp {
                                                             let s_bg = if track.solo {
                                                                 self.config.theme.warning_c32()
                                                             } else {
-                                                                self.config.theme.c32_alpha(self.config.theme.bg_canvas, 0.6)
+                                                                self.config.theme.c32_alpha(
+                                                                    self.config.theme.bg_canvas,
+                                                                    0.6,
+                                                                )
                                                             };
                                                             let s_btn = egui::Button::new(
                                                                 egui::RichText::new("S")
                                                                     .strong()
                                                                     .size(10.0)
-                                                                    .color(if track.solo { egui::Color32::BLACK } else { self.config.theme.text_muted_c32() }),
+                                                                    .color(if track.solo {
+                                                                        egui::Color32::BLACK
+                                                                    } else {
+                                                                        self.config
+                                                                            .theme
+                                                                            .text_muted_c32()
+                                                                    }),
                                                             )
                                                             .min_size(egui::Vec2::new(22.0, 18.0))
                                                             .fill(s_bg)
@@ -564,13 +597,18 @@ impl KamafeuStudioApp {
                                                             let fx_btn = egui::Button::new(
                                                                 egui::RichText::new("FX")
                                                                     .size(9.0)
-                                                                    .color(self.config.theme.accent_c32()),
+                                                                    .color(
+                                                                        self.config
+                                                                            .theme
+                                                                            .accent_c32(),
+                                                                    ),
                                                             )
                                                             .min_size(egui::Vec2::new(26.0, 18.0))
                                                             .rounding(egui::Rounding::same(3.0));
                                                             if ui.add(fx_btn).clicked() {
                                                                 self.active_track_index = index;
-                                                                self.config.layout.right_dock_tab = 1;
+                                                                self.config.layout.right_dock_tab =
+                                                                    1;
                                                             }
                                                         });
 
@@ -580,9 +618,12 @@ impl KamafeuStudioApp {
                                                         mix_changed |= ui
                                                             .add_sized(
                                                                 [106.0, 16.0],
-                                                                egui::Slider::new(&mut track.pan, -1.0..=1.0)
-                                                                    .show_value(false)
-                                                                    .prefix("Pan: "),
+                                                                egui::Slider::new(
+                                                                    &mut track.pan,
+                                                                    -1.0..=1.0,
+                                                                )
+                                                                .show_value(false)
+                                                                .prefix("Pan: "),
                                                             )
                                                             .changed();
 
@@ -592,26 +633,53 @@ impl KamafeuStudioApp {
                                                         mix_changed |= ui
                                                             .add_sized(
                                                                 [106.0, 18.0],
-                                                                egui::Slider::new(&mut track.volume_db, -60.0..=12.0)
-                                                                    .suffix(" dB"),
+                                                                egui::Slider::new(
+                                                                    &mut track.volume_db,
+                                                                    -60.0..=12.0,
+                                                                )
+                                                                .suffix(" dB"),
                                                             )
                                                             .changed();
 
                                                         ui.add_space(2.0);
 
                                                         // Track VU Meter
-                                                        let track_meter = self.piano_roll_state.arrangement_track_meters.get(index);
-                                                        let level = track_meter.map(|m| m.level).unwrap_or(0.0);
-                                                        let peak = track_meter.map(|m| m.peak).unwrap_or(0.0);
-                                                        let (meter_rect, _) = ui.allocate_exact_size(egui::Vec2::new(106.0, 6.0), egui::Sense::hover());
+                                                        let track_meter = self
+                                                            .piano_roll_state
+                                                            .arrangement_track_meters
+                                                            .get(index);
+                                                        let level = track_meter
+                                                            .map(|m| m.level)
+                                                            .unwrap_or(0.0);
+                                                        let peak = track_meter
+                                                            .map(|m| m.peak)
+                                                            .unwrap_or(0.0);
+                                                        let (meter_rect, _) = ui
+                                                            .allocate_exact_size(
+                                                                egui::Vec2::new(106.0, 6.0),
+                                                                egui::Sense::hover(),
+                                                            );
                                                         let painter = ui.painter_at(meter_rect);
-                                                        let palette = crate::gui::visual_fx::MeterPalette {
-                                                            low: self.config.theme.meter_c32(),
-                                                            mid: self.config.theme.warning_c32(),
-                                                            high: self.config.theme.danger_c32(),
-                                                            off: self.config.theme.c32_alpha(self.config.theme.grid_line_sub, 0.22),
-                                                        };
-                                                        crate::gui::visual_fx::paint_led_meter(&painter, meter_rect, level, peak, &palette);
+                                                        let palette =
+                                                            crate::gui::visual_fx::MeterPalette {
+                                                                low: self.config.theme.meter_c32(),
+                                                                mid: self
+                                                                    .config
+                                                                    .theme
+                                                                    .warning_c32(),
+                                                                high: self
+                                                                    .config
+                                                                    .theme
+                                                                    .danger_c32(),
+                                                                off: self.config.theme.c32_alpha(
+                                                                    self.config.theme.grid_line_sub,
+                                                                    0.22,
+                                                                ),
+                                                            };
+                                                        crate::gui::visual_fx::paint_led_meter(
+                                                            &painter, meter_rect, level, peak,
+                                                            &palette,
+                                                        );
                                                     });
                                                 });
                                         }
@@ -623,8 +691,15 @@ impl KamafeuStudioApp {
 
                                         // Master Channel Strip
                                         egui::Frame::none()
-                                            .fill(self.config.theme.c32_alpha(self.config.theme.bg_header, 0.85))
-                                            .stroke(egui::Stroke::new(1.5_f32, self.config.theme.accent_c32()))
+                                            .fill(
+                                                self.config
+                                                    .theme
+                                                    .c32_alpha(self.config.theme.bg_header, 0.85),
+                                            )
+                                            .stroke(egui::Stroke::new(
+                                                1.5_f32,
+                                                self.config.theme.accent_c32(),
+                                            ))
                                             .rounding(egui::Rounding::same(6.0))
                                             .inner_margin(egui::Margin::symmetric(8.0, 6.0))
                                             .show(ui, |ui| {
@@ -640,13 +715,22 @@ impl KamafeuStudioApp {
                                                     ui.add_space(2.0);
 
                                                     // Live Scope preview in master mixer channel
-                                                    let (scope_rect, _) = ui.allocate_exact_size(egui::Vec2::new(120.0, 24.0), egui::Sense::hover());
+                                                    let (scope_rect, _) = ui.allocate_exact_size(
+                                                        egui::Vec2::new(120.0, 24.0),
+                                                        egui::Sense::hover(),
+                                                    );
                                                     let painter = ui.painter_at(scope_rect);
                                                     crate::gui::visual_fx::paint_vertical_gradient(
                                                         &painter,
                                                         scope_rect,
-                                                        self.config.theme.c32_alpha(self.config.theme.bg_canvas, 0.95),
-                                                        self.config.theme.c32_alpha(self.config.theme.bg_header, 0.95),
+                                                        self.config.theme.c32_alpha(
+                                                            self.config.theme.bg_canvas,
+                                                            0.95,
+                                                        ),
+                                                        self.config.theme.c32_alpha(
+                                                            self.config.theme.bg_header,
+                                                            0.95,
+                                                        ),
                                                     );
                                                     crate::gui::visual_fx::paint_scope(
                                                         &painter,
@@ -658,32 +742,63 @@ impl KamafeuStudioApp {
                                                     painter.rect_stroke(
                                                         scope_rect,
                                                         self.config.theme.ui_rounding(),
-                                                        egui::Stroke::new(1.0_f32, self.config.theme.c32_alpha(self.config.theme.grid_line_sub, 0.6)),
+                                                        egui::Stroke::new(
+                                                            1.0_f32,
+                                                            self.config.theme.c32_alpha(
+                                                                self.config.theme.grid_line_sub,
+                                                                0.6,
+                                                            ),
+                                                        ),
                                                     );
 
                                                     ui.add_space(4.0);
 
                                                     ui.add_sized(
                                                         [120.0, 18.0],
-                                                        egui::Slider::new(&mut self.transport_state.master_volume, 0.0..=2.0)
-                                                            .prefix("Vol: "),
+                                                        egui::Slider::new(
+                                                            &mut self.transport_state.master_volume,
+                                                            0.0..=2.0,
+                                                        )
+                                                        .prefix("Vol: "),
                                                     );
 
                                                     ui.add_space(2.0);
 
                                                     // Master Stereo LED Meter
-                                                    let (meter_rect_l, _) = ui.allocate_exact_size(egui::Vec2::new(120.0, 4.0), egui::Sense::hover());
+                                                    let (meter_rect_l, _) = ui.allocate_exact_size(
+                                                        egui::Vec2::new(120.0, 4.0),
+                                                        egui::Sense::hover(),
+                                                    );
                                                     let painter_l = ui.painter_at(meter_rect_l);
-                                                    let (meter_rect_r, _) = ui.allocate_exact_size(egui::Vec2::new(120.0, 4.0), egui::Sense::hover());
+                                                    let (meter_rect_r, _) = ui.allocate_exact_size(
+                                                        egui::Vec2::new(120.0, 4.0),
+                                                        egui::Sense::hover(),
+                                                    );
                                                     let painter_r = ui.painter_at(meter_rect_r);
-                                                    let palette = crate::gui::visual_fx::MeterPalette {
-                                                        low: self.config.theme.meter_c32(),
-                                                        mid: self.config.theme.warning_c32(),
-                                                        high: self.config.theme.danger_c32(),
-                                                        off: self.config.theme.c32_alpha(self.config.theme.grid_line_sub, 0.22),
-                                                    };
-                                                    crate::gui::visual_fx::paint_led_meter(&painter_l, meter_rect_l, self.transport_state.vu_level_l, self.transport_state.vu_peak_l, &palette);
-                                                    crate::gui::visual_fx::paint_led_meter(&painter_r, meter_rect_r, self.transport_state.vu_level_r, self.transport_state.vu_peak_r, &palette);
+                                                    let palette =
+                                                        crate::gui::visual_fx::MeterPalette {
+                                                            low: self.config.theme.meter_c32(),
+                                                            mid: self.config.theme.warning_c32(),
+                                                            high: self.config.theme.danger_c32(),
+                                                            off: self.config.theme.c32_alpha(
+                                                                self.config.theme.grid_line_sub,
+                                                                0.22,
+                                                            ),
+                                                        };
+                                                    crate::gui::visual_fx::paint_led_meter(
+                                                        &painter_l,
+                                                        meter_rect_l,
+                                                        self.transport_state.vu_level_l,
+                                                        self.transport_state.vu_peak_l,
+                                                        &palette,
+                                                    );
+                                                    crate::gui::visual_fx::paint_led_meter(
+                                                        &painter_r,
+                                                        meter_rect_r,
+                                                        self.transport_state.vu_level_r,
+                                                        self.transport_state.vu_peak_r,
+                                                        &palette,
+                                                    );
                                                 });
                                             });
                                     });
@@ -763,15 +878,26 @@ impl KamafeuStudioApp {
         let mut palette_edit_alias: Option<String> = None;
         let mut selected_ruler_alias_to_edit: Option<(String, String)> = None;
         let selected_ruler_alias = self.piano_roll_state.selected_copaiba_alias.clone();
-        let active_native_singer = self.project.tracks.get(self.active_track_index)
-            .and_then(|track| track.native_voicebank.as_ref()
-                .and_then(|reference| reference.source_path_hint.clone())
-                .or_else(|| track.voicebank_path.clone()))
+        let active_native_singer = self
+            .project
+            .tracks
+            .get(self.active_track_index)
+            .and_then(|track| {
+                track
+                    .native_voicebank
+                    .as_ref()
+                    .and_then(|reference| reference.source_path_hint.clone())
+                    .or_else(|| track.voicebank_path.clone())
+            })
             .and_then(|path| {
                 let p = std::path::PathBuf::from(&path);
                 self.singers_list
                     .iter()
-                    .find(|singer| singer.path == p || std::fs::canonicalize(&singer.path).ok() == std::fs::canonicalize(&p).ok())
+                    .find(|singer| {
+                        singer.path == p
+                            || std::fs::canonicalize(&singer.path).ok()
+                                == std::fs::canonicalize(&p).ok()
+                    })
                     .cloned()
                     .or_else(|| crate::oto::SingerScanner::inspect_singer_directory(&p))
             });
@@ -879,7 +1005,8 @@ impl KamafeuStudioApp {
             if let Some(path) = track.voicebank_path.as_deref() {
                 let root = std::path::Path::new(path);
                 if root.join("character.yaml").is_file()
-                    && (root.join("dsconfig.yaml").is_file() || root.join("configs/dsconfig.yaml").is_file())
+                    && (root.join("dsconfig.yaml").is_file()
+                        || root.join("configs/dsconfig.yaml").is_file())
                 {
                     if let Ok(bank) = crate::voicebank::diffsinger::DiffSingerBank::inspect(root) {
                         if track.diffsinger_phonemizer.is_none() {
@@ -887,7 +1014,9 @@ impl KamafeuStudioApp {
                                 track.diffsinger_language = Some("pt".into());
                                 track.diffsinger_phonemizer = Some(crate::voicebank::diffsinger::DiffSingerPhonemizer::BrapaPhonetic);
                             } else {
-                                track.diffsinger_phonemizer = Some(crate::voicebank::diffsinger::DiffSingerPhonemizer::Automatic);
+                                track.diffsinger_phonemizer = Some(
+                                    crate::voicebank::diffsinger::DiffSingerPhonemizer::Automatic,
+                                );
                             }
                             self.piano_roll_state.show_phoneme_ruler = true;
                             self.config.layout.show_phoneme_ruler = true;
@@ -1179,7 +1308,11 @@ impl KamafeuStudioApp {
             .config
             .recent_voicebanks
             .iter()
-            .filter_map(|p| p.file_name().and_then(|n| n.to_str()).map(|s| s.to_string()))
+            .filter_map(|p| {
+                p.file_name()
+                    .and_then(|n| n.to_str())
+                    .map(|s| s.to_string())
+            })
             .collect();
         for t in &self.project.tracks {
             if !t.singer.is_empty() && !available_singers.contains(&t.singer) {

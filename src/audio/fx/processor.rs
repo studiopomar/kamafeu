@@ -91,7 +91,10 @@ impl FxRackProcessor {
             phaser_phase: 0.0,
             phaser_x: [0.0; 2],
             phaser_y: [0.0; 2],
-            flanger_buf: [vec![0.0; (sr * 0.05) as usize + 4], vec![0.0; (sr * 0.05) as usize + 4]],
+            flanger_buf: [
+                vec![0.0; (sr * 0.05) as usize + 4],
+                vec![0.0; (sr * 0.05) as usize + 4],
+            ],
             flanger_pos: 0,
             flanger_phase: 0.0,
             reverb_combs_l: combs_l,
@@ -144,9 +147,15 @@ impl FxRackProcessor {
         if self.config.auto_pan.enabled {
             self.apply_auto_pan(samples, sr);
         }
-        if self.config.phaser.enabled { self.apply_phaser(samples, sr); }
-        if self.config.flanger.enabled { self.apply_flanger(samples, sr); }
-        if self.config.stereo_widener.enabled { self.apply_stereo_widener(samples); }
+        if self.config.phaser.enabled {
+            self.apply_phaser(samples, sr);
+        }
+        if self.config.flanger.enabled {
+            self.apply_flanger(samples, sr);
+        }
+        if self.config.stereo_widener.enabled {
+            self.apply_stereo_widener(samples);
+        }
 
         // 6. Transparent safety ceiling after every gain-producing effect.
         if self.config.limiter.enabled {
@@ -168,24 +177,29 @@ impl FxRackProcessor {
                 self.phaser_y[ch] = wet;
                 frame[ch] = input * (1.0 - mix) + wet * mix;
             }
-            self.phaser_phase = (self.phaser_phase + std::f32::consts::TAU * rate / sr).rem_euclid(std::f32::consts::TAU);
+            self.phaser_phase = (self.phaser_phase + std::f32::consts::TAU * rate / sr)
+                .rem_euclid(std::f32::consts::TAU);
         }
     }
 
     fn apply_flanger(&mut self, samples: &mut [f32], sr: f32) {
         let len = self.flanger_buf[0].len();
-        let depth = (self.config.flanger.depth_ms.clamp(0.1, 15.0) * sr / 1000.0).min((len - 3) as f32);
+        let depth =
+            (self.config.flanger.depth_ms.clamp(0.1, 15.0) * sr / 1000.0).min((len - 3) as f32);
         let base = (sr * 0.002).min((len - 3) as f32);
         let feedback = self.config.flanger.feedback.clamp(-0.9, 0.9);
         let mix = self.config.flanger.mix.clamp(0.0, 1.0);
         let step = std::f32::consts::TAU * self.config.flanger.rate_hz.clamp(0.03, 8.0) / sr;
         for frame in samples.chunks_exact_mut(2) {
             for ch in 0..2 {
-                let delay = base + depth * (0.5 + 0.5 * (self.flanger_phase + ch as f32 * 0.4).sin());
+                let delay =
+                    base + depth * (0.5 + 0.5 * (self.flanger_phase + ch as f32 * 0.4).sin());
                 let read = (self.flanger_pos as f32 + len as f32 - delay) % len as f32;
                 let idx = read.floor() as usize % len;
                 let next = (idx + 1) % len;
-                let wet = self.flanger_buf[ch][idx] + (self.flanger_buf[ch][next] - self.flanger_buf[ch][idx]) * (read - read.floor());
+                let wet = self.flanger_buf[ch][idx]
+                    + (self.flanger_buf[ch][next] - self.flanger_buf[ch][idx])
+                        * (read - read.floor());
                 let dry = frame[ch];
                 self.flanger_buf[ch][self.flanger_pos] = dry + wet * feedback;
                 frame[ch] = dry * (1.0 - mix) + wet * mix;

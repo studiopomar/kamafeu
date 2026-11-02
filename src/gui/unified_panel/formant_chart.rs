@@ -1,7 +1,9 @@
 use crate::drivers::tainah_ffi::{self, FormantAnalysis};
 use crate::gui::theme::ThemeConfig;
 use crate::oto::Voicebank;
-use eframe::egui::{self, Color32, FontId, Frame, Pos2, Rect, RichText, Rounding, Sense, Stroke, Vec2};
+use eframe::egui::{
+    self, Color32, FontId, Frame, Pos2, Rect, RichText, Rounding, Sense, Stroke, Vec2,
+};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{LazyLock, Mutex};
@@ -278,11 +280,7 @@ pub fn pos_to_formant(rect: Rect, pos: Pos2) -> (f64, f64) {
 
 /// Infers the canonical BRAPA vowel symbol from a note lyric or phoneme alias.
 pub fn infer_base_vowel_symbol(lyric: &str) -> &'static str {
-    let token = lyric
-        .trim()
-        .trim_start_matches('-')
-        .trim()
-        .to_lowercase();
+    let token = lyric.trim().trim_start_matches('-').trim().to_lowercase();
     if token.is_empty() {
         return "a";
     }
@@ -316,21 +314,21 @@ pub fn infer_base_vowel_symbol(lyric: &str) -> &'static str {
     if let Some(ch) = token.chars().last() {
         match ch {
             'i' | 'í' | 'y' | 'い' | 'ぃ' | 'き' | 'ぎ' | 'し' | 'じ' | 'ち' | 'ぢ' | 'に'
-            | 'ひ' | 'び' | 'ぴ' | 'み' | 'り' | 'イ' | 'キ' | 'シ' | 'チ' | 'ニ' | 'ヒ'
-            | 'ミ' | 'リ' => return "i",
+            | 'ひ' | 'び' | 'ぴ' | 'み' | 'り' | 'イ' | 'キ' | 'シ' | 'チ' | 'ニ' | 'ヒ' | 'ミ'
+            | 'リ' => return "i",
             'u' | 'ú' | 'w' | 'う' | 'ぅ' | 'く' | 'ぐ' | 'す' | 'ず' | 'つ' | 'づ' | 'ぬ'
-            | 'ふ' | 'ぶ' | 'ぷ' | 'む' | 'ゆ' | 'ゅ' | 'る' | 'ウ' | 'ク' | 'ス' | 'ツ'
-            | 'ヌ' | 'フ' | 'ム' | 'ユ' | 'ル' => return "u",
+            | 'ふ' | 'ぶ' | 'ぷ' | 'む' | 'ゆ' | 'ゅ' | 'る' | 'ウ' | 'ク' | 'ス' | 'ツ' | 'ヌ'
+            | 'フ' | 'ム' | 'ユ' | 'ル' => return "u",
             'e' | 'え' | 'ぇ' | 'け' | 'げ' | 'せ' | 'ぜ' | 'て' | 'で' | 'ね' | 'へ' | 'べ'
             | 'ぺ' | 'め' | 'れ' | 'エ' | 'ケ' | 'セ' | 'テ' | 'ネ' | 'ヘ' | 'メ' | 'レ' => {
                 return "e"
             }
             'o' | 'ô' | 'お' | 'ぉ' | 'こ' | 'ご' | 'そ' | 'ぞ' | 'と' | 'ど' | 'の' | 'ほ'
-            | 'ぼ' | 'ぽ' | 'も' | 'よ' | 'ょ' | 'ろ' | 'を' | 'オ' | 'コ' | 'ソ' | 'ト'
-            | 'ノ' | 'ホ' | 'モ' | 'ヨ' | 'ロ' => return "o",
-            'a' | 'á' | 'à' | 'â' | 'あ' | 'ぁ' | 'か' | 'が' | 'さ' | 'ざ' | 'た'
-            | 'だ' | 'な' | 'は' | 'ば' | 'ぱ' | 'ま' | 'や' | 'ゃ' | 'ら' | 'わ' | 'ア'
-            | 'カ' | 'サ' | 'タ' | 'ナ' | 'ハ' | 'マ' | 'ヤ' | 'ラ' | 'ワ' => return "a",
+            | 'ぼ' | 'ぽ' | 'も' | 'よ' | 'ょ' | 'ろ' | 'を' | 'オ' | 'コ' | 'ソ' | 'ト' | 'ノ'
+            | 'ホ' | 'モ' | 'ヨ' | 'ロ' => return "o",
+            'a' | 'á' | 'à' | 'â' | 'あ' | 'ぁ' | 'か' | 'が' | 'さ' | 'ざ' | 'た' | 'だ'
+            | 'な' | 'は' | 'ば' | 'ぱ' | 'ま' | 'や' | 'ゃ' | 'ら' | 'わ' | 'ア' | 'カ' | 'サ'
+            | 'タ' | 'ナ' | 'ハ' | 'マ' | 'ヤ' | 'ラ' | 'ワ' => return "a",
             _ => {}
         }
     }
@@ -1288,7 +1286,12 @@ mod tests {
     #[test]
     fn bark_round_trip_and_plane_mapping_are_invertible() {
         let rect = Rect::from_min_size(Pos2::new(10.0, 20.0), Vec2::new(240.0, 160.0));
-        for &(f1, f2) in &[(280.0, 2300.0), (500.0, 1500.0), (780.0, 1320.0), (300.0, 750.0)] {
+        for &(f1, f2) in &[
+            (280.0, 2300.0),
+            (500.0, 1500.0),
+            (780.0, 1320.0),
+            (300.0, 750.0),
+        ] {
             let pos = formant_to_pos(rect, f1, f2);
             let (r1, r2) = pos_to_formant(rect, pos);
             assert!((r1 - f1).abs() < 1.5, "f1={f1} got {r1}");

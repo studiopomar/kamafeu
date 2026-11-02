@@ -128,8 +128,7 @@ pub fn library_path() -> Option<PathBuf> {
 
 type RenderFn = unsafe extern "C" fn(*const Options, *mut Pcm, *mut Error) -> i32;
 type FreeFn = unsafe extern "C" fn(*mut Pcm);
-type AnalyzeFn =
-    unsafe extern "C" fn(*const Options, *mut FormantAnalysisRaw, *mut Error) -> i32;
+type AnalyzeFn = unsafe extern "C" fn(*const Options, *mut FormantAnalysisRaw, *mut Error) -> i32;
 
 struct CachedFingerprint {
     path: PathBuf,
@@ -151,9 +150,8 @@ struct LoadedTainah {
 static FINGERPRINT_CACHE: std::sync::LazyLock<std::sync::Mutex<Option<CachedFingerprint>>> =
     std::sync::LazyLock::new(|| std::sync::Mutex::new(None));
 
-static LIBRARY_CACHE: std::sync::LazyLock<
-    std::sync::Mutex<Option<std::sync::Arc<LoadedTainah>>>,
-> = std::sync::LazyLock::new(|| std::sync::Mutex::new(None));
+static LIBRARY_CACHE: std::sync::LazyLock<std::sync::Mutex<Option<std::sync::Arc<LoadedTainah>>>> =
+    std::sync::LazyLock::new(|| std::sync::Mutex::new(None));
 
 fn file_meta(path: &std::path::Path) -> Option<(Option<std::time::SystemTime>, u64)> {
     let meta = std::fs::metadata(path).ok()?;
@@ -365,12 +363,22 @@ pub fn render(
             consonant_adjustment,
             target_consonant_ms: args.consonant_ms.max(0.0),
             has_target_consonant: 1,
-            f1_ratio: args.vowel_formant.map_or(1.0, |vf| vf.f1_ratio.clamp(0.5, 2.0)),
-            f2_ratio: args.vowel_formant.map_or(1.0, |vf| vf.f2_ratio.clamp(0.5, 2.0)),
+            f1_ratio: args
+                .vowel_formant
+                .map_or(1.0, |vf| vf.f1_ratio.clamp(0.5, 2.0)),
+            f2_ratio: args
+                .vowel_formant
+                .map_or(1.0, |vf| vf.f2_ratio.clamp(0.5, 2.0)),
             has_vowel_formant: u32::from(args.vowel_formant.is_some()),
-            f3_ratio: args.vowel_formant.map_or(1.0, |vf| vf.f3_ratio.clamp(0.5, 2.0)),
-            nasality: args.vowel_formant.map_or(0.0, |vf| vf.nasality.clamp(0.0, 1.0)),
-            singers_formant: args.vowel_formant.map_or(0.0, |vf| vf.singers_formant.clamp(-1.0, 1.0)),
+            f3_ratio: args
+                .vowel_formant
+                .map_or(1.0, |vf| vf.f3_ratio.clamp(0.5, 2.0)),
+            nasality: args
+                .vowel_formant
+                .map_or(0.0, |vf| vf.nasality.clamp(0.0, 1.0)),
+            singers_formant: args
+                .vowel_formant
+                .map_or(0.0, |vf| vf.singers_formant.clamp(-1.0, 1.0)),
         };
         let mut pcm = Pcm {
             struct_size: std::mem::size_of::<Pcm>() as u32,
@@ -412,9 +420,9 @@ pub fn analyze_formants(
 ) -> Result<FormantAnalysis, String> {
     let path = library_path().ok_or("cannot locate executable for Tainah library")?;
     let loaded = load_or_get_library(&path)?;
-    let analyze = loaded
-        .analyze_fn
-        .ok_or_else(|| "Tainah library does not export lt_analyze_formants (recompile Tainah)".to_string())?;
+    let analyze = loaded.analyze_fn.ok_or_else(|| {
+        "Tainah library does not export lt_analyze_formants (recompile Tainah)".to_string()
+    })?;
     let config = crate::dsp::world_resampler::get_runtime_config();
     let f0_method = world_detector_method(&config.f0_detection_method)?;
     unsafe {

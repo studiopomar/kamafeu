@@ -38,12 +38,20 @@ impl KamafeuStudioApp {
 
                 let (status_dot_color, status_text) = if is_rendering {
                     (
-                        crate::gui::visual_fx::lerp_color(theme.accent_c32(), crate::gui::visual_fx::lighten(theme.accent_c32(), 0.3), breath),
+                        crate::gui::visual_fx::lerp_color(
+                            theme.accent_c32(),
+                            crate::gui::visual_fx::lighten(theme.accent_c32(), 0.3),
+                            breath,
+                        ),
                         lang.tr("RENDERIZANDO", "RENDERING"),
                     )
                 } else if is_playing {
                     (
-                        crate::gui::visual_fx::lerp_color(theme.accent_c32(), crate::gui::visual_fx::lighten(theme.accent_c32(), 0.4), breath),
+                        crate::gui::visual_fx::lerp_color(
+                            theme.accent_c32(),
+                            crate::gui::visual_fx::lighten(theme.accent_c32(), 0.4),
+                            breath,
+                        ),
                         lang.tr("REPRODUZINDO", "PLAYING"),
                     )
                 } else {
@@ -56,7 +64,13 @@ impl KamafeuStudioApp {
                     .color(status_dot_color);
                 let resp = ui.label(status_label);
                 if (is_rendering || is_playing) && motion {
-                    crate::gui::visual_fx::paint_glow(ui.painter(), resp.rect, 2.0, crate::gui::visual_fx::with_alpha(theme.accent_c32(), 0.4 * breath), 6.0);
+                    crate::gui::visual_fx::paint_glow(
+                        ui.painter(),
+                        resp.rect,
+                        2.0,
+                        crate::gui::visual_fx::with_alpha(theme.accent_c32(), 0.4 * breath),
+                        6.0,
+                    );
                 }
 
                 ui.add_space(4.0);
@@ -336,7 +350,8 @@ impl KamafeuStudioApp {
 
                 if is_rendering {
                     ui.add_space(4.0);
-                    let (spinner_rect, _) = ui.allocate_exact_size(egui::Vec2::new(12.0, 12.0), egui::Sense::hover());
+                    let (spinner_rect, _) =
+                        ui.allocate_exact_size(egui::Vec2::new(12.0, 12.0), egui::Sense::hover());
                     crate::gui::visual_fx::paint_orbit_spinner(
                         ui.painter(),
                         spinner_rect.center(),

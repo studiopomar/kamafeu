@@ -129,7 +129,9 @@ impl FxModule {
             Self::Chorus => include_bytes!("../../assets/fx/chorus.svg"),
             Self::AutoPan => include_bytes!("../../assets/fx/autopan.svg"),
             Self::Limiter => include_bytes!("../../assets/fx/limiter.svg"),
-            Self::Phaser | Self::Flanger | Self::Widener => include_bytes!("../../assets/fx/chorus.svg"),
+            Self::Phaser | Self::Flanger | Self::Widener => {
+                include_bytes!("../../assets/fx/chorus.svg")
+            }
         }
     }
 }
@@ -469,15 +471,36 @@ fn render_editor(
         }
         FxModule::Phaser => {
             module_header(ui, &mut config.phaser.enabled, "PHASER", theme);
-            knob_row(ui, theme, [("RATE", &mut config.phaser.rate_hz, 0.03..=8.0, " Hz"), ("DEPTH", &mut config.phaser.depth, 0.0..=1.0, ""), ("MIX", &mut config.phaser.mix, 0.0..=1.0, "")]);
+            knob_row(
+                ui,
+                theme,
+                [
+                    ("RATE", &mut config.phaser.rate_hz, 0.03..=8.0, " Hz"),
+                    ("DEPTH", &mut config.phaser.depth, 0.0..=1.0, ""),
+                    ("MIX", &mut config.phaser.mix, 0.0..=1.0, ""),
+                ],
+            );
         }
         FxModule::Flanger => {
             module_header(ui, &mut config.flanger.enabled, "FLANGER", theme);
-            knob_row(ui, theme, [("RATE", &mut config.flanger.rate_hz, 0.03..=8.0, " Hz"), ("DEPTH", &mut config.flanger.depth_ms, 0.1..=15.0, " ms"), ("FEEDBACK", &mut config.flanger.feedback, -0.9..=0.9, "")]);
+            knob_row(
+                ui,
+                theme,
+                [
+                    ("RATE", &mut config.flanger.rate_hz, 0.03..=8.0, " Hz"),
+                    ("DEPTH", &mut config.flanger.depth_ms, 0.1..=15.0, " ms"),
+                    ("FEEDBACK", &mut config.flanger.feedback, -0.9..=0.9, ""),
+                ],
+            );
             ui.add(egui::Slider::new(&mut config.flanger.mix, 0.0..=1.0).text("MIX"));
         }
         FxModule::Widener => {
-            module_header(ui, &mut config.stereo_widener.enabled, "STEREO WIDENER", theme);
+            module_header(
+                ui,
+                &mut config.stereo_widener.enabled,
+                "STEREO WIDENER",
+                theme,
+            );
             ui.add(egui::Slider::new(&mut config.stereo_widener.width, 0.0..=2.0).text("WIDTH"));
         }
     });

@@ -144,7 +144,8 @@ fn spawn_progressive_audio_bridge(
                     let is_final = was_final || position + 1 == startup_len;
                     if position == 0 {
                         if let Some(playback) = &playback {
-                            playback.start(index, start_ms, end_ms, samples, rate, channels, is_final);
+                            playback
+                                .start(index, start_ms, end_ms, samples, rate, channels, is_final);
                         }
                     } else if let Some(playback) = &playback {
                         playback.append(index, start_ms, end_ms, samples, rate, channels, is_final);
@@ -807,12 +808,12 @@ impl KamafeuStudioApp {
             if !cancel.load(Ordering::Relaxed) {
                 let mut temp_state = PianoRollState::default();
                 if !rendered_audio.samples.is_empty() {
-                temp_state.update_rendered_waveform(
-                    &rendered_audio.samples,
-                    rendered_audio.sample_rate,
-                    rendered_audio.channels,
-                    0.0,
-                );
+                    temp_state.update_rendered_waveform(
+                        &rendered_audio.samples,
+                        rendered_audio.sample_rate,
+                        rendered_audio.channels,
+                        0.0,
+                    );
                 }
                 let _ = tx.send((current_hash, temp_state.rendered_waveform_peaks));
             }

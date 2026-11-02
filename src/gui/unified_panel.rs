@@ -509,7 +509,9 @@ fn draw_pinned_formant_editor(
     let target_idx = if is_playing {
         notes
             .iter()
-            .position(|n| playhead_ms >= n.position_ms && playhead_ms < n.position_ms + n.duration_ms)
+            .position(|n| {
+                playhead_ms >= n.position_ms && playhead_ms < n.position_ms + n.duration_ms
+            })
             .or(selected_note_idx.filter(|&idx| idx < notes.len()))
             .unwrap_or(0)
     } else if let Some(idx) = selected_note_idx.filter(|&idx| idx < notes.len()) {
@@ -517,7 +519,9 @@ fn draw_pinned_formant_editor(
     } else {
         notes
             .iter()
-            .position(|n| playhead_ms >= n.position_ms && playhead_ms < n.position_ms + n.duration_ms)
+            .position(|n| {
+                playhead_ms >= n.position_ms && playhead_ms < n.position_ms + n.duration_ms
+            })
             .unwrap_or(0)
     };
 
@@ -526,7 +530,10 @@ fn draw_pinned_formant_editor(
     let pitch_str = note.pitch.clone();
     let query_alias = selected_ruler_alias.unwrap_or_else(|| lyric.trim());
     let consonant_ms = voicebank
-        .and_then(|vb| vb.find_mapped_entry(query_alias, &pitch_str).map(|e| e.consonant))
+        .and_then(|vb| {
+            vb.find_mapped_entry(query_alias, &pitch_str)
+                .map(|e| e.consonant)
+        })
         .unwrap_or(50.0);
 
     let pb_state = formant_chart::PlaybackFormantState {
@@ -541,9 +548,19 @@ fn draw_pinned_formant_editor(
     let is_open = ui.data_mut(|d| *d.get_temp_mut_or(id, true));
 
     let header_text = if is_playing {
-        format!("▶ {} · '{}' ({})", lang.tr("Formantes Ao Vivo", "Live Formants"), note.lyric, note.pitch)
+        format!(
+            "▶ {} · '{}' ({})",
+            lang.tr("Formantes Ao Vivo", "Live Formants"),
+            note.lyric,
+            note.pitch
+        )
     } else {
-        format!("{} · '{}' ({})", lang.tr("Vogal & Formantes", "Vowel & Formants"), note.lyric, note.pitch)
+        format!(
+            "{} · '{}' ({})",
+            lang.tr("Vogal & Formantes", "Vowel & Formants"),
+            note.lyric,
+            note.pitch
+        )
     };
 
     let header_col = if is_playing {
@@ -561,7 +578,12 @@ fn draw_pinned_formant_editor(
             ui.data_mut(|d| d.insert_temp(id, !is_open));
         }
         if ui
-            .link(RichText::new(&header_text).strong().size(11.0).color(header_col))
+            .link(
+                RichText::new(&header_text)
+                    .strong()
+                    .size(11.0)
+                    .color(header_col),
+            )
             .clicked()
         {
             ui.data_mut(|d| d.insert_temp(id, !is_open));

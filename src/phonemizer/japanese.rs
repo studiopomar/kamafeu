@@ -1430,7 +1430,7 @@ impl JapanesePhonemizer {
                         flags: note.flags.clone(),
                         resolved_alias: None,
                         resolved_timbre: None,
-                    coda_truncation: false,
+                        coda_truncation: false,
                     });
                     prev_vowel = None;
                     prev_note_end_ms = Some(exp.position_ms + exp.duration_ms);
@@ -1530,7 +1530,7 @@ impl JapanesePhonemizer {
                         flags: note.flags.clone(),
                         resolved_alias: None,
                         resolved_timbre: None,
-                    coda_truncation: false,
+                        coda_truncation: false,
                     });
                 }
 
@@ -1623,7 +1623,7 @@ impl JapanesePhonemizer {
                         flags: note.flags.clone(),
                         resolved_alias: None,
                         resolved_timbre: None,
-                    coda_truncation: false,
+                        coda_truncation: false,
                     });
                 }
 
@@ -1988,7 +1988,7 @@ impl JapanesePhonemizer {
                                     flags: note.flags.clone(),
                                     resolved_alias: None,
                                     resolved_timbre: None,
-                    coda_truncation: false,
+                                    coda_truncation: false,
                                 });
                             }
                         }
@@ -2005,7 +2005,7 @@ impl JapanesePhonemizer {
                             flags: note.flags.clone(),
                             resolved_alias: None,
                             resolved_timbre: None,
-                    coda_truncation: false,
+                            coda_truncation: false,
                         });
 
                         let vc_envelope = note.envelope.clone();
@@ -2025,7 +2025,7 @@ impl JapanesePhonemizer {
                             flags: note.flags.clone(),
                             resolved_alias: None,
                             resolved_timbre: None,
-                    coda_truncation: false,
+                            coda_truncation: false,
                         });
                     } else {
                         let requested_pre_c_len =
@@ -2051,7 +2051,7 @@ impl JapanesePhonemizer {
                                     flags: note.flags.clone(),
                                     resolved_alias: None,
                                     resolved_timbre: None,
-                    coda_truncation: false,
+                                    coda_truncation: false,
                                 });
                             }
                         }
@@ -2068,7 +2068,7 @@ impl JapanesePhonemizer {
                             flags: note.flags.clone(),
                             resolved_alias: None,
                             resolved_timbre: None,
-                    coda_truncation: false,
+                            coda_truncation: false,
                         });
                     }
                 }

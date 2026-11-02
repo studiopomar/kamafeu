@@ -508,11 +508,8 @@ impl KamafeuStudioApp {
                                     chunk.end_ms(),
                                     chunk.is_final,
                                 ));
-                                let has_ready_audio = self
-                                    .project
-                                    .render_state
-                                    .as_ref()
-                                    .is_some_and(|state| {
+                                let has_ready_audio =
+                                    self.project.render_state.as_ref().is_some_and(|state| {
                                         state.chunks.iter().any(|stored| {
                                             stored.status == "ready"
                                                 && stored.index < chunk.chunk_index
@@ -687,11 +684,13 @@ impl KamafeuStudioApp {
                 .unwrap_or(0.0);
             let any_solo = self.project.tracks.iter().any(|track| track.solo);
             let active_track = self.project.tracks.get(self.active_track_index);
-            let audible = active_track.is_some_and(|track| {
-                !track.mute && (!any_solo || track.solo)
-            });
+            let audible =
+                active_track.is_some_and(|track| !track.mute && (!any_solo || track.solo));
             let (track_gain, track_pan) = active_track.map_or((0.0, 0.0), |track| {
-                (10.0f32.powf(track.volume_db as f32 / 20.0), track.pan as f32)
+                (
+                    10.0f32.powf(track.volume_db as f32 / 20.0),
+                    track.pan as f32,
+                )
             });
             let metered_amp = if audible { amp * track_gain } else { 0.0 };
             let target_l = (metered_amp * (1.0 - track_pan.clamp(0.0, 1.0))).clamp(0.0, 1.0);
@@ -725,13 +724,15 @@ impl KamafeuStudioApp {
             let step = SCOPE_WINDOW_MS / SCOPE_POINTS as f32;
             let start = cur_time - SCOPE_WINDOW_MS;
             self.transport_state.scope.clear();
-            self.transport_state.scope.extend((0..SCOPE_POINTS).map(|i| {
-                let t0 = start + i as f32 * step;
-                self.piano_roll_state
-                    .waveform_min_max_between(t0, t0 + step)
-                    .map(|(min, max)| (min * gain, max * gain))
-                    .unwrap_or((0.0, 0.0))
-            }));
+            self.transport_state
+                .scope
+                .extend((0..SCOPE_POINTS).map(|i| {
+                    let t0 = start + i as f32 * step;
+                    self.piano_roll_state
+                        .waveform_min_max_between(t0, t0 + step)
+                        .map(|(min, max)| (min * gain, max * gain))
+                        .unwrap_or((0.0, 0.0))
+                }));
 
             ctx.request_repaint();
         } else {
@@ -785,7 +786,10 @@ impl KamafeuStudioApp {
                 self.preview_waveform_cancel = None;
                 self.piano_roll_state.waveform_rendering = false;
                 ctx.request_repaint();
-            } else if matches!(rx.try_recv(), Err(std::sync::mpsc::TryRecvError::Disconnected)) {
+            } else if matches!(
+                rx.try_recv(),
+                Err(std::sync::mpsc::TryRecvError::Disconnected)
+            ) {
                 // A canceled or failed background render must be retryable. The
                 // sender intentionally drops without a payload on render errors.
                 self.preview_waveform_rx = None;

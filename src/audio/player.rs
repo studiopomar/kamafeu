@@ -923,8 +923,8 @@ impl AudioPlayer {
         }
         self.stop_scheduler("direct playback start".to_string());
         Self::sanitize_samples(&mut samples);
-        let duration_ms = samples.len() as f64 * 1000.0
-            / (sample_rate.max(1) as f64 * channels.max(1) as f64);
+        let duration_ms =
+            samples.len() as f64 * 1000.0 / (sample_rate.max(1) as f64 * channels.max(1) as f64);
 
         if let Some(old_sink) = self.active_sink.take() {
             old_sink.pause();
@@ -971,8 +971,8 @@ impl AudioPlayer {
             return;
         }
         Self::sanitize_scheduler_samples(&mut samples);
-        let chunk_duration_ms = samples.len() as f64 * 1000.0
-            / (sample_rate.max(1) as f64 * channels.max(1) as f64);
+        let chunk_duration_ms =
+            samples.len() as f64 * 1000.0 / (sample_rate.max(1) as f64 * channels.max(1) as f64);
 
         if self.active_sink.as_ref().is_some_and(|sink| sink.empty()) {
             // A sink can become empty between UI frames while the renderer
@@ -1099,9 +1099,7 @@ impl AudioPlayer {
                         .as_secs_f64()
                         * 1000.0
                         * clock.playback_speed;
-                    return (clock.position_ms + elapsed_ms)
-                        .min(clock.end_ms)
-                        .max(0.0);
+                    return (clock.position_ms + elapsed_ms).min(clock.end_ms).max(0.0);
                 }
             }
             return clock.position_ms.max(0.0);

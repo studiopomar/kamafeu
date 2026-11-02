@@ -1277,7 +1277,8 @@ impl UProject {
                 note.expressions.f2_ratio = note.expressions.f2_ratio.clamp(0.5, 2.0);
                 note.expressions.f3_ratio = note.expressions.f3_ratio.clamp(0.5, 2.0);
                 note.expressions.nasality = note.expressions.nasality.clamp(0.0, 1.0);
-                note.expressions.singers_formant = note.expressions.singers_formant.clamp(-1.0, 1.0);
+                note.expressions.singers_formant =
+                    note.expressions.singers_formant.clamp(-1.0, 1.0);
                 note.expressions.velocity = note.expressions.velocity.clamp(0.0, 200.0);
                 note.expressions.dynamics = note.expressions.dynamics.clamp(-240.0, 120.0);
                 note.expressions.pitch_delta = note.expressions.pitch_delta.clamp(-1200.0, 1200.0);

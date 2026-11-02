@@ -313,8 +313,8 @@ impl TrackRenderer {
             crate::phonemizer::PhonemizerMode::BasicCV
         };
         let mix_strategy = wavtool_driver.mix_strategy();
-        let preview_skip_failed_phones = vocal_mode
-            .is_some_and(|options| options.preview_skip_failed_phones);
+        let preview_skip_failed_phones =
+            vocal_mode.is_some_and(|options| options.preview_skip_failed_phones);
         log(
             0.0,
             &format!(

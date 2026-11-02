@@ -45,11 +45,21 @@ fn default_scale_root_key() -> u8 {
     0
 }
 
-fn default_vertical_follow_smoothing_ms() -> f32 { 80.0 }
-fn default_horizontal_follow_smoothing_ms() -> f32 { 120.0 }
-fn default_follow_cursor_pct() -> f32 { 30.0 }
-fn default_follow_min_pct() -> f32 { 8.0 }
-fn default_follow_max_pct() -> f32 { 92.0 }
+fn default_vertical_follow_smoothing_ms() -> f32 {
+    80.0
+}
+fn default_horizontal_follow_smoothing_ms() -> f32 {
+    120.0
+}
+fn default_follow_cursor_pct() -> f32 {
+    30.0
+}
+fn default_follow_min_pct() -> f32 {
+    8.0
+}
+fn default_follow_max_pct() -> f32 {
+    92.0
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct EditorLayoutConfig {

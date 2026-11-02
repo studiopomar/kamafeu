@@ -14,16 +14,17 @@ impl KamafeuStudioApp {
             .input(|input| {
                 let pointer_started =
                     input.pointer.primary_pressed() || input.pointer.secondary_pressed();
-                let edit_key_started = !text_input_owns_keyboard && [
-                    egui::Key::Enter,
-                    egui::Key::Tab,
-                    egui::Key::Delete,
-                    egui::Key::Backspace,
-                    egui::Key::ArrowUp,
-                    egui::Key::ArrowDown,
-                ]
-                .into_iter()
-                .any(|key| input.key_pressed(key));
+                let edit_key_started = !text_input_owns_keyboard
+                    && [
+                        egui::Key::Enter,
+                        egui::Key::Tab,
+                        egui::Key::Delete,
+                        egui::Key::Backspace,
+                        egui::Key::ArrowUp,
+                        egui::Key::ArrowDown,
+                    ]
+                    .into_iter()
+                    .any(|key| input.key_pressed(key));
                 pointer_started || edit_key_started
             })
             .then(|| self.project.clone());
@@ -229,29 +230,57 @@ impl KamafeuStudioApp {
         self.piano_roll_state.loop_start_ms = self.transport_state.loop_start_ms;
         self.piano_roll_state.loop_end_ms = self.transport_state.loop_end_ms;
 
-        let diffsinger_bank = self.project.tracks.get(active_track)
+        let diffsinger_bank = self
+            .project
+            .tracks
+            .get(active_track)
             .and_then(|track| track.voicebank_path.as_deref())
             .and_then(|path| crate::voicebank::diffsinger::DiffSingerBank::inspect(path).ok())
             .filter(|bank| bank.loadable);
-        let diffsinger_language = self.project.tracks.get(active_track)
+        let diffsinger_language = self
+            .project
+            .tracks
+            .get(active_track)
             .and_then(|track| track.diffsinger_language.as_deref())
             .map(str::to_owned)
-            .or_else(|| diffsinger_bank.as_ref().and_then(|bank| {
-                bank.language_ids.contains_key("pt").then(|| "pt".to_owned())
-                    .or_else(|| bank.language_ids.contains_key("en").then(|| "en".to_owned()))
-                    .or_else(|| bank.languages.first().cloned())
-            }));
-        let diffsinger_phonemizer = self.project.tracks.get(active_track)
-            .and_then(|track| track.diffsinger_phonemizer)
-            .unwrap_or_else(|| if diffsinger_language.as_deref() == Some("pt") {
-                crate::voicebank::diffsinger::DiffSingerPhonemizer::BrapaPhonetic
-            } else {
-                crate::voicebank::diffsinger::DiffSingerPhonemizer::Automatic
+            .or_else(|| {
+                diffsinger_bank.as_ref().and_then(|bank| {
+                    bank.language_ids
+                        .contains_key("pt")
+                        .then(|| "pt".to_owned())
+                        .or_else(|| {
+                            bank.language_ids
+                                .contains_key("en")
+                                .then(|| "en".to_owned())
+                        })
+                        .or_else(|| bank.languages.first().cloned())
+                })
             });
-        let diffsinger_speaker = self.project.tracks.get(active_track)
+        let diffsinger_phonemizer = self
+            .project
+            .tracks
+            .get(active_track)
+            .and_then(|track| track.diffsinger_phonemizer)
+            .unwrap_or_else(|| {
+                if diffsinger_language.as_deref() == Some("pt") {
+                    crate::voicebank::diffsinger::DiffSingerPhonemizer::BrapaPhonetic
+                } else {
+                    crate::voicebank::diffsinger::DiffSingerPhonemizer::Automatic
+                }
+            });
+        let diffsinger_speaker = self
+            .project
+            .tracks
+            .get(active_track)
             .and_then(|track| track.diffsinger_speaker.as_deref())
-            .or_else(|| diffsinger_bank.as_ref().and_then(|bank| bank.speakers.first().map(String::as_str)));
-        let diffsinger_context = diffsinger_bank.as_ref().zip(diffsinger_language.as_deref())
+            .or_else(|| {
+                diffsinger_bank
+                    .as_ref()
+                    .and_then(|bank| bank.speakers.first().map(String::as_str))
+            });
+        let diffsinger_context = diffsinger_bank
+            .as_ref()
+            .zip(diffsinger_language.as_deref())
             .zip(diffsinger_speaker)
             .map(|((bank, language), speaker)| (bank, language, diffsinger_phonemizer, speaker));
 

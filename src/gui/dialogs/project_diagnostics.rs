@@ -355,7 +355,8 @@ impl KamafeuStudioApp {
                     .min(self.project.tracks.len().saturating_sub(1));
                 self.piano_roll_state.playhead_ms = wave.position_ms;
                 self.piano_roll_state.arrangement_vertical_scroll_offset =
-                    (wave.position_ms as f32 * self.piano_roll_state.arrangement_zoom - 40.0).max(0.0);
+                    (wave.position_ms as f32 * self.piano_roll_state.arrangement_zoom - 40.0)
+                        .max(0.0);
                 self.piano_roll_state.arrangement_follow_override = true;
                 self.piano_roll_state.show_arrangement_view = true;
                 self.transport_state.status_message =

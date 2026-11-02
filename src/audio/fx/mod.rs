@@ -7,9 +7,9 @@ mod settings;
 
 pub use processor::FxRackProcessor;
 pub use settings::{
-    AutoPanSettings, ChorusSettings, CompressorSettings, DelaySettings, EqSettings, FxRackConfig,
-    GateSettings, LimiterSettings, ReverbSettings, SaturationSettings, ISO_31_BAND_FREQS,
-    ISO_31_BAND_LABELS, PhaserSettings, FlangerSettings, StereoWidenerSettings,
+    AutoPanSettings, ChorusSettings, CompressorSettings, DelaySettings, EqSettings,
+    FlangerSettings, FxRackConfig, GateSettings, LimiterSettings, PhaserSettings, ReverbSettings,
+    SaturationSettings, StereoWidenerSettings, ISO_31_BAND_FREQS, ISO_31_BAND_LABELS,
 };
 
 #[cfg(test)]

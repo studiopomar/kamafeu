@@ -216,18 +216,18 @@ impl Default for TransportState {
 pub enum EditTool {
     #[default]
     Pointer, // Select / Move / Resize
-    Pencil,    // Draw new notes
-    Brush,     // Continuous note brush (paint consecutive quantized notes on drag)
-    PitchDraw, // Draw pitch curve splines
-    Slice,     // Split note into two
-    Eraser,    // Delete notes
+    Pencil,     // Draw new notes
+    Brush,      // Continuous note brush (paint consecutive quantized notes on drag)
+    PitchDraw,  // Draw pitch curve splines
+    Slice,      // Split note into two
+    Eraser,     // Delete notes
     Annotation, // Annotations / freehand drawings on piano roll
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum AnnotationSubTool {
     #[default]
-    Pen,         // Opaque ink pen
+    Pen, // Opaque ink pen
     Highlighter, // Translucent highlighter marker
     TextNote,    // Sticky note / text callout
     Eraser,      // Erase annotation strokes

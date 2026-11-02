@@ -109,7 +109,8 @@ impl KamafeuStudioApp {
         let mut diffsinger_path = None;
         if let Some(path) = config.last_voicebank.as_ref().filter(|path| path.is_dir()) {
             if path.join("character.yaml").is_file()
-                && (path.join("dsconfig.yaml").is_file() || path.join("configs/dsconfig.yaml").is_file())
+                && (path.join("dsconfig.yaml").is_file()
+                    || path.join("configs/dsconfig.yaml").is_file())
             {
                 if let Ok(bank) = crate::voicebank::diffsinger::DiffSingerBank::inspect(path) {
                     if let Some(track) = project.tracks.first_mut() {
@@ -117,16 +118,21 @@ impl KamafeuStudioApp {
                         track.singer = bank.name.clone();
                         track.voicebank_path = Some(path.display().to_string());
                         track.native_voicebank = None;
-                        track.diffsinger_language = bank.language_ids.contains_key("pt").then(|| "pt".into())
+                        track.diffsinger_language = bank
+                            .language_ids
+                            .contains_key("pt")
+                            .then(|| "pt".into())
                             .or_else(|| bank.language_ids.contains_key("en").then(|| "en".into()))
                             .or_else(|| bank.languages.first().cloned());
                         track.diffsinger_speaker = bank.speakers.first().cloned();
-                        track.diffsinger_phonemizer = Some(if bank.language_ids.contains_key("pt") {
-                            crate::voicebank::diffsinger::DiffSingerPhonemizer::BrapaPhonetic
-                        } else {
-                            crate::voicebank::diffsinger::DiffSingerPhonemizer::Automatic
-                        });
-                        track.diffsinger_provider = Some(crate::voicebank::diffsinger::ExecutionProvider::Cpu);
+                        track.diffsinger_phonemizer =
+                            Some(if bank.language_ids.contains_key("pt") {
+                                crate::voicebank::diffsinger::DiffSingerPhonemizer::BrapaPhonetic
+                            } else {
+                                crate::voicebank::diffsinger::DiffSingerPhonemizer::Automatic
+                            });
+                        track.diffsinger_provider =
+                            Some(crate::voicebank::diffsinger::ExecutionProvider::Cpu);
                     }
                     project.voicebank = Some(bank.name.clone());
                     project.voicebank_path = Some(path.display().to_string());

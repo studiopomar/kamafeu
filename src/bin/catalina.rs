@@ -39,14 +39,35 @@ fn main() -> Result<(), Box<dyn Error>> {
     let output_path = PathBuf::from(&args[1]);
     let pitch_name = args[2].clone();
 
-    let velocity = args.get(3).and_then(|v| v.parse::<f64>().ok()).unwrap_or(100.0);
+    let velocity = args
+        .get(3)
+        .and_then(|v| v.parse::<f64>().ok())
+        .unwrap_or(100.0);
     let flags = args.get(4).cloned().unwrap_or_else(|| "g0".to_string());
-    let offset_ms = args.get(5).and_then(|v| v.parse::<f64>().ok()).unwrap_or(0.0);
-    let duration_ms = args.get(6).and_then(|v| v.parse::<f64>().ok()).unwrap_or(500.0);
-    let consonant_ms = args.get(7).and_then(|v| v.parse::<f64>().ok()).unwrap_or(0.0);
-    let cutoff_ms = args.get(8).and_then(|v| v.parse::<f64>().ok()).unwrap_or(0.0);
-    let volume = args.get(9).and_then(|v| v.parse::<f64>().ok()).unwrap_or(100.0);
-    let modulation = args.get(10).and_then(|v| v.parse::<f64>().ok()).unwrap_or(0.0);
+    let offset_ms = args
+        .get(5)
+        .and_then(|v| v.parse::<f64>().ok())
+        .unwrap_or(0.0);
+    let duration_ms = args
+        .get(6)
+        .and_then(|v| v.parse::<f64>().ok())
+        .unwrap_or(500.0);
+    let consonant_ms = args
+        .get(7)
+        .and_then(|v| v.parse::<f64>().ok())
+        .unwrap_or(0.0);
+    let cutoff_ms = args
+        .get(8)
+        .and_then(|v| v.parse::<f64>().ok())
+        .unwrap_or(0.0);
+    let volume = args
+        .get(9)
+        .and_then(|v| v.parse::<f64>().ok())
+        .unwrap_or(100.0);
+    let modulation = args
+        .get(10)
+        .and_then(|v| v.parse::<f64>().ok())
+        .unwrap_or(0.0);
     let tempo = args
         .get(11)
         .map(|s| s.trim_start_matches('!'))

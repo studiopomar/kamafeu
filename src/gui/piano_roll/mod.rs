@@ -382,8 +382,18 @@ pub(crate) fn draw_piano_roll(
 
             ruler_painter.rect_filled(
                 pin_rect,
-                Rounding { nw: 3.0, ne: 0.0, sw: 3.0, se: 0.0 },
-                Color32::from_rgba_unmultiplied(marker_color.r(), marker_color.g(), marker_color.b(), 90),
+                Rounding {
+                    nw: 3.0,
+                    ne: 0.0,
+                    sw: 3.0,
+                    se: 0.0,
+                },
+                Color32::from_rgba_unmultiplied(
+                    marker_color.r(),
+                    marker_color.g(),
+                    marker_color.b(),
+                    90,
+                ),
             );
             ruler_painter.line_segment(
                 [
@@ -411,8 +421,18 @@ pub(crate) fn draw_piano_roll(
 
             ruler_painter.rect_filled(
                 pin_rect,
-                Rounding { nw: 0.0, ne: 3.0, sw: 0.0, se: 3.0 },
-                Color32::from_rgba_unmultiplied(marker_color.r(), marker_color.g(), marker_color.b(), 90),
+                Rounding {
+                    nw: 0.0,
+                    ne: 3.0,
+                    sw: 0.0,
+                    se: 3.0,
+                },
+                Color32::from_rgba_unmultiplied(
+                    marker_color.r(),
+                    marker_color.g(),
+                    marker_color.b(),
+                    90,
+                ),
             );
             ruler_painter.line_segment(
                 [
@@ -594,7 +614,8 @@ pub(crate) fn draw_piano_roll(
     }
 
     if mouse_primary_down {
-        if let Some(mpos) = ui.input(|i| i.pointer.interact_pos().or_else(|| i.pointer.hover_pos())) {
+        if let Some(mpos) = ui.input(|i| i.pointer.interact_pos().or_else(|| i.pointer.hover_pos()))
+        {
             let raw_t = (mpos.x - (ruler_rect.min.x + keyboard_width) + timeline_scroll_x) as f64
                 / state.px_per_ms as f64;
             let scrubbed_t =
@@ -612,9 +633,11 @@ pub(crate) fn draw_piano_roll(
                 if let Some(start_x) = state.loop_window_drag_start_x {
                     let delta_px = mpos.x - start_x;
                     let delta_ms = delta_px as f64 / state.px_per_ms as f64;
-                    let loop_len = state.loop_drag_initial_end_ms - state.loop_drag_initial_start_ms;
+                    let loop_len =
+                        state.loop_drag_initial_end_ms - state.loop_drag_initial_start_ms;
                     let new_start = (state.loop_drag_initial_start_ms + delta_ms).max(0.0);
-                    state.loop_start_ms = apply_snap_with_zoom(new_start, snap_option, bpm, state.px_per_ms);
+                    state.loop_start_ms =
+                        apply_snap_with_zoom(new_start, snap_option, bpm, state.px_per_ms);
                     state.loop_end_ms = state.loop_start_ms + loop_len;
                     state.loop_enabled = true;
                     ui.output_mut(|o| o.cursor_icon = egui::CursorIcon::Grabbing);
@@ -628,11 +651,13 @@ pub(crate) fn draw_piano_roll(
         state.loop_window_drag_start_x = None;
     }
 
-    let is_dragging_loop = state.dragging_loop_pin_in
-        || state.dragging_loop_pin_out
-        || state.dragging_loop_window;
+    let is_dragging_loop =
+        state.dragging_loop_pin_in || state.dragging_loop_pin_out || state.dragging_loop_window;
 
-    if !is_dragging_loop && !jumped_to_marker && (ruler_response.clicked() || ruler_response.dragged()) {
+    if !is_dragging_loop
+        && !jumped_to_marker
+        && (ruler_response.clicked() || ruler_response.dragged())
+    {
         if let Some(mpos) = ruler_response.interact_pointer_pos() {
             let shift_held = ui.input(|i| i.modifiers.shift);
             let raw_t = (mpos.x - (ruler_rect.min.x + keyboard_width) + timeline_scroll_x) as f64
@@ -976,12 +1001,9 @@ pub(crate) fn draw_piano_roll(
                     && button.left() >= visible_clip.left() + keyboard_width
             })
             .collect();
-        let pointer = ui
-            .input(|i| i.pointer.interact_pos())
-            .filter(|pos| {
-                response.hovered()
-                    && piano_roll_owns_pointer(ui.ctx(), piano_roll_layer_id, *pos)
-            });
+        let pointer = ui.input(|i| i.pointer.interact_pos()).filter(|pos| {
+            response.hovered() && piano_roll_owns_pointer(ui.ctx(), piano_roll_layer_id, *pos)
+        });
         let vibrato_interaction = ui.memory(|memory| memory.any_popup_open())
             || pointer
                 .is_some_and(|pos| vibrato_buttons.iter().any(|(_, rect)| rect.contains(pos)));
@@ -1063,9 +1085,11 @@ pub(crate) fn draw_piano_roll(
                 } else {
                     theme.note_selected_stroke_c32()
                 };
-                painter
-                    .with_clip_rect(note_rect)
-                    .rect_filled(accent_rect, Rounding::ZERO, accent_color);
+                painter.with_clip_rect(note_rect).rect_filled(
+                    accent_rect,
+                    Rounding::ZERO,
+                    accent_color,
+                );
             }
 
             if is_active_playback {
@@ -2479,7 +2503,8 @@ pub(crate) fn draw_piano_roll(
             }
         }
 
-        for (_pill_rect, _pill_bg, lyric, _text_color, is_selected, note_rect) in pending_lyric_tags {
+        for (_pill_rect, _pill_bg, lyric, _text_color, is_selected, note_rect) in pending_lyric_tags
+        {
             if note_rect.width() < 10.0 {
                 continue;
             }
@@ -2933,9 +2958,7 @@ pub(crate) fn draw_piano_roll(
                 if ui.input(|i| i.pointer.primary_down()) {
                     if let Some(current_screen_pos) = ui
                         .input(|i| i.pointer.interact_pos().or(i.pointer.latest_pos()))
-                        .filter(|pos| {
-                            piano_roll_owns_pointer(ui.ctx(), piano_roll_layer_id, *pos)
-                        })
+                        .filter(|pos| piano_roll_owns_pointer(ui.ctx(), piano_roll_layer_id, *pos))
                     {
                         let current_canvas_x = current_screen_pos.x - rect.min.x;
                         let current_canvas_y = current_screen_pos.y - rect.min.y;
@@ -3282,23 +3305,30 @@ pub(crate) fn draw_piano_roll(
                         if ui.input(|i| i.pointer.primary_down()) && !interacted_with_note_or_ui {
                             let click_x = mpos.x - (rect.min.x + keyboard_width);
                             let raw_start_ms = (click_x / state.px_per_ms) as f64;
-                            let snap_step_ms = snap_option.step_ms_with_zoom(bpm, state.px_per_ms).unwrap_or(250.0);
+                            let snap_step_ms = snap_option
+                                .step_ms_with_zoom(bpm, state.px_per_ms)
+                                .unwrap_or(250.0);
                             let snapped_ms = apply_snap_with_zoom(
                                 raw_start_ms,
                                 snap_option,
                                 bpm,
                                 state.px_per_ms,
-                            ).max(0.0);
+                            )
+                            .max(0.0);
                             let key_idx =
                                 ((mpos.y - grid_start_y) / state.row_height).floor() as u8;
                             let click_midi = (state.max_midi.saturating_sub(key_idx))
                                 .clamp(state.min_midi, state.max_midi);
 
-                            if state.brush_last_painted_key_and_time != Some((click_midi, snapped_ms)) {
-                                state.brush_last_painted_key_and_time = Some((click_midi, snapped_ms));
+                            if state.brush_last_painted_key_and_time
+                                != Some((click_midi, snapped_ms))
+                            {
+                                state.brush_last_painted_key_and_time =
+                                    Some((click_midi, snapped_ms));
                                 let exists = notes.iter().any(|n| {
                                     n.midi_key() == click_midi
-                                        && (n.position_ms - snapped_ms).abs() < (snap_step_ms * 0.45)
+                                        && (n.position_ms - snapped_ms).abs()
+                                            < (snap_step_ms * 0.45)
                                 });
                                 if !exists {
                                     on_before_change();
@@ -3349,7 +3379,8 @@ pub(crate) fn draw_piano_roll(
                     EditTool::Annotation => {
                         let click_x = mpos.x - (rect.min.x + keyboard_width);
                         let mouse_ms = (click_x / state.px_per_ms) as f64;
-                        let midi_f = (state.max_midi as f64) - ((mpos.y - grid_start_y) / state.row_height) as f64;
+                        let midi_f = (state.max_midi as f64)
+                            - ((mpos.y - grid_start_y) / state.row_height) as f64;
 
                         if ui.input(|i| i.pointer.primary_pressed()) {
                             match state.active_annotation_tool {
@@ -3361,35 +3392,44 @@ pub(crate) fn draw_piano_roll(
                                     on_before_change();
                                     let now_ms = ui.input(|i| i.time) * 1000.0;
                                     let id = format!("note_{}", now_ms as u64);
-                                    project_annotations.push(crate::project::model::UPianoRollAnnotation {
-                                        id,
-                                        track_index: None,
-                                        kind: crate::project::model::AnnotationKind::TextNote {
-                                            time_ms: mouse_ms,
-                                            midi_pitch: midi_f,
-                                            text: "Anotação...".to_string(),
-                                            color: state.active_annotation_color,
+                                    project_annotations.push(
+                                        crate::project::model::UPianoRollAnnotation {
+                                            id,
+                                            track_index: None,
+                                            kind: crate::project::model::AnnotationKind::TextNote {
+                                                time_ms: mouse_ms,
+                                                midi_pitch: midi_f,
+                                                text: "Anotação...".to_string(),
+                                                color: state.active_annotation_color,
+                                            },
+                                            created_at_ms: now_ms,
                                         },
-                                        created_at_ms: now_ms,
-                                    });
+                                    );
                                     on_note_changed();
                                 }
                                 crate::gui::types::AnnotationSubTool::Eraser => {
                                     let initial_len = project_annotations.len();
-                                    project_annotations.retain(|ann| {
-                                        match &ann.kind {
-                                            crate::project::model::AnnotationKind::Drawing { points, .. } => {
-                                                !points.iter().any(|pt| {
-                                                    let dt = (pt.0 - mouse_ms).abs() * state.px_per_ms as f64;
-                                                    let dy = (pt.1 - midi_f).abs() * state.row_height as f64;
-                                                    (dt * dt + dy * dy).sqrt() < 24.0
-                                                })
-                                            }
-                                            crate::project::model::AnnotationKind::TextNote { time_ms, midi_pitch, .. } => {
-                                                let dt = (time_ms - mouse_ms).abs() * state.px_per_ms as f64;
-                                                let dy = (midi_pitch - midi_f).abs() * state.row_height as f64;
-                                                (dt * dt + dy * dy).sqrt() >= 30.0
-                                            }
+                                    project_annotations.retain(|ann| match &ann.kind {
+                                        crate::project::model::AnnotationKind::Drawing {
+                                            points,
+                                            ..
+                                        } => !points.iter().any(|pt| {
+                                            let dt =
+                                                (pt.0 - mouse_ms).abs() * state.px_per_ms as f64;
+                                            let dy =
+                                                (pt.1 - midi_f).abs() * state.row_height as f64;
+                                            (dt * dt + dy * dy).sqrt() < 24.0
+                                        }),
+                                        crate::project::model::AnnotationKind::TextNote {
+                                            time_ms,
+                                            midi_pitch,
+                                            ..
+                                        } => {
+                                            let dt =
+                                                (time_ms - mouse_ms).abs() * state.px_per_ms as f64;
+                                            let dy = (midi_pitch - midi_f).abs()
+                                                * state.row_height as f64;
+                                            (dt * dt + dy * dy).sqrt() >= 30.0
                                         }
                                     });
                                     if project_annotations.len() != initial_len {
@@ -3418,17 +3458,19 @@ pub(crate) fn draw_piano_roll(
                                         state.active_annotation_tool,
                                         crate::gui::types::AnnotationSubTool::Highlighter
                                     );
-                                    project_annotations.push(crate::project::model::UPianoRollAnnotation {
-                                        id,
-                                        track_index: None,
-                                        kind: crate::project::model::AnnotationKind::Drawing {
-                                            points: stroke,
-                                            color: state.active_annotation_color,
-                                            width: state.active_annotation_width,
-                                            is_highlighter,
+                                    project_annotations.push(
+                                        crate::project::model::UPianoRollAnnotation {
+                                            id,
+                                            track_index: None,
+                                            kind: crate::project::model::AnnotationKind::Drawing {
+                                                points: stroke,
+                                                color: state.active_annotation_color,
+                                                width: state.active_annotation_width,
+                                                is_highlighter,
+                                            },
+                                            created_at_ms: now_ms,
                                         },
-                                        created_at_ms: now_ms,
-                                    });
+                                    );
                                     on_note_changed();
                                 }
                             }
@@ -3565,12 +3607,10 @@ pub(crate) fn draw_piano_roll(
             || state.dragging_loop_window
             || state.loop_enabled
         {
-            let loop_in_x = rect.min.x
-                + keyboard_width
-                + (state.loop_start_ms * state.px_per_ms as f64) as f32;
-            let loop_out_x = rect.min.x
-                + keyboard_width
-                + (state.loop_end_ms * state.px_per_ms as f64) as f32;
+            let loop_in_x =
+                rect.min.x + keyboard_width + (state.loop_start_ms * state.px_per_ms as f64) as f32;
+            let loop_out_x =
+                rect.min.x + keyboard_width + (state.loop_end_ms * state.px_per_ms as f64) as f32;
             let is_dragging = state.dragging_loop_pin_in
                 || state.dragging_loop_pin_out
                 || state.dragging_loop_window;
@@ -3585,13 +3625,19 @@ pub(crate) fn draw_piano_roll(
 
             if loop_in_x >= sticky_key_x + keyboard_width && loop_in_x <= visible_clip.max.x {
                 painter.line_segment(
-                    [Pos2::new(loop_in_x, keys_y_min), Pos2::new(loop_in_x, keys_y_max)],
+                    [
+                        Pos2::new(loop_in_x, keys_y_min),
+                        Pos2::new(loop_in_x, keys_y_max),
+                    ],
                     Stroke::new(if is_dragging { 1.5_f32 } else { 1.0_f32 }, guide_color),
                 );
             }
             if loop_out_x >= sticky_key_x + keyboard_width && loop_out_x <= visible_clip.max.x {
                 painter.line_segment(
-                    [Pos2::new(loop_out_x, keys_y_min), Pos2::new(loop_out_x, keys_y_max)],
+                    [
+                        Pos2::new(loop_out_x, keys_y_min),
+                        Pos2::new(loop_out_x, keys_y_max),
+                    ],
                     Stroke::new(if is_dragging { 1.5_f32 } else { 1.0_f32 }, guide_color),
                 );
             }
