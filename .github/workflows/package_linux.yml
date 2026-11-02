@@ -81,9 +81,8 @@ jobs:
           ARCH=x86_64 ./appimagetool AppDir "dist/kamafeu-${GITHUB_REF_NAME}-linux-x64.AppImage"
 
       - name: Build Flatpak
-        continue-on-error: true
         run: |
-          flatpak remote-add --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
+          flatpak remote-add --user --if-not-exists flathub https://dl.flathub.org/repo/flathub.flatpakrepo
           flatpak install --user -y flathub org.freedesktop.Platform//24.08 org.freedesktop.Sdk//24.08
           cp packaging/flatpak/org.studiopomar.Kamafeu.yml flatpak-manifest.yml
           flatpak-builder --user --disable-rofiles-fuse --force-clean \
